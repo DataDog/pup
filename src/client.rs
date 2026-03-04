@@ -621,7 +621,7 @@ pub async fn raw_get(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("API error (HTTP {status}): {body}");
+        anyhow::bail!("GET {url} failed (HTTP {status}): {body}");
     }
     Ok(resp.json().await?)
 }
@@ -657,7 +657,7 @@ pub async fn raw_patch(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("API error (HTTP {status}): {body}");
+        anyhow::bail!("PATCH {url} failed (HTTP {status}): {body}");
     }
     Ok(resp.json().await?)
 }
@@ -693,7 +693,7 @@ pub async fn raw_post(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("API error (HTTP {status}): {body}");
+        anyhow::bail!("POST {url} failed (HTTP {status}): {body}");
     }
     Ok(resp.json().await?)
 }

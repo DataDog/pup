@@ -30,6 +30,20 @@ pub async fn post(cfg: &Config, path: &str, body: &serde_json::Value) -> Result<
     send(req).await
 }
 
+/// Like `post`, but returns the parsed JSON body even on non-2xx responses.
+pub async fn post_lenient(
+    cfg: &Config,
+    path: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let url = format!("{}{}", cfg.api_base_url(), path);
+    let client = reqwest::Client::new();
+    let mut req = client.post(&url);
+    req = apply_auth(req, cfg)?;
+    req = req.json(body);
+    send_lenient(req).await
+}
+
 /// Perform a PUT request with a JSON body.
 pub async fn put(cfg: &Config, path: &str, body: &serde_json::Value) -> Result<serde_json::Value> {
     let url = format!("{}{}", cfg.api_base_url(), path);
@@ -105,6 +119,21 @@ async fn send(req: reqwest::RequestBuilder) -> Result<serde_json::Value> {
     if !status.is_success() {
         bail!("API error (HTTP {status}): {body}");
     }
+    if body.is_empty() {
+        return Ok(serde_json::json!({}));
+    }
+    serde_json::from_str(&body).map_err(|e| anyhow::anyhow!("failed to parse JSON response: {e}"))
+}
+
+async fn send_lenient(req: reqwest::RequestBuilder) -> Result<serde_json::Value> {
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("HTTP request failed: {e}"))?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to read response body: {e}"))?;
     if body.is_empty() {
         return Ok(serde_json::json!({}));
     }

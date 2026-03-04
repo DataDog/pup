@@ -1,6 +1,6 @@
 # Command Reference
 
-Complete reference for all 49 command groups in Pup.
+Complete reference for all 55 command groups in Pup.
 
 ## Command Pattern
 
@@ -27,6 +27,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | monitors | list, get, delete, search | src/commands/monitors.rs | ✅ |
 | dashboards | list, get, delete, url | src/commands/dashboards.rs | ✅ |
 | ddsql | table, time-series | src/commands/ddsql.rs | ✅ |
+| debugger | probes (list, get, create, delete, watch) | src/commands/debugger.rs | ✅ |
 | slos | list, get, delete, status | src/commands/slos.rs | ✅ |
 | incidents | list, get, attachments, settings, handles, postmortem-templates | src/commands/incidents.rs | ✅ |
 | rum | apps, metrics, retention-filters, sessions, playlists, heatmaps | src/commands/rum.rs | ✅ |
@@ -41,6 +42,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | app-keys | list, get, create, update, delete | src/commands/app_keys.rs | ✅ |
 | infrastructure | hosts (list, get) | src/commands/infrastructure.rs | ✅ |
 | synthetics | tests, locations, suites | src/commands/synthetics.rs | ✅ |
+| symdb | search | src/commands/symdb.rs | ✅ |
 | users | list, get, roles | src/commands/users.rs | ✅ |
 | notebooks | list, get, delete | src/commands/notebooks.rs | ✅ |
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
@@ -74,7 +76,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | change-requests | create, get, update, create-branch, decisions (update, delete) | src/commands/change_management.rs | ✅ |
 | app-builder | list, get, create, update, delete, delete-batch, publish, unpublish | src/commands/app_builder.rs | ✅ |
 
-**Summary:** 53 working, 0 API-blocked, 0 placeholders
+**Summary:** 55 working, 0 API-blocked, 0 placeholders
 
 **Note:** RUM command is fully operational. Apps and sessions work completely. Metrics and retention-filters support list/get operations (create/update/delete operations pending due to complex API type structures).
 
@@ -130,6 +132,7 @@ pup infrastructure hosts list
 - **rum** - Real User Monitoring (apps, metrics, retention-filters, sessions)
 - **events** - Infrastructure events (list, search, get)
 - **ddsql** - DDSQL queries (table, csv, time-series)
+- **symdb** - Symbol Database queries (search scopes, probe locations)
 
 ### Monitoring & Alerting
 - **monitors** - Monitor management (list, get, delete)
@@ -162,6 +165,7 @@ pup infrastructure hosts list
 - **scorecards** - Service quality (list, get)
 - **service-catalog** - Service registry (list, get)
 - **idp** - Service Catalog agent access (assist, find, owner, deps, register)
+- **debugger** - Live Debugger (probes list, get, create, delete, watch)
 
 ### Operations & Incident Response
 - **incidents** - Incident management (list, get, attachments, settings, handles, postmortem-templates)

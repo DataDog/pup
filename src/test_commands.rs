@@ -3226,3 +3226,144 @@ fn test_top_level_commands_sorted_alphabetically() {
         "top-level commands must be in alphabetical order.\nActual:   {names:?}\nExpected: {sorted:?}"
     );
 }
+
+// ---- Debugger ----
+
+#[tokio::test]
+async fn test_debugger_probes_list() {
+    let _lock = lock_env();
+    let mut s = mockito::Server::new_async().await;
+    let cfg = test_config(&s.url());
+    mock_all(&mut s, r#"[{"id": "probe-1", "type": "LOG_PROBE"}]"#).await;
+    let _ = crate::commands::debugger::probes_list(&cfg, None).await;
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_debugger_probes_list_with_service() {
+    let _lock = lock_env();
+    let mut s = mockito::Server::new_async().await;
+    let cfg = test_config(&s.url());
+    mock_all(&mut s, r#"[{"id": "probe-1", "type": "LOG_PROBE"}]"#).await;
+    let _ = crate::commands::debugger::probes_list(&cfg, Some("my-service")).await;
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_debugger_probes_get() {
+    let _lock = lock_env();
+    let mut s = mockito::Server::new_async().await;
+    let cfg = test_config(&s.url());
+    mock_all(&mut s, r#"{"id": "probe-1", "type": "LOG_PROBE"}"#).await;
+    let _ = crate::commands::debugger::probes_get(&cfg, "probe-1").await;
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_debugger_probes_create() {
+    let _lock = lock_env();
+    let mut s = mockito::Server::new_async().await;
+    let cfg = test_config(&s.url());
+    mock_all(&mut s, r#"{"data": {"id": "probe-new"}}"#).await;
+    let params = crate::commands::debugger::ProbeCreateParams {
+        service: "my-service",
+        env: "staging",
+        probe_location: "com.example.MyClass:myMethod",
+        language: "java",
+        template: None,
+        condition: None,
+        snapshot: true,
+        rate: 1,
+        budget: 1000,
+        ttl: Some("1h"),
+    };
+    let _ = crate::commands::debugger::probes_create(&cfg, params).await;
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_debugger_probes_delete() {
+    let _lock = lock_env();
+    let mut s = mockito::Server::new_async().await;
+    let cfg = test_config(&s.url());
+    mock_all(&mut s, r#""#).await;
+    let _ = crate::commands::debugger::probes_delete(&cfg, "probe-1").await;
+    cleanup_env();
+}
+
+// ---- SymDB ----
+
+#[tokio::test]
+async fn test_symdb_search() {
+    let _lock = lock_env();
+    let mut s = mockito::Server::new_async().await;
+    let cfg = test_config(&s.url());
+    mock_all(
+        &mut s,
+        r#"{"data": [{"attributes": {"scopes": [{"scope": {"name": "MyClass"}}]}}]}"#,
+    )
+    .await;
+    let _ = crate::commands::symdb::search(
+        &cfg,
+        "my-service",
+        "MyClass",
+        None,
+        false,
+        &crate::commands::symdb::SymdbView::Full,
+    )
+    .await;
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_symdb_search_names_view() {
+    let _lock = lock_env();
+    let mut s = mockito::Server::new_async().await;
+    let cfg = test_config(&s.url());
+    mock_all(
+        &mut s,
+        r#"{"data": [{"attributes": {"scopes": [{"scope": {"name": "MyClass"}}]}}]}"#,
+    )
+    .await;
+    let _ = crate::commands::symdb::search(
+        &cfg,
+        "my-service",
+        "MyClass",
+        None,
+        false,
+        &crate::commands::symdb::SymdbView::Names,
+    )
+    .await;
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_symdb_search_probe_locations_view() {
+    let _lock = lock_env();
+    let mut s = mockito::Server::new_async().await;
+    let cfg = test_config(&s.url());
+    mock_all(&mut s, r#"{"data": [{"attributes": {"scopes": [{"scope": {"name": "MyClass", "scope_type": "METHOD"}, "probe_location": {"type_name": "MyClass", "method_name": "doStuff"}}]}}]}"#).await;
+    let _ = crate::commands::symdb::search(
+        &cfg,
+        "my-service",
+        "MyClass",
+        None,
+        false,
+        &crate::commands::symdb::SymdbView::ProbeLocations,
+    )
+    .await;
+    cleanup_env();
+}
+
+#[test]
+fn test_symdb_view_display() {
+    assert_eq!(crate::commands::symdb::SymdbView::Full.to_string(), "full");
+    assert_eq!(
+        crate::commands::symdb::SymdbView::Names.to_string(),
+        "names"
+    );
+    assert_eq!(
+        crate::commands::symdb::SymdbView::ProbeLocations.to_string(),
+        "probe-locations"
+    );
+}

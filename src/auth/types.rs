@@ -117,6 +117,10 @@ pub fn default_scopes() -> Vec<&'static str> {
         "dora_metrics_write",
         "test_optimization_read",
         "test_optimization_write",
+        // Live Debugger
+        "debugger_read",
+        "debugger_write",
+        "debugger_capture_variables",
         // Dashboards
         "dashboards_read",
         "dashboards_write",
@@ -250,7 +254,7 @@ mod tests {
     #[test]
     fn test_default_scopes() {
         let scopes = default_scopes();
-        assert_eq!(scopes.len(), 74);
+        assert_eq!(scopes.len(), 77);
         assert!(scopes.contains(&"dashboards_read"));
         assert!(scopes.contains(&"monitors_read"));
         assert!(scopes.contains(&"logs_read_data"));

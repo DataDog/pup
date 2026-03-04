@@ -27,6 +27,8 @@ Pup CLI for Datadog API operations. Supports OAuth2 and API key auth.
 | Check SLOs | `pup slos list` |
 | On-call teams | `pup on-call teams list` |
 | Security signals | `pup security signals list --from 24h` |
+| Inspect runtime values | `pup debugger probes create --service my-svc --env prod --probe-location com.example.MyClass:myMethod` |
+| Find probe-able methods | `pup symdb search --service my-svc --query MyController --view probe-locations` |
 | Check auth | `pup auth status` |
 | Refresh token | `pup auth refresh` |
 
@@ -178,6 +180,24 @@ pup on-call teams get <team-id>
 pup security signals list --from 24h
 pup security signals list --query "severity:critical" --from 24h
 pup security rules list
+```
+
+### Live Debugger
+```bash
+# Find probe-able methods in a service
+pup symdb search --service my-svc --query MyController --view probe-locations
+
+# Place a log probe to capture runtime arguments/variables
+pup debugger probes create --service my-svc --env prod \
+  --probe-location "com.example.MyController:handleRequest" \
+  --template "handleRequest called with id={id}"
+
+# Watch probe events in real time
+pup debugger probes watch <PROBE_ID> --timeout 60 --limit 10 --wait 5
+
+# List and delete probes
+pup debugger probes list --service my-svc
+pup debugger probes delete <PROBE_ID>
 ```
 
 ### Service Catalog

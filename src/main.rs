@@ -812,6 +812,37 @@ enum Commands {
         #[command(subcommand)]
         action: DdsqlActions,
     },
+    /// Manage Live Debugger
+    ///
+    /// Create and manage Live Debugger log probes.
+    ///
+    /// CAPABILITIES:
+    ///   • List log probes
+    ///   • Get probe details
+    ///   • Create log probes with conditions and templates
+    ///   • Delete log probes
+    ///   • Watch probe events
+    ///
+    /// EXAMPLES:
+    ///   # List all log probes
+    ///   pup debugger probes list
+    ///
+    ///   # Create a log probe
+    ///   pup debugger probes create --service my-svc --env staging --probe-location com.example.MyClass:myMethod
+    ///
+    ///   # Create a log probe with custom budget and TTL
+    ///   pup debugger probes create --service my-svc --env staging --probe-location com.example.MyClass:myMethod --budget 500 --ttl 2h
+    ///
+    ///   # Watch probe events
+    ///   pup debugger probes watch <PROBE_ID> --timeout 60
+    ///
+    /// AUTHENTICATION:
+    ///   Requires API keys (DD_API_KEY + DD_APP_KEY).
+    #[command(verbatim_doc_comment)]
+    Debugger {
+        #[command(subcommand)]
+        action: DebuggerActions,
+    },
     /// Manage Deployment Gates
     ///
     /// Deployment Gates reduce the likelihood and impact of incidents caused by deployments.
@@ -1998,6 +2029,34 @@ enum Commands {
         #[command(subcommand)]
         action: StatusPageActions,
     },
+    /// Query the Symbol Database (SymDB)
+    ///
+    /// Search and inspect indexed service symbols (classes, methods, fields)
+    /// from the Datadog Symbol Database.
+    ///
+    /// CAPABILITIES:
+    ///   • Search for scopes (classes, methods) in a service
+    ///
+    /// EXAMPLES:
+    ///   # Search scopes by name
+    ///   pup symdb search --service my-service --query MyController
+    ///
+    ///   # List all scopes
+    ///   pup symdb search --service my-service
+    ///
+    ///   # Get probe locations
+    ///   pup symdb search --service my-service --query MyController --view probe-locations
+    ///
+    ///   # Get full JSON response
+    ///   pup symdb search --service my-service --query MyController --view full
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "symdb", verbatim_doc_comment)]
+    Symdb {
+        #[command(subcommand)]
+        action: SymdbActions,
+    },
     /// Manage synthetic monitoring
     ///
     /// Manage synthetic tests for monitoring application availability.
@@ -2581,6 +2640,84 @@ enum DashboardActions {
     },
 }
 
+// ---- Debugger ----
+
+#[derive(Subcommand)]
+enum DebuggerActions {
+    /// Manage Live Debugger log probes
+    Probes {
+        #[command(subcommand)]
+        action: DebuggerProbeActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum DebuggerProbeActions {
+    /// List log probes
+    List {
+        #[arg(long, help = "Filter by service name")]
+        service: Option<String>,
+    },
+    /// Get log probe details
+    Get {
+        #[arg(help = "Probe ID")]
+        probe_id: String,
+    },
+    /// Create a log probe
+    Create {
+        #[arg(long, help = "Service name")]
+        service: String,
+        #[arg(long, help = "Environment")]
+        env: String,
+        #[arg(long, help = "Probe location as type_name:method_name")]
+        probe_location: String,
+        #[arg(long, help = "Tracer language (auto-detected from symdb if omitted)")]
+        language: Option<String>,
+        #[arg(long, help = "Log template string")]
+        template: Option<String>,
+        #[arg(long, help = "Condition expression")]
+        condition: Option<String>,
+        #[arg(long, help = "Disable snapshot capture")]
+        no_snapshot: bool,
+        #[arg(long, default_value_t = 1, help = "Snapshots per second")]
+        rate: u32,
+        #[arg(
+            long,
+            default_value_t = 1000,
+            help = "Max probe hits (budget). Only 'total' window is supported."
+        )]
+        budget: u32,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Probe time-to-live (e.g., 10m, 1h, 24h). Probe auto-expires after this duration."
+        )]
+        ttl: String,
+    },
+    /// Delete a log probe
+    Delete {
+        #[arg(help = "Probe ID")]
+        probe_id: String,
+    },
+    /// Watch probe events (log data + status errors)
+    Watch {
+        #[arg(help = "Probe ID")]
+        probe_id: String,
+        #[arg(long, help = "Exit after N log events")]
+        limit: Option<u32>,
+        #[arg(long, default_value_t = 120, help = "Timeout in seconds")]
+        timeout: u64,
+        #[arg(long, help = "Log query start time (default: now)")]
+        from: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "Wait up to N seconds for the probe to become available"
+        )]
+        wait: u64,
+    },
+}
+
 // ---- Metrics ----
 #[derive(Subcommand)]
 enum MetricActions {
@@ -2732,6 +2869,24 @@ enum SloActions {
         from: String,
         #[arg(long, help = "End time (now, Unix timestamp, or RFC3339)")]
         to: String,
+    },
+}
+
+// ---- SymDB ----
+#[derive(Subcommand)]
+enum SymdbActions {
+    /// Search for scopes (classes, methods) in a service
+    Search {
+        #[arg(long, help = "Service name")]
+        service: String,
+        #[arg(long, help = "Search query (matches scope names)")]
+        query: Option<String>,
+        #[arg(long, help = "Service version filter")]
+        version: Option<String>,
+        #[arg(long, default_value_t = false, help = "Allow partial results")]
+        allow_partial: bool,
+        #[arg(long, default_value_t = commands::symdb::SymdbView::Full, help = "Output view")]
+        view: commands::symdb::SymdbView,
     },
 }
 
@@ -7436,6 +7591,73 @@ async fn main_inner() -> anyhow::Result<()> {
                 },
             }
         }
+        // --- Debugger ---
+        Commands::Debugger { action } => {
+            cfg.validate_auth()?;
+            match action {
+                DebuggerActions::Probes { action } => match action {
+                    DebuggerProbeActions::List { service } => {
+                        commands::debugger::probes_list(&cfg, service.as_deref()).await?;
+                    }
+                    DebuggerProbeActions::Get { probe_id } => {
+                        commands::debugger::probes_get(&cfg, &probe_id).await?;
+                    }
+                    DebuggerProbeActions::Create {
+                        service,
+                        env,
+                        probe_location,
+                        language,
+                        template,
+                        condition,
+                        no_snapshot,
+                        rate,
+                        budget,
+                        ttl,
+                    } => {
+                        let language = match language {
+                            Some(l) => l,
+                            None => commands::symdb::service_language(&cfg, &service).await?,
+                        };
+                        commands::debugger::probes_create(
+                            &cfg,
+                            commands::debugger::ProbeCreateParams {
+                                service: &service,
+                                env: &env,
+                                probe_location: &probe_location,
+                                language: &language,
+                                template: template.as_deref(),
+                                condition: condition.as_deref(),
+                                snapshot: !no_snapshot,
+                                rate,
+                                budget,
+                                ttl: Some(ttl.as_str()),
+                            },
+                        )
+                        .await?;
+                    }
+                    DebuggerProbeActions::Delete { probe_id } => {
+                        commands::debugger::probes_delete(&cfg, &probe_id).await?;
+                    }
+                    DebuggerProbeActions::Watch {
+                        probe_id,
+                        limit,
+                        timeout,
+                        from,
+                        wait,
+                    } => {
+                        commands::debugger::probes_watch(
+                            &cfg,
+                            &probe_id,
+                            limit,
+                            timeout,
+                            from.as_deref(),
+                            wait,
+                        )
+                        .await?;
+                    }
+                },
+            }
+        }
         // --- Metrics ---
         Commands::Metrics { action } => {
             cfg.validate_auth()?;
@@ -7494,6 +7716,29 @@ async fn main_inner() -> anyhow::Result<()> {
                     let from_ts = util::parse_time_to_unix_millis(&from)? / 1000;
                     let to_ts = util::parse_time_to_unix_millis(&to)? / 1000;
                     commands::slos::status(&cfg, &id, from_ts, to_ts).await?;
+                }
+            }
+        }
+        // --- SymDB ---
+        Commands::Symdb { action } => {
+            cfg.validate_auth()?;
+            match action {
+                SymdbActions::Search {
+                    service,
+                    query,
+                    version,
+                    allow_partial,
+                    view,
+                } => {
+                    commands::symdb::search(
+                        &cfg,
+                        &service,
+                        query.as_deref().unwrap_or(""),
+                        version.as_deref(),
+                        allow_partial,
+                        &view,
+                    )
+                    .await?;
                 }
             }
         }

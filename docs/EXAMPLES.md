@@ -296,6 +296,121 @@ pup apm troubleshooting list --hostname my-host
 pup apm troubleshooting list --hostname my-host --timeframe 4h
 ```
 
+## Live Debugger
+
+### List Log Probes
+```bash
+# List all log probes
+pup debugger probes list
+
+# Filter by service
+pup debugger probes list --service my-service
+```
+
+### Get Probe Details
+```bash
+pup debugger probes get "probe-id"
+```
+
+### Create a Log Probe
+```bash
+# Create a basic log probe on a method
+pup debugger probes create \
+  --service my-service \
+  --env staging \
+  --probe-location com.example.MyClass:myMethod
+
+# Create with a custom template
+pup debugger probes create \
+  --service my-service \
+  --env staging \
+  --probe-location com.example.MyClass:myMethod \
+  --template "User {userId} called with {arg0}"
+
+# Create with a condition
+pup debugger probes create \
+  --service my-service \
+  --env staging \
+  --probe-location com.example.MyClass:myMethod \
+  --condition "userId != null"
+
+# Create without snapshot capture
+pup debugger probes create \
+  --service my-service \
+  --env staging \
+  --probe-location com.example.MyClass:myMethod \
+  --no-snapshot --rate 5
+
+# Create with custom budget and TTL
+pup debugger probes create \
+  --service my-service \
+  --env staging \
+  --probe-location com.example.MyClass:myMethod \
+  --budget 500 --ttl 2h
+```
+
+### Delete a Log Probe
+```bash
+pup debugger probes delete "probe-id"
+```
+
+### Watch Probe Events
+```bash
+# Stream probe events (default 120s timeout)
+pup debugger probes watch "probe-id"
+
+# Limit to 5 events
+pup debugger probes watch "probe-id" --limit 5
+
+# Custom timeout
+pup debugger probes watch "probe-id" --timeout 300
+
+# Start from a specific time
+pup debugger probes watch "probe-id" --from 1h
+
+# Wait for a newly created probe to become available (useful in pipelines)
+pup debugger probes watch "probe-id" --wait 30
+```
+
+### Pipeline: Create and Watch
+```bash
+# Search for a method, create a probe, and watch events
+pup symdb search --service my-service --query MyController --view probe-locations \
+  | head -1 \
+  | xargs -I{} pup debugger probes create --service my-service --env staging --probe-location {} --ttl 1h \
+  | jq -r .data.id \
+  | xargs -I{} pup debugger probes watch {} --wait 30 --limit 5
+```
+
+## SymDB (Symbol Database)
+
+### Search Scopes
+```bash
+# Search for classes/methods by name
+pup symdb search --service my-service --query MyController
+
+# List all scopes in a service
+pup symdb search --service my-service
+
+# Filter by service version
+pup symdb search --service my-service --query MyController --version 1.2.3
+
+# Allow partial results
+pup symdb search --service my-service --query MyController --allow-partial
+```
+
+### Output Views
+```bash
+# Full JSON response (default)
+pup symdb search --service my-service --query MyController --view full
+
+# Scope names only
+pup symdb search --service my-service --query MyController --view names
+
+# Probe locations (type:method format)
+pup symdb search --service my-service --query MyController --view probe-locations
+```
+
 ## Containers
 
 ### List Containers

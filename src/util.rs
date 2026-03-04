@@ -2,39 +2,14 @@ use anyhow::{bail, Result};
 use chrono::Utc;
 use regex::Regex;
 
-/// Parses a time string into Unix milliseconds.
+/// Parses a relative duration string like "1h", "30m", "7d" into milliseconds.
 ///
 /// Supported formats:
-///   - "now" (case-insensitive)
-///   - Relative short: "1h", "30m", "7d", "5s", "1w"
-///   - Relative long: "5min", "5mins", "5minute", "5minutes", "2hr", "2hours", "3days", "1week"
+///   - Short: "30s", "10m", "1h", "7d", "1w"
+///   - Long: "5min", "5minutes", "2hours", "3days", "1week"
 ///   - With spaces: "5 minutes", "2 hours"
-///   - With leading minus: "-5m", "-2h"
-///   - Unix timestamp (all digits, assumed milliseconds)
-///   - RFC3339: "2024-01-01T00:00:00Z"
-///
-/// All relative times are interpreted as "ago from now".
-/// Returns second-aligned milliseconds (Unix seconds * 1000) to match Go behavior.
-pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
-    let input = input.trim();
-
-    // "now" (case-insensitive)
-    if input.eq_ignore_ascii_case("now") {
-        return Ok(now_millis());
-    }
-
-    // Unix timestamp (all digits)
-    if !input.is_empty() && input.chars().all(|c| c.is_ascii_digit()) {
-        return Ok(input.parse()?);
-    }
-
-    // RFC3339 timestamp
-    if input.contains('T') {
-        let dt = chrono::DateTime::parse_from_rfc3339(input)?;
-        return Ok(dt.timestamp() * 1000);
-    }
-
-    // Relative time — strip leading minus
+///   - Leading minus is stripped: "-5m" → same as "5m"
+fn parse_relative_duration_millis(input: &str) -> Result<i64> {
     let stripped = input.trim_start_matches('-').trim();
 
     let re = Regex::new(
@@ -53,14 +28,51 @@ pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
             "w" | "week" | "weeks" => num * 7 * 86400,
             _ => bail!("unknown time unit: {}", unit),
         };
-        // Second-aligned: Unix seconds * 1000 (matches Go behavior)
-        return Ok((Utc::now().timestamp() - seconds) * 1000);
+        return Ok(seconds * 1000);
     }
 
-    bail!(
-        "unable to parse time: {input:?}\n\
-         Expected: now, 1h, 30m, 7d, 5minutes, RFC3339, or Unix timestamp"
-    )
+    bail!("unable to parse duration: {input:?}")
+}
+
+/// Parses a time string into Unix milliseconds.
+///
+/// Supported formats:
+///   - "now" (case-insensitive)
+///   - Relative short: "1h", "30m", "7d", "5s", "1w"
+///   - Relative long: "5min", "5mins", "5minute", "5minutes", "2hr", "2hours", "3days", "1week"
+///   - With spaces: "5 minutes", "2 hours"
+///   - With leading minus: "-5m", "-2h"
+///   - Unix timestamp (all digits, assumed milliseconds)
+///   - RFC3339: "2024-01-01T00:00:00Z"
+///
+/// All relative times are interpreted as "ago from now".
+/// Returns second-aligned milliseconds (Unix seconds * 1000) to match Go behavior.
+pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
+    let input = input.trim();
+
+    if input.eq_ignore_ascii_case("now") {
+        return Ok(now_millis());
+    }
+
+    // Unix timestamp (all digits)
+    if !input.is_empty() && input.chars().all(|c| c.is_ascii_digit()) {
+        return Ok(input.parse()?);
+    }
+
+    // RFC3339 timestamp
+    if input.contains('T') {
+        let dt = chrono::DateTime::parse_from_rfc3339(input)?;
+        return Ok(dt.timestamp() * 1000);
+    }
+
+    // Relative time
+    let millis = parse_relative_duration_millis(input).map_err(|_| {
+        anyhow::anyhow!(
+            "unable to parse time: {input:?}\n\
+             Expected: now, 1h, 30m, 7d, 5minutes, RFC3339, or Unix timestamp"
+        )
+    })?;
+    Ok(now_millis() - millis)
 }
 
 /// Convenience: parse to Unix seconds.
@@ -68,7 +80,33 @@ pub fn parse_time_to_unix(input: &str) -> Result<i64> {
     Ok(parse_time_to_unix_millis(input)? / 1000)
 }
 
-fn now_millis() -> i64 {
+/// Parses a human-readable duration string into milliseconds.
+///
+/// Unlike `parse_time_to_unix_millis`, this does **not** subtract from the
+/// current time — it returns the raw duration value in milliseconds.
+///
+/// Supported formats:
+///   - "now" → 0
+///   - Short: "30s", "10m", "1h", "7d", "1w"
+///   - Long: "5min", "5minutes", "2hours", "3days", "1week"
+///   - With spaces: "5 minutes", "2 hours"
+///   - With leading minus (stripped): "-5m" → same as "5m"
+pub fn parse_duration_to_millis(input: &str) -> Result<i64> {
+    let input = input.trim();
+
+    if input.eq_ignore_ascii_case("now") {
+        return Ok(0);
+    }
+
+    parse_relative_duration_millis(input).map_err(|_| {
+        anyhow::anyhow!(
+            "unable to parse duration: {input:?}\n\
+             Expected: now, 1h, 30m, 7d, 5minutes, etc."
+        )
+    })
+}
+
+pub fn now_millis() -> i64 {
     Utc::now().timestamp() * 1000
 }
 
@@ -229,5 +267,35 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap()["name"], "test");
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_duration_10m() {
+        assert_eq!(parse_duration_to_millis("10m").unwrap(), 600_000);
+    }
+
+    #[test]
+    fn test_duration_1h() {
+        assert_eq!(parse_duration_to_millis("1h").unwrap(), 3_600_000);
+    }
+
+    #[test]
+    fn test_duration_30s() {
+        assert_eq!(parse_duration_to_millis("30s").unwrap(), 30_000);
+    }
+
+    #[test]
+    fn test_duration_7d() {
+        assert_eq!(parse_duration_to_millis("7d").unwrap(), 604_800_000);
+    }
+
+    #[test]
+    fn test_duration_5minutes() {
+        assert_eq!(parse_duration_to_millis("5minutes").unwrap(), 300_000);
+    }
+
+    #[test]
+    fn test_duration_now() {
+        assert_eq!(parse_duration_to_millis("now").unwrap(), 0);
     }
 }

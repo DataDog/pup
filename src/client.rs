@@ -698,6 +698,67 @@ pub async fn raw_post(
     Ok(resp.json().await?)
 }
 
+/// Like `raw_post`, but returns the parsed JSON body even on non-2xx responses.
+/// Callers are responsible for inspecting the body for errors.
+pub async fn raw_post_lenient(
+    cfg: &Config,
+    path: &str,
+    body: serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    let url = format!("{}{}", cfg.api_base_url(), path);
+    let client = reqwest::Client::new();
+    let mut req = client.post(&url);
+
+    if let Some(token) = &cfg.access_token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
+        req = req
+            .header("DD-API-KEY", api_key.as_str())
+            .header("DD-APPLICATION-KEY", app_key.as_str());
+    } else {
+        anyhow::bail!("no authentication configured");
+    }
+
+    let resp = req
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .header("User-Agent", useragent::get())
+        .json(&body)
+        .send()
+        .await?;
+    Ok(resp.json().await?)
+}
+
+/// Makes an authenticated DELETE request directly via reqwest.
+/// Used for endpoints not covered by the typed DD API client.
+pub async fn raw_delete(cfg: &Config, path: &str) -> anyhow::Result<()> {
+    let url = format!("{}{}", cfg.api_base_url(), path);
+    let client = reqwest::Client::new();
+    let mut req = client.delete(&url);
+
+    if let Some(token) = &cfg.access_token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
+        req = req
+            .header("DD-API-KEY", api_key.as_str())
+            .header("DD-APPLICATION-KEY", app_key.as_str());
+    } else {
+        anyhow::bail!("no authentication configured");
+    }
+
+    let resp = req
+        .header("Accept", "application/json")
+        .header("User-Agent", useragent::get())
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("DELETE {url} failed (HTTP {status}): {body}");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

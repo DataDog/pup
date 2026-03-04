@@ -34,6 +34,12 @@ pub static SKILLS: &[SkillEntry] = &[
         content: include_str!("../skills/dd-apm/SKILL.md"),
     },
     SkillEntry {
+        name: "dd-debugger",
+        description: "Live Debugger - create, delete, and watch log probes and events.",
+        entry_type: "skill",
+        content: include_str!("../skills/dd-debugger/SKILL.md"),
+    },
+    SkillEntry {
         name: "dd-docs",
         description: "Datadog docs lookup using docs.datadoghq.com/llms.txt.",
         entry_type: "skill",
@@ -50,6 +56,12 @@ pub static SKILLS: &[SkillEntry] = &[
         description: "File GitHub issues to the right repository (pup CLI or plugin).",
         entry_type: "skill",
         content: include_str!("../skills/dd-file-issue/SKILL.md"),
+    },
+    SkillEntry {
+        name: "dd-symdb",
+        description: "Symbol Database - search service symbols, find probe-able methods.",
+        entry_type: "skill",
+        content: include_str!("../skills/dd-symdb/SKILL.md"),
     },
     // --- Domain Agents (from datadog-api-claude-plugin) ---
     SkillEntry {
@@ -551,7 +563,7 @@ mod tests {
     #[test]
     fn test_skill_count() {
         let skills: Vec<_> = SKILLS.iter().filter(|e| e.entry_type == "skill").collect();
-        assert_eq!(skills.len(), 7, "expected 7 skills");
+        assert_eq!(skills.len(), 9, "expected 9 skills");
     }
 
     #[test]

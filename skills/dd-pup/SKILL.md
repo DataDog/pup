@@ -35,8 +35,8 @@ Pup CLI for Datadog API operations. Supports OAuth2 and API key auth.
 
 ```bash
 # Install pup
-go install github.com/datadog-labs/pup@latest
-export PATH="$HOME/go/bin:$PATH"
+brew tap datadog-labs/pack
+brew install pup
 ```
 
 ## Auth
@@ -211,79 +211,15 @@ pup <command> --help    # Command-specific help
 ## Install
 
 ```bash
-go install github.com/DataDog/pup@latest
+brew tap datadog-labs/pack
+brew install pup
 ```
 
 ### Verify Installation
 
 ```bash
-# Check if pup is in PATH
 which pup
-
-# If not found, check if it was installed
-ls ~/go/bin/pup
-```
-
-### PATH Troubleshooting
-
-If `pup` is installed but `which pup` returns nothing, Go's bin directory isn't in your PATH.
-
-**Check where pup is:**
-```bash
-ls ~/go/bin/pup           # Standard location
-ls $GOPATH/bin/pup        # If GOPATH is set
-ls $GOBIN/pup             # If GOBIN is set
-```
-
-**Add to PATH (pick your shell):**
-
-For **zsh** (macOS default):
-```bash
-# Add this line to ~/.zshrc
-export PATH="$HOME/go/bin:$PATH"
-
-# Then reload
-source ~/.zshrc
-```
-
-For **bash**:
-```bash
-# Add this line to ~/.bashrc or ~/.bash_profile
-export PATH="$HOME/go/bin:$PATH"
-
-# Then reload
-source ~/.bashrc
-```
-
-For **fish**:
-```fish
-# Add this line to ~/.config/fish/config.fish
-fish_add_path $HOME/go/bin
-
-# Or set permanently
-set -Ux fish_user_paths $HOME/go/bin $fish_user_paths
-
-# Then reload
-source ~/.config/fish/config.fish
-```
-
-**Verify:**
-```bash
-which pup        # Should show path
-pup --version    # Should show version
-```
-
-### Alternative: Full Path
-
-If you don't want to modify PATH, use the full path:
-```bash
-~/go/bin/pup auth login
-~/go/bin/pup monitors list
-```
-
-Or create an alias:
-```bash
-alias pup="$HOME/go/bin/pup"
+pup --version
 ```
 
 ## Sites

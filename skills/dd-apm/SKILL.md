@@ -19,7 +19,7 @@ Distributed tracing, service maps, and performance analysis.
 Datadog Labs Pup should be installed via:
 
 ```bash
-go install github.com/datadog-labs/pup@latest
+brew tap datadog-labs/pack && brew install pup
 ```
 
 ## Quick Start

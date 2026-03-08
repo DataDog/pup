@@ -87,7 +87,17 @@ pub fn detect_agent_info() -> AgentInfo {
     }
 }
 
+fn is_env_falsy(key: &str) -> bool {
+    match std::env::var(key) {
+        Ok(val) => matches!(val.to_lowercase().as_str(), "0" | "false"),
+        Err(_) => false,
+    }
+}
+
 pub fn is_agent_mode() -> bool {
+    if is_env_falsy("FORCE_AGENT_MODE") {
+        return false;
+    }
     is_env_truthy("FORCE_AGENT_MODE") || detect_agent_info().detected
 }
 
@@ -187,6 +197,15 @@ mod tests {
         std::env::set_var("FORCE_AGENT_MODE", "1");
         assert!(is_agent_mode());
         std::env::remove_var("FORCE_AGENT_MODE");
+    }
+
+    #[test]
+    fn test_is_agent_mode_force_disable() {
+        std::env::set_var("CLAUDE_CODE", "1");
+        std::env::set_var("FORCE_AGENT_MODE", "0");
+        assert!(!is_agent_mode());
+        std::env::remove_var("FORCE_AGENT_MODE");
+        std::env::remove_var("CLAUDE_CODE");
     }
 
     #[test]

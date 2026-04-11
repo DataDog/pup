@@ -189,11 +189,18 @@ const SERVICE_NAME: &str = "pup";
 #[cfg(not(target_arch = "wasm32"))]
 impl KeychainStorage {
     pub fn new() -> Result<Self> {
-        // Verify the keyring crate can create entries without accessing the keychain.
-        // Actual availability is confirmed on first read/write to avoid spurious macOS
-        // authorization dialogs for a throwaway probe entry.
-        keyring::Entry::new(SERVICE_NAME, "__pup_probe__")
+        let probe_key = format!("__pup_probe_{}", std::process::id());
+        let probe = keyring::Entry::new(SERVICE_NAME, &probe_key)
             .map_err(|e| anyhow::anyhow!("keychain not available: {e}"))?;
+
+        probe
+            .set_password("ok")
+            .map_err(|e| anyhow::anyhow!("keychain probe write failed: {e}"))?;
+        let _ = probe
+            .get_password()
+            .map_err(|e| anyhow::anyhow!("keychain probe read failed: {e}"))?;
+        let _ = probe.delete_credential();
+
         Ok(Self)
     }
 }
@@ -617,11 +624,17 @@ fn detect_backend() -> Box<dyn Storage> {
     }
 
     // On macOS, use Touch ID-capable storage by default.
-    // On other platforms, fall back to the keyring-based backend.
     #[cfg(target_os = "macos")]
     return Box::new(TouchIdStorage::new());
 
-    #[cfg(not(target_os = "macos"))]
+    // Windows Credential Manager has a strict size limit per secret.
+    // The combined auth state can exceed that limit for some orgs, so keep
+    // file storage as the safe default unless the user explicitly forces keychain.
+    #[cfg(target_os = "windows")]
+    return Box::new(FileStorage::new().expect("failed to create file storage"));
+
+    // On other platforms, use keyring when available and fall back to file storage.
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     match KeychainStorage::new() {
         Ok(ks) => Box::new(ks),
         Err(_) => {

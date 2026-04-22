@@ -7996,6 +7996,38 @@ enum LlmObsSpansActions {
         #[arg(long, help = "Pagination cursor from a previous response")]
         cursor: Option<String>,
     },
+    /// Aggregate LLM Observability spans grouped by one or more dimensions
+    Analytics {
+        #[arg(long, help = "Search filter query")]
+        query: Option<String>,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time (relative like '1h' or RFC3339)"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time (relative like 'now' or RFC3339)"
+        )]
+        to: String,
+        #[arg(
+            long,
+            help = "Dimensions to group by, comma-separated (e.g. \"span_name,@meta.error.type\")"
+        )]
+        group_by: Option<String>,
+        #[arg(
+            long,
+            default_value = "count",
+            help = "Aggregation to compute (e.g. count, avg(@meta.span.duration))"
+        )]
+        compute: String,
+        #[arg(long, default_value = "10", help = "Max results per group dimension")]
+        limit: u32,
+        #[arg(long, help = "Filter by ML app name")]
+        ml_app: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -13279,6 +13311,20 @@ async fn main_inner() -> anyhow::Result<()> {
                             to,
                             limit,
                             cursor,
+                        )
+                        .await?;
+                    }
+                    LlmObsSpansActions::Analytics {
+                        query,
+                        from,
+                        to,
+                        group_by,
+                        compute,
+                        limit,
+                        ml_app,
+                    } => {
+                        commands::llm_obs::spans_analytics(
+                            &cfg, query, from, to, group_by, compute, limit, ml_app,
                         )
                         .await?;
                     }

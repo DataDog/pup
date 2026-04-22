@@ -4053,6 +4053,180 @@ async fn test_llm_obs_spans_search_no_auth() {
     cleanup_env();
 }
 
+// ---- spans analytics ----
+
+#[tokio::test]
+async fn test_llm_obs_spans_analytics() {
+    let _lock = lock_env();
+    let mut server = mockito::Server::new_async().await;
+    let cfg = test_config(&server.url());
+
+    let body = r#"{"buckets":[{"by":{"span_name":"llm.call","@meta.error.type":"timeout"},"computes":{"c0":42}}]}"#;
+    let _mock = mock_post(
+        &mut server,
+        "/api/unstable/llm-obs-query-rewriter/timeseries",
+        200,
+        body,
+    )
+    .await;
+
+    let result = crate::commands::llm_obs::spans_analytics(
+        &cfg,
+        Some("span.kind:llm".into()),
+        "1h".into(),
+        "now".into(),
+        Some("span_name,@meta.error.type".into()),
+        "count".into(),
+        10,
+        None,
+    )
+    .await;
+    assert!(result.is_ok(), "spans_analytics failed: {:?}", result.err());
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_llm_obs_spans_analytics_401() {
+    let _lock = lock_env();
+    let mut server = mockito::Server::new_async().await;
+    let cfg = test_config(&server.url());
+
+    let _mock = mock_post(
+        &mut server,
+        "/api/unstable/llm-obs-query-rewriter/timeseries",
+        401,
+        r#"{"errors":["Unauthorized"]}"#,
+    )
+    .await;
+
+    let result = crate::commands::llm_obs::spans_analytics(
+        &cfg,
+        None,
+        "1h".into(),
+        "now".into(),
+        Some("span_name".into()),
+        "count".into(),
+        10,
+        None,
+    )
+    .await;
+    assert!(result.is_err(), "should fail on 401");
+    assert!(result.unwrap_err().to_string().contains("401"));
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_llm_obs_spans_analytics_403() {
+    let _lock = lock_env();
+    let mut server = mockito::Server::new_async().await;
+    let cfg = test_config(&server.url());
+
+    let _mock = mock_post(
+        &mut server,
+        "/api/unstable/llm-obs-query-rewriter/timeseries",
+        403,
+        r#"{"errors":["Forbidden"]}"#,
+    )
+    .await;
+
+    let result = crate::commands::llm_obs::spans_analytics(
+        &cfg,
+        None,
+        "1h".into(),
+        "now".into(),
+        Some("span_name".into()),
+        "count".into(),
+        10,
+        None,
+    )
+    .await;
+    assert!(result.is_err(), "should fail on 403");
+    assert!(result.unwrap_err().to_string().contains("403"));
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_llm_obs_spans_analytics_500() {
+    let _lock = lock_env();
+    let mut server = mockito::Server::new_async().await;
+    let cfg = test_config(&server.url());
+
+    let _mock = mock_post(
+        &mut server,
+        "/api/unstable/llm-obs-query-rewriter/timeseries",
+        500,
+        r#"{"errors":["internal server error"]}"#,
+    )
+    .await;
+
+    let result = crate::commands::llm_obs::spans_analytics(
+        &cfg,
+        None,
+        "1h".into(),
+        "now".into(),
+        Some("span_name".into()),
+        "count".into(),
+        10,
+        None,
+    )
+    .await;
+    assert!(result.is_err(), "should fail on 500");
+    assert!(result.unwrap_err().to_string().contains("500"));
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_llm_obs_spans_analytics_invalid_from() {
+    let _lock = lock_env();
+    let server = mockito::Server::new_async().await;
+    let cfg = test_config(&server.url());
+
+    // No mock — should error before any network call
+    let result = crate::commands::llm_obs::spans_analytics(
+        &cfg,
+        None,
+        "not-a-valid-time".into(),
+        "now".into(),
+        Some("span_name".into()),
+        "count".into(),
+        10,
+        None,
+    )
+    .await;
+    assert!(result.is_err(), "should fail with invalid --from");
+    cleanup_env();
+}
+
+#[tokio::test]
+async fn test_llm_obs_spans_analytics_no_auth() {
+    let _lock = lock_env();
+    let cfg = Config {
+        api_key: None,
+        app_key: None,
+        access_token: None,
+        site: "datadoghq.com".into(),
+        org: None,
+        output_format: OutputFormat::Json,
+        auto_approve: false,
+        agent_mode: false,
+        read_only: false,
+    };
+
+    let result = crate::commands::llm_obs::spans_analytics(
+        &cfg,
+        None,
+        "1h".into(),
+        "now".into(),
+        Some("span_name".into()),
+        "count".into(),
+        10,
+        None,
+    )
+    .await;
+    assert!(result.is_err(), "should fail without auth");
+    cleanup_env();
+}
+
 // -------------------------------------------------------------------------
 // Auth status --site flag
 // -------------------------------------------------------------------------

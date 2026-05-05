@@ -8,6 +8,9 @@ Proxies pup commands through the Datadog MCP server (`mcp.{site}`) so tool logic
 # List all available MCP tools (opens browser for auth on first run)
 pup mcp list-tools
 
+# Get live help for a tool (description + input schema from the MCP server)
+pup mcp describe analyze_security_findings
+
 # Call any MCP tool directly
 pup mcp call security_findings_schema '{"include_description": false, "telemetry": {"intent": "test"}}'
 

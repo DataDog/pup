@@ -8,6 +8,7 @@ mod config;
 #[cfg(not(target_arch = "wasm32"))]
 mod extensions;
 mod formatter;
+mod mcp;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
 mod skills;
@@ -1736,6 +1737,19 @@ enum Commands {
         #[command(subcommand)]
         action: LogsRestrictionActions,
     },
+    /// Interact with the Datadog MCP server
+    ///
+    /// Debug and test the MCP (Model Context Protocol) proxy layer.
+    /// Use `list-tools` to verify authentication and see available MCP tools.
+    ///
+    /// EXAMPLES:
+    ///   pup mcp list-tools
+    ///   pup mcp call analyze_security_findings '{"sql_query": "SELECT ..."}'
+    #[command(verbatim_doc_comment)]
+    Mcp {
+        #[command(subcommand)]
+        action: McpActions,
+    },
     /// Query and manage metrics
     ///
     /// Query time-series metrics, list available metrics, and manage metric metadata.
@@ -3338,6 +3352,22 @@ enum DebuggerProbeActions {
             help = "Comma-separated fields to include: message, captures, timestamp. Default: full debugger payload."
         )]
         fields: Option<String>,
+    },
+}
+
+// ---- MCP ----
+#[derive(Subcommand)]
+enum McpActions {
+    /// List all tools available on the MCP server
+    #[command(name = "list-tools")]
+    ListTools,
+    /// Call an MCP tool directly by name
+    Call {
+        /// MCP tool name (e.g., analyze_security_findings)
+        tool_name: String,
+        /// JSON arguments to pass to the tool
+        #[arg(default_value = "{}")]
+        arguments: String,
     },
 }
 
@@ -10559,6 +10589,40 @@ async fn main_inner() -> anyhow::Result<()> {
                 } => {
                     commands::debugger::context(&cfg, &service, env.as_deref(), fields.as_deref())
                         .await?;
+                }
+            }
+        }
+        // --- MCP ---
+        Commands::Mcp { action } => {
+            cfg.validate_auth()?;
+            match action {
+                McpActions::ListTools => {
+                    let tools = mcp::client::list_tools(&cfg).await?;
+                    let summary: Vec<serde_json::Value> = tools
+                        .iter()
+                        .map(|t| {
+                            serde_json::json!({
+                                "name": t.name,
+                                "description": t.description,
+                            })
+                        })
+                        .collect();
+                    formatter::output(&cfg, &summary)?;
+                }
+                McpActions::Call {
+                    tool_name,
+                    arguments,
+                } => {
+                    let args: serde_json::Value = serde_json::from_str(&arguments)
+                        .map_err(|e| anyhow::anyhow!("invalid JSON arguments: {e}"))?;
+                    let result = mcp::client::call_tool(&cfg, &tool_name, args).await?;
+                    let text: String = result
+                        .content
+                        .iter()
+                        .filter_map(|c| c.text.as_deref())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    println!("{text}");
                 }
             }
         }

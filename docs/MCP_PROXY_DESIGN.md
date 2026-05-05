@@ -10,6 +10,7 @@ Proxy pup commands through the MCP server. Pup becomes a thin CLI skin over MCP 
 
 ```bash
 pup mcp list-tools                                    # 41 tools available
+pup mcp describe analyze_security_findings            # live help from MCP server
 pup mcp call security_findings_schema '{"...": ...}'  # call any tool
 ```
 
@@ -92,6 +93,31 @@ The MCP server uses [Streamable HTTP](https://modelcontextprotocol.io/specificat
 4. MCP server calls the Datadog API internally
 5. Response arrives as `{content: [{type: "text", text: "..."}]}`
 6. Pup extracts text content and prints it
+
+---
+
+## Live Help from MCP
+
+`pup mcp describe <tool>` fetches the tool's description and full `inputSchema` directly from the MCP server's `tools/list` response. This means help text is always in sync with the server — no need to ship a new pup binary when tool descriptions or parameters change.
+
+```bash
+$ pup mcp describe analyze_security_findings
+
+TOOL: analyze_security_findings
+
+DESCRIPTION:
+Primary tool for analyzing security findings. Use this for all security
+findings analysis tasks. REQUIRED: Call security_findings_schema FIRST...
+
+ARGUMENTS:
+  --sql_query [string] (required)
+      Complete SQL query using dd.security_findings() function...
+  --max_tokens [number] (optional)
+      Maximum number of tokens to include in the response.
+  --telemetry [object] (required)
+```
+
+This replaces the static, compiled-in clap help text for proxied commands with live, authoritative metadata from the MCP server.
 
 ---
 

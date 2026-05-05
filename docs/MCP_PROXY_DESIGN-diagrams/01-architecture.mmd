@@ -1,0 +1,38 @@
+graph TB
+    subgraph "pup CLI"
+        MAIN["main.rs<br/><i>pup mcp list-tools | call</i>"]
+        CLIENT["mcp/client.rs<br/><i>Session mgmt, JSON-RPC</i>"]
+        OAUTH["mcp/oauth.rs<br/><i>DCR + PKCE + token storage</i>"]
+        REG["mcp/registry.rs<br/><i>Command → tool mapping</i>"]
+        CACHE_S["Session Cache<br/><i>~/.config/pup/mcp_session_*.json</i>"]
+        CACHE_T["Token Storage<br/><i>~/.config/pup/mcp_token_*.json</i>"]
+    end
+
+    subgraph "MCP Server (mcp.datadoghq.com)"
+        INIT["initialize"]
+        TOOLS_LIST["tools/list"]
+        TOOLS_CALL["tools/call"]
+        MCP_OAUTH["OAuth endpoints<br/><i>/register, /authorize, /token</i>"]
+    end
+
+    subgraph "Datadog Platform"
+        API["Datadog APIs"]
+    end
+
+    MAIN --> CLIENT
+    MAIN --> REG
+    CLIENT --> OAUTH
+    CLIENT --> CACHE_S
+    OAUTH --> CACHE_T
+    OAUTH --> MCP_OAUTH
+    CLIENT --> INIT
+    CLIENT --> TOOLS_LIST
+    CLIENT --> TOOLS_CALL
+    TOOLS_CALL --> API
+
+    style MAIN fill:#4a9eff,color:#fff
+    style CLIENT fill:#34d399,color:#fff
+    style OAUTH fill:#fbbf24,color:#000
+    style REG fill:#a78bfa,color:#fff
+    style CACHE_S fill:#e5e7eb,color:#000
+    style CACHE_T fill:#e5e7eb,color:#000

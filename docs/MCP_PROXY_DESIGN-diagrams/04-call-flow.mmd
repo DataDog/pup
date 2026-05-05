@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant User
+    participant Pup as pup CLI
+    participant MCP as MCP Server
+    participant DD as Datadog API
+
+    User->>Pup: pup mcp call security_findings_schema '{...}'
+    Pup->>Pup: Connect (cached or fresh session)
+    Pup->>MCP: POST tools/call<br/>{"name": "security_findings_schema",<br/> "arguments": {...}}
+    MCP->>DD: Internal API call
+    DD-->>MCP: Response data
+    MCP-->>Pup: {content: [{type: "text", text: "..."}]}
+    Pup->>Pup: Extract text from content blocks
+    Pup->>User: Print response

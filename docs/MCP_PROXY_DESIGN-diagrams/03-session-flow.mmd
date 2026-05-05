@@ -1,0 +1,26 @@
+sequenceDiagram
+    participant Pup as pup CLI
+    participant Cache as Session Cache<br/>(~/.config/pup/mcp_session_{site}.json)
+    participant MCP as MCP Server
+
+    Pup->>Cache: Load cached session
+    alt Cache hit (< 10min old)
+        Cache-->>Pup: session_id, token, next_id
+        Pup->>MCP: POST tools/list (session_id)
+        alt Session still valid
+            MCP-->>Pup: 200 OK
+            Note over Pup: Use cached session
+        else Session expired
+            MCP-->>Pup: 400/401
+            Pup->>Pup: Clear cache, fresh connect
+        end
+    else Cache miss
+        Pup->>MCP: POST initialize (bearer token)
+        MCP-->>Pup: 200 + Mcp-Session-Id header
+        Pup->>MCP: POST notifications/initialized
+        loop Poll until tools ready
+            Pup->>MCP: POST tools/list
+            MCP-->>Pup: {tools: [...]}
+        end
+        Pup->>Cache: Save session
+    end

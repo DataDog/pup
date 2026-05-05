@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant User
+    participant Pup as pup CLI
+    participant Browser
+    participant MCP as MCP Server<br/>(mcp.datadoghq.com)
+
+    User->>Pup: pup mcp list-tools
+    Pup->>Pup: Check ~/.config/pup/mcp_token_{site}.json
+    alt No token or expired
+        Pup->>Pup: Check ~/.config/pup/mcp_client_{site}.json
+        alt No client registered
+            Pup->>MCP: POST /register (DCR)
+            MCP-->>Pup: client_id
+            Pup->>Pup: Save client credentials
+        end
+        Pup->>Pup: Generate PKCE challenge + state
+        Pup->>Pup: Start callback server (localhost:8000)
+        Pup->>Browser: Open authorize URL
+        Browser->>MCP: GET /authorize?client_id=...&code_challenge=...
+        MCP->>Browser: Datadog login page
+        User->>Browser: Authenticate
+        Browser->>Pup: Redirect to callback with auth code
+        Pup->>MCP: POST /token (code + verifier)
+        MCP-->>Pup: access_token + refresh_token
+        Pup->>Pup: Save token to disk (0600)
+    end
+    Pup->>MCP: Use token for MCP calls

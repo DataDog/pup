@@ -62,6 +62,15 @@ struct McpSession {
     next_id: u64,
 }
 
+#[derive(Serialize, Deserialize)]
+struct SessionCache {
+    url: String,
+    session_id: String,
+    token: String,
+    next_id: u64,
+    created_at: i64,
+}
+
 fn mcp_url(cfg: &Config) -> String {
     #[cfg(not(feature = "browser"))]
     {
@@ -72,6 +81,43 @@ fn mcp_url(cfg: &Config) -> String {
     let toolsets =
         std::env::var("PUP_MCP_TOOLSETS").unwrap_or_else(|_| "core,security".to_string());
     format!("https://mcp.{}{}?toolsets={}", cfg.site, MCP_PATH, toolsets)
+}
+
+fn session_cache_path(site: &str) -> Option<std::path::PathBuf> {
+    crate::config::config_dir().map(|d| d.join(format!("mcp_session_{site}.json")))
+}
+
+fn save_session_cache(site: &str, session: &McpSession) {
+    let Some(path) = session_cache_path(site) else {
+        return;
+    };
+    let cache = SessionCache {
+        url: session.url.clone(),
+        session_id: session.session_id.clone(),
+        token: session.token.clone(),
+        next_id: session.next_id,
+        created_at: chrono::Utc::now().timestamp(),
+    };
+    let _ = std::fs::write(&path, serde_json::to_string(&cache).unwrap_or_default());
+}
+
+fn load_session_cache(site: &str) -> Option<SessionCache> {
+    let path = session_cache_path(site)?;
+    let data = std::fs::read_to_string(&path).ok()?;
+    let cache: SessionCache = serde_json::from_str(&data).ok()?;
+    // Sessions older than 10 minutes are stale
+    let age = chrono::Utc::now().timestamp() - cache.created_at;
+    if age > 600 {
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+    Some(cache)
+}
+
+fn clear_session_cache(site: &str) {
+    if let Some(path) = session_cache_path(site) {
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 impl McpSession {
@@ -139,14 +185,32 @@ fn parse_rpc_response(body: &str) -> Result<JsonRpcResponse> {
     )
 }
 
-async fn connect(cfg: &Config) -> Result<McpSession> {
+/// Try to restore a cached session, verifying it's still alive with a tools/list ping.
+async fn try_cached_session(cfg: &Config) -> Option<McpSession> {
+    let cache = load_session_cache(&cfg.site)?;
+    let mut session = McpSession {
+        url: cache.url,
+        session_id: cache.session_id,
+        token: cache.token,
+        client: reqwest::Client::new(),
+        next_id: cache.next_id,
+    };
+    // Ping to verify the session is still alive
+    match session.rpc_call("tools/list", None).await {
+        Ok(_) => Some(session),
+        Err(_) => {
+            clear_session_cache(&cfg.site);
+            None
+        }
+    }
+}
+
+async fn fresh_connect(cfg: &Config) -> Result<McpSession> {
     let url = mcp_url(cfg);
     let client = reqwest::Client::new();
 
-    // Get MCP OAuth token (will prompt for browser login if needed)
     let token = super::oauth::get_mcp_token(cfg).await?;
 
-    // Initialize MCP session
     let init_body = JsonRpcRequest {
         jsonrpc: "2.0",
         id: 1,
@@ -197,7 +261,6 @@ async fn connect(cfg: &Config) -> Result<McpSession> {
         next_id: 1,
     };
 
-    // Send initialized notification
     let notif = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "notifications/initialized",
@@ -224,12 +287,22 @@ async fn connect(cfg: &Config) -> Result<McpSession> {
         }
     }
 
+    save_session_cache(&cfg.site, &session);
     Ok(session)
+}
+
+async fn connect(cfg: &Config) -> Result<McpSession> {
+    if let Some(session) = try_cached_session(cfg).await {
+        return Ok(session);
+    }
+    fresh_connect(cfg).await
 }
 
 pub async fn list_tools(cfg: &Config) -> Result<Vec<McpTool>> {
     let mut session = connect(cfg).await?;
     let resp = session.rpc_call("tools/list", None).await?;
+    save_session_cache(&cfg.site, &session);
+
     let result = resp
         .result
         .ok_or_else(|| anyhow::anyhow!("MCP tools/list returned no result"))?;
@@ -253,6 +326,8 @@ pub async fn call_tool(cfg: &Config, tool_name: &str, arguments: Value) -> Resul
     });
 
     let resp = session.rpc_call("tools/call", Some(params)).await?;
+    save_session_cache(&cfg.site, &session);
+
     let result = resp
         .result
         .ok_or_else(|| anyhow::anyhow!("MCP tools/call returned no result"))?;

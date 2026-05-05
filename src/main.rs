@@ -8868,6 +8868,11 @@ enum ProfilingActions {
         limit: u32,
         #[arg(long, default_value = "sum", help = "Aggregation function: sum or avg")]
         aggregation_function: String,
+        #[arg(
+            long,
+            help = "Filter the flame graph to subtrees rooted at frames whose function name matches exactly (UI equivalent: show_from(<name>))"
+        )]
+        show_from: Option<String>,
     },
     /// Get automated analysis for a profile
     Analysis {
@@ -13984,6 +13989,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     to,
                     limit,
                     aggregation_function,
+                    show_from,
                 } => {
                     commands::profiling::aggregate(
                         &cfg,
@@ -13993,6 +13999,7 @@ async fn main_inner() -> anyhow::Result<()> {
                         to,
                         limit,
                         aggregation_function,
+                        show_from,
                     )
                     .await?;
                 }

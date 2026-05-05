@@ -3361,6 +3361,11 @@ enum McpActions {
     /// List all tools available on the MCP server
     #[command(name = "list-tools")]
     ListTools,
+    /// Show the description and input schema for an MCP tool
+    Describe {
+        /// MCP tool name (e.g., analyze_security_findings)
+        tool_name: String,
+    },
     /// Call an MCP tool directly by name
     Call {
         /// MCP tool name (e.g., analyze_security_findings)
@@ -10608,6 +10613,23 @@ async fn main_inner() -> anyhow::Result<()> {
                         })
                         .collect();
                     formatter::output(&cfg, &summary)?;
+                }
+                McpActions::Describe { tool_name } => {
+                    let tools = mcp::client::list_tools(&cfg).await?;
+                    let tool = tools
+                        .iter()
+                        .find(|t| t.name == tool_name)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "tool {tool_name:?} not found. Run `pup mcp list-tools` to see available tools."
+                            )
+                        })?;
+                    let info = serde_json::json!({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "inputSchema": tool.input_schema,
+                    });
+                    formatter::output(&cfg, &info)?;
                 }
                 McpActions::Call {
                     tool_name,

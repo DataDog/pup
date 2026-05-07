@@ -6,7 +6,7 @@ Guidelines for contributing to Pup.
 
 Pup uses the **fork and pull** model: contributors push changes to their
 personal fork and open pull requests to bring those changes into this
-repository. Direct pushes to `datadog/pup` are not permitted.
+repository. Direct pushes to `DataDog/pup` are not permitted.
 
 ### 1. Fork and clone
 
@@ -16,7 +16,7 @@ git clone https://github.com/<your-username>/pup.git
 cd pup
 
 # Add upstream remote and disable accidental pushes to it
-git remote add upstream https://github.com/datadog/pup.git
+git remote add upstream https://github.com/DataDog/pup.git
 git remote set-url --push upstream no_push
 ```
 
@@ -224,7 +224,7 @@ EOF
 
 ### 4. Push and open a pull request
 
-Push to your fork, then open a PR against `datadog/pup:main`:
+Push to your fork, then open a PR against `DataDog/pup:main`:
 
 ```bash
 git push -u origin <type>/<short-description>
@@ -234,7 +234,7 @@ Use `gh` CLI for efficiency:
 
 ```bash
 gh pr create \
-  --repo datadog/pup \
+  --repo DataDog/pup \
   --head <your-username>:<branch-name> \
   --title "<type>(<scope>): <clear, concise title>" \
   --body "$(cat <<'EOF'
@@ -278,7 +278,7 @@ EOF
 **Example PR:**
 ```bash
 gh pr create \
-  --repo datadog/pup \
+  --repo DataDog/pup \
   --head your-username:feat/oauth2-token-refresh \
   --title "feat(auth): implement OAuth2 token refresh with PKCE" \
   --body "$(cat <<'EOF'

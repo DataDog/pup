@@ -285,19 +285,19 @@ jobs:
 
           \`\`\`bash
           # macOS (Apple Silicon)
-          curl -L https://github.com/datadog/pup/releases/download/${TAG}/pup_${VERSION}_Darwin_arm64.tar.gz | tar xz
+          curl -L https://github.com/DataDog/pup/releases/download/${TAG}/pup_${VERSION}_Darwin_arm64.tar.gz | tar xz
 
           # macOS (Intel)
-          curl -L https://github.com/datadog/pup/releases/download/${TAG}/pup_${VERSION}_Darwin_x86_64.tar.gz | tar xz
+          curl -L https://github.com/DataDog/pup/releases/download/${TAG}/pup_${VERSION}_Darwin_x86_64.tar.gz | tar xz
 
           # Linux (x86_64)
-          curl -L https://github.com/datadog/pup/releases/download/${TAG}/pup_${VERSION}_Linux_x86_64.tar.gz | tar xz
+          curl -L https://github.com/DataDog/pup/releases/download/${TAG}/pup_${VERSION}_Linux_x86_64.tar.gz | tar xz
 
           # Linux (arm64)
-          curl -L https://github.com/datadog/pup/releases/download/${TAG}/pup_${VERSION}_Linux_arm64.tar.gz | tar xz
+          curl -L https://github.com/DataDog/pup/releases/download/${TAG}/pup_${VERSION}_Linux_arm64.tar.gz | tar xz
 
           # Windows (x86_64)
-          curl -L https://github.com/datadog/pup/releases/download/${TAG}/pup_${VERSION}_Windows_x86_64.zip -o pup.zip
+          curl -L https://github.com/DataDog/pup/releases/download/${TAG}/pup_${VERSION}_Windows_x86_64.zip -o pup.zip
           tar -xf pup.zip
           \`\`\`
 

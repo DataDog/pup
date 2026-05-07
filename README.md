@@ -1,6 +1,6 @@
 # :dog2: Give Your Agent a Puppy: Introducing Pup CLI
 
-[![CI](https://github.com/datadog/pup/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/datadog/pup/actions/workflows/ci.yml)
+[![CI](https://github.com/DataDog/pup/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DataDog/pup/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -42,7 +42,7 @@ Pup covers most major Datadog product surfaces. See
 `pup --help` (or `pup agent schema` for machine-readable output) for the live
 list of commands as built.
 
-💡 **Tip:** Use Ctrl/Cmd+F to search for specific APIs. [Request features via GitHub Issues](https://github.com/datadog/pup/issues).
+💡 **Tip:** Use Ctrl/Cmd+F to search for specific APIs. [Request features via GitHub Issues](https://github.com/DataDog/pup/issues).
 
 ---
 
@@ -200,14 +200,14 @@ brew install datadog-labs/pack/pup
 ### Build from Source
 
 ```bash
-git clone https://github.com/datadog/pup.git && cd pup
+git clone https://github.com/DataDog/pup.git && cd pup
 cargo build --release
 cp target/release/pup /usr/local/bin/pup
 ```
 
 ### Manual Download
 
-Download pre-built binaries from the [latest release](https://github.com/datadog/pup/releases/latest).
+Download pre-built binaries from the [latest release](https://github.com/DataDog/pup/releases/latest).
 
 ## Authentication
 
@@ -520,7 +520,7 @@ For Claude Code, skills install to `.claude/skills/` and agents install to `.cla
 Pup is also available as a **Claude Code plugin marketplace**:
 
 ```
-/plugin marketplace add datadog/pup
+/plugin marketplace add DataDog/pup
 ```
 
 ## ACP Server

@@ -6,7 +6,7 @@ metadata:
   author:
     name: Datadog
     email: support@datadoghq.com
-  repository: https://github.com/datadog/pup
+  repository: https://github.com/DataDog/pup
   tags: datadog,cli,monitoring,logs,apm,metrics,security,infrastructure
 ---
 

@@ -304,7 +304,7 @@ brew tap datadog-labs/pack
 brew install pup
 
 # Or build from source
-cargo install --git https://github.com/datadog/pup
+cargo install --git https://github.com/DataDog/pup
 ```
 
 ### Verify Installation

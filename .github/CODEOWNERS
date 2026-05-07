@@ -4,8 +4,4 @@
 # review when someone opens a pull request.
 
 # Global owners - update with actual maintainer GitHub usernames
-* @datadog-labs/api-platform
-
-# Authentication and security-critical code
-/pkg/auth/ @datadog-labs/team-aaa
-/cmd/auth.go @datadog-labs/team-aaa
+* @DataDog/web-frameworks

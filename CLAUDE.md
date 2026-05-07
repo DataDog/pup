@@ -33,7 +33,7 @@ brew tap datadog-labs/pack
 brew install pup
 
 # Or clone and build from source
-git clone https://github.com/datadog/pup.git && cd pup
+git clone https://github.com/DataDog/pup.git && cd pup
 cargo build --release
 cp target/release/pup /usr/local/bin/pup
 
@@ -213,5 +213,5 @@ Apache 2.0 - Copyright 2024-present Datadog, Inc.
 
 ## Support
 
-- Issues: [GitHub Issues](https://github.com/datadog/pup/issues)
+- Issues: [GitHub Issues](https://github.com/DataDog/pup/issues)
 - Community: [Datadog Community](https://community.datadoghq.com/)

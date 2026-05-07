@@ -510,7 +510,7 @@ When opening a GitHub issue, include:
 
 ### Community Support
 
-- **GitHub Issues:** [github.com/datadog/pup/issues](https://github.com/datadog/pup/issues)
+- **GitHub Issues:** [github.com/DataDog/pup/issues](https://github.com/DataDog/pup/issues)
 - **Datadog Community:** [community.datadoghq.com](https://community.datadoghq.com/)
 
 ## Common Workarounds

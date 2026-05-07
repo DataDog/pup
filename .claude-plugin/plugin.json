@@ -6,7 +6,7 @@
     "name": "Datadog",
     "email": "support@datadoghq.com"
   },
-  "repository": "https://github.com/datadog/pup",
+  "repository": "https://github.com/DataDog/pup",
   "license": "Apache-2.0",
   "keywords": ["datadog", "monitoring", "logs", "apm", "metrics", "security", "infrastructure"]
 }

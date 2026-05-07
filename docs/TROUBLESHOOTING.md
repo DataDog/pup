@@ -2,6 +2,32 @@
 
 Common issues and solutions for Pup CLI.
 
+## Compatibility Issues
+
+### GLIBC version error on Linux
+
+**Symptoms:**
+```
+pup: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found (required by pup)
+pup: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by pup)
+```
+
+**Solution:**
+Upgrade to **pup 0.58.4 or later**. Starting with version 0.58.4, Linux binaries are statically linked with musl libc and have **no glibc dependency**.
+
+```bash
+# Update to the latest version
+brew upgrade pup
+
+# Or download the latest release manually
+curl -L https://github.com/DataDog/pup/releases/latest/download/pup_Linux_x86_64.tar.gz | tar xz
+```
+
+**Technical details:**
+- Versions before 0.58.4 were dynamically linked and required glibc ≥ 2.38
+- Versions 0.58.4+ are static musl binaries that work on any Linux distribution
+- No action required after upgrading — the new binary "just works"
+
 ## Authentication Issues
 
 ### OAuth2 Login Fails

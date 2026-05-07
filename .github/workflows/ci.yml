@@ -61,10 +61,14 @@ jobs:
     name: Cross Compile (Linux)
     runs-on: ubuntu-latest
     env:
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+      RUSTFLAGS: "-C target-feature=+crt-static"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
@@ -72,42 +76,31 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: cargo-ubuntu-cross-linux-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-ubuntu-cross-linux-musl-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-ubuntu-
-      - name: Install Rust
+      - uses: ./.github/actions/install-musl-toolchain
+      - name: Build x86_64 musl
+        run: cargo build --release --target x86_64-unknown-linux-musl --features vendored-openssl
+      - name: Verify x86_64 static linkage
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustup target add aarch64-unknown-linux-gnu
-      - name: Install aarch64 cross toolchain
+          file target/x86_64-unknown-linux-musl/release/pup
+          if readelf -d target/x86_64-unknown-linux-musl/release/pup | grep -q "(NEEDED)"; then
+            echo "ERROR: binary has dynamic NEEDED entries"
+            exit 1
+          fi
+      - name: Build aarch64 musl
+        run: cargo build --release --target aarch64-unknown-linux-musl --features vendored-openssl
+      - name: Verify aarch64 static linkage
         run: |
-          for i in 1 2 3; do
-            sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu && exit 0
-            sleep 5
-          done
-          exit 1
-      - name: Build all targets
-        run: |
-          PIDS=()
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
-            (set -o pipefail
-             echo "==> Starting ${target}"
-             cargo build --release --target "${target}" --features vendored-openssl 2>&1 \
-               | tee "/tmp/${target}.log"
-            ) &
-            PIDS+=($!)
-          done
-          status=0
-          for pid in "${PIDS[@]}"; do
-            wait "$pid" || status=1
-          done
-          exit $status
+          file target/aarch64-unknown-linux-musl/release/pup
+          if readelf -d target/aarch64-unknown-linux-musl/release/pup | grep -q "(NEEDED)"; then
+            echo "ERROR: binary has dynamic NEEDED entries"
+            exit 1
+          fi
       - name: Report sizes
         run: |
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
-            echo "${target}:"
-            ls -lh "target/${target}/release/pup"
-          done
+          ls -lh target/x86_64-unknown-linux-musl/release/pup
+          ls -lh target/aarch64-unknown-linux-musl/release/pup
 
   cross-compile-macos:
     name: Cross Compile (macOS)

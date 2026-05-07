@@ -1,7 +1,5 @@
 # :dog2: Give Your Agent a Puppy: Introducing Pup CLI
 
-**NOTICE: This is in Preview mode, we are fine tuning the interactions and bugs that arise. Please file issues or submit PRs. Thank you for your early interest!**
-
 [![CI](https://github.com/datadog/pup/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/datadog/pup/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)

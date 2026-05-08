@@ -9239,6 +9239,13 @@ enum AuthActions {
         /// PUP_OAUTH_CALLBACK_PORT if unset.
         #[arg(long, value_name = "PORT")]
         callback_port: Option<u16>,
+        /// Hint the target org by UUID (sent as `dd_oid`). Skips the org switcher when the
+        /// existing browser session already matches and pre-routes SAML/SSO routing for
+        /// first-time logins. The value is persisted with the session so subsequent
+        /// `pup auth login` invocations re-emit it automatically. The server validates
+        /// the UUID; malformed values are rejected there.
+        #[arg(long, value_name = "UUID")]
+        org_uuid: Option<String>,
     },
     /// Logout and clear tokens
     Logout,
@@ -13991,6 +13998,7 @@ async fn main_inner() -> anyhow::Result<()> {
                 site,
                 subdomain,
                 callback_port,
+                org_uuid,
             } => {
                 if let Some(s) = site {
                     cfg.set_site_explicit(s);
@@ -14002,7 +14010,17 @@ async fn main_inner() -> anyhow::Result<()> {
                 let resolved =
                     resolve_login_scopes(scopes.as_deref(), cfg.org.as_deref(), is_read_only);
                 let resolved_port = resolve_callback_port(callback_port)?;
-                commands::auth::login(&cfg, resolved, subdomain.as_deref(), resolved_port).await?
+                // Coerce empty `--org-uuid ""` to no-hint so callees treat
+                // it the same as omitting the flag, not as `dd_oid=`.
+                let org_uuid_hint = org_uuid.as_deref().filter(|s| !s.is_empty());
+                commands::auth::login(
+                    &cfg,
+                    resolved,
+                    subdomain.as_deref(),
+                    resolved_port,
+                    org_uuid_hint,
+                )
+                .await?
             }
             AuthActions::Logout => commands::auth::logout(&cfg).await?,
             AuthActions::Status { site } => {

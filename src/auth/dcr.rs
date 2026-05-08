@@ -189,7 +189,10 @@ impl DcrClient {
         })
     }
 
-    /// Build the authorization URL for the browser.
+    /// Build the authorization URL for the browser. `org_uuid` is appended as
+    /// `dd_oid` when set; callers should coerce empty strings to `None`
+    /// upstream so this function doesn't have to second-guess them.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_authorization_url(
         &self,
         client_id: &str,
@@ -198,17 +201,22 @@ impl DcrClient {
         challenge: &super::pkce::PkceChallenge,
         scopes: &[&str],
         subdomain: Option<&str>,
+        org_uuid: Option<&str>,
     ) -> String {
         let scope = scopes.join(" ");
-        let params = url::form_urlencoded::Serializer::new(String::new())
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        serializer
             .append_pair("response_type", "code")
             .append_pair("client_id", client_id)
             .append_pair("redirect_uri", redirect_uri)
             .append_pair("state", state)
             .append_pair("scope", &scope)
             .append_pair("code_challenge", &challenge.challenge)
-            .append_pair("code_challenge_method", &challenge.method)
-            .finish();
+            .append_pair("code_challenge_method", &challenge.method);
+        if let Some(uuid) = org_uuid {
+            serializer.append_pair("dd_oid", uuid);
+        }
+        let params = serializer.finish();
 
         // Use custom subdomain for SAML/SSO auth, otherwise use standard app.{site}.
         // The subdomain replaces the `app` prefix on whichever site is in play, so a
@@ -248,6 +256,7 @@ mod tests {
             &challenge(),
             &["dashboards_read"],
             None,
+            None,
         );
         assert!(
             url.starts_with("https://app.datadoghq.com/oauth2/v1/authorize?"),
@@ -268,6 +277,7 @@ mod tests {
             &challenge(),
             &["dashboards_read"],
             Some("dd"),
+            None,
         );
         assert!(
             url.starts_with("https://dd.datad0g.com/oauth2/v1/authorize?"),
@@ -289,6 +299,7 @@ mod tests {
             &challenge(),
             &["dashboards_read"],
             Some("acme"),
+            None,
         );
         assert!(
             url.starts_with("https://acme.datadoghq.eu/oauth2/v1/authorize?"),
@@ -310,6 +321,7 @@ mod tests {
             &challenge(),
             &["dashboards_read"],
             Some(""),
+            None,
         );
         assert!(
             url.starts_with("https://app.datadoghq.com/oauth2/v1/authorize?"),
@@ -327,6 +339,7 @@ mod tests {
             &challenge(),
             &["dashboards_read", "metrics_read"],
             None,
+            None,
         );
         assert!(url.contains("response_type=code"));
         assert!(url.contains("client_id=client123"));
@@ -335,5 +348,38 @@ mod tests {
         assert!(url.contains("code_challenge_method=S256"));
         // Scopes are joined with a space, then URL-encoded as `+` or `%20`.
         assert!(url.contains("scope=dashboards_read") && url.contains("metrics_read"));
+    }
+
+    #[test]
+    fn build_authorization_url_appends_dd_oid_when_org_uuid_set() {
+        let client = DcrClient::new("datadoghq.com");
+        let url = client.build_authorization_url(
+            "client123",
+            "http://127.0.0.1:8000/oauth/callback",
+            "state",
+            &challenge(),
+            &["dashboards_read"],
+            None,
+            Some("00000000-1111-2222-3333-444444444444"),
+        );
+        assert!(
+            url.contains("dd_oid=00000000-1111-2222-3333-444444444444"),
+            "expected dd_oid query param, got: {url}"
+        );
+    }
+
+    #[test]
+    fn build_authorization_url_omits_dd_oid_when_unset() {
+        let client = DcrClient::new("datadoghq.com");
+        let url = client.build_authorization_url(
+            "client123",
+            "http://127.0.0.1:8000/oauth/callback",
+            "state",
+            &challenge(),
+            &["dashboards_read"],
+            None,
+            None,
+        );
+        assert!(!url.contains("dd_oid"), "got: {url}");
     }
 }

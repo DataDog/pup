@@ -11,6 +11,11 @@ use super::types::{ClientCredentials, TokenSet};
 pub struct SessionEntry {
     pub site: String,
     pub org: Option<String>,
+    /// Authoritative org UUID (`dd_oid`) returned by the OAuth issuer.
+    /// `#[serde(default)]` lets sessions.json files written before this field
+    /// existed deserialize cleanly (treated as None).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org_uuid: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -878,17 +883,13 @@ pub fn list_sessions() -> Result<Vec<SessionEntry>> {
     }
 }
 
-/// Upsert a session entry into the registry.
+/// Upsert a session entry into the registry. Dedups on `(site, org)`; the
+/// new entry's `org_uuid` wins so re-auth refreshes the stored UUID.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn save_session(site: &str, org: Option<&str>) -> Result<()> {
+pub fn save_session(entry: &SessionEntry) -> Result<()> {
     let mut sessions = list_sessions()?;
-    let entry = SessionEntry {
-        site: site.to_string(),
-        org: org.map(String::from),
-    };
-    // Dedup: remove any existing entry with same site+org, then append
     sessions.retain(|s| !(s.site == entry.site && s.org == entry.org));
-    sessions.push(entry);
+    sessions.push(entry.clone());
     write_sessions(&sessions)
 }
 
@@ -898,6 +899,15 @@ pub fn remove_session(site: &str, org: Option<&str>) -> Result<()> {
     let mut sessions = list_sessions()?;
     sessions.retain(|s| !(s.site == site && s.org.as_deref() == org));
     write_sessions(&sessions)
+}
+
+/// Look up a single session entry by `(site, org)`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn find_session(site: &str, org: Option<&str>) -> Option<SessionEntry> {
+    list_sessions()
+        .ok()?
+        .into_iter()
+        .find(|s| s.site == site && s.org.as_deref() == org)
 }
 
 /// Look up the site for a named org session. Returns None if no session exists
@@ -1241,6 +1251,45 @@ mod tests {
             .is_none());
     }
 
+    // --- SessionEntry serde -------------------------------------------------
+
+    #[test]
+    fn test_session_entry_legacy_json_deserializes_with_no_org_uuid() {
+        // sessions.json files written before the org_uuid field existed must
+        // continue to deserialize. #[serde(default)] gives them None.
+        let legacy = r#"[{"site":"datadoghq.com","org":"prod-child"}]"#;
+        let parsed: Vec<SessionEntry> = serde_json::from_str(legacy).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].site, "datadoghq.com");
+        assert_eq!(parsed[0].org.as_deref(), Some("prod-child"));
+        assert!(parsed[0].org_uuid.is_none());
+    }
+
+    #[test]
+    fn test_session_entry_roundtrip_with_uuid() {
+        let entry = SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod-child".into()),
+            org_uuid: Some("00000000-1111-2222-3333-444444444444".into()),
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: SessionEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, entry);
+    }
+
+    #[test]
+    fn test_session_entry_omits_uuid_when_none() {
+        // skip_serializing_if keeps existing on-disk shapes byte-stable for
+        // sessions that were never tagged with a UUID.
+        let entry = SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(!json.contains("org_uuid"), "got: {json}");
+    }
+
     // --- Session registry ---------------------------------------------------
 
     #[test]
@@ -1259,8 +1308,18 @@ mod tests {
         let tmp = TempDir::new("sess_save");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("datadoghq.com", None).unwrap();
-        save_session("datadoghq.com", Some("prod-child")).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod-child".into()),
+            org_uuid: None,
+        })
+        .unwrap();
         let sessions = list_sessions().unwrap();
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1279,8 +1338,18 @@ mod tests {
         let tmp = TempDir::new("sess_dedup");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("datadoghq.com", Some("prod")).unwrap();
-        save_session("datadoghq.com", Some("prod")).unwrap(); // duplicate
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap(); // duplicate
         let sessions = list_sessions().unwrap();
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1293,8 +1362,18 @@ mod tests {
         let tmp = TempDir::new("sess_remove");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("datadoghq.com", None).unwrap();
-        save_session("datadoghq.com", Some("prod")).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
         remove_session("datadoghq.com", Some("prod")).unwrap();
         let sessions = list_sessions().unwrap();
         std::env::remove_var("PUP_CONFIG_DIR");
@@ -1319,8 +1398,18 @@ mod tests {
         let tmp = TempDir::new("find_sess_unique");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("custom.datadoghq.com", Some("prod-child")).unwrap();
-        save_session("datadoghq.com", None).unwrap();
+        save_session(&SessionEntry {
+            site: "custom.datadoghq.com".into(),
+            org: Some("prod-child".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
         let result = find_session_site("prod-child");
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1333,7 +1422,12 @@ mod tests {
         let tmp = TempDir::new("find_sess_none");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("datadoghq.com", Some("prod-child")).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod-child".into()),
+            org_uuid: None,
+        })
+        .unwrap();
         let result = find_session_site("nonexistent");
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1348,8 +1442,18 @@ mod tests {
 
         // Same org name registered against two different sites → caller must
         // disambiguate via DD_SITE rather than us picking one.
-        save_session("datadoghq.com", Some("shared-name")).unwrap();
-        save_session("datadoghq.eu", Some("shared-name")).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("shared-name".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: Some("shared-name".into()),
+            org_uuid: None,
+        })
+        .unwrap();
         let result = find_session_site("shared-name");
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1363,7 +1467,12 @@ mod tests {
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
         // The unnamed (org=None) session must not match any --org lookup.
-        save_session("datadoghq.eu", None).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
         let result = find_session_site("anything");
         std::env::remove_var("PUP_CONFIG_DIR");
 

@@ -15,6 +15,10 @@ pub struct CallbackResult {
     pub state: String,
     pub error: Option<String>,
     pub error_description: Option<String>,
+    /// Authoritative org UUID from the OAuth server (`dd_oid`).
+    pub dd_oid: Option<String>,
+    /// Display name of the consented org (`dd_org_name`).
+    pub dd_org_name: Option<String>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -162,11 +166,25 @@ async fn accept_loop(
         let state = params.get("state").cloned().unwrap_or_default();
         let error = params.get("error").cloned();
         let error_description = params.get("error_description").cloned();
+        let dd_oid = params.get("dd_oid").cloned();
+        let dd_org_name = params.get("dd_org_name").cloned();
+        // `site` (full URL) and `domain` (bare host) are sent alongside the
+        // OAuth response so the success page can render a link back.
+        let site = params.get("site").cloned();
+        let domain = params.get("domain").cloned();
 
         let (status, body) = if error.is_some() {
             ("400 Bad Request", error_page(&error, &error_description))
         } else {
-            ("200 OK", success_page())
+            (
+                "200 OK",
+                success_page(
+                    site.as_deref(),
+                    domain.as_deref(),
+                    dd_org_name.as_deref(),
+                    dd_oid.as_deref(),
+                ),
+            )
         };
         let response = format!(
             "HTTP/1.1 {status}\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -179,6 +197,8 @@ async fn accept_loop(
             state,
             error,
             error_description,
+            dd_oid,
+            dd_org_name,
         };
         if let Some(tx) = result_tx.lock().unwrap().take() {
             let _ = tx.send(result);
@@ -188,14 +208,62 @@ async fn accept_loop(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn success_page() -> String {
-    r#"<!DOCTYPE html>
+fn success_page(
+    site: Option<&str>,
+    domain: Option<&str>,
+    org_name: Option<&str>,
+    org_uuid: Option<&str>,
+) -> String {
+    // Only accept https `site` as the link href; anything else falls back to
+    // plain text so a malformed or hostile callback can't inject a different
+    // scheme into the rendered HTML.
+    let provider_html = match (site.filter(|s| s.starts_with("https://")), domain) {
+        (Some(href), Some(host)) => format!(
+            r#"Datadog (<a href="{}">{}</a>)"#,
+            html_escape(href),
+            html_escape(host),
+        ),
+        (Some(href), None) => format!(r#"<a href="{0}">{0}</a>"#, html_escape(href)),
+        (None, Some(host)) => format!("Datadog ({})", html_escape(host)),
+        (None, None) => "Datadog".to_string(),
+    };
+
+    let org_line = org_name
+        .map(|n| {
+            format!(
+                r#"<p class="org">in org <strong>{}</strong></p>"#,
+                html_escape(n)
+            )
+        })
+        .unwrap_or_default();
+    let uuid_line = org_uuid
+        .map(|u| format!(r#"<p class="uuid">({})</p>"#, html_escape(u)))
+        .unwrap_or_default();
+
+    format!(
+        r#"<!DOCTYPE html>
 <html><head><title>Pup - Authentication Successful</title>
-<style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}
-.card{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);text-align:center}
-h1{color:#632ca6}p{color:#555}</style></head>
+<style>body{{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;padding:1rem;background:#f5f5f5;box-sizing:border-box}}
+.card{{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);text-align:center;max-width:32rem}}
+h1{{color:#632ca6;margin:0 0 .5rem}}
+p{{color:#555;margin:.4rem 0}}
+.org{{margin-top:.2rem}}
+.uuid{{margin-top:.75rem;color:#999;font-size:.75em;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.01em;word-break:break-all}}
+a{{color:#632ca6}}
+.close{{margin-top:1.25rem;color:#777;font-size:.9em}}</style></head>
 <body><div class="card"><h1>Authentication Successful</h1>
-<p>You can close this window and return to pup.</p></div></body></html>"#.to_string()
+<p>Connected to {provider_html}</p>
+{org_line}{uuid_line}<p class="close">You can close this window and return to pup.</p></div></body></html>"#
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -224,12 +292,16 @@ fn parse_callback_url(input: &str) -> Result<CallbackResult> {
     let mut state = None;
     let mut error = None;
     let mut error_description = None;
+    let mut dd_oid = None;
+    let mut dd_org_name = None;
     for (k, v) in url.query_pairs() {
         match k.as_ref() {
             "code" => code = Some(v.into_owned()),
             "state" => state = Some(v.into_owned()),
             "error" => error = Some(v.into_owned()),
             "error_description" => error_description = Some(v.into_owned()),
+            "dd_oid" => dd_oid = Some(v.into_owned()),
+            "dd_org_name" => dd_org_name = Some(v.into_owned()),
             _ => {}
         }
     }
@@ -241,6 +313,8 @@ fn parse_callback_url(input: &str) -> Result<CallbackResult> {
         state: state.unwrap_or_default(),
         error,
         error_description,
+        dd_oid,
+        dd_org_name,
     })
 }
 
@@ -290,6 +364,26 @@ mod tests {
         assert_eq!(r.state, "xyz789");
         assert!(r.error.is_none());
         assert!(r.error_description.is_none());
+        assert!(r.dd_oid.is_none());
+        assert!(r.dd_org_name.is_none());
+    }
+
+    #[test]
+    fn parse_callback_url_extracts_dd_oid_and_org_name() {
+        // Real callback shape from a Datadog OAuth flow — the issuer appends
+        // dd_oid and (URL-encoded) dd_org_name alongside code and state.
+        let r = parse_callback_url(
+            "http://127.0.0.1:8000/oauth/callback\
+             ?code=abc&state=xyz\
+             &dd_oid=00000000-1111-2222-3333-444444444444\
+             &dd_org_name=Datadog+HQ",
+        )
+        .unwrap();
+        assert_eq!(
+            r.dd_oid.as_deref(),
+            Some("00000000-1111-2222-3333-444444444444")
+        );
+        assert_eq!(r.dd_org_name.as_deref(), Some("Datadog HQ"));
     }
 
     #[test]
@@ -458,6 +552,77 @@ mod tests {
             msg.contains("--callback-port"),
             "error should hint at the flag: {msg}"
         );
+    }
+
+    #[test]
+    fn success_page_renders_org_name_and_uuid() {
+        let html = success_page(
+            Some("https://app.tatooine.example"),
+            Some("tatooine.example"),
+            Some("Mos Eisley Cantina"),
+            Some("00000000-1111-2222-3333-444444444444"),
+        );
+        assert!(html.contains("Authentication Successful"));
+        assert!(html.contains("Connected to Datadog"));
+        assert!(html.contains(r#"href="https://app.tatooine.example""#));
+        assert!(html.contains("Mos Eisley Cantina"));
+        assert!(html.contains("in org"));
+        // UUID is rendered inline as fine-print so operators can read or copy
+        // it without any interaction.
+        assert!(html.contains(r#"<p class="uuid""#));
+        assert!(html.contains("00000000-1111-2222-3333-444444444444"));
+    }
+
+    #[test]
+    fn success_page_omits_detail_when_callback_lacks_metadata() {
+        // Older issuers (or unusual flows) may not emit dd_org_name/dd_oid/site/domain;
+        // the page should still render cleanly without dangling labels.
+        let html = success_page(None, None, None, None);
+        assert!(html.contains("Authentication Successful"));
+        assert!(html.contains("Connected to Datadog"));
+        assert!(!html.contains("in org"), "no org name -> no 'in org' line");
+        assert!(
+            !html.contains(r#"<p class="uuid""#),
+            "no uuid -> no fine-print line"
+        );
+    }
+
+    #[test]
+    fn success_page_escapes_org_name() {
+        // Defense in depth: a hostile dd_org_name shouldn't be able to inject
+        // script tags into the success page rendered by the local listener.
+        let html = success_page(None, None, Some("<script>alert(1)</script>"), None);
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
+
+    #[test]
+    fn success_page_rejects_non_https_site_as_link() {
+        // An unexpected `site` value (anything other than https://...) must not
+        // become a clickable link. The bare host falls back to plain text.
+        let html = success_page(
+            Some("javascript:alert(1)"),
+            Some("deathstar.tatooine.example"),
+            None,
+            None,
+        );
+        assert!(!html.contains("javascript:alert(1)"));
+        assert!(!html.contains("href=\"javascript"));
+        assert!(html.contains("deathstar.tatooine.example"));
+    }
+
+    #[test]
+    fn success_page_uses_vanity_subdomain_in_link() {
+        // SAML/SSO vanity subdomains route through their own host; the link
+        // should reflect whatever site the issuer reported, not always app.<site>.
+        let html = success_page(
+            Some("https://yavin4.tatooine.example"),
+            Some("tatooine.example"),
+            Some("Rebel Alliance"),
+            None,
+        );
+        assert!(html.contains(r#"href="https://yavin4.tatooine.example""#));
+        assert!(html.contains("Rebel Alliance"));
     }
 
     #[tokio::test]

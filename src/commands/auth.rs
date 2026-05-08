@@ -168,10 +168,15 @@ pub async fn login(
     // 8. Resolve the save target — relabel under the actual returned org on
     // dd_oid mismatch. The OAuth code is single-use, so refusing to save
     // would throw away the user's click.
+    //
+    // Filter callback `dd_oid` through a shape check so a tampered URL
+    // pasted into the stdin fallback path can't seed an arbitrary string
+    // into the session registry.
+    let validated_dd_oid = result.dd_oid.as_deref().filter(|u| looks_like_uuid(u));
     let saved_org_owned: Option<String> = match resolve_save_target(
         org,
         effective_org_uuid.as_deref(),
-        result.dd_oid.as_deref(),
+        validated_dd_oid,
         result.dd_org_name.as_deref(),
     ) {
         SaveTarget::Requested(label) => label,
@@ -209,10 +214,9 @@ pub async fn login(
     })?;
 
     // Prefer the callback's `dd_oid` over the CLI/stored hint — it reflects
-    // the org the user actually consented for.
-    let saved_org_uuid = result
-        .dd_oid
-        .as_deref()
+    // the org the user actually consented for. Skip values that don't look
+    // like a UUID so we don't persist garbage from a tampered callback URL.
+    let saved_org_uuid = validated_dd_oid
         .or(effective_org_uuid.as_deref())
         .map(String::from);
     storage::save_session(&storage::SessionEntry {
@@ -232,14 +236,31 @@ pub async fn login(
     Ok(())
 }
 
+/// Loose UUID shape check (8-4-4-4-12 hex with dashes, ASCII only). The
+/// callback's `dd_oid` is unsigned metadata — in the stdin-paste fallback
+/// path a tampered URL could carry an arbitrary string. Rejecting anything
+/// that doesn't look like a UUID keeps such values from being persisted into
+/// `sessions.json` or rendered as a future hint.
+#[cfg(not(target_arch = "wasm32"))]
+fn looks_like_uuid(s: &str) -> bool {
+    s.len() == 36
+        && s.chars().enumerate().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
+}
+
 /// What `resolve_save_target` decided about where to save the new token.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
 enum SaveTarget {
-    /// dd_oid hint matched (or wasn't sent) — save under the requested label.
+    /// dd_oid hint matched, no hint was sent, or there's no `--org` to
+    /// relabel away from — save under the requested label (or the default
+    /// session when `--org` was unset).
     Requested(Option<String>),
-    /// dd_oid mismatch — save under `label` and warn the user. Carries the
-    /// requested vs actual UUIDs so the caller can render a useful warning.
+    /// dd_oid mismatch on a named-org login — save under `label` and warn
+    /// the user. Carries the requested vs actual UUIDs so the caller can
+    /// render a useful warning.
     Reassigned {
         label: String,
         requested_uuid: String,
@@ -250,7 +271,11 @@ enum SaveTarget {
 
 /// Pure: pick the `(site, org)` save target for a finished login. Mismatch
 /// detection compares hinted vs callback UUIDs case-insensitively (UUIDs are
-/// hex). On mismatch, the relabel always embeds an 8-char UUID prefix so the
+/// hex). Relabel only triggers for named-org logins — when `--org` is unset
+/// the default session is the source of truth and gets overwritten with the
+/// new UUID directly, so plain `pup auth login` stays idempotent.
+///
+/// On relabel, the new label always embeds an 8-char UUID prefix so the
 /// stored entry is unambiguous even if the issuer's display name collides
 /// with another existing session on the same site.
 #[cfg(not(target_arch = "wasm32"))]
@@ -260,8 +285,8 @@ fn resolve_save_target(
     actual_uuid: Option<&str>,
     actual_org_name: Option<&str>,
 ) -> SaveTarget {
-    match (requested_uuid, actual_uuid) {
-        (Some(req), Some(actual)) if !req.eq_ignore_ascii_case(actual) => {
+    match (requested_org, requested_uuid, actual_uuid) {
+        (Some(_), Some(req), Some(actual)) if !req.eq_ignore_ascii_case(actual) => {
             let prefix: String = actual.chars().take(8).collect();
             let label = match actual_org_name {
                 Some(name) if !name.is_empty() => format!("{name} [{prefix}]"),
@@ -271,7 +296,7 @@ fn resolve_save_target(
                 label,
                 requested_uuid: req.to_string(),
                 actual_uuid: actual.to_string(),
-                actual_name: actual_org_name.map(String::from),
+                actual_name: actual_org_name.filter(|n| !n.is_empty()).map(String::from),
             }
         }
         _ => SaveTarget::Requested(requested_org.map(String::from)),
@@ -814,6 +839,42 @@ mod tests {
         let req = "00000000-1111-2222-3333-444444444444";
         let t = resolve_save_target(Some("prod-child"), Some(req), None, None);
         assert!(matches!(t, SaveTarget::Requested(Some(s)) if s == "prod-child"));
+    }
+
+    #[test]
+    fn resolve_save_target_default_org_mismatch_stays_default() {
+        // Default-org login with a stale stored UUID hint that no longer
+        // matches the issuer's response: `pup auth login` is supposed to be
+        // idempotent for the default session, so we don't relabel onto a
+        // phantom slot. The default session gets refreshed in place; the
+        // stored UUID hint is updated by the caller from the callback.
+        let req = "00000000-1111-2222-3333-444444444444";
+        let act = "11111111-2222-3333-4444-555555555555";
+        let t = resolve_save_target(None, Some(req), Some(act), Some("Other Org"));
+        assert!(matches!(t, SaveTarget::Requested(None)));
+    }
+
+    // looks_like_uuid -----------------------------------------------------------
+
+    #[test]
+    fn looks_like_uuid_accepts_canonical_form() {
+        assert!(looks_like_uuid("00000000-1111-2222-3333-444444444444"));
+        assert!(looks_like_uuid("aabbccdd-1111-2222-3333-eeffaabbccdd"));
+        assert!(looks_like_uuid("AABBCCDD-1111-2222-3333-EEFFAABBCCDD"));
+    }
+
+    #[test]
+    fn looks_like_uuid_rejects_garbage() {
+        assert!(!looks_like_uuid(""));
+        assert!(!looks_like_uuid("not-a-uuid"));
+        // Wrong length
+        assert!(!looks_like_uuid("00000000-1111-2222-3333-44444444444"));
+        // Non-hex character
+        assert!(!looks_like_uuid("0000000g-1111-2222-3333-444444444444"));
+        // Missing dash positions
+        assert!(!looks_like_uuid("000000001111-2222-3333-44444444444444"));
+        // Hostile injection attempt
+        assert!(!looks_like_uuid("<script>alert(1)</script>            "));
     }
 
     #[tokio::test]

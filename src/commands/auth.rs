@@ -691,7 +691,7 @@ mod tests {
 
     #[test]
     fn resolve_save_target_hint_matches_keeps_requested_org() {
-        let uuid = "8dee7c38-00cb-11ea-a77b-8b5a08d3b091";
+        let uuid = "00000000-1111-2222-3333-444444444444";
         let t = resolve_save_target(
             Some("prod-child"),
             Some(uuid),
@@ -705,15 +705,15 @@ mod tests {
     fn resolve_save_target_hint_matches_case_insensitive() {
         // UUIDs are hex; normalise case so a mismatch in the issuer's
         // canonicalisation doesn't trip the warn-and-relabel path.
-        let upper = "8DEE7C38-00CB-11EA-A77B-8B5A08D3B091";
-        let lower = "8dee7c38-00cb-11ea-a77b-8b5a08d3b091";
+        let upper = "AABBCCDD-1111-2222-3333-EEFFAABBCCDD";
+        let lower = "aabbccdd-1111-2222-3333-eeffaabbccdd";
         let t = resolve_save_target(Some("prod-child"), Some(upper), Some(lower), None);
         assert_eq!(t.org.as_deref(), Some("prod-child"));
     }
 
     #[test]
     fn resolve_save_target_mismatch_uses_dd_org_name() {
-        let req = "8dee7c38-00cb-11ea-a77b-8b5a08d3b091";
+        let req = "00000000-1111-2222-3333-444444444444";
         let act = "11111111-2222-3333-4444-555555555555";
         let t = resolve_save_target(Some("prod-child"), Some(req), Some(act), Some("Other Org"));
         assert_eq!(t.org.as_deref(), Some("Other Org"));
@@ -724,7 +724,7 @@ mod tests {
         // No dd_org_name in the callback (older issuer or unusual flow): use
         // the first 8 chars of the actual UUID as a stable, distinguishable
         // label rather than reusing the wrong --org name.
-        let req = "8dee7c38-00cb-11ea-a77b-8b5a08d3b091";
+        let req = "00000000-1111-2222-3333-444444444444";
         let act = "11111111-2222-3333-4444-555555555555";
         let t = resolve_save_target(Some("prod-child"), Some(req), Some(act), None);
         assert_eq!(t.org.as_deref(), Some("11111111"));
@@ -734,7 +734,7 @@ mod tests {
     fn resolve_save_target_actual_uuid_missing_keeps_requested() {
         // If the issuer didn't echo dd_oid, we have no comparison to make;
         // trust the user's --org label and the in-flight UUID we sent.
-        let req = "8dee7c38-00cb-11ea-a77b-8b5a08d3b091";
+        let req = "00000000-1111-2222-3333-444444444444";
         let t = resolve_save_target(Some("prod-child"), Some(req), None, None);
         assert_eq!(t.org.as_deref(), Some("prod-child"));
     }

@@ -363,10 +363,10 @@ mod tests {
             &challenge(),
             &["dashboards_read"],
             None,
-            Some("8dee7c38-00cb-11ea-a77b-8b5a08d3b091"),
+            Some("00000000-1111-2222-3333-444444444444"),
         );
         assert!(
-            url.contains("dd_oid=8dee7c38-00cb-11ea-a77b-8b5a08d3b091"),
+            url.contains("dd_oid=00000000-1111-2222-3333-444444444444"),
             "expected dd_oid query param, got: {url}"
         );
     }

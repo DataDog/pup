@@ -176,7 +176,10 @@ async fn accept_loop(
         let (status, body) = if error.is_some() {
             ("400 Bad Request", error_page(&error, &error_description))
         } else {
-            ("200 OK", success_page())
+            (
+                "200 OK",
+                success_page(dd_org_name.as_deref(), dd_oid.as_deref()),
+            )
         };
         let response = format!(
             "HTTP/1.1 {status}\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -200,14 +203,44 @@ async fn accept_loop(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn success_page() -> String {
-    r#"<!DOCTYPE html>
+fn success_page(org_name: Option<&str>, org_uuid: Option<&str>) -> String {
+    // The org name + UUID help users confirm they consented for the org they
+    // intended — important when the dd_oid hint silently routes through a
+    // different one (logged-out login redirect, SSO override, switcher pick).
+    let detail = match (org_name, org_uuid) {
+        (Some(name), Some(uuid)) => format!(
+            "<p>Authenticated as <strong>{}</strong> (<code>{}</code>).</p>",
+            html_escape(name),
+            html_escape(uuid),
+        ),
+        (Some(name), None) => format!(
+            "<p>Authenticated as <strong>{}</strong>.</p>",
+            html_escape(name),
+        ),
+        (None, Some(uuid)) => format!("<p>Org UUID: <code>{}</code>.</p>", html_escape(uuid)),
+        (None, None) => String::new(),
+    };
+    format!(
+        r#"<!DOCTYPE html>
 <html><head><title>Pup - Authentication Successful</title>
-<style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}
-.card{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);text-align:center}
-h1{color:#632ca6}p{color:#555}</style></head>
+<style>body{{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}}
+.card{{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);text-align:center;max-width:30rem}}
+h1{{color:#632ca6}}p{{color:#555}}code{{background:#f0f0f0;padding:.1em .35em;border-radius:3px;font-size:.9em}}</style></head>
 <body><div class="card"><h1>Authentication Successful</h1>
-<p>You can close this window and return to pup.</p></div></body></html>"#.to_string()
+{detail}<p>You can close this window and return to pup.</p></div></body></html>"#
+    )
+}
+
+/// Minimal HTML-escape for the few attribute-free text contexts we render
+/// values into — org names from the OAuth issuer aren't expected to contain
+/// markup, but we don't want to take that on trust.
+#[cfg(not(target_arch = "wasm32"))]
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -319,13 +352,13 @@ mod tests {
         let r = parse_callback_url(
             "http://127.0.0.1:8000/oauth/callback\
              ?code=abc&state=xyz\
-             &dd_oid=8dee7c38-00cb-11ea-a77b-8b5a08d3b091\
+             &dd_oid=00000000-1111-2222-3333-444444444444\
              &dd_org_name=Datadog+HQ",
         )
         .unwrap();
         assert_eq!(
             r.dd_oid.as_deref(),
-            Some("8dee7c38-00cb-11ea-a77b-8b5a08d3b091")
+            Some("00000000-1111-2222-3333-444444444444")
         );
         assert_eq!(r.dd_org_name.as_deref(), Some("Datadog HQ"));
     }
@@ -496,6 +529,36 @@ mod tests {
             msg.contains("--callback-port"),
             "error should hint at the flag: {msg}"
         );
+    }
+
+    #[test]
+    fn success_page_renders_org_name_and_uuid() {
+        let html = success_page(
+            Some("Datadog HQ"),
+            Some("00000000-1111-2222-3333-444444444444"),
+        );
+        assert!(html.contains("Authentication Successful"));
+        assert!(html.contains("Datadog HQ"));
+        assert!(html.contains("00000000-1111-2222-3333-444444444444"));
+    }
+
+    #[test]
+    fn success_page_omits_detail_when_callback_lacks_metadata() {
+        // Older issuers (or unusual flows) may not emit dd_org_name/dd_oid; the
+        // page should still render cleanly without dangling labels.
+        let html = success_page(None, None);
+        assert!(html.contains("Authentication Successful"));
+        assert!(!html.contains("Authenticated as"));
+        assert!(!html.contains("Org UUID:"));
+    }
+
+    #[test]
+    fn success_page_escapes_org_name() {
+        // Defense in depth: a hostile dd_org_name shouldn't be able to inject
+        // script tags into the success page rendered by the local listener.
+        let html = success_page(Some("<script>alert(1)</script>"), None);
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
     }
 
     #[tokio::test]

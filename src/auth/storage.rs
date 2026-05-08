@@ -1275,7 +1275,7 @@ mod tests {
         let entry = SessionEntry {
             site: "datadoghq.com".into(),
             org: Some("prod-child".into()),
-            org_uuid: Some("8dee7c38-00cb-11ea-a77b-8b5a08d3b091".into()),
+            org_uuid: Some("00000000-1111-2222-3333-444444444444".into()),
         };
         let json = serde_json::to_string(&entry).unwrap();
         let parsed: SessionEntry = serde_json::from_str(&json).unwrap();

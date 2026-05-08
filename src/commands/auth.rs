@@ -213,12 +213,15 @@ pub async fn login(
         Ok(store.storage_location())
     })?;
 
-    // Prefer the callback's `dd_oid` over the CLI/stored hint — it reflects
-    // the org the user actually consented for. Skip values that don't look
-    // like a UUID so we don't persist garbage from a tampered callback URL.
+    // Persist the callback's confirmed `dd_oid` if we have one. Otherwise
+    // fall back only to the user's explicit `--org-uuid` flag — never to a
+    // previously-recalled hint, since carrying that forward unconfirmed
+    // would let a stale UUID survive a login that actually landed in a
+    // different org. Users who want to re-establish a hint can pass the
+    // flag again on the next login.
     let saved_org_uuid = validated_dd_oid
-        .or(effective_org_uuid.as_deref())
-        .map(String::from);
+        .map(String::from)
+        .or_else(|| org_uuid.map(String::from));
     storage::save_session(&storage::SessionEntry {
         site: site.clone(),
         org: saved_org.map(String::from),

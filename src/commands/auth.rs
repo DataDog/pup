@@ -185,16 +185,19 @@ pub async fn login(
                 .as_deref()
                 .map(|n| format!(" ({n})"))
                 .unwrap_or_default();
-            let label_display = label
-                .as_deref()
-                .map(|l| format!("\"{l}\""))
-                .unwrap_or_else(|| "the default session".to_string());
+            let cleanup_hint = match org {
+                Some(o) => format!(
+                    "\n   Your existing '{o}' session is unchanged. \
+                     Run `pup auth logout --org {o}` to clear it if it's stale."
+                ),
+                None => String::new(),
+            };
             eprintln!(
                 "⚠️  Requested org UUID {requested_uuid} but OAuth returned \
                  {actual_uuid}{actual_name_suffix}. Saving token under \
-                 {label_display} instead of the requested label."
+                 \"{label}\" instead of the requested label.{cleanup_hint}"
             );
-            label
+            Some(label)
         }
     };
     let saved_org = saved_org_owned.as_deref();
@@ -238,7 +241,7 @@ enum SaveTarget {
     /// dd_oid mismatch — save under `label` and warn the user. Carries the
     /// requested vs actual UUIDs so the caller can render a useful warning.
     Reassigned {
-        label: Option<String>,
+        label: String,
         requested_uuid: String,
         actual_uuid: String,
         actual_name: Option<String>,
@@ -247,8 +250,9 @@ enum SaveTarget {
 
 /// Pure: pick the `(site, org)` save target for a finished login. Mismatch
 /// detection compares hinted vs callback UUIDs case-insensitively (UUIDs are
-/// hex). The mismatch fallback prefers `dd_org_name`, then a UUID prefix, so
-/// the saved label is always distinguishable from the requested one.
+/// hex). On mismatch, the relabel always embeds an 8-char UUID prefix so the
+/// stored entry is unambiguous even if the issuer's display name collides
+/// with another existing session on the same site.
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_save_target(
     requested_org: Option<&str>,
@@ -257,14 +261,19 @@ fn resolve_save_target(
     actual_org_name: Option<&str>,
 ) -> SaveTarget {
     match (requested_uuid, actual_uuid) {
-        (Some(req), Some(actual)) if !req.eq_ignore_ascii_case(actual) => SaveTarget::Reassigned {
-            label: actual_org_name
-                .map(String::from)
-                .or_else(|| Some(actual.chars().take(8).collect())),
-            requested_uuid: req.to_string(),
-            actual_uuid: actual.to_string(),
-            actual_name: actual_org_name.map(String::from),
-        },
+        (Some(req), Some(actual)) if !req.eq_ignore_ascii_case(actual) => {
+            let prefix: String = actual.chars().take(8).collect();
+            let label = match actual_org_name {
+                Some(name) if !name.is_empty() => format!("{name} [{prefix}]"),
+                _ => prefix,
+            };
+            SaveTarget::Reassigned {
+                label,
+                requested_uuid: req.to_string(),
+                actual_uuid: actual.to_string(),
+                actual_name: actual_org_name.map(String::from),
+            }
+        }
         _ => SaveTarget::Requested(requested_org.map(String::from)),
     }
 }
@@ -741,7 +750,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_save_target_mismatch_uses_dd_org_name() {
+    fn resolve_save_target_mismatch_combines_name_and_uuid_prefix() {
+        // The relabel embeds the UUID prefix so a save under (site, "Other Org")
+        // can never silently overwrite an unrelated existing "Other Org" session
+        // on the same site that has a different underlying UUID.
         let req = "00000000-1111-2222-3333-444444444444";
         let act = "11111111-2222-3333-4444-555555555555";
         let t = resolve_save_target(Some("prod-child"), Some(req), Some(act), Some("Other Org"));
@@ -752,7 +764,7 @@ mod tests {
                 actual_uuid,
                 actual_name,
             } => {
-                assert_eq!(label.as_deref(), Some("Other Org"));
+                assert_eq!(label, "Other Org [11111111]");
                 assert_eq!(requested_uuid, req);
                 assert_eq!(actual_uuid, act);
                 assert_eq!(actual_name.as_deref(), Some("Other Org"));
@@ -762,10 +774,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_save_target_mismatch_falls_back_to_uuid_prefix() {
-        // No dd_org_name in the callback (older issuer or unusual flow): use
-        // the first 8 chars of the actual UUID as a stable, distinguishable
-        // label rather than reusing the wrong --org name.
+    fn resolve_save_target_mismatch_falls_back_to_uuid_prefix_only() {
+        // No dd_org_name in the callback (older issuer or unusual flow): the
+        // 8-char UUID prefix becomes the entire label so it's still stable
+        // and distinguishable.
         let req = "00000000-1111-2222-3333-444444444444";
         let act = "11111111-2222-3333-4444-555555555555";
         let t = resolve_save_target(Some("prod-child"), Some(req), Some(act), None);
@@ -773,8 +785,23 @@ mod tests {
             SaveTarget::Reassigned {
                 label, actual_name, ..
             } => {
-                assert_eq!(label.as_deref(), Some("11111111"));
+                assert_eq!(label, "11111111");
                 assert!(actual_name.is_none());
+            }
+            other => panic!("expected Reassigned, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_save_target_mismatch_treats_empty_org_name_as_missing() {
+        // An empty `dd_org_name=""` shouldn't produce labels like " [11111111]"
+        // with a leading space — fall back to the UUID-only label instead.
+        let req = "00000000-1111-2222-3333-444444444444";
+        let act = "11111111-2222-3333-4444-555555555555";
+        let t = resolve_save_target(Some("prod-child"), Some(req), Some(act), Some(""));
+        match t {
+            SaveTarget::Reassigned { label, .. } => {
+                assert_eq!(label, "11111111");
             }
             other => panic!("expected Reassigned, got {other:?}"),
         }

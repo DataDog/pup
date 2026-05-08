@@ -249,7 +249,6 @@ h1{{color:#632ca6;margin:0 0 .5rem}}
 p{{color:#555;margin:.4rem 0}}
 .org{{margin-top:.2rem}}
 .uuid{{margin-top:.75rem;color:#999;font-size:.75em;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.01em;word-break:break-all}}
-code{{background:#f0f0f0;padding:.1em .35em;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}}
 a{{color:#632ca6}}
 .close{{margin-top:1.25rem;color:#777;font-size:.9em}}</style></head>
 <body><div class="card"><h1>Authentication Successful</h1>

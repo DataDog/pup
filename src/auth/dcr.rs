@@ -189,12 +189,9 @@ impl DcrClient {
         })
     }
 
-    /// Build the authorization URL for the browser.
-    ///
-    /// `org_uuid` (when set) is sent as the `dd_oid` query param. The
-    /// authorize endpoint uses it to skip the org switcher when the existing
-    /// browser session already matches, and to pre-route SAML/SSO routing
-    /// for first-time logins. Empty strings are coerced to `None`.
+    /// Build the authorization URL for the browser. `org_uuid` is appended as
+    /// `dd_oid` when set; callers should coerce empty strings to `None`
+    /// upstream so this function doesn't have to second-guess them.
     #[allow(clippy::too_many_arguments)]
     pub fn build_authorization_url(
         &self,
@@ -216,7 +213,7 @@ impl DcrClient {
             .append_pair("scope", &scope)
             .append_pair("code_challenge", &challenge.challenge)
             .append_pair("code_challenge_method", &challenge.method);
-        if let Some(uuid) = org_uuid.filter(|u| !u.is_empty()) {
+        if let Some(uuid) = org_uuid {
             serializer.append_pair("dd_oid", uuid);
         }
         let params = serializer.finish();
@@ -382,23 +379,6 @@ mod tests {
             &["dashboards_read"],
             None,
             None,
-        );
-        assert!(!url.contains("dd_oid"), "got: {url}");
-    }
-
-    #[test]
-    fn build_authorization_url_treats_empty_org_uuid_as_unset() {
-        // Symmetric with the empty-subdomain handling: an empty UUID flag
-        // value falls back to "no hint" rather than emitting `dd_oid=`.
-        let client = DcrClient::new("datadoghq.com");
-        let url = client.build_authorization_url(
-            "client123",
-            "http://127.0.0.1:8000/oauth/callback",
-            "state",
-            &challenge(),
-            &["dashboards_read"],
-            None,
-            Some(""),
         );
         assert!(!url.contains("dd_oid"), "got: {url}");
     }

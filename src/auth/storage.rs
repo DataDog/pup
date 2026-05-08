@@ -883,18 +883,13 @@ pub fn list_sessions() -> Result<Vec<SessionEntry>> {
     }
 }
 
-/// Upsert a session entry into the registry.
+/// Upsert a session entry into the registry. Dedups on `(site, org)`; the
+/// new entry's `org_uuid` wins so re-auth refreshes the stored UUID.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn save_session(site: &str, org: Option<&str>, org_uuid: Option<&str>) -> Result<()> {
+pub fn save_session(entry: &SessionEntry) -> Result<()> {
     let mut sessions = list_sessions()?;
-    let entry = SessionEntry {
-        site: site.to_string(),
-        org: org.map(String::from),
-        org_uuid: org_uuid.map(String::from),
-    };
-    // Dedup: remove any existing entry with same site+org, then append
     sessions.retain(|s| !(s.site == entry.site && s.org == entry.org));
-    sessions.push(entry);
+    sessions.push(entry.clone());
     write_sessions(&sessions)
 }
 
@@ -1313,8 +1308,18 @@ mod tests {
         let tmp = TempDir::new("sess_save");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("datadoghq.com", None, None).unwrap();
-        save_session("datadoghq.com", Some("prod-child"), None).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod-child".into()),
+            org_uuid: None,
+        })
+        .unwrap();
         let sessions = list_sessions().unwrap();
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1333,8 +1338,18 @@ mod tests {
         let tmp = TempDir::new("sess_dedup");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("datadoghq.com", Some("prod"), None).unwrap();
-        save_session("datadoghq.com", Some("prod"), None).unwrap(); // duplicate
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap(); // duplicate
         let sessions = list_sessions().unwrap();
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1347,8 +1362,18 @@ mod tests {
         let tmp = TempDir::new("sess_remove");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("datadoghq.com", None, None).unwrap();
-        save_session("datadoghq.com", Some("prod"), None).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
         remove_session("datadoghq.com", Some("prod")).unwrap();
         let sessions = list_sessions().unwrap();
         std::env::remove_var("PUP_CONFIG_DIR");
@@ -1373,8 +1398,18 @@ mod tests {
         let tmp = TempDir::new("find_sess_unique");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("custom.datadoghq.com", Some("prod-child"), None).unwrap();
-        save_session("datadoghq.com", None, None).unwrap();
+        save_session(&SessionEntry {
+            site: "custom.datadoghq.com".into(),
+            org: Some("prod-child".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
         let result = find_session_site("prod-child");
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1387,7 +1422,12 @@ mod tests {
         let tmp = TempDir::new("find_sess_none");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        save_session("datadoghq.com", Some("prod-child"), None).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod-child".into()),
+            org_uuid: None,
+        })
+        .unwrap();
         let result = find_session_site("nonexistent");
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1402,8 +1442,18 @@ mod tests {
 
         // Same org name registered against two different sites → caller must
         // disambiguate via DD_SITE rather than us picking one.
-        save_session("datadoghq.com", Some("shared-name"), None).unwrap();
-        save_session("datadoghq.eu", Some("shared-name"), None).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("shared-name".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: Some("shared-name".into()),
+            org_uuid: None,
+        })
+        .unwrap();
         let result = find_session_site("shared-name");
         std::env::remove_var("PUP_CONFIG_DIR");
 
@@ -1417,7 +1467,12 @@ mod tests {
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
         // The unnamed (org=None) session must not match any --org lookup.
-        save_session("datadoghq.eu", None, None).unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
         let result = find_session_site("anything");
         std::env::remove_var("PUP_CONFIG_DIR");
 

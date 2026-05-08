@@ -14,6 +14,13 @@ where
     f(&mut **store)
 }
 
+/// Format the trailing " (org: <name>)" segment used in user-facing log lines.
+/// Returns an empty string when there's no org so the surrounding messages stay
+/// clean for the default-org case.
+fn org_suffix(org: Option<&str>) -> String {
+    org.map(|o| format!(" (org: {o})")).unwrap_or_default()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn login(
     cfg: &Config,
@@ -40,7 +47,7 @@ pub async fn login(
     //    port-forwarded workflows; otherwise we scan the DCR allowlist.
     let mut server = crate::auth::callback::CallbackServer::new(callback_port).await?;
     let redirect_uri = server.redirect_uri();
-    let org_label = org.map(|o| format!(" (org: {o})")).unwrap_or_default();
+    let org_label = org_suffix(org);
     eprintln!("\n🔐 Starting OAuth2 login for site: {site}{org_label}\n");
     if let Some(sub) = subdomain {
         // Compose against the actual site, not a hardcoded prod host. Mirrors
@@ -158,37 +165,58 @@ pub async fn login(
         .exchange_code(&result.code, &redirect_uri, &challenge.verifier, &creds)
         .await?;
 
-    // 8. Resolve the save target. By default we save under the user-supplied
-    // (site, org) label. But if the user hinted a UUID and the callback
-    // returned a different `dd_oid`, it would be misleading to label the
-    // resulting token with the requested org name — so we switch the label
-    // to the one the OAuth server reports (`dd_org_name`, falling back to a
-    // shortened UUID) and warn on stderr. The OAuth code is single-use, so
-    // refusing to save would throw away the user's click; mislabeling is the
-    // bigger risk and this side-steps it.
-    let save_target = resolve_save_target(
+    // 8. Resolve the save target — relabel under the actual returned org on
+    // dd_oid mismatch. The OAuth code is single-use, so refusing to save
+    // would throw away the user's click.
+    let saved_org_owned: Option<String> = match resolve_save_target(
         org,
         effective_org_uuid.as_deref(),
         result.dd_oid.as_deref(),
         result.dd_org_name.as_deref(),
-    );
-    let saved_org = save_target.org.as_deref();
-    let saved_org_label = saved_org
-        .map(|o| format!(" (org: {o})"))
-        .unwrap_or_default();
+    ) {
+        SaveTarget::Requested(label) => label,
+        SaveTarget::Reassigned {
+            label,
+            requested_uuid,
+            actual_uuid,
+            actual_name,
+        } => {
+            let actual_name_suffix = actual_name
+                .as_deref()
+                .map(|n| format!(" ({n})"))
+                .unwrap_or_default();
+            let label_display = label
+                .as_deref()
+                .map(|l| format!("\"{l}\""))
+                .unwrap_or_else(|| "the default session".to_string());
+            eprintln!(
+                "⚠️  Requested org UUID {requested_uuid} but OAuth returned \
+                 {actual_uuid}{actual_name_suffix}. Saving token under \
+                 {label_display} instead of the requested label."
+            );
+            label
+        }
+    };
+    let saved_org = saved_org_owned.as_deref();
+    let saved_org_label = org_suffix(saved_org);
 
     let location = with_storage(|store| {
         store.save_tokens(site, saved_org, &tokens)?;
         Ok(store.storage_location())
     })?;
 
-    // Register this session in the session registry, tagged with the
-    // authoritative `dd_oid` from the callback so re-auth without the flag
-    // keeps hinting the right org. The callback's UUID is preferred over the
-    // CLI/stored value because it reflects the org the user actually
-    // consented for.
-    let saved_org_uuid = result.dd_oid.as_deref().or(effective_org_uuid.as_deref());
-    storage::save_session(site, saved_org, saved_org_uuid)?;
+    // Prefer the callback's `dd_oid` over the CLI/stored hint — it reflects
+    // the org the user actually consented for.
+    let saved_org_uuid = result
+        .dd_oid
+        .as_deref()
+        .or(effective_org_uuid.as_deref())
+        .map(String::from);
+    storage::save_session(&storage::SessionEntry {
+        site: site.clone(),
+        org: saved_org.map(String::from),
+        org_uuid: saved_org_uuid,
+    })?;
 
     let expires_at = chrono::DateTime::from_timestamp(tokens.issued_at + tokens.expires_in, 0)
         .map(|dt| dt.with_timezone(&chrono::Local).to_rfc3339())
@@ -201,18 +229,26 @@ pub async fn login(
     Ok(())
 }
 
+/// What `resolve_save_target` decided about where to save the new token.
 #[cfg(not(target_arch = "wasm32"))]
-struct SaveTarget {
-    org: Option<String>,
+#[derive(Debug)]
+enum SaveTarget {
+    /// dd_oid hint matched (or wasn't sent) — save under the requested label.
+    Requested(Option<String>),
+    /// dd_oid mismatch — save under `label` and warn the user. Carries the
+    /// requested vs actual UUIDs so the caller can render a useful warning.
+    Reassigned {
+        label: Option<String>,
+        requested_uuid: String,
+        actual_uuid: String,
+        actual_name: Option<String>,
+    },
 }
 
-/// Pick the `(site, org)` save target for a finished login.
-///
-/// The default is the user-supplied `--org` label. If the user hinted a UUID
-/// but the OAuth server returned a different one, we switch the label to
-/// `dd_org_name` (or a shortened UUID) and warn on stderr — saving under the
-/// requested label would mislabel the token. Any other case (no hint, hint
-/// matches, server didn't return `dd_oid`) keeps the requested label.
+/// Pure: pick the `(site, org)` save target for a finished login. Mismatch
+/// detection compares hinted vs callback UUIDs case-insensitively (UUIDs are
+/// hex). The mismatch fallback prefers `dd_org_name`, then a UUID prefix, so
+/// the saved label is always distinguishable from the requested one.
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_save_target(
     requested_org: Option<&str>,
@@ -220,35 +256,17 @@ fn resolve_save_target(
     actual_uuid: Option<&str>,
     actual_org_name: Option<&str>,
 ) -> SaveTarget {
-    let mismatch = match (requested_uuid, actual_uuid) {
-        (Some(req), Some(actual)) => !req.eq_ignore_ascii_case(actual),
-        _ => false,
-    };
-    if !mismatch {
-        return SaveTarget {
-            org: requested_org.map(String::from),
-        };
+    match (requested_uuid, actual_uuid) {
+        (Some(req), Some(actual)) if !req.eq_ignore_ascii_case(actual) => SaveTarget::Reassigned {
+            label: actual_org_name
+                .map(String::from)
+                .or_else(|| Some(actual.chars().take(8).collect())),
+            requested_uuid: req.to_string(),
+            actual_uuid: actual.to_string(),
+            actual_name: actual_org_name.map(String::from),
+        },
+        _ => SaveTarget::Requested(requested_org.map(String::from)),
     }
-    // Mismatch: swap to the actual org. Prefer the human-readable
-    // `dd_org_name`; if that's absent, fall back to the UUID's first 8 chars
-    // so the saved label is still distinguishable on disk.
-    let actual_label = actual_org_name
-        .map(String::from)
-        .or_else(|| actual_uuid.map(|u| u.chars().take(8).collect::<String>()));
-    eprintln!(
-        "⚠️  Requested org UUID {} but OAuth returned {}{}. \
-         Saving token under {} instead of the requested label.",
-        requested_uuid.unwrap_or("?"),
-        actual_uuid.unwrap_or("?"),
-        actual_org_name
-            .map(|n| format!(" ({n})"))
-            .unwrap_or_default(),
-        actual_label
-            .as_deref()
-            .map(|l| format!("\"{l}\""))
-            .unwrap_or_else(|| "the default session".to_string()),
-    );
-    SaveTarget { org: actual_label }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -280,7 +298,7 @@ pub async fn logout(cfg: &Config) -> Result<()> {
         Ok(())
     })?;
     storage::remove_session(site, org)?;
-    let org_label = org.map(|o| format!(" (org: {o})")).unwrap_or_default();
+    let org_label = org_suffix(org);
     eprintln!("Logged out from {site}{org_label}. Tokens removed.");
     Ok(())
 }
@@ -313,7 +331,7 @@ pub fn status(cfg: &Config) -> Result<()> {
                     ("valid".to_string(), format!("{mins}m{secs}s"))
                 };
 
-                let org_label = org.map(|o| format!(" (org: {o})")).unwrap_or_default();
+                let org_label = org_suffix(org);
                 if tokens.is_expired() {
                     eprintln!("⚠️  Token expired for site: {site}{org_label}");
                 } else {
@@ -344,7 +362,7 @@ pub fn status(cfg: &Config) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&json).unwrap());
             }
             None => {
-                let org_label = org.map(|o| format!(" (org: {o})")).unwrap_or_default();
+                let org_label = org_suffix(org);
                 eprintln!("❌ Not authenticated for site: {site}{org_label}");
                 let json = serde_json::json!({
                     "authenticated": false,
@@ -399,7 +417,7 @@ pub async fn refresh(cfg: &Config) -> Result<()> {
         anyhow::anyhow!("no client credentials found for site {site} — run 'pup auth login' first")
     })?;
 
-    let org_label = org.map(|o| format!(" (org: {o})")).unwrap_or_default();
+    let org_label = org_suffix(org);
     eprintln!("🔄 Refreshing access token for site: {site}{org_label}...");
 
     let dcr_client = dcr::DcrClient::new(site);
@@ -486,6 +504,7 @@ pub fn list(_cfg: &Config) -> Result<()> {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use crate::auth::storage::SessionEntry;
     use crate::config::{Config, OutputFormat};
 
     /// Temporary directory that removes itself on drop. Mirrors the helper
@@ -594,8 +613,18 @@ mod tests {
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
         std::env::set_var("DD_TOKEN_STORAGE", "file");
 
-        storage::save_session("datadoghq.com", None, None).unwrap();
-        storage::save_session("datadoghq.com", Some("prod-child"), None).unwrap();
+        storage::save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        storage::save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod-child".into()),
+            org_uuid: None,
+        })
+        .unwrap();
 
         let cfg = base_config();
         let result = list(&cfg);
@@ -686,7 +715,7 @@ mod tests {
     #[test]
     fn resolve_save_target_no_hint_keeps_requested_org() {
         let t = resolve_save_target(Some("prod-child"), None, None, None);
-        assert_eq!(t.org.as_deref(), Some("prod-child"));
+        assert!(matches!(t, SaveTarget::Requested(Some(s)) if s == "prod-child"));
     }
 
     #[test]
@@ -696,9 +725,9 @@ mod tests {
             Some("prod-child"),
             Some(uuid),
             Some(uuid),
-            Some("Datadog HQ"),
+            Some("Mos Eisley Cantina"),
         );
-        assert_eq!(t.org.as_deref(), Some("prod-child"));
+        assert!(matches!(t, SaveTarget::Requested(Some(s)) if s == "prod-child"));
     }
 
     #[test]
@@ -708,7 +737,7 @@ mod tests {
         let upper = "AABBCCDD-1111-2222-3333-EEFFAABBCCDD";
         let lower = "aabbccdd-1111-2222-3333-eeffaabbccdd";
         let t = resolve_save_target(Some("prod-child"), Some(upper), Some(lower), None);
-        assert_eq!(t.org.as_deref(), Some("prod-child"));
+        assert!(matches!(t, SaveTarget::Requested(Some(s)) if s == "prod-child"));
     }
 
     #[test]
@@ -716,7 +745,20 @@ mod tests {
         let req = "00000000-1111-2222-3333-444444444444";
         let act = "11111111-2222-3333-4444-555555555555";
         let t = resolve_save_target(Some("prod-child"), Some(req), Some(act), Some("Other Org"));
-        assert_eq!(t.org.as_deref(), Some("Other Org"));
+        match t {
+            SaveTarget::Reassigned {
+                label,
+                requested_uuid,
+                actual_uuid,
+                actual_name,
+            } => {
+                assert_eq!(label.as_deref(), Some("Other Org"));
+                assert_eq!(requested_uuid, req);
+                assert_eq!(actual_uuid, act);
+                assert_eq!(actual_name.as_deref(), Some("Other Org"));
+            }
+            other => panic!("expected Reassigned, got {other:?}"),
+        }
     }
 
     #[test]
@@ -727,7 +769,15 @@ mod tests {
         let req = "00000000-1111-2222-3333-444444444444";
         let act = "11111111-2222-3333-4444-555555555555";
         let t = resolve_save_target(Some("prod-child"), Some(req), Some(act), None);
-        assert_eq!(t.org.as_deref(), Some("11111111"));
+        match t {
+            SaveTarget::Reassigned {
+                label, actual_name, ..
+            } => {
+                assert_eq!(label.as_deref(), Some("11111111"));
+                assert!(actual_name.is_none());
+            }
+            other => panic!("expected Reassigned, got {other:?}"),
+        }
     }
 
     #[test]
@@ -736,7 +786,7 @@ mod tests {
         // trust the user's --org label and the in-flight UUID we sent.
         let req = "00000000-1111-2222-3333-444444444444";
         let t = resolve_save_target(Some("prod-child"), Some(req), None, None);
-        assert_eq!(t.org.as_deref(), Some("prod-child"));
+        assert!(matches!(t, SaveTarget::Requested(Some(s)) if s == "prod-child"));
     }
 
     #[tokio::test]
@@ -751,8 +801,18 @@ mod tests {
         std::env::set_var("DD_TOKEN_STORAGE", "file");
 
         let site = "logout-session.example.invalid";
-        storage::save_session(site, None, None).unwrap();
-        storage::save_session(site, Some("keep-me"), None).unwrap();
+        storage::save_session(&SessionEntry {
+            site: site.into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        storage::save_session(&SessionEntry {
+            site: site.into(),
+            org: Some("keep-me".into()),
+            org_uuid: None,
+        })
+        .unwrap();
 
         let mut cfg = base_config();
         cfg.site = site.into();

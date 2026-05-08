@@ -14010,12 +14010,15 @@ async fn main_inner() -> anyhow::Result<()> {
                 let resolved =
                     resolve_login_scopes(scopes.as_deref(), cfg.org.as_deref(), is_read_only);
                 let resolved_port = resolve_callback_port(callback_port)?;
+                // Coerce empty `--org-uuid ""` to no-hint so callees treat
+                // it the same as omitting the flag, not as `dd_oid=`.
+                let org_uuid_hint = org_uuid.as_deref().filter(|s| !s.is_empty());
                 commands::auth::login(
                     &cfg,
                     resolved,
                     subdomain.as_deref(),
                     resolved_port,
-                    org_uuid.as_deref(),
+                    org_uuid_hint,
                 )
                 .await?
             }

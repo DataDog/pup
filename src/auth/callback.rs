@@ -15,13 +15,9 @@ pub struct CallbackResult {
     pub state: String,
     pub error: Option<String>,
     pub error_description: Option<String>,
-    /// Authoritative org UUID returned by the OAuth server. Present when the
-    /// authorize response carries `dd_oid` — true for Datadog OAuth today on
-    /// both the org-switcher and direct-consent paths.
+    /// Authoritative org UUID from the OAuth server (`dd_oid`).
     pub dd_oid: Option<String>,
-    /// Display name of the org the user actually authenticated against,
-    /// returned alongside `dd_oid` as `dd_org_name`. Used as the saved-token
-    /// label when the user-supplied org/UUID didn't match the actual one.
+    /// Display name of the consented org (`dd_org_name`).
     pub dd_org_name: Option<String>,
 }
 
@@ -172,10 +168,8 @@ async fn accept_loop(
         let error_description = params.get("error_description").cloned();
         let dd_oid = params.get("dd_oid").cloned();
         let dd_org_name = params.get("dd_org_name").cloned();
-        // `site` (full URL) and `domain` (bare host) are emitted by Datadog
-        // alongside the OAuth response so the success page can show users
-        // exactly which Datadog site they consented for. Both are optional —
-        // older issuers may omit them.
+        // `site` (full URL) and `domain` (bare host) are sent alongside the
+        // OAuth response so the success page can render a link back.
         let site = params.get("site").cloned();
         let domain = params.get("domain").cloned();
 
@@ -220,23 +214,9 @@ fn success_page(
     org_name: Option<&str>,
     org_uuid: Option<&str>,
 ) -> String {
-    // Show users exactly what they just consented for. The dd_oid hint can
-    // silently route to a different org than the user expected (logged-out
-    // login redirect, SSO override, switcher pick), and naming the OAuth
-    // provider explicitly ("Datadog") helps users with multiple OAuth flows
-    // open in their browser keep them straight.
-    //
-    // The user's email is intentionally not shown here — pup's success page
-    // is rendered before token exchange completes, so we don't yet have a
-    // bearer token to call userinfo. Surfacing identity is a follow-up,
-    // either by reading userinfo after exchange or by emitting it in pup's
-    // terminal output instead of the browser page.
-
-    // Only accept a same-origin https site URL as the link href —
-    // defense-in-depth against an unexpected scheme finding its way into the
-    // callback query string. The displayed text comes from `domain` (bare
-    // host) when available, so a missing or rejected `site` URL still
-    // renders "Datadog (datadoghq.com)" without an opaque link.
+    // Only accept https `site` as the link href; anything else falls back to
+    // plain text so a malformed or hostile callback can't inject a different
+    // scheme into the rendered HTML.
     let provider_html = match (site.filter(|s| s.starts_with("https://")), domain) {
         (Some(href), Some(host)) => format!(
             r#"Datadog (<a href="{}">{}</a>)"#,
@@ -256,10 +236,6 @@ fn success_page(
             )
         })
         .unwrap_or_default();
-    // Always render the UUID as fine-print mono text — visually demoted so it
-    // doesn't compete with the org name, but selectable and copy-pasteable
-    // when an operator wants to verify or store it. Parens nudge it further
-    // into "annotation" territory so it reads as supplementary info.
     let uuid_line = org_uuid
         .map(|u| format!(r#"<p class="uuid">({})</p>"#, html_escape(u)))
         .unwrap_or_default();
@@ -282,9 +258,6 @@ a{{color:#632ca6}}
     )
 }
 
-/// Minimal HTML-escape for the few attribute-free text contexts we render
-/// values into — org names from the OAuth issuer aren't expected to contain
-/// markup, but we don't want to take that on trust.
 #[cfg(not(target_arch = "wasm32"))]
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")

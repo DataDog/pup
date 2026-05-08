@@ -13,6 +13,17 @@ Technical architecture and design rationale for Pup CLI.
 4. **Concurrency** - Async/await with tokio runtime
 5. **Strong type system** - Catch errors at compile time with rich enums
 
+### Static Linking for Linux
+
+Linux release binaries are statically linked using musl libc:
+- **No glibc dependency** - Works across all Linux distributions, including older systems like Ubuntu 22.04 (Jammy) with glibc 2.35
+- **Fully self-contained** - No library compatibility issues
+- **Portable** - Same binary works on Debian, Ubuntu, Alpine, CentOS, etc.
+
+Build targets:
+- `x86_64-unknown-linux-musl` - Intel/AMD 64-bit processors
+- `aarch64-unknown-linux-musl` - ARM 64-bit processors
+
 **Tradeoffs:**
 - Steeper learning curve than Go
 - Longer compile times

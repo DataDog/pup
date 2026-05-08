@@ -172,13 +172,24 @@ async fn accept_loop(
         let error_description = params.get("error_description").cloned();
         let dd_oid = params.get("dd_oid").cloned();
         let dd_org_name = params.get("dd_org_name").cloned();
+        // `site` (full URL) and `domain` (bare host) are emitted by Datadog
+        // alongside the OAuth response so the success page can show users
+        // exactly which Datadog site they consented for. Both are optional —
+        // older issuers may omit them.
+        let site = params.get("site").cloned();
+        let domain = params.get("domain").cloned();
 
         let (status, body) = if error.is_some() {
             ("400 Bad Request", error_page(&error, &error_description))
         } else {
             (
                 "200 OK",
-                success_page(dd_org_name.as_deref(), dd_oid.as_deref()),
+                success_page(
+                    site.as_deref(),
+                    domain.as_deref(),
+                    dd_org_name.as_deref(),
+                    dd_oid.as_deref(),
+                ),
             )
         };
         let response = format!(
@@ -203,31 +214,71 @@ async fn accept_loop(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn success_page(org_name: Option<&str>, org_uuid: Option<&str>) -> String {
-    // The org name + UUID help users confirm they consented for the org they
-    // intended — important when the dd_oid hint silently routes through a
-    // different one (logged-out login redirect, SSO override, switcher pick).
-    let detail = match (org_name, org_uuid) {
-        (Some(name), Some(uuid)) => format!(
-            "<p>Authenticated as <strong>{}</strong> (<code>{}</code>).</p>",
-            html_escape(name),
-            html_escape(uuid),
+fn success_page(
+    site: Option<&str>,
+    domain: Option<&str>,
+    org_name: Option<&str>,
+    org_uuid: Option<&str>,
+) -> String {
+    // Show users exactly what they just consented for. The dd_oid hint can
+    // silently route to a different org than the user expected (logged-out
+    // login redirect, SSO override, switcher pick), and naming the OAuth
+    // provider explicitly ("Datadog") helps users with multiple OAuth flows
+    // open in their browser keep them straight.
+    //
+    // The user's email is intentionally not shown here — pup's success page
+    // is rendered before token exchange completes, so we don't yet have a
+    // bearer token to call userinfo. Surfacing identity is a follow-up,
+    // either by reading userinfo after exchange or by emitting it in pup's
+    // terminal output instead of the browser page.
+
+    // Only accept a same-origin https site URL as the link href —
+    // defense-in-depth against an unexpected scheme finding its way into the
+    // callback query string. The displayed text comes from `domain` (bare
+    // host) when available, so a missing or rejected `site` URL still
+    // renders "Datadog (datadoghq.com)" without an opaque link.
+    let provider_html = match (site.filter(|s| s.starts_with("https://")), domain) {
+        (Some(href), Some(host)) => format!(
+            r#"Datadog (<a href="{}">{}</a>)"#,
+            html_escape(href),
+            html_escape(host),
         ),
-        (Some(name), None) => format!(
-            "<p>Authenticated as <strong>{}</strong>.</p>",
-            html_escape(name),
-        ),
-        (None, Some(uuid)) => format!("<p>Org UUID: <code>{}</code>.</p>", html_escape(uuid)),
-        (None, None) => String::new(),
+        (Some(href), None) => format!(r#"<a href="{0}">{0}</a>"#, html_escape(href)),
+        (None, Some(host)) => format!("Datadog ({})", html_escape(host)),
+        (None, None) => "Datadog".to_string(),
     };
+
+    let org_line = org_name
+        .map(|n| {
+            format!(
+                r#"<p class="org">in org <strong>{}</strong></p>"#,
+                html_escape(n)
+            )
+        })
+        .unwrap_or_default();
+    // Always render the UUID as fine-print mono text — visually demoted so it
+    // doesn't compete with the org name, but selectable and copy-pasteable
+    // when an operator wants to verify or store it. Parens nudge it further
+    // into "annotation" territory so it reads as supplementary info.
+    let uuid_line = org_uuid
+        .map(|u| format!(r#"<p class="uuid">({})</p>"#, html_escape(u)))
+        .unwrap_or_default();
+
     format!(
         r#"<!DOCTYPE html>
 <html><head><title>Pup - Authentication Successful</title>
-<style>body{{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}}
-.card{{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);text-align:center;max-width:30rem}}
-h1{{color:#632ca6}}p{{color:#555}}code{{background:#f0f0f0;padding:.1em .35em;border-radius:3px;font-size:.9em}}</style></head>
+<style>body{{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;padding:1rem;background:#f5f5f5;box-sizing:border-box}}
+.card{{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);text-align:center;max-width:32rem}}
+h1{{color:#632ca6;margin:0 0 .5rem}}
+p{{color:#555;margin:.4rem 0}}
+.org{{margin-top:.2rem}}
+.uuid{{margin-top:.75rem;color:#999;font-size:.75em;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.01em;word-break:break-all}}
+code{{background:#f0f0f0;padding:.1em .35em;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}}
+a{{color:#632ca6}}
+.close{{margin-top:1.25rem;color:#777;font-size:.9em}}</style></head>
 <body><div class="card"><h1>Authentication Successful</h1>
-{detail}<p>You can close this window and return to pup.</p></div></body></html>"#
+<p>Connected to {provider_html}</p>
+{org_line}{uuid_line}<p class="close">You can close this window and return to pup.</p></div></body></html>"#
     )
 }
 
@@ -534,31 +585,72 @@ mod tests {
     #[test]
     fn success_page_renders_org_name_and_uuid() {
         let html = success_page(
-            Some("Datadog HQ"),
+            Some("https://app.tatooine.example"),
+            Some("tatooine.example"),
+            Some("Mos Eisley Cantina"),
             Some("00000000-1111-2222-3333-444444444444"),
         );
         assert!(html.contains("Authentication Successful"));
-        assert!(html.contains("Datadog HQ"));
+        assert!(html.contains("Connected to Datadog"));
+        assert!(html.contains(r#"href="https://app.tatooine.example""#));
+        assert!(html.contains("Mos Eisley Cantina"));
+        assert!(html.contains("in org"));
+        // UUID is rendered inline as fine-print so operators can read or copy
+        // it without any interaction.
+        assert!(html.contains(r#"<p class="uuid""#));
         assert!(html.contains("00000000-1111-2222-3333-444444444444"));
     }
 
     #[test]
     fn success_page_omits_detail_when_callback_lacks_metadata() {
-        // Older issuers (or unusual flows) may not emit dd_org_name/dd_oid; the
-        // page should still render cleanly without dangling labels.
-        let html = success_page(None, None);
+        // Older issuers (or unusual flows) may not emit dd_org_name/dd_oid/site/domain;
+        // the page should still render cleanly without dangling labels.
+        let html = success_page(None, None, None, None);
         assert!(html.contains("Authentication Successful"));
-        assert!(!html.contains("Authenticated as"));
-        assert!(!html.contains("Org UUID:"));
+        assert!(html.contains("Connected to Datadog"));
+        assert!(!html.contains("in org"), "no org name -> no 'in org' line");
+        assert!(
+            !html.contains(r#"<p class="uuid""#),
+            "no uuid -> no fine-print line"
+        );
     }
 
     #[test]
     fn success_page_escapes_org_name() {
         // Defense in depth: a hostile dd_org_name shouldn't be able to inject
         // script tags into the success page rendered by the local listener.
-        let html = success_page(Some("<script>alert(1)</script>"), None);
+        let html = success_page(None, None, Some("<script>alert(1)</script>"), None);
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
+
+    #[test]
+    fn success_page_rejects_non_https_site_as_link() {
+        // An unexpected `site` value (anything other than https://...) must not
+        // become a clickable link. The bare host falls back to plain text.
+        let html = success_page(
+            Some("javascript:alert(1)"),
+            Some("deathstar.tatooine.example"),
+            None,
+            None,
+        );
+        assert!(!html.contains("javascript:alert(1)"));
+        assert!(!html.contains("href=\"javascript"));
+        assert!(html.contains("deathstar.tatooine.example"));
+    }
+
+    #[test]
+    fn success_page_uses_vanity_subdomain_in_link() {
+        // SAML/SSO vanity subdomains route through their own host; the link
+        // should reflect whatever site the issuer reported, not always app.<site>.
+        let html = success_page(
+            Some("https://yavin4.tatooine.example"),
+            Some("tatooine.example"),
+            Some("Rebel Alliance"),
+            None,
+        );
+        assert!(html.contains(r#"href="https://yavin4.tatooine.example""#));
+        assert!(html.contains("Rebel Alliance"));
     }
 
     #[tokio::test]

@@ -14,6 +14,16 @@ where
     f(&mut **store)
 }
 
+/// Parse a token's space-delimited scope claim and return scopes sorted
+/// alphabetically. The OAuth issuer returns scopes in non-deterministic
+/// order; sorting makes `pup auth list`/`pup auth status` output stable
+/// and easier to scan or diff between invocations.
+fn sorted_scopes(scope_claim: &str) -> Vec<&str> {
+    let mut scopes: Vec<&str> = scope_claim.split_whitespace().collect();
+    scopes.sort();
+    scopes
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn login(
     cfg: &Config,
@@ -48,10 +58,12 @@ pub async fn login(
             scopes.len()
         );
     } else {
+        let mut display_scopes = scopes.clone();
+        display_scopes.sort();
         eprintln!(
             "🔑 Requesting {} scope(s): {}",
             scopes.len(),
-            scopes.join(", ")
+            display_scopes.join(", ")
         );
     }
 
@@ -237,11 +249,7 @@ pub fn status(cfg: &Config) -> Result<()> {
                     .map(|dt| dt.with_timezone(&chrono::Local).to_rfc3339())
                     .unwrap_or_default();
 
-                let scopes: Vec<&str> = tokens
-                    .scope
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .collect();
+                let scopes = sorted_scopes(&tokens.scope);
 
                 let json = serde_json::json!({
                     "authenticated": true,
@@ -361,16 +369,11 @@ pub fn list(cfg: &Config) -> Result<()> {
                     let expires_at = chrono::DateTime::from_timestamp(expires_at_ts, 0)
                         .map(|dt| dt.with_timezone(&chrono::Local).to_rfc3339())
                         .unwrap_or_default();
-                    let scopes: Vec<&str> = t
-                        .scope
-                        .split_whitespace()
-                        .filter(|s| !s.is_empty())
-                        .collect();
                     serde_json::json!({
                         "expires_at": expires_at,
                         "has_refresh": !t.refresh_token.is_empty(),
                         "org": s.org,
-                        "scopes": scopes,
+                        "scopes": sorted_scopes(&t.scope),
                         "site": s.site,
                         "status": status,
                     })
@@ -440,6 +443,22 @@ mod tests {
             agent_mode: false,
             read_only: false,
         }
+    }
+
+    // ------------------------------------------------------------------
+    // sorted_scopes — pure helper, no env / storage state.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn sorted_scopes_alphabetises_the_claim() {
+        let got = sorted_scopes("monitors_read apm_read dashboards_read");
+        assert_eq!(got, vec!["apm_read", "dashboards_read", "monitors_read"]);
+    }
+
+    #[test]
+    fn sorted_scopes_handles_empty_and_whitespace_input() {
+        assert!(sorted_scopes("").is_empty());
+        assert!(sorted_scopes("   ").is_empty());
     }
 
     // ------------------------------------------------------------------

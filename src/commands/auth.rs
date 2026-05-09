@@ -1,7 +1,43 @@
 use anyhow::{bail, Result};
+use serde::Serialize;
 
 use crate::auth::storage;
 use crate::config::Config;
+use crate::config::OutputFormat;
+
+#[derive(Debug, Serialize)]
+pub(crate) struct AuthScopesContract {
+    pub schema_version: u8,
+    pub scopes: Vec<String>,
+    pub source: &'static str,
+}
+
+pub(crate) fn default_login_scopes() -> Vec<String> {
+    crate::auth::types::default_scopes()
+        .into_iter()
+        .map(String::from)
+        .collect()
+}
+
+pub(crate) fn default_login_scope_contract() -> AuthScopesContract {
+    AuthScopesContract {
+        schema_version: 1,
+        scopes: default_login_scopes(),
+        source: "pup auth login",
+    }
+}
+
+pub(crate) fn scopes(output_format: &OutputFormat) -> Result<()> {
+    if *output_format != OutputFormat::Json {
+        bail!("pup auth scopes only supports --output=json");
+    }
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&default_login_scope_contract())?
+    );
+    Ok(())
+}
 
 /// Helper to run a closure with the storage lock held (non-async to avoid holding lock across await).
 fn with_storage<F, R>(f: F) -> Result<R>

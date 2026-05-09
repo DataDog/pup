@@ -9263,6 +9263,8 @@ enum AuthActions {
     Refresh,
     /// List all stored org sessions
     List,
+    /// Print the default OAuth scopes requested by `pup auth login`
+    Scopes,
     /// Test connection and credentials
     Test,
 }
@@ -10027,7 +10029,7 @@ fn resolve_login_scopes(
     org: Option<&str>,
     read_only: bool,
 ) -> Vec<String> {
-    use crate::auth::types::{all_known_scopes, default_scopes, read_only_scopes};
+    use crate::auth::types::{all_known_scopes, read_only_scopes};
 
     if let Some(raw) = cli_scopes {
         // User explicitly specified scopes — validate against known list, warn on unknowns
@@ -10063,7 +10065,7 @@ fn resolve_login_scopes(
     if read_only {
         read_only_scopes().into_iter().map(String::from).collect()
     } else {
-        default_scopes().into_iter().map(String::from).collect()
+        crate::commands::auth::default_login_scopes()
     }
 }
 
@@ -10077,6 +10079,33 @@ fn resolve_login_scopes(
         .into_iter()
         .map(String::from)
         .collect()
+}
+
+#[cfg(test)]
+mod resolve_login_scopes_tests {
+    use super::resolve_login_scopes;
+    use crate::test_utils::ENV_LOCK;
+
+    #[test]
+    fn default_login_scopes_match_auth_scopes_contract() {
+        let _g = ENV_LOCK.blocking_lock();
+        let config_dir = std::env::temp_dir().join(format!(
+            "pup-default-login-scopes-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &config_dir);
+
+        let contract = crate::commands::auth::default_login_scope_contract();
+        let login_scopes = resolve_login_scopes(None, None, false);
+
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(login_scopes, contract.scopes);
+    }
 }
 
 /// Resolve the OAuth callback port. CLI flag wins over `PUP_OAUTH_CALLBACK_PORT`;
@@ -10372,6 +10401,13 @@ async fn main_inner() -> anyhow::Result<()> {
                 commands::docs::ask(&question, &mut std::io::stdout()).await?;
             }
         }
+        return Ok(());
+    }
+    if let Commands::Auth {
+        action: AuthActions::Scopes,
+    } = &cli.command
+    {
+        commands::auth::scopes(&cli.output.parse()?)?;
         return Ok(());
     }
 
@@ -14033,6 +14069,7 @@ async fn main_inner() -> anyhow::Result<()> {
             AuthActions::Token => commands::auth::token(&cfg)?,
             AuthActions::Refresh => commands::auth::refresh(&cfg).await?,
             AuthActions::List => commands::auth::list(&cfg)?,
+            AuthActions::Scopes => commands::auth::scopes(&cfg.output_format)?,
             AuthActions::Test => commands::test::run(&cfg)?,
         },
         // --- Workflows ---

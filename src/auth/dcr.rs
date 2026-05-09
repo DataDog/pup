@@ -203,7 +203,13 @@ impl DcrClient {
         subdomain: Option<&str>,
         org_uuid: Option<&str>,
     ) -> String {
-        let scope = scopes.join(" ");
+        // Sort scopes so the printed authorize URL has a deterministic
+        // `scope=` parameter order — easier to diff and grep across runs.
+        // OAuth treats `scope` as an unordered set, so this is a no-op for
+        // the issuer.
+        let mut sorted_scopes: Vec<&str> = scopes.to_vec();
+        sorted_scopes.sort();
+        let scope = sorted_scopes.join(" ");
         let mut serializer = url::form_urlencoded::Serializer::new(String::new());
         serializer
             .append_pair("response_type", "code")

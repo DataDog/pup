@@ -407,19 +407,63 @@ pub fn status(cfg: &Config) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&json).unwrap());
             }
             None => {
-                let org_label = org_suffix(org);
-                eprintln!("❌ Not authenticated for site: {site}{org_label}");
-                let json = serde_json::json!({
-                    "authenticated": false,
-                    "org": org,
-                    "site": site,
-                    "status": "no token",
-                });
+                let (msg, json) = build_non_oauth_status(cfg);
+                eprintln!("{msg}");
                 println!("{}", serde_json::to_string_pretty(&json).unwrap());
             }
         }
         Ok(())
     })
+}
+
+/// Build the human-readable line and JSON payload for `auth status` when no
+/// OAuth2 tokens are stored. API-key and bearer-token credentials are
+/// surfaced as authenticated so agents that wrap pup don't conclude auth is
+/// broken when API keys are working fine. Auth-type precedence is delegated
+/// to `client::get_auth_type` so this command can never disagree with the
+/// auth headers the client actually sends.
+fn build_non_oauth_status(cfg: &Config) -> (String, serde_json::Value) {
+    use crate::client::{get_auth_type, AuthType};
+
+    let site = &cfg.site;
+    let org = cfg.org.as_deref();
+    let org_label = org_suffix(org);
+
+    match get_auth_type(cfg) {
+        AuthType::OAuth => {
+            let msg = format!("✅ Authenticated for site: {site}{org_label} (bearer token)");
+            let json = serde_json::json!({
+                "authenticated": true,
+                "auth_method": "bearer_token",
+                "org": org,
+                "site": site,
+                "status": "valid",
+            });
+            (msg, json)
+        }
+        AuthType::ApiKeys => {
+            let msg =
+                format!("✅ Authenticated for site: {site}{org_label} (DD_API_KEY + DD_APP_KEY)");
+            let json = serde_json::json!({
+                "authenticated": true,
+                "auth_method": "api_keys",
+                "org": org,
+                "site": site,
+                "status": "valid",
+            });
+            (msg, json)
+        }
+        AuthType::None => {
+            let msg = format!("❌ Not authenticated for site: {site}{org_label}");
+            let json = serde_json::json!({
+                "authenticated": false,
+                "org": org,
+                "site": site,
+                "status": "no token",
+            });
+            (msg, json)
+        }
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -719,6 +763,130 @@ mod tests {
         std::env::remove_var("PUP_CONFIG_DIR");
         // status() always returns Ok; it reports authentication state
         // via printed JSON, not via the Result.
+        assert!(result.is_ok());
+    }
+
+    // ------------------------------------------------------------------
+    // build_non_oauth_status — pure helper that drives the JSON payload
+    // for the no-OAuth-tokens branch. Tested directly so the API-key and
+    // bearer-token paths are covered without touching storage.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_build_non_oauth_status_unauthenticated() {
+        let cfg = base_config();
+        let (msg, json) = build_non_oauth_status(&cfg);
+
+        assert!(msg.contains("❌ Not authenticated"));
+        assert!(msg.contains("datadoghq.com"));
+        assert_eq!(json["authenticated"], serde_json::json!(false));
+        assert_eq!(json["status"], serde_json::json!("no token"));
+        assert!(json.get("auth_method").is_none());
+    }
+
+    #[test]
+    fn test_build_non_oauth_status_with_api_keys() {
+        let mut cfg = base_config();
+        cfg.api_key = Some("api".into());
+        cfg.app_key = Some("app".into());
+        let (msg, json) = build_non_oauth_status(&cfg);
+
+        assert!(msg.contains("✅ Authenticated"));
+        assert!(msg.contains("DD_API_KEY"));
+        assert_eq!(json["authenticated"], serde_json::json!(true));
+        assert_eq!(json["auth_method"], serde_json::json!("api_keys"));
+        assert_eq!(json["status"], serde_json::json!("valid"));
+    }
+
+    #[test]
+    fn test_build_non_oauth_status_with_bearer_token() {
+        let mut cfg = base_config();
+        cfg.access_token = Some("bearer".into());
+        let (msg, json) = build_non_oauth_status(&cfg);
+
+        assert!(msg.contains("✅ Authenticated"));
+        assert!(msg.contains("bearer token"));
+        assert_eq!(json["authenticated"], serde_json::json!(true));
+        assert_eq!(json["auth_method"], serde_json::json!("bearer_token"));
+        assert_eq!(json["status"], serde_json::json!("valid"));
+    }
+
+    #[test]
+    fn test_build_non_oauth_status_bearer_takes_precedence_over_api_keys() {
+        // When DD_ACCESS_TOKEN and DD_API_KEY/DD_APP_KEY are both set, the
+        // client uses the bearer token (see client::get_auth_type). Status
+        // should reflect the same precedence so the reported auth method
+        // matches what's actually being sent on the wire.
+        let mut cfg = base_config();
+        cfg.access_token = Some("bearer".into());
+        cfg.api_key = Some("api".into());
+        cfg.app_key = Some("app".into());
+        let (_msg, json) = build_non_oauth_status(&cfg);
+
+        assert_eq!(json["auth_method"], serde_json::json!("bearer_token"));
+    }
+
+    #[test]
+    fn test_build_non_oauth_status_partial_api_keys_treated_as_unauth() {
+        // has_api_keys() requires BOTH keys. A lone DD_API_KEY without
+        // DD_APP_KEY is not usable — fall through to the unauth branch
+        // rather than misreporting as authenticated.
+        let mut cfg = base_config();
+        cfg.api_key = Some("api".into());
+        let (msg, json) = build_non_oauth_status(&cfg);
+
+        assert!(msg.contains("❌ Not authenticated"));
+        assert_eq!(json["authenticated"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn test_build_non_oauth_status_includes_org_label() {
+        let mut cfg = base_config();
+        cfg.api_key = Some("api".into());
+        cfg.app_key = Some("app".into());
+        cfg.org = Some("prod-child".into());
+        let (msg, json) = build_non_oauth_status(&cfg);
+
+        assert!(msg.contains("(org: prod-child)"));
+        assert_eq!(json["org"], serde_json::json!("prod-child"));
+    }
+
+    #[tokio::test]
+    async fn test_status_returns_ok_with_api_keys_set() {
+        // Wiring test: when storage has no OAuth tokens but DD_API_KEY +
+        // DD_APP_KEY are configured, status() must consume the helper's
+        // tuple correctly (msg → stderr, json → stdout) and return Ok.
+        // Catches regressions in the `None =>` arm of status().
+        let _lock = crate::test_support::lock_env().await;
+        let tmp = TempDir::new("status_apikeys");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        let mut cfg = base_config();
+        cfg.site = "apikeys-site.example.invalid".into();
+        cfg.api_key = Some("api".into());
+        cfg.app_key = Some("app".into());
+        let result = status(&cfg);
+
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_status_returns_ok_with_bearer_token_set() {
+        let _lock = crate::test_support::lock_env().await;
+        let tmp = TempDir::new("status_bearer");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        let mut cfg = base_config();
+        cfg.site = "bearer-site.example.invalid".into();
+        cfg.access_token = Some("bearer".into());
+        let result = status(&cfg);
+
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
         assert!(result.is_ok());
     }
 

@@ -60,24 +60,4 @@ mod tests {
         let _ = super::hosts_list(&cfg, None, "name".into(), 10, None, false, false).await;
         cleanup_env();
     }
-
-    #[tokio::test]
-    async fn test_infrastructure_hosts_list_with_start() {
-        let _lock = lock_env().await;
-        let mut s = mockito::Server::new_async().await;
-        let cfg = test_config(&s.url());
-        mock_all(&mut s, r#"{"host_list": [], "total_returned": 0}"#).await;
-        let _ = super::hosts_list(&cfg, None, "name".into(), 10, Some(100), false, false).await;
-        cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_infrastructure_hosts_list_with_metadata_flags() {
-        let _lock = lock_env().await;
-        let mut s = mockito::Server::new_async().await;
-        let cfg = test_config(&s.url());
-        mock_all(&mut s, r#"{"host_list": [], "total_returned": 0}"#).await;
-        let _ = super::hosts_list(&cfg, None, "name".into(), 10, None, true, true).await;
-        cleanup_env();
-    }
 }

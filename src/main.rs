@@ -4350,6 +4350,12 @@ enum InfraHostActions {
         sort: String,
         #[arg(long, default_value_t = 100, help = "Maximum hosts")]
         count: i64,
+        #[arg(long, help = "Starting offset for paginated results")]
+        start: Option<i64>,
+        #[arg(long, help = "Include data for muted hosts")]
+        include_muted_hosts_data: bool,
+        #[arg(long, help = "Include host metadata (agent version, cpu, etc.)")]
+        include_hosts_metadata: bool,
     },
     /// Get host details
     Get { hostname: String },
@@ -11263,8 +11269,20 @@ async fn main_inner() -> anyhow::Result<()> {
                         filter,
                         sort,
                         count,
+                        start,
+                        include_muted_hosts_data,
+                        include_hosts_metadata,
                     } => {
-                        commands::infrastructure::hosts_list(&cfg, filter, sort, count).await?;
+                        commands::infrastructure::hosts_list(
+                            &cfg,
+                            filter,
+                            sort,
+                            count,
+                            start,
+                            include_muted_hosts_data,
+                            include_hosts_metadata,
+                        )
+                        .await?;
                     }
                     InfraHostActions::Get { hostname } => {
                         commands::infrastructure::hosts_get(&cfg, &hostname).await?;

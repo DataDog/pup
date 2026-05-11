@@ -9,13 +9,21 @@ pub async fn hosts_list(
     filter: Option<String>,
     sort: String,
     count: i64,
+    start: Option<i64>,
+    include_muted_hosts_data: bool,
+    include_hosts_metadata: bool,
 ) -> Result<()> {
     let api = crate::make_api!(HostsAPI, cfg);
     let mut params = ListHostsOptionalParams::default()
         .count(count)
-        .sort_field(sort);
+        .sort_field(sort)
+        .include_muted_hosts_data(include_muted_hosts_data)
+        .include_hosts_metadata(include_hosts_metadata);
     if let Some(f) = filter {
         params = params.filter(f);
+    }
+    if let Some(s) = start {
+        params = params.start(s);
     }
     let resp = api
         .list_hosts(params)
@@ -49,7 +57,7 @@ mod tests {
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"host_list": [], "total_returned": 0}"#).await;
-        let _ = super::hosts_list(&cfg, None, "name".into(), 10).await;
+        let _ = super::hosts_list(&cfg, None, "name".into(), 10, None, false, false).await;
         cleanup_env();
     }
 }

@@ -2092,35 +2092,15 @@ enum Commands {
         #[command(subcommand)]
         action: ProductAnalyticsActions,
     },
-    /// Query and download continuous profiler data
+    /// Datadog Continuous Profiler (not supported in pup yet)
     ///
-    /// Search, analyze, and download data from the Datadog Continuous Profiler.
+    /// Profiling is not supported in pup yet. Use the Datadog MCP server instead:
+    /// https://docs.datadoghq.com/bits_ai/mcp_server
     ///
-    /// CAPABILITIES:
-    ///   • List profiles with flexible query + time windows
-    ///   • Get profile metadata (info) and automatic analysis
-    ///   • Run analytics aggregations (groupBy / compute)
-    ///   • Enumerate interactive field values
-    ///   • Aggregate flamegraph, breakdown, timeline, and call graph data as JSON
-    ///   • Save favorite queries
-    ///   • Download raw profile archives
-    ///
-    /// EXAMPLES:
-    ///   pup profiling list --query="service:web env:prod" --from=1h
-    ///   pup profiling info <profile-id>
-    ///   pup profiling analytics --query="service:web" --group-by=service --compute=count
-    ///   pup profiling aggregate --query="service:web" --profile-type=cpu-time --from=1h
-    ///   pup profiling download <profile-id> -o profile.zip
-    ///
-    /// AUTHENTICATION:
-    ///   Requires DD_API_KEY + DD_APP_KEY. OAuth2 bearer tokens are not
-    ///   supported for Continuous Profiler endpoints — no OAuth scope is
-    ///   declared for them.
+    /// Enable profiling in the MCP toolset with:
+    /// https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,profiling
     #[command(verbatim_doc_comment)]
-    Profiling {
-        #[command(subcommand)]
-        action: ProfilingActions,
-    },
+    Profiling,
     /// Manage reference tables for log enrichment
     ///
     /// Reference tables allow you to enrich logs with additional data from
@@ -8895,163 +8875,6 @@ enum ProductAnalyticsEventActions {
     },
 }
 
-// ---- Profiling ----
-#[derive(Subcommand)]
-enum ProfilingActions {
-    /// Aggregate flamegraph across matching profiles
-    Aggregate {
-        #[arg(long, default_value = "*", help = "Profile search query")]
-        query: String,
-        #[arg(
-            long,
-            default_value = "cpu-time",
-            help = "Profile type (e.g. cpu-time, wall-time)"
-        )]
-        profile_type: String,
-        #[arg(long, default_value = "15m", help = "Start time")]
-        from: String,
-        #[arg(long, default_value = "now", help = "End time")]
-        to: String,
-        #[arg(long, default_value = "100", help = "Maximum profiles to aggregate")]
-        limit: u32,
-        #[arg(long, default_value = "sum", help = "Aggregation function: sum or avg")]
-        aggregation_function: String,
-    },
-    /// Get automated analysis for a profile
-    Analysis {
-        #[arg(help = "Profile ID")]
-        profile_id: String,
-        #[arg(long, help = "Event ID scope (optional)")]
-        event_id: Option<String>,
-    },
-    /// Run profiling analytics with groupBy/compute
-    Analytics {
-        #[arg(long, default_value = "*", help = "Profile search query")]
-        query: String,
-        #[arg(long, default_value = "15m", help = "Start time")]
-        from: String,
-        #[arg(long, default_value = "now", help = "End time")]
-        to: String,
-        #[arg(long, help = "Comma-separated group-by fields (e.g. service,env)")]
-        group_by: Option<String>,
-        #[arg(
-            long,
-            help = "Comma-separated compute expressions (e.g. count,sum:duration)"
-        )]
-        compute: Option<String>,
-        #[arg(long, default_value = "100", help = "Maximum rows to return")]
-        limit: u32,
-    },
-    /// Compute a breakdown for a single profile (JSON output)
-    Breakdown {
-        #[arg(help = "Profile ID")]
-        profile_id: String,
-        #[arg(
-            long,
-            help = "Optional search query (must be used with --from and --to)"
-        )]
-        query: Option<String>,
-        #[arg(
-            long,
-            help = "Optional start time (must be used with --query and --to)"
-        )]
-        from: Option<String>,
-        #[arg(
-            long,
-            help = "Optional end time (must be used with --query and --from)"
-        )]
-        to: Option<String>,
-    },
-    /// Compute a call graph (JSON output)
-    Callgraph {
-        #[arg(long, default_value = "*", help = "Profile search query")]
-        query: String,
-        #[arg(long, default_value = "cpu-time", help = "Profile type")]
-        profile_type: String,
-        #[arg(long, default_value = "15m", help = "Start time")]
-        from: String,
-        #[arg(long, default_value = "now", help = "End time")]
-        to: String,
-        #[arg(long, default_value = "100", help = "Node limit")]
-        limit: u32,
-    },
-    /// Download a profile archive
-    Download {
-        #[arg(help = "Profile event ID (the `id` field from `pup profiling list`)")]
-        event_id: String,
-        #[arg(short = 'o', long, help = "Output path (writes to stdout if omitted)")]
-        output: Option<String>,
-    },
-    /// Enumerate values for a field
-    Fields {
-        #[arg(long, help = "Field name (required)")]
-        field: String,
-        #[arg(long, default_value = "*", help = "Profile search query")]
-        query: String,
-        #[arg(long, default_value = "15m", help = "Start time")]
-        from: String,
-        #[arg(long, default_value = "now", help = "End time")]
-        to: String,
-        #[arg(long, default_value = "100", help = "Maximum values to return")]
-        limit: u32,
-    },
-    /// Get profile metadata
-    Info {
-        #[arg(help = "Profile ID")]
-        profile_id: String,
-        #[arg(long, help = "Event ID scope (optional)")]
-        event_id: Option<String>,
-    },
-    /// List profiles matching a query
-    List {
-        #[arg(long, default_value = "*", help = "Profile search query")]
-        query: String,
-        #[arg(
-            long,
-            default_value = "15m",
-            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
-        )]
-        from: String,
-        #[arg(
-            long,
-            default_value = "now",
-            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
-        )]
-        to: String,
-        #[arg(long, help = "Field to sort by (e.g. 'start', 'duration')")]
-        sort_field: Option<String>,
-        #[arg(long, default_value = "desc", help = "Sort order: asc or desc")]
-        sort_order: String,
-        #[arg(long, default_value = "100", help = "Maximum profiles to return")]
-        limit: u32,
-    },
-    /// Save a query as a favorite
-    #[command(name = "save-favorite")]
-    SaveFavorite {
-        #[arg(long, help = "Query ID (required)")]
-        query_id: String,
-        #[arg(long, help = "Profile search query")]
-        query: String,
-        #[arg(long, default_value = "15m", help = "Start time")]
-        from: String,
-        #[arg(long, default_value = "now", help = "End time")]
-        to: String,
-        #[arg(
-            long,
-            default_value = "100",
-            help = "Default limit for the saved query"
-        )]
-        limit: u32,
-    },
-    /// Fetch the timeline for a single profile (JSON output)
-    Timeline {
-        #[arg(help = "Profile ID")]
-        profile_id: String,
-        #[arg(long, help = "Profile event ID (required)")]
-        event_id: String,
-    },
-}
-
 // ---- Static Analysis ----
 #[derive(Subcommand)]
 enum StaticAnalysisActions {
@@ -14333,109 +14156,10 @@ async fn main_inner() -> anyhow::Result<()> {
             }
         }
         // --- Profiling ---
-        Commands::Profiling { action } => {
-            cfg.validate_auth()?;
-            match action {
-                ProfilingActions::Aggregate {
-                    query,
-                    profile_type,
-                    from,
-                    to,
-                    limit,
-                    aggregation_function,
-                } => {
-                    commands::profiling::aggregate(
-                        &cfg,
-                        query,
-                        profile_type,
-                        from,
-                        to,
-                        limit,
-                        aggregation_function,
-                    )
-                    .await?;
-                }
-                ProfilingActions::Analysis {
-                    profile_id,
-                    event_id,
-                } => {
-                    commands::profiling::analysis(&cfg, &profile_id, event_id).await?;
-                }
-                ProfilingActions::Analytics {
-                    query,
-                    from,
-                    to,
-                    group_by,
-                    compute,
-                    limit,
-                } => {
-                    commands::profiling::analytics(&cfg, query, from, to, group_by, compute, limit)
-                        .await?;
-                }
-                ProfilingActions::Breakdown {
-                    profile_id,
-                    query,
-                    from,
-                    to,
-                } => {
-                    commands::profiling::breakdown(&cfg, &profile_id, query, from, to).await?;
-                }
-                ProfilingActions::Callgraph {
-                    query,
-                    profile_type,
-                    from,
-                    to,
-                    limit,
-                } => {
-                    commands::profiling::callgraph(&cfg, query, profile_type, from, to, limit)
-                        .await?;
-                }
-                ProfilingActions::Download { event_id, output } => {
-                    commands::profiling::download(&cfg, &event_id, output).await?;
-                }
-                ProfilingActions::Fields {
-                    field,
-                    query,
-                    from,
-                    to,
-                    limit,
-                } => {
-                    commands::profiling::fields(&cfg, field, query, from, to, limit).await?;
-                }
-                ProfilingActions::Info {
-                    profile_id,
-                    event_id,
-                } => {
-                    commands::profiling::info(&cfg, &profile_id, event_id).await?;
-                }
-                ProfilingActions::List {
-                    query,
-                    from,
-                    to,
-                    sort_field,
-                    sort_order,
-                    limit,
-                } => {
-                    commands::profiling::list(&cfg, query, from, to, sort_field, sort_order, limit)
-                        .await?;
-                }
-                ProfilingActions::SaveFavorite {
-                    query_id,
-                    query,
-                    from,
-                    to,
-                    limit,
-                } => {
-                    commands::profiling::save_favorite(&cfg, query, from, to, query_id, limit)
-                        .await?;
-                }
-                ProfilingActions::Timeline {
-                    profile_id,
-                    event_id,
-                } => {
-                    commands::profiling::timeline(&cfg, &profile_id, &event_id).await?;
-                }
-            }
+        Commands::Profiling => {
+            println!(
+                "Profiling is not supported in pup yet. Use the Datadog MCP server instead:\n\nDocs: https://docs.datadoghq.com/bits_ai/mcp_server\nEnable profiling toolset: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,profiling"
+            );
         }
         // --- Reference Tables ---
         Commands::ReferenceTables { action } => {

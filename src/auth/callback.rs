@@ -187,7 +187,7 @@ async fn accept_loop(
             )
         };
         let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         );
         let _ = stream.write_all(response.as_bytes()).await;
@@ -242,7 +242,7 @@ fn success_page(
 
     format!(
         r#"<!DOCTYPE html>
-<html><head><title>Pup - Authentication Successful</title>
+<html><head><meta charset="utf-8"><title>Pup - Authentication Successful</title>
 <style>body{{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;padding:1rem;background:#f5f5f5;box-sizing:border-box}}
 .card{{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);text-align:center;max-width:32rem}}
 h1{{color:#632ca6;margin:0 0 .5rem}}
@@ -272,7 +272,7 @@ fn error_page(error: &Option<String>, desc: &Option<String>) -> String {
     let desc = desc.as_deref().unwrap_or("An unknown error occurred.");
     format!(
         r#"<!DOCTYPE html>
-<html><head><title>Pup - Authentication Failed</title>
+<html><head><meta charset="utf-8"><title>Pup - Authentication Failed</title>
 <style>body{{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}}
 .card{{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);text-align:center}}
 h1{{color:#c00}}p{{color:#555}}</style></head>

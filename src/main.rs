@@ -5624,10 +5624,19 @@ enum NotebookActions {
         #[arg(long, help = "JSON file with notebook data (required)")]
         file: String,
     },
-    /// Update a notebook
+    /// Update a notebook (full replace)
     Update {
         notebook_id: i64,
         #[arg(long, help = "JSON file with notebook data (required)")]
+        file: String,
+    },
+    /// Append cells to an existing notebook (reads current notebook first, then appends)
+    Edit {
+        notebook_id: i64,
+        #[arg(
+            long,
+            help = "JSON file containing an array of cell objects to append (required)"
+        )]
         file: String,
     },
     /// Delete a notebook
@@ -11868,6 +11877,9 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 NotebookActions::Update { notebook_id, file } => {
                     commands::notebooks::update(&cfg, notebook_id, &file).await?;
+                }
+                NotebookActions::Edit { notebook_id, file } => {
+                    commands::notebooks::edit(&cfg, notebook_id, &file).await?;
                 }
                 NotebookActions::Delete { notebook_id } => {
                     commands::notebooks::delete(&cfg, notebook_id).await?;

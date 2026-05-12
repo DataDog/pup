@@ -363,17 +363,6 @@ pub async fn evals_get_evaluator(cfg: &Config, eval_name: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
-pub async fn evals_get_config(cfg: &Config, eval_name: &str) -> Result<()> {
-    let resp = client::raw_post(
-        cfg,
-        "/api/unstable/llm-obs-mcp/v1/eval/config",
-        serde_json::json!({ "eval_name": eval_name }),
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("failed to get eval config: {e:?}"))?;
-    formatter::output(cfg, &resp)
-}
-
 pub async fn evals_get_aggregate_stats(
     cfg: &Config,
     eval_name: &str,
@@ -2400,52 +2389,6 @@ mod tests {
         let result = super::evals_get_evaluator(&cfg, "missing").await;
         assert!(result.is_err(), "should fail on 404");
         assert!(result.unwrap_err().to_string().contains("404"));
-        cleanup_env();
-    }
-
-    // ---- evals_get_config ----
-
-    #[tokio::test]
-    async fn test_llm_obs_evals_get_config() {
-        let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
-        let cfg = test_config(&server.url());
-
-        let body = r#"{"config":{"eval_name":"toxicity","prompt_template":"Rate: {{input}}","output_schema":{"type":"score"}}}"#;
-        let _mock = mock_post(
-            &mut server,
-            "/api/unstable/llm-obs-mcp/v1/eval/config",
-            200,
-            body,
-        )
-        .await;
-
-        let result = super::evals_get_config(&cfg, "toxicity").await;
-        assert!(
-            result.is_ok(),
-            "evals_get_config failed: {:?}",
-            result.err()
-        );
-        cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_llm_obs_evals_get_config_500() {
-        let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
-        let cfg = test_config(&server.url());
-
-        let _mock = mock_post(
-            &mut server,
-            "/api/unstable/llm-obs-mcp/v1/eval/config",
-            500,
-            r#"{"errors":["internal server error"]}"#,
-        )
-        .await;
-
-        let result = super::evals_get_config(&cfg, "toxicity").await;
-        assert!(result.is_err(), "should fail on 500");
-        assert!(result.unwrap_err().to_string().contains("500"));
         cleanup_env();
     }
 

@@ -8695,12 +8695,6 @@ enum LlmObsEvalsActions {
         #[arg(help = "Evaluator name (required)")]
         eval_name: String,
     },
-    /// Get eval prompt template, assessment criteria, and output schema
-    #[command(name = "get-config")]
-    GetConfig {
-        #[arg(help = "Evaluator name (required)")]
-        eval_name: String,
-    },
     /// Get pass/fail rates and score distributions for an evaluator over a time window
     #[command(name = "get-aggregate-stats")]
     GetAggregateStats {
@@ -14564,9 +14558,6 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     LlmObsEvalsActions::GetEvaluator { eval_name } => {
                         commands::llm_obs::evals_get_evaluator(&cfg, &eval_name).await?;
-                    }
-                    LlmObsEvalsActions::GetConfig { eval_name } => {
-                        commands::llm_obs::evals_get_config(&cfg, &eval_name).await?;
                     }
                     LlmObsEvalsActions::GetAggregateStats {
                         eval_name,

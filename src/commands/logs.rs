@@ -676,6 +676,8 @@ mod tests {
             api_key: None,
             app_key: None,
             access_token: Some("token".into()),
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,

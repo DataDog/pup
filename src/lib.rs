@@ -39,6 +39,11 @@ pub struct PupClientOptions {
     pub api_key: Option<String>,
     #[wasm_bindgen(getter_with_clone)]
     pub app_key: Option<String>,
+    #[wasm_bindgen(getter_with_clone)]
+    pub pat: Option<String>,
+    /// Service Access Token. Wire-identical to `pat`; setting either works.
+    #[wasm_bindgen(getter_with_clone)]
+    pub sat: Option<String>,
 }
 
 #[cfg(feature = "browser")]
@@ -51,6 +56,8 @@ impl PupClientOptions {
             access_token: None,
             api_key: None,
             app_key: None,
+            pat: None,
+            sat: None,
         }
     }
 }
@@ -71,8 +78,20 @@ impl PupClient {
     /// Create a new PupClient from options.
     #[wasm_bindgen(constructor)]
     pub fn new(opts: PupClientOptions) -> Result<PupClient, JsError> {
-        let cfg =
-            config::Config::from_params(opts.site, opts.access_token, opts.api_key, opts.app_key);
+        // PAT wins over SAT if both supplied -- same precedence as env vars.
+        let (pat, pat_kind) = match (opts.pat, opts.sat) {
+            (Some(v), _) => (Some(v), Some(config::PatKind::Personal)),
+            (None, Some(v)) => (Some(v), Some(config::PatKind::Service)),
+            (None, None) => (None, None),
+        };
+        let cfg = config::Config::from_params(
+            opts.site,
+            opts.access_token,
+            opts.api_key,
+            opts.app_key,
+            pat,
+            pat_kind,
+        );
         cfg.validate_auth()
             .map_err(|e| JsError::new(&e.to_string()))?;
         Ok(PupClient { cfg })

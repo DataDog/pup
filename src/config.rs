@@ -10,6 +10,18 @@ pub struct Config {
     pub api_key: Option<String>,
     pub app_key: Option<String>,
     pub access_token: Option<String>,
+    /// Datadog Access Token -- either a Personal Access Token (DD_PAT, tied
+    /// to a user) or a Service Access Token (DD_SAT, tied to a service
+    /// account). Both share the same wire protocol: sent as
+    /// `Authorization: Bearer <token>` on most endpoints, and as
+    /// `DD-APPLICATION-KEY: <token>` on the OAuth-excluded endpoints
+    /// (api_keys, application_keys, ddsql-editor) using Datadog's migration
+    /// form. Tracked separately from `access_token` so we can route correctly
+    /// and surface the auth type in `pup auth status`.
+    pub pat: Option<String>,
+    /// Which env var supplied `pat`, for status display. `None` when no PAT
+    /// or SAT is configured.
+    pub pat_kind: Option<PatKind>,
     pub site: String,
     /// True if `site` was explicitly set via DD_SITE env var, --site flag, or
     /// config file. False if it was derived from a stored session for the
@@ -21,6 +33,33 @@ pub struct Config {
     pub auto_approve: bool,
     pub agent_mode: bool,
     pub read_only: bool,
+}
+
+/// Which env var supplied the access token in `cfg.pat`. PATs and SATs are
+/// wire-identical; this is only used for status display so the user can tell
+/// which credential they configured.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PatKind {
+    /// `DD_PAT` -- Personal Access Token (tied to an interactive user).
+    Personal,
+    /// `DD_SAT` -- Service Access Token (tied to a service account).
+    Service,
+}
+
+impl PatKind {
+    pub fn env_var(self) -> &'static str {
+        match self {
+            PatKind::Personal => "DD_PAT",
+            PatKind::Service => "DD_SAT",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            PatKind::Personal => "Personal Access Token",
+            PatKind::Service => "Service Access Token",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -73,6 +112,11 @@ struct FileConfig {
     api_key: Option<String>,
     app_key: Option<String>,
     access_token: Option<String>,
+    /// Personal Access Token. Equivalent to setting `DD_PAT`.
+    pat: Option<String>,
+    /// Service Access Token. Equivalent to setting `DD_SAT`. Wire-identical
+    /// to `pat` -- the field name reflects intent for status display.
+    sat: Option<String>,
     site: Option<String>,
     org: Option<String>,
     output: Option<String>,
@@ -92,6 +136,17 @@ impl Config {
         let file_cfg = load_config_file().unwrap_or_default();
 
         let access_token = env_or("DD_ACCESS_TOKEN", file_cfg.access_token);
+        // PAT/SAT resolution: env wins over file; if both DD_PAT and DD_SAT
+        // are set, prefer DD_PAT (alphabetical, deterministic). Both flow to
+        // `cfg.pat`; `pat_kind` records which one for status display.
+        let (pat, pat_kind) = match (
+            env_or("DD_PAT", file_cfg.pat),
+            env_or("DD_SAT", file_cfg.sat),
+        ) {
+            (Some(v), _) => (Some(v), Some(PatKind::Personal)),
+            (None, Some(v)) => (Some(v), Some(PatKind::Service)),
+            (None, None) => (None, None),
+        };
         let explicit_site = env_or("DD_SITE", file_cfg.site);
         let site_explicit = explicit_site.is_some();
         let org = env_or("DD_ORG", file_cfg.org); // flag override applied in main_inner
@@ -122,6 +177,8 @@ impl Config {
             api_key: env_or("DD_API_KEY", file_cfg.api_key),
             app_key: env_or("DD_APP_KEY", file_cfg.app_key),
             access_token,
+            pat,
+            pat_kind,
             site,
             site_explicit,
             org,
@@ -148,11 +205,15 @@ impl Config {
         access_token: Option<String>,
         api_key: Option<String>,
         app_key: Option<String>,
+        pat: Option<String>,
+        pat_kind: Option<PatKind>,
     ) -> Self {
         Config {
             api_key,
             app_key,
             access_token,
+            pat,
+            pat_kind,
             site: normalize_site(&site),
             site_explicit: true,
             org: None,
@@ -174,7 +235,10 @@ impl Config {
 
     /// Validate that sufficient auth credentials are configured.
     pub fn validate_auth(&self) -> Result<()> {
-        if self.access_token.is_none() && (self.api_key.is_none() || self.app_key.is_none()) {
+        if self.access_token.is_none()
+            && self.pat.is_none()
+            && (self.api_key.is_none() || self.app_key.is_none())
+        {
             #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
             if has_stored_refresh_token(&self.site, self.org.as_deref()) {
                 bail!(
@@ -183,20 +247,27 @@ impl Config {
                 );
             }
             bail!(
-                "authentication required: set DD_ACCESS_TOKEN for bearer auth, \
-                 run 'pup auth login' for OAuth2, \
+                "authentication required: run 'pup auth login' for OAuth2 (preferred), \
+                 set DD_PAT (Personal Access Token) or DD_SAT (Service Access Token), \
+                 set DD_ACCESS_TOKEN for an OAuth bearer token, \
                  or set DD_API_KEY and DD_APP_KEY for API+APP key auth"
             );
         }
         Ok(())
     }
 
-    /// Validate that both DD_API_KEY and DD_APP_KEY are configured.
-    /// Used for endpoints that require API key auth and do not accept OAuth2 tokens.
+    /// Validate that credentials accepted by OAuth-excluded endpoints are
+    /// configured. These endpoints (api_keys, application_keys, ddsql-editor)
+    /// do not accept OAuth2 bearer tokens, but they DO accept either:
+    ///   - DD_API_KEY + DD_APP_KEY (classic), or
+    ///   - DD_PAT (sent in DD-APPLICATION-KEY, per Datadog's PAT migration form).
     pub fn validate_api_and_app_keys(&self) -> Result<()> {
+        if self.pat.is_some() {
+            return Ok(());
+        }
         if self.api_key.is_none() || self.app_key.is_none() {
             bail!(
-                "this command requires both DD_API_KEY and DD_APP_KEY — \
+                "this command requires DD_PAT (or DD_SAT) or both DD_API_KEY and DD_APP_KEY — \
                  OAuth2 bearer tokens are not supported here"
             );
         }
@@ -209,6 +280,10 @@ impl Config {
 
     pub fn has_bearer_token(&self) -> bool {
         self.access_token.is_some()
+    }
+
+    pub fn has_pat(&self) -> bool {
+        self.pat.is_some()
     }
 
     /// Returns the API host (e.g., "api.datadoghq.com").
@@ -490,6 +565,29 @@ mod tests {
             api_key: api_key.map(String::from),
             app_key: app_key.map(String::from),
             access_token: token.map(String::from),
+            pat: None,
+            pat_kind: None,
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        }
+    }
+
+    fn make_cfg_pat(pat: Option<&str>) -> Config {
+        make_cfg_pat_kind(pat, PatKind::Personal)
+    }
+
+    fn make_cfg_pat_kind(pat: Option<&str>, kind: PatKind) -> Config {
+        Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            pat: pat.map(String::from),
+            pat_kind: pat.map(|_| kind),
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -566,6 +664,91 @@ mod tests {
     fn test_validate_auth_partial_keys() {
         let cfg = make_cfg(Some("key"), None, None);
         assert!(cfg.validate_auth().is_err());
+    }
+
+    #[test]
+    fn test_validate_auth_pat() {
+        let cfg = make_cfg_pat(Some("pat-token"));
+        assert!(cfg.validate_auth().is_ok());
+    }
+
+    #[test]
+    fn test_validate_auth_sat() {
+        let cfg = make_cfg_pat_kind(Some("sat-token"), PatKind::Service);
+        assert!(cfg.validate_auth().is_ok());
+        assert_eq!(cfg.pat_kind, Some(PatKind::Service));
+    }
+
+    #[test]
+    fn test_pat_kind_env_var_names() {
+        assert_eq!(PatKind::Personal.env_var(), "DD_PAT");
+        assert_eq!(PatKind::Service.env_var(), "DD_SAT");
+    }
+
+    /// DD_PAT and DD_SAT both populate `cfg.pat`. If both are set, DD_PAT wins.
+    #[test]
+    fn test_from_env_pat_wins_over_sat() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_ACCESS_TOKEN");
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+        std::env::set_var("DD_PAT", "the-pat");
+        std::env::set_var("DD_SAT", "the-sat");
+        std::env::set_var("PUP_CONFIG_DIR", "/tmp/pup_test_nonexistent_pat_sat");
+
+        let cfg = Config::from_env().unwrap();
+
+        std::env::remove_var("DD_PAT");
+        std::env::remove_var("DD_SAT");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        assert_eq!(cfg.pat.as_deref(), Some("the-pat"));
+        assert_eq!(cfg.pat_kind, Some(PatKind::Personal));
+    }
+
+    /// DD_SAT alone populates `cfg.pat` with `pat_kind=Service`.
+    #[test]
+    fn test_from_env_sat_only() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_PAT");
+        std::env::remove_var("DD_ACCESS_TOKEN");
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+        std::env::set_var("DD_SAT", "the-sat");
+        std::env::set_var("PUP_CONFIG_DIR", "/tmp/pup_test_nonexistent_sat_only");
+
+        let cfg = Config::from_env().unwrap();
+
+        std::env::remove_var("DD_SAT");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        assert_eq!(cfg.pat.as_deref(), Some("the-sat"));
+        assert_eq!(cfg.pat_kind, Some(PatKind::Service));
+    }
+
+    #[test]
+    fn test_validate_api_and_app_keys_accepts_pat() {
+        let cfg = make_cfg_pat(Some("pat-token"));
+        assert!(
+            cfg.validate_api_and_app_keys().is_ok(),
+            "PATs should satisfy validate_api_and_app_keys (sent in DD-APPLICATION-KEY)"
+        );
+    }
+
+    #[test]
+    fn test_validate_api_and_app_keys_oauth_bearer_only_fails() {
+        let cfg = make_cfg(None, None, Some("oauth-bearer"));
+        assert!(
+            cfg.validate_api_and_app_keys().is_err(),
+            "an OAuth bearer alone should not satisfy validate_api_and_app_keys"
+        );
+    }
+
+    #[test]
+    fn test_has_pat() {
+        assert!(make_cfg_pat(Some("p")).has_pat());
+        assert!(!make_cfg_pat(None).has_pat());
+        assert!(!make_cfg(None, None, Some("oauth")).has_pat());
     }
 
     #[test]
@@ -1028,6 +1211,8 @@ mod tests {
             api_key: None,
             app_key: None,
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "a.datadoghq.com".into(),
             site_explicit: false,
             org: Some("org-a".into()),
@@ -1072,6 +1257,8 @@ mod tests {
             api_key: None,
             app_key: None,
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "explicit.datadoghq.com".into(),
             site_explicit: true,
             org: None,
@@ -1109,6 +1296,8 @@ mod tests {
             api_key: None,
             app_key: None,
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -1146,6 +1335,8 @@ mod tests {
             api_key: None,
             app_key: None,
             access_token: Some("env-supplied-token".into()),
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -1172,6 +1363,8 @@ mod tests {
             api_key: None,
             app_key: None,
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,

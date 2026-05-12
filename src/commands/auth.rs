@@ -441,6 +441,22 @@ fn build_non_oauth_status(cfg: &Config) -> (String, serde_json::Value) {
             });
             (msg, json)
         }
+        AuthType::AccessToken(kind) => {
+            let (label, method) = match kind {
+                Some(crate::config::PatKind::Personal) => ("Personal Access Token", "pat"),
+                Some(crate::config::PatKind::Service) => ("Service Access Token", "sat"),
+                None => ("Datadog Access Token", "access_token"),
+            };
+            let msg = format!("✅ Authenticated for site: {site}{org_label} ({label})");
+            let json = serde_json::json!({
+                "authenticated": true,
+                "auth_method": method,
+                "org": org,
+                "site": site,
+                "status": "valid",
+            });
+            (msg, json)
+        }
         AuthType::ApiKeys => {
             let msg =
                 format!("✅ Authenticated for site: {site}{org_label} (DD_API_KEY + DD_APP_KEY)");
@@ -625,6 +641,8 @@ mod tests {
             api_key: None,
             app_key: None,
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,

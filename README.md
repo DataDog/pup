@@ -211,9 +211,13 @@ Download pre-built binaries from the [latest release](https://github.com/DataDog
 
 ## Authentication
 
-Pup supports two authentication methods. **OAuth2 is preferred** and will be used automatically if you've logged in.
+Pup supports three authentication methods, in the order we recommend trying them:
 
-### OAuth2 Authentication (Preferred)
+1. **OAuth2** (preferred) -- easiest, no credentials to manage, automatic refresh. API coverage is expanding toward 100%, but a few endpoints are not yet OAuth-compatible.
+2. **Personal Access Token (PAT)** or **Service Access Token (SAT)** -- scoped, time-limited (24h to 1 year), supported anywhere `DD_API_KEY` + `DD_APP_KEY` is supported. Prefer this over API+App Key whenever OAuth is not an option. A PAT represents an interactive user; a SAT represents a [service account](https://docs.datadoghq.com/account_management/service-access-tokens/). They are wire-identical and pup handles them the same way.
+3. **API Key + Application Key** -- the long-lived classic. Works everywhere. Mildly discouraged in favor of PAT/SAT (which are scoped and expire).
+
+### OAuth2 (preferred)
 
 OAuth2 provides secure, browser-based authentication with automatic token refresh.
 
@@ -236,22 +240,38 @@ pup auth logout
 
 **Token Storage**: Tokens are stored securely in your system's keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Set `DD_TOKEN_STORAGE=file` to use file-based storage instead.
 
-**Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available yet, use API key authentication.
+**Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available, use a PAT/SAT (next) or API+App Key.
 
 See [docs/OAUTH2.md](docs/OAUTH2.md) for detailed OAuth2 documentation.
 
-### API Key Authentication (Fallback)
+### Personal & Service Access Tokens
 
-If OAuth2 tokens are not available, Pup automatically falls back to API key authentication.
+[Personal Access Tokens](https://docs.datadoghq.com/account_management/personal-access-tokens/) (PATs) and [Service Access Tokens](https://docs.datadoghq.com/account_management/service-access-tokens/) (SATs) are scoped, expiring credentials you create from the Datadog UI. A PAT represents an interactive user; a SAT represents a service account. They are wire-identical and pup handles them the same way. Both work everywhere `DD_API_KEY` + `DD_APP_KEY` are supported, including the few endpoints (api_keys, application_keys, ddsql-editor) that do not accept OAuth bearer tokens.
+
+```bash
+# Personal Access Token
+export DD_PAT="your-personal-access-token"
+export DD_SITE="datadoghq.com"
+pup monitors list
+
+# OR -- Service Access Token (interchangeable with DD_PAT)
+export DD_SAT="your-service-access-token"
+pup monitors list
+```
+
+Pup sends the token as `Authorization: Bearer <token>` on OAuth-compatible endpoints, and as `DD-APPLICATION-KEY: <token>` on the OAuth-excluded endpoints (Datadog's PAT migration form). You do not need to set `DD_API_KEY` alongside a PAT or SAT. If both `DD_PAT` and `DD_SAT` are set, `DD_PAT` wins.
+
+### API Key + Application Key
 
 ```bash
 export DD_API_KEY="your-datadog-api-key"
 export DD_APP_KEY="your-datadog-application-key"
 export DD_SITE="datadoghq.com"  # Optional, defaults to datadoghq.com
 
-# Use any command - API keys are used automatically
 pup monitors list
 ```
+
+This is the original auth method and works for every endpoint pup supports. Consider switching to a PAT or SAT for the same coverage with the benefit of scopes and expiration.
 
 ### Bearer Token Authentication (WASM / Headless)
 
@@ -264,14 +284,15 @@ export DD_SITE="datadoghq.com"
 pup monitors list
 ```
 
-API key authentication (`DD_API_KEY` + `DD_APP_KEY`) also works in WASM. See the [WASM](#wasm) section below.
+`DD_PAT`, `DD_SAT`, and `DD_API_KEY` + `DD_APP_KEY` also work in WASM. See the [WASM](#wasm) section below.
 
 ### Authentication Priority
 
-Pup checks for authentication in this order:
-1. **`DD_ACCESS_TOKEN`** - Stateless bearer token (highest priority)
-2. **OAuth2 tokens** (from `pup auth login`) - Used if valid tokens exist
-3. **API keys** (from `DD_API_KEY` and `DD_APP_KEY`) - Used if OAuth tokens not available
+When multiple credentials are set, pup picks in this order:
+1. **`DD_ACCESS_TOKEN`** (OAuth bearer from env) -- highest priority
+2. **OAuth2 tokens** (from `pup auth login`, stored in keychain)
+3. **`DD_PAT`** or **`DD_SAT`** (Personal or Service Access Token; if both set, `DD_PAT` wins)
+4. **`DD_API_KEY` + `DD_APP_KEY`** (API + Application key)
 
 ## Usage
 
@@ -369,9 +390,11 @@ pup incidents get abc-123-def
 
 ## Environment Variables
 
-- `DD_ACCESS_TOKEN`: Bearer token for stateless auth (highest priority)
-- `DD_API_KEY`: Datadog API key (optional if using OAuth2 or DD_ACCESS_TOKEN)
-- `DD_APP_KEY`: Datadog Application key (optional if using OAuth2 or DD_ACCESS_TOKEN)
+- `DD_ACCESS_TOKEN`: OAuth bearer token for stateless auth (highest priority)
+- `DD_PAT`: [Personal Access Token](https://docs.datadoghq.com/account_management/personal-access-tokens/) -- scoped, time-limited alternative to API+App Key
+- `DD_SAT`: [Service Access Token](https://docs.datadoghq.com/account_management/service-access-tokens/) -- same as `DD_PAT` but tied to a service account
+- `DD_API_KEY`: Datadog API key (optional if using OAuth2, DD_ACCESS_TOKEN, DD_PAT, or DD_SAT)
+- `DD_APP_KEY`: Datadog Application key (optional if using OAuth2, DD_ACCESS_TOKEN, DD_PAT, or DD_SAT)
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 - `DD_AUTO_APPROVE`: Auto-approve destructive operations (true/false)
 - `DD_TOKEN_STORAGE`: Token storage backend (keychain or file, default: auto-detect)
@@ -428,21 +451,24 @@ cargo build --target wasm32-wasip2 --no-default-features --features wasi --relea
 
 ### Authentication
 
-The WASM build supports **stateless authentication** — keychain storage and browser-based OAuth login are not available. Use either `DD_ACCESS_TOKEN` or API keys:
+The WASM build supports **stateless authentication** — keychain storage and browser-based OAuth login are not available. Use a `DD_ACCESS_TOKEN`, a `DD_PAT`/`DD_SAT`, or `DD_API_KEY` + `DD_APP_KEY`:
 
 ```bash
-# Option 1: Bearer token
+# Option 1: OAuth bearer token
 DD_ACCESS_TOKEN="your-token" DD_SITE="datadoghq.com" wasmtime run target/wasm32-wasip2/release/pup.wasm -- monitors list
 
-# Option 2: API keys
+# Option 2: Personal Access Token (or DD_SAT for a Service Access Token)
+DD_PAT="your-pat" DD_SITE="datadoghq.com" wasmtime run target/wasm32-wasip2/release/pup.wasm -- monitors list
+
+# Option 3: API keys
 DD_API_KEY="your-api-key" DD_APP_KEY="your-app-key" wasmtime run target/wasm32-wasip2/release/pup.wasm -- monitors list
 ```
 
-The `pup auth status` command works in WASM and reports which credentials are configured. The `login`, `logout`, and `refresh` subcommands return guidance to use `DD_ACCESS_TOKEN`.
+The `pup auth status` command works in WASM and reports which credentials are configured. The `login`, `logout`, and `refresh` subcommands return guidance to use `DD_ACCESS_TOKEN`, `DD_PAT`, or `DD_SAT`.
 
 ### Limitations
 
-- No local token storage (keychain/file) — use `DD_ACCESS_TOKEN` or API keys
+- No local token storage (keychain/file) — use `DD_ACCESS_TOKEN`, `DD_PAT`/`DD_SAT`, or API keys
 - No browser-based OAuth login flow
 - Networking relies on the host runtime's networking capabilities
 
@@ -451,6 +477,9 @@ The `pup auth status` command works in WASM and reports which credentials are co
 ```bash
 # Run directly
 wasmtime run --env DD_ACCESS_TOKEN="your-token" target/wasm32-wasip2/release/pup.wasm -- monitors list
+
+# Or with a PAT (use DD_SAT for a Service Access Token)
+wasmtime run --env DD_PAT="your-pat" target/wasm32-wasip2/release/pup.wasm -- monitors list
 
 # Or with API keys
 wasmtime run --env DD_API_KEY="key" --env DD_APP_KEY="key" target/wasm32-wasip2/release/pup.wasm -- --help

@@ -113,6 +113,18 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
                 prefix: "".to_owned(),
             },
         );
+    } else if let Some(pat) = &cfg.pat {
+        // PATs ride in DD-APPLICATION-KEY for OAuth-excluded endpoints
+        // (api_keys, application_keys, ddsql-editor). Populating the SDK's
+        // appKeyAuth slot with the PAT lets `make_api_no_auth!`-routed calls
+        // succeed without DD_APP_KEY.
+        dd_cfg.set_auth_key(
+            "appKeyAuth",
+            datadog_api_client::datadog::APIKey {
+                key: pat.clone(),
+                prefix: "".to_owned(),
+            },
+        );
     }
 
     // If PUP_MOCK_SERVER is set, redirect all requests to the mock server.
@@ -165,10 +177,12 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
 /// Builds a reqwest middleware client for SDK API calls. Always installs
 /// `UserAgentMiddleware` so requests carry pup's branded `User-Agent`
 /// instead of the SDK's `datadog-api-client-rust/...` default. When
-/// `send_bearer` is true and the config has an access token, also installs
-/// `BearerAuthMiddleware`. OAuth-incompatible endpoints (see
-/// `OAUTH_EXCLUDED_ENDPOINTS`) pass `false` so the SDK falls back to API key
-/// headers from the `Configuration`.
+/// `send_bearer` is true, installs `BearerAuthMiddleware` populated from the
+/// OAuth access token if present, else from the PAT — both flow as
+/// `Authorization: Bearer <token>` per Datadog's PAT spec. OAuth-incompatible
+/// endpoints (see `OAUTH_EXCLUDED_ENDPOINTS`) pass `false` so the SDK falls
+/// back to header auth from the `Configuration` (DD-API-KEY/DD-APPLICATION-KEY,
+/// where DD-APPLICATION-KEY may carry a PAT).
 ///
 /// Returns `None` on WASM targets; callers use the SDK default client there.
 pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddleware> {
@@ -179,9 +193,11 @@ pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddl
             .expect("failed to build reqwest client");
         let mut builder = ClientBuilder::new(reqwest_client).with(UserAgentMiddleware);
         if send_bearer {
-            if let Some(token) = cfg.access_token.as_ref() {
+            // OAuth access_token wins over PAT; both ride as Bearer.
+            let bearer = cfg.access_token.as_deref().or(cfg.pat.as_deref());
+            if let Some(token) = bearer {
                 builder = builder.with(BearerAuthMiddleware {
-                    token: token.clone(),
+                    token: token.to_string(),
                 });
             }
         }
@@ -445,6 +461,10 @@ async fn parse_response_json(resp: reqwest::Response) -> anyhow::Result<serde_js
 pub enum AuthType {
     None,
     OAuth,
+    /// Datadog Access Token -- Personal (DD_PAT) or Service (DD_SAT). Both
+    /// kinds are wire-identical; the inner option records which env var
+    /// supplied it for status display.
+    AccessToken(Option<crate::config::PatKind>),
     ApiKeys,
 }
 
@@ -453,6 +473,10 @@ impl std::fmt::Display for AuthType {
         match self {
             AuthType::None => write!(f, "None"),
             AuthType::OAuth => write!(f, "OAuth2 Bearer Token"),
+            AuthType::AccessToken(Some(kind)) => {
+                write!(f, "{} ({})", kind.display_name(), kind.env_var())
+            }
+            AuthType::AccessToken(None) => write!(f, "Datadog Access Token"),
             AuthType::ApiKeys => write!(f, "API Keys (DD_API_KEY + DD_APP_KEY)"),
         }
     }
@@ -460,8 +484,11 @@ impl std::fmt::Display for AuthType {
 
 #[allow(dead_code)]
 pub fn get_auth_type(cfg: &Config) -> AuthType {
+    // Match auth-precedence in apply_auth: OAuth > PAT/SAT > API+App Key.
     if cfg.has_bearer_token() {
         AuthType::OAuth
+    } else if cfg.has_pat() {
+        AuthType::AccessToken(cfg.pat_kind)
     } else if cfg.has_api_keys() {
         AuthType::ApiKeys
     } else {
@@ -951,20 +978,39 @@ fn apply_auth(
     path: &str,
 ) -> anyhow::Result<reqwest::RequestBuilder> {
     if requires_api_key_fallback(method, path) {
+        // OAuth-excluded endpoints do not accept Bearer tokens. They DO accept
+        // either DD_API_KEY+DD_APP_KEY or a PAT/SAT in the DD-APPLICATION-KEY
+        // slot (Datadog's PAT migration form -- DD-API-KEY is optional/ignored).
         if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
             req = req
                 .header("DD-API-KEY", api_key.as_str())
                 .header("DD-APPLICATION-KEY", app_key.as_str());
             return Ok(req);
         }
+        if let Some(pat) = &cfg.pat {
+            // PATs/SATs ride in DD-APPLICATION-KEY. DD-API-KEY is optional and
+            // ignored for these tokens; include it only if explicitly set so we
+            // don't fabricate a header value.
+            req = req.header("DD-APPLICATION-KEY", pat.as_str());
+            if let Some(api_key) = &cfg.api_key {
+                req = req.header("DD-API-KEY", api_key.as_str());
+            }
+            return Ok(req);
+        }
 
         anyhow::bail!(
-            "{method} {path} requires DD_API_KEY and DD_APP_KEY; OAuth2 bearer tokens are not supported"
+            "{method} {path} requires DD_PAT/DD_SAT or DD_API_KEY+DD_APP_KEY; \
+             OAuth2 bearer tokens are not supported"
         );
     }
 
     if let Some(token) = &cfg.access_token {
         req = req.header("Authorization", format!("Bearer {token}"));
+        return Ok(req);
+    }
+
+    if let Some(pat) = &cfg.pat {
+        req = req.header("Authorization", format!("Bearer {pat}"));
         return Ok(req);
     }
 
@@ -1089,6 +1135,8 @@ mod tests {
             api_key: Some("test".into()),
             app_key: Some("test".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,

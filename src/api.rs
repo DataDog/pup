@@ -79,16 +79,23 @@ pub async fn delete_with_body(
 }
 
 fn apply_auth(req: reqwest::RequestBuilder, cfg: &Config) -> Result<reqwest::RequestBuilder> {
+    // Precedence: OAuth bearer > PAT (as Bearer) > API+App Key. OAuth is the
+    // preferred auth method per docs/OAUTH2.md; PAT is preferred over the
+    // long-lived API+App Key pair.
     if let Some(token) = &cfg.access_token {
         Ok(req.header("Authorization", format!("Bearer {token}")))
+    } else if let Some(pat) = &cfg.pat {
+        Ok(req.header("Authorization", format!("Bearer {pat}")))
     } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
         Ok(req
             .header("DD-API-KEY", api_key.as_str())
             .header("DD-APPLICATION-KEY", app_key.as_str()))
     } else {
         bail!(
-            "authentication required: set DD_ACCESS_TOKEN for bearer auth, \
-             or set DD_API_KEY and DD_APP_KEY for API+APP key auth"
+            "authentication required: run 'pup auth login' for OAuth2 (preferred), \
+             set DD_PAT (Personal Access Token) or DD_SAT (Service Access Token), \
+             set DD_ACCESS_TOKEN for an OAuth bearer, \
+             or set DD_API_KEY and DD_APP_KEY"
         )
     }
 }
@@ -128,6 +135,8 @@ mod tests {
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -163,6 +172,8 @@ mod tests {
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -202,6 +213,8 @@ mod tests {
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -236,6 +249,8 @@ mod tests {
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -270,6 +285,8 @@ mod tests {
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -304,6 +321,8 @@ mod tests {
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -337,6 +356,8 @@ mod tests {
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -371,6 +392,8 @@ mod tests {
             api_key: None,
             app_key: None,
             access_token: Some("test-bearer-token".into()),
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -396,6 +419,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_api_pat_auth() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        std::env::set_var("PUP_MOCK_SERVER", server.url());
+
+        let cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            pat: Some("test-pat".into()),
+            pat_kind: Some(crate::config::PatKind::Personal),
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        let mock = server
+            .mock("GET", "/api/v1/test")
+            .match_header("Authorization", "Bearer test-pat")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"auth": "pat"}"#)
+            .create_async()
+            .await;
+
+        let result = super::get(&cfg, "/api/v1/test", &[]).await;
+        assert!(result.is_ok(), "PAT auth failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_api_oauth_bearer_beats_pat() {
+        // When both DD_ACCESS_TOKEN and DD_PAT are set, OAuth wins.
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        std::env::set_var("PUP_MOCK_SERVER", server.url());
+
+        let cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: Some("oauth-token".into()),
+            pat: Some("a-pat".into()),
+            pat_kind: Some(crate::config::PatKind::Personal),
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        let mock = server
+            .mock("GET", "/api/v1/test")
+            .match_header("Authorization", "Bearer oauth-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{}"#)
+            .create_async()
+            .await;
+
+        let result = super::get(&cfg, "/api/v1/test", &[]).await;
+        assert!(
+            result.is_ok(),
+            "expected OAuth bearer to win: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
     async fn test_api_no_auth() {
         let _lock = lock_env().await;
 
@@ -403,6 +503,8 @@ mod tests {
             api_key: None,
             app_key: None,
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -431,6 +533,8 @@ mod tests {
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,
@@ -465,6 +569,8 @@ mod tests {
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
+            pat: None,
+            pat_kind: None,
             site: "datadoghq.com".into(),
             site_explicit: false,
             org: None,

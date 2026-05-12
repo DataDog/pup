@@ -25,6 +25,8 @@ pub(crate) fn test_config(mock_url: &str) -> Config {
         api_key: Some("test-api-key".into()),
         app_key: Some("test-app-key".into()),
         access_token: None,
+        pat: None,
+        pat_kind: None,
         site: "datadoghq.com".into(),
         site_explicit: false,
         org: None,

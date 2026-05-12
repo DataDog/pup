@@ -377,18 +377,24 @@ This indicates a potential security issue. Run `pup auth login` again to start a
 - Validated on callback to prevent cross-site request forgery
 - New state generated for each authorization flow
 
-## Comparison with API Keys
+## Comparison with PAT/SAT and API Keys
 
-| Feature | OAuth2 | API Keys |
-|---------|--------|----------|
-| **Setup** | Browser login | Copy/paste keys |
-| **Security** | Short-lived tokens | Long-lived keys |
-| **Revocation** | Per-installation | Organization-wide |
-| **Scopes** | Granular | All or nothing |
-| **Audit Trail** | User-specific | Key-specific |
-| **Rotation** | Automatic (refresh) | Manual |
-| **PKCE Protection** | Yes | N/A |
-| **Token Storage** | Secure local files | Environment variables |
+Pup supports three auth methods, in order of preference:
+
+| Feature | OAuth2 (preferred) | PAT / SAT | API + App Key |
+|---------|--------------------|------------|----------------|
+| **Setup** | Browser login | Create in Datadog UI | Copy/paste keys |
+| **Identity** | Interactive user (per installation) | PAT: interactive user. SAT: service account. | Org-level key |
+| **Security** | Short-lived tokens, auto-refresh | Time-limited (24h to 1yr) | Long-lived |
+| **Revocation** | Per-installation | Per-token | Organization-wide |
+| **Scopes** | Granular, OAuth scopes | Granular, Datadog permissions | All or nothing |
+| **Audit Trail** | User-specific | User- or service-specific | Key-specific |
+| **Rotation** | Automatic (refresh) | Manual (recreate) | Manual |
+| **PKCE Protection** | Yes | N/A | N/A |
+| **API coverage in pup** | Most endpoints (expanding to 100%) | Full | Full |
+| **Token Storage** | Secure local files | Environment variable | Environment variables |
+
+OAuth2 is the easiest to set up and the safest (short-lived, no local credential management). PAT or SAT is the recommended fallback whenever OAuth is not an option for a particular endpoint or workflow -- use PAT for interactive workflows and SAT for service-account use cases like CI. API + App Key is supported for backward compatibility but mildly discouraged in favor of PAT/SAT, which provide equivalent coverage with scopes and expiration. PATs and SATs are wire-identical; pup accepts `DD_PAT` and `DD_SAT` as interchangeable env vars (the distinction is only surfaced in `pup auth status`).
 
 ## Implementation Details
 

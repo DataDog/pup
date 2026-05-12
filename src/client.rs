@@ -1009,6 +1009,33 @@ pub async fn raw_post_jsonapi(
     parse_response_json(resp).await
 }
 
+pub async fn raw_put(
+    cfg: &Config,
+    path: &str,
+    body: serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    let url = format!("{}{}", cfg.api_base_url(), path);
+    let client = reqwest::Client::new();
+    let req = client.put(&url);
+    let req = apply_auth(req, cfg, "PUT", path)?;
+    let resp = req
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .header("User-Agent", useragent::get())
+        .json(&body)
+        .send()
+        .await?;
+    if resp.status() == reqwest::StatusCode::NO_CONTENT {
+        return Ok(serde_json::Value::Null);
+    }
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("PUT {url} failed (HTTP {status}): {body}");
+    }
+    Ok(resp.json().await?)
+}
+
 /// Like `raw_post`, but returns the parsed JSON body even on non-2xx responses.
 /// Callers are responsible for inspecting the body for errors.
 pub async fn raw_post_lenient(

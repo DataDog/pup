@@ -7866,6 +7866,12 @@ enum ApmActions {
         #[command(subcommand)]
         action: ApmTroubleshootingActions,
     },
+    /// Manage APM service remapping rules
+    #[command(name = "service-remapping")]
+    ServiceRemapping {
+        #[command(subcommand)]
+        action: ApmServiceRemappingActions,
+    },
     /// View APM service instance configuration
     #[command(name = "service-config")]
     ServiceConfig {
@@ -7984,6 +7990,70 @@ enum ApmTroubleshootingActions {
         hostname: String,
         #[arg(long, help = "Time window (e.g. 4h, 24h, 1h30m)")]
         timeframe: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApmServiceRemappingActions {
+    /// List all service remapping rules
+    List,
+    /// Create a service remapping rule
+    Create {
+        #[arg(long, help = "Rule name")]
+        name: String,
+        #[arg(
+            long,
+            help = "Filter query (e.g. 'service:my-svc', 'peer.service:*.shopify.com')"
+        )]
+        filter: String,
+        #[arg(
+            long,
+            value_name = "TYPE",
+            help = "Entity type: 0 = instrumented service, 1 = inferred entity (from outbound calls)"
+        )]
+        rule_type: i64,
+        #[arg(
+            long,
+            help = "New service name — static string or template (e.g. 'new-name', '{{service|^(.+?)\\..*$}}')"
+        )]
+        value: String,
+    },
+    /// Get a service remapping rule by ID
+    Get {
+        #[arg(help = "Rule ID")]
+        id: String,
+    },
+    /// Update a service remapping rule
+    Update {
+        #[arg(help = "Rule ID")]
+        id: String,
+        #[arg(long, help = "Rule name")]
+        name: String,
+        #[arg(
+            long,
+            help = "Filter query (e.g. 'service:my-svc', 'peer.service:*.shopify.com')"
+        )]
+        filter: String,
+        #[arg(
+            long,
+            value_name = "TYPE",
+            help = "Entity type: 0 = instrumented service, 1 = inferred entity"
+        )]
+        rule_type: i64,
+        #[arg(
+            long,
+            help = "New service name — static string or template (e.g. 'new-name', '{{service|^(.+?)\\..*$}}')"
+        )]
+        value: String,
+        #[arg(long, help = "Current rule version (from list/get output)")]
+        version: i64,
+    },
+    /// Delete a service remapping rule
+    Delete {
+        #[arg(help = "Rule ID")]
+        id: String,
+        #[arg(help = "Rule version (from list output)")]
+        version: i64,
     },
 }
 
@@ -13403,6 +13473,41 @@ async fn main_inner() -> anyhow::Result<()> {
                         timeframe,
                     } => {
                         commands::apm::troubleshooting_list(&cfg, hostname, timeframe).await?;
+                    }
+                },
+                ApmActions::ServiceRemapping { action } => match action {
+                    ApmServiceRemappingActions::List => {
+                        commands::apm::service_remapping_list(&cfg).await?;
+                    }
+                    ApmServiceRemappingActions::Create {
+                        name,
+                        filter,
+                        rule_type,
+                        value,
+                    } => {
+                        commands::apm::service_remapping_create(
+                            &cfg, name, filter, rule_type, value,
+                        )
+                        .await?;
+                    }
+                    ApmServiceRemappingActions::Get { id } => {
+                        commands::apm::service_remapping_get(&cfg, id).await?;
+                    }
+                    ApmServiceRemappingActions::Update {
+                        id,
+                        name,
+                        filter,
+                        rule_type,
+                        value,
+                        version,
+                    } => {
+                        commands::apm::service_remapping_update(
+                            &cfg, id, name, filter, rule_type, value, version,
+                        )
+                        .await?;
+                    }
+                    ApmServiceRemappingActions::Delete { id, version } => {
+                        commands::apm::service_remapping_delete(&cfg, id, version).await?;
                     }
                 },
                 ApmActions::ServiceConfig { action } => match action {

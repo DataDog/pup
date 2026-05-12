@@ -61,7 +61,6 @@ pub mod on_call;
 pub mod organizations;
 pub mod processes;
 pub mod product_analytics;
-pub mod profiling;
 pub mod reference_tables;
 pub mod rum;
 #[cfg(not(target_arch = "wasm32"))]

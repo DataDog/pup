@@ -57,7 +57,7 @@ list of commands as built.
 | RUM | ✅ | `rum apps`, `rum sessions`, `rum metrics`, `rum retention-filters`, `rum playlists`, `rum heatmaps` | Apps, sessions, metrics, retention filters, replay playlists, heatmaps |
 | APM Services | ✅ | `apm services`, `apm entities`, `apm dependencies`, `apm flow-map` | Services stats, operations, resources; entity queries; dependencies; flow visualization |
 | Traces | ✅ | `traces search`, `traces aggregate`, `traces metrics` | Span search/aggregation and span-based metric definitions |
-| Profiling | ✅ | `profiling aggregate`, `profiling analytics`, `profiling timeline`, … | Continuous Profiler queries (requires API + App keys) |
+| Profiling | ⏳ | `profiling` | Not supported in pup yet. Use the Datadog MCP server: https://docs.datadoghq.com/bits_ai/mcp_server. Enable with: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,profiling |
 | Database Monitoring | ✅ | `dbm samples search` | DBM query sample search |
 | Session Replay | ❌ | - | Not yet implemented |
 

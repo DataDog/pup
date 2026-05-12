@@ -28,7 +28,12 @@ pub async fn serve(cfg: &Config, port: u16, host: &str, agent_id: Option<String>
     cfg.validate_auth()?;
 
     let app_base = format!("https://app.{}", cfg.site);
-    let access_token = cfg.access_token.clone();
+    // PAT/SAT ride as `Authorization: Bearer` on this endpoint (same wire
+    // form as OAuth), so we coalesce them into the access_token slot here
+    // rather than threading a separate parameter through every helper. The
+    // Bits AI / lassie endpoints are not in OAUTH_EXCLUDED_ENDPOINTS, so
+    // Bearer auth is the right form for any of OAuth / PAT / SAT.
+    let access_token = cfg.access_token.clone().or_else(|| cfg.pat.clone());
     let api_key = cfg.api_key.clone();
     let app_key = cfg.app_key.clone();
 

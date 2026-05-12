@@ -13,7 +13,7 @@ pub async fn get(cfg: &Config, path: &str, query: &[(&str, String)]) -> Result<s
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.get(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg, "GET", path)?;
     if !query.is_empty() {
         req = req.query(query);
     }
@@ -25,7 +25,7 @@ pub async fn post(cfg: &Config, path: &str, body: &serde_json::Value) -> Result<
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.post(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg, "POST", path)?;
     req = req.json(body);
     send(req).await
 }
@@ -35,7 +35,7 @@ pub async fn put(cfg: &Config, path: &str, body: &serde_json::Value) -> Result<s
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.put(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg, "PUT", path)?;
     req = req.json(body);
     send(req).await
 }
@@ -49,7 +49,7 @@ pub async fn patch(
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.patch(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg, "PATCH", path)?;
     req = req.json(body);
     send(req).await
 }
@@ -59,7 +59,7 @@ pub async fn delete(cfg: &Config, path: &str) -> Result<serde_json::Value> {
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.delete(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg, "DELETE", path)?;
     send(req).await
 }
 
@@ -73,12 +73,38 @@ pub async fn delete_with_body(
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.delete(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg, "DELETE", path)?;
     req = req.json(body);
     send(req).await
 }
 
-fn apply_auth(req: reqwest::RequestBuilder, cfg: &Config) -> Result<reqwest::RequestBuilder> {
+fn apply_auth(
+    req: reqwest::RequestBuilder,
+    cfg: &Config,
+    method: &str,
+    path: &str,
+) -> Result<reqwest::RequestBuilder> {
+    // OAuth-excluded endpoints reject `Authorization: Bearer`. PAT/SAT must
+    // ride in `DD-APPLICATION-KEY` here (Datadog's migration form).
+    if crate::oauth_excluded::requires_api_key_fallback(method, path) {
+        if let Some(pat) = &cfg.pat {
+            let mut req = req.header("DD-APPLICATION-KEY", pat.as_str());
+            if let Some(api_key) = &cfg.api_key {
+                req = req.header("DD-API-KEY", api_key.as_str());
+            }
+            return Ok(req);
+        }
+        if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
+            return Ok(req
+                .header("DD-API-KEY", api_key.as_str())
+                .header("DD-APPLICATION-KEY", app_key.as_str()));
+        }
+        bail!(
+            "{method} {path} does not accept OAuth2 bearer tokens; \
+             set DD_PAT / DD_SAT or DD_API_KEY + DD_APP_KEY"
+        );
+    }
+
     // Precedence: OAuth bearer > PAT (as Bearer) > API+App Key. OAuth is the
     // preferred auth method per docs/OAUTH2.md; PAT is preferred over the
     // long-lived API+App Key pair.
@@ -489,6 +515,49 @@ mod tests {
         assert!(
             result.is_ok(),
             "expected OAuth bearer to win: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    /// On OAuth-excluded endpoints, a PAT must ride in `DD-APPLICATION-KEY`
+    /// (not `Authorization: Bearer`). Same wire form the SDK and client.rs
+    /// use for these paths.
+    #[tokio::test]
+    async fn test_api_pat_uses_dd_application_key_on_excluded_endpoint() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        std::env::set_var("PUP_MOCK_SERVER", server.url());
+
+        let cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            pat: Some("test-pat".into()),
+            pat_kind: Some(crate::config::PatKind::Personal),
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        let mock = server
+            .mock("GET", "/api/v2/api_keys")
+            .match_header("DD-APPLICATION-KEY", "test-pat")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{}")
+            .create_async()
+            .await;
+
+        let result = super::get(&cfg, "/api/v2/api_keys", &[]).await;
+        assert!(
+            result.is_ok(),
+            "PAT on excluded endpoint should ride as DD-APPLICATION-KEY: {:?}",
             result.err()
         );
         mock.assert_async().await;

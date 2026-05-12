@@ -8,6 +8,7 @@ mod config;
 #[cfg(not(target_arch = "wasm32"))]
 mod extensions;
 mod formatter;
+mod oauth_excluded;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
 mod skills;

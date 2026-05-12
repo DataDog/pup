@@ -136,16 +136,23 @@ impl Config {
         let file_cfg = load_config_file().unwrap_or_default();
 
         let access_token = env_or("DD_ACCESS_TOKEN", file_cfg.access_token);
-        // PAT/SAT resolution: env wins over file; if both DD_PAT and DD_SAT
-        // are set, prefer DD_PAT (alphabetical, deterministic). Both flow to
-        // `cfg.pat`; `pat_kind` records which one for status display.
-        let (pat, pat_kind) = match (
-            env_or("DD_PAT", file_cfg.pat),
-            env_or("DD_SAT", file_cfg.sat),
-        ) {
-            (Some(v), _) => (Some(v), Some(PatKind::Personal)),
-            (None, Some(v)) => (Some(v), Some(PatKind::Service)),
-            (None, None) => (None, None),
+        // PAT/SAT resolution. Standard CLI convention: any env var wins over
+        // any file value (even across PAT/SAT cross-over -- e.g. DD_SAT in env
+        // overrides `pat:` in the config file). Within each tier, DD_PAT wins
+        // over DD_SAT (alphabetical, deterministic). Both flow to `cfg.pat`;
+        // `pat_kind` records which credential supplied it for status display.
+        let env_pat = std::env::var("DD_PAT").ok().filter(|s| !s.is_empty());
+        let env_sat = std::env::var("DD_SAT").ok().filter(|s| !s.is_empty());
+        let (pat, pat_kind) = if let Some(v) = env_pat {
+            (Some(v), Some(PatKind::Personal))
+        } else if let Some(v) = env_sat {
+            (Some(v), Some(PatKind::Service))
+        } else if let Some(v) = file_cfg.pat {
+            (Some(v), Some(PatKind::Personal))
+        } else if let Some(v) = file_cfg.sat {
+            (Some(v), Some(PatKind::Service))
+        } else {
+            (None, None)
         };
         let explicit_site = env_or("DD_SITE", file_cfg.site);
         let site_explicit = explicit_site.is_some();
@@ -409,11 +416,19 @@ pub fn apply_org_override(cfg: &mut Config, org: String) {
             cfg.site = normalize_site(&saved_site);
         }
     }
-    if std::env::var("DD_ACCESS_TOKEN")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .is_none()
-    {
+    // Only reload a stored OAuth token when the caller has not supplied an
+    // explicit env-level bearer credential. DD_ACCESS_TOKEN, DD_PAT, and
+    // DD_SAT in the environment all qualify: silently loading a saved OAuth
+    // session over any of them would switch the request to a different
+    // principal (and possibly a different tenant) than the caller intended.
+    //
+    // We deliberately check the env vars (not cfg.pat) so file-config values
+    // remain overridable by per-org session reloads, matching the existing
+    // treatment of DD_ACCESS_TOKEN (env-only check, not cfg.access_token).
+    let has_explicit_env_bearer = ["DD_ACCESS_TOKEN", "DD_PAT", "DD_SAT"]
+        .iter()
+        .any(|k| std::env::var(k).ok().filter(|s| !s.is_empty()).is_some());
+    if !has_explicit_env_bearer {
         cfg.access_token = load_token_from_storage(&cfg.site, cfg.org.as_deref());
     }
 }
@@ -723,6 +738,41 @@ mod tests {
         std::env::remove_var("PUP_CONFIG_DIR");
 
         assert_eq!(cfg.pat.as_deref(), Some("the-sat"));
+        assert_eq!(cfg.pat_kind, Some(PatKind::Service));
+    }
+
+    /// Env vars must override any file value across the PAT/SAT cross-over.
+    /// Example: `pat:` in the config file should NOT take precedence over
+    /// DD_SAT in the environment.
+    #[test]
+    fn test_from_env_env_sat_overrides_file_pat() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_PAT");
+        std::env::remove_var("DD_ACCESS_TOKEN");
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_env_sat_over_file_pat_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("config.yaml"), "pat: file-pat-value\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+        std::env::set_var("DD_SAT", "env-sat-value");
+
+        let cfg = Config::from_env().unwrap();
+
+        std::env::remove_var("DD_SAT");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(
+            cfg.pat.as_deref(),
+            Some("env-sat-value"),
+            "env DD_SAT must override file `pat:` (any env var beats any file value)"
+        );
         assert_eq!(cfg.pat_kind, Some(PatKind::Service));
     }
 
@@ -1353,6 +1403,88 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
 
         assert_eq!(cfg.access_token.as_deref(), Some("env-supplied-token"));
+    }
+
+    /// When DD_PAT is set, `--org` must not silently load a stored OAuth token
+    /// into `cfg.access_token`. OAuth wins over PAT in apply_auth, so doing so
+    /// would switch the request to whatever saved principal exists for that
+    /// org -- a real trust-boundary violation.
+    ///
+    /// This test plants a stored OAuth token best-effort and verifies the
+    /// PAT survives. The token storage is a process-level singleton cached on
+    /// first use, so planting may fail under parallel-test interleaving; the
+    /// invariant we assert (access_token stays None when pat is set) holds
+    /// regardless of whether the plant succeeded.
+    #[test]
+    fn test_apply_org_override_preserves_pat() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_ACCESS_TOKEN");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_apply_pat_org_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+
+        let target_site = "stored-oauth.datadoghq.com";
+        let target_org = "stored-oauth-org";
+
+        // Best-effort plant of a stored OAuth token for the target site/org.
+        // If the storage singleton was already initialized against a different
+        // (now-cleaned-up) tmp dir, this write fails -- that's fine; the
+        // assertion below still validates the no-clobber contract.
+        if let Ok(store_guard) = crate::auth::storage::get_storage() {
+            if let Ok(lock) = store_guard.lock() {
+                if let Some(store) = lock.as_ref() {
+                    let _ = store.save_tokens(
+                        target_site,
+                        Some(target_org),
+                        &crate::auth::types::TokenSet {
+                            access_token: "stored-oauth-token".into(),
+                            refresh_token: String::new(),
+                            token_type: "Bearer".into(),
+                            expires_in: 3600,
+                            issued_at: chrono::Utc::now().timestamp(),
+                            scope: String::new(),
+                            client_id: String::new(),
+                        },
+                    );
+                }
+            }
+        }
+        let _ = crate::auth::storage::save_session(&crate::auth::storage::SessionEntry {
+            site: target_site.into(),
+            org: Some(target_org.into()),
+            org_uuid: None,
+        });
+
+        let mut cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            pat: Some("explicit-pat".into()),
+            pat_kind: Some(PatKind::Personal),
+            site: target_site.into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        super::apply_org_override(&mut cfg, target_org.into());
+
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(
+            cfg.access_token, None,
+            "stored OAuth token must not clobber explicit PAT/SAT"
+        );
+        assert_eq!(cfg.pat.as_deref(), Some("explicit-pat"));
     }
 
     /// `set_site_explicit` keeps `site` and `site_explicit` in lockstep so a

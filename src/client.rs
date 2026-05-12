@@ -105,23 +105,31 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
             },
         );
     }
-    if let Some(app_key) = &cfg.app_key {
+    // PAT wins over the long-lived app_key per documented precedence
+    // (OAuth > PAT/SAT > API+App Key). Same order as `apply_auth`.
+    if let Some(pat) = &cfg.pat {
+        // PATs/SATs ride in DD-APPLICATION-KEY for OAuth-excluded endpoints
+        // (api_keys, application_keys, ddsql-editor). Populating the SDK's
+        // appKeyAuth slot with the PAT lets `make_api_no_auth!`-routed calls
+        // succeed without DD_APP_KEY.
+        let pat_apikey = datadog_api_client::datadog::APIKey {
+            key: pat.clone(),
+            prefix: "".to_owned(),
+        };
+        dd_cfg.set_auth_key("appKeyAuth", pat_apikey.clone());
+        // The SDK may also require the apiKeyAuth slot to be populated before
+        // dispatching a request (some operations mark DD-API-KEY as required
+        // in the upstream OpenAPI spec). Per Datadog's PAT spec, DD-API-KEY is
+        // ignored when DD-APPLICATION-KEY carries a PAT, so reusing the PAT
+        // value here is safe and unblocks SDK-routed calls.
+        if cfg.api_key.is_none() {
+            dd_cfg.set_auth_key("apiKeyAuth", pat_apikey);
+        }
+    } else if let Some(app_key) = &cfg.app_key {
         dd_cfg.set_auth_key(
             "appKeyAuth",
             datadog_api_client::datadog::APIKey {
                 key: app_key.clone(),
-                prefix: "".to_owned(),
-            },
-        );
-    } else if let Some(pat) = &cfg.pat {
-        // PATs ride in DD-APPLICATION-KEY for OAuth-excluded endpoints
-        // (api_keys, application_keys, ddsql-editor). Populating the SDK's
-        // appKeyAuth slot with the PAT lets `make_api_no_auth!`-routed calls
-        // succeed without DD_APP_KEY.
-        dd_cfg.set_auth_key(
-            "appKeyAuth",
-            datadog_api_client::datadog::APIKey {
-                key: pat.clone(),
                 prefix: "".to_owned(),
             },
         );
@@ -498,257 +506,14 @@ pub fn get_auth_type(cfg: &Config) -> AuthType {
 
 // ---------------------------------------------------------------------------
 // OAuth-excluded endpoint validation
+//
+// The canonical list and lookup logic live in `crate::oauth_excluded` so
+// the WASM/browser build (which does not import this module) can consult
+// the same table.
 // ---------------------------------------------------------------------------
 
-struct EndpointRequirement {
-    path: &'static str,
-    method: &'static str,
-}
-
-/// Returns true if the endpoint doesn't support OAuth and requires API key fallback.
 #[allow(dead_code)]
-pub fn requires_api_key_fallback(method: &str, path: &str) -> bool {
-    find_endpoint_requirement(method, path).is_some()
-}
-
-fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static EndpointRequirement> {
-    OAUTH_EXCLUDED_ENDPOINTS.iter().find(|req| {
-        if req.method != method {
-            return false;
-        }
-        // Trailing "/" means prefix match (for ID-parameterized paths)
-        if req.path.ends_with('/') {
-            path.starts_with(&req.path[..req.path.len() - 1])
-        } else {
-            req.path == path
-        }
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Static tables
-// ---------------------------------------------------------------------------
-
-/// Endpoints that don't support OAuth.
-/// Trailing "/" means prefix match for ID-parameterized paths.
-static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
-    // API/App Keys (8)
-    EndpointRequirement {
-        path: "/api/v2/api_keys",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/api_keys/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/api_keys",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/api_keys/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys/",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys/",
-        method: "PATCH",
-    },
-    // DDSQL editor tools (3)
-    EndpointRequirement {
-        path: "/api/unstable/ddsql-editor/tools/ddsql-docs",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/unstable/ddsql-editor/tools/table-names",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/unstable/ddsql-editor/tools/table-data",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys/",
-        method: "DELETE",
-    },
-    // Fleet Automation (15)
-    EndpointRequirement {
-        path: "/api/v2/fleet/agents",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/agents/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/agents/versions",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/configure",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/upgrade",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules/",
-        method: "PATCH",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules/",
-        method: "POST",
-    },
-    // Observability Pipelines (6) — API key only, no OAuth support
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/",
-        method: "PUT",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/validate",
-        method: "POST",
-    },
-    // Cost / Billing (9) — API key only, no OAuth support
-    EndpointRequirement {
-        path: "/api/v2/usage/projected_cost",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/usage/cost_by_org",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost_by_tag/monthly_cost_attribution",
-        method: "GET",
-    },
-    // Cloud Cost Management config (12)
-    EndpointRequirement {
-        path: "/api/v2/cost/aws_cur_config",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/aws_cur_config",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/aws_cur_config/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/aws_cur_config/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/azure_uc_config",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/azure_uc_config",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/azure_uc_config/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/azure_uc_config/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/gcp_uc_config",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/gcp_uc_config",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/gcp_uc_config/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/gcp_uc_config/",
-        method: "DELETE",
-    },
-    // Profiling (4)
-    // No OAuth scope is declared for Continuous Profiler endpoints; force API-key auth.
-    EndpointRequirement {
-        path: "/profiling/api/v1/",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/profiling/api/v1/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/unstable/profiles/",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/ui/profiling/",
-        method: "GET",
-    },
-];
+pub use crate::oauth_excluded::requires_api_key_fallback;
 
 // ---------------------------------------------------------------------------
 // Raw HTTP helpers
@@ -981,12 +746,9 @@ fn apply_auth(
         // OAuth-excluded endpoints do not accept Bearer tokens. They DO accept
         // either DD_API_KEY+DD_APP_KEY or a PAT/SAT in the DD-APPLICATION-KEY
         // slot (Datadog's PAT migration form -- DD-API-KEY is optional/ignored).
-        if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-            req = req
-                .header("DD-API-KEY", api_key.as_str())
-                .header("DD-APPLICATION-KEY", app_key.as_str());
-            return Ok(req);
-        }
+        //
+        // Precedence here matches the documented tier order: PAT/SAT is preferred
+        // over the long-lived API+App Key pair, so it wins when both are set.
         if let Some(pat) = &cfg.pat {
             // PATs/SATs ride in DD-APPLICATION-KEY. DD-API-KEY is optional and
             // ignored for these tokens; include it only if explicitly set so we
@@ -995,6 +757,12 @@ fn apply_auth(
             if let Some(api_key) = &cfg.api_key {
                 req = req.header("DD-API-KEY", api_key.as_str());
             }
+            return Ok(req);
+        }
+        if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
+            req = req
+                .header("DD-API-KEY", api_key.as_str())
+                .header("DD-APPLICATION-KEY", app_key.as_str());
             return Ok(req);
         }
 
@@ -1066,15 +834,7 @@ pub async fn raw_post_lenient(
     let client = reqwest::Client::new();
     let mut req = client.post(&url);
 
-    if let Some(token) = &cfg.access_token {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-        req = req
-            .header("DD-API-KEY", api_key.as_str())
-            .header("DD-APPLICATION-KEY", app_key.as_str());
-    } else {
-        anyhow::bail!("no authentication configured");
-    }
+    req = apply_auth(req, cfg, "POST", path)?;
 
     let resp = req
         .header("Content-Type", "application/json")
@@ -1093,15 +853,7 @@ pub async fn raw_delete(cfg: &Config, path: &str) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
     let mut req = client.delete(&url);
 
-    if let Some(token) = &cfg.access_token {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-        req = req
-            .header("DD-API-KEY", api_key.as_str())
-            .header("DD-APPLICATION-KEY", app_key.as_str());
-    } else {
-        anyhow::bail!("no authentication configured");
-    }
+    req = apply_auth(req, cfg, "DELETE", path)?;
 
     let resp = req
         .header("Accept", "application/json")
@@ -1167,6 +919,97 @@ mod tests {
         cfg.app_key = None;
         assert_eq!(get_auth_type(&cfg), AuthType::None);
     }
+
+    /// Regression: `apply_auth` on OAuth-excluded endpoints must prefer a PAT
+    /// over API+App Key. Otherwise documented precedence (PAT > API+App Key)
+    /// is silently reversed for the api_keys / application_keys / ddsql paths.
+    #[tokio::test]
+    async fn test_apply_auth_excluded_endpoint_pat_beats_api_app_key() {
+        let _guard = ENV_LOCK.lock().await;
+        let mut server = mockito::Server::new_async().await;
+        std::env::set_var("PUP_MOCK_SERVER", server.url());
+
+        let mut cfg = test_cfg();
+        cfg.pat = Some("the-pat".into());
+        cfg.pat_kind = Some(crate::config::PatKind::Personal);
+        // api_key + app_key are also set (inherited from test_cfg) -- PAT must win.
+
+        // /api/v2/api_keys is in OAUTH_EXCLUDED_ENDPOINTS.
+        let mock = server
+            .mock("GET", "/api/v2/api_keys")
+            .match_header("DD-APPLICATION-KEY", "the-pat")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{}")
+            .create_async()
+            .await;
+
+        let _ = raw_get(&cfg, "/api/v2/api_keys", &[]).await;
+        mock.assert_async().await;
+
+        std::env::remove_var("PUP_MOCK_SERVER");
+    }
+
+    /// `raw_post_lenient` must use the shared `apply_auth` so PAT/SAT callers
+    /// can hit endpoints routed through it (debugger probe create, etc.).
+    #[tokio::test]
+    async fn test_raw_post_lenient_with_pat() {
+        let _guard = ENV_LOCK.lock().await;
+        let mut server = mockito::Server::new_async().await;
+        std::env::set_var("PUP_MOCK_SERVER", server.url());
+
+        let mut cfg = test_cfg();
+        cfg.api_key = None;
+        cfg.app_key = None;
+        cfg.pat = Some("the-pat".into());
+        cfg.pat_kind = Some(crate::config::PatKind::Personal);
+
+        let mock = server
+            .mock("POST", "/api/v1/some-endpoint")
+            .match_header("Authorization", "Bearer the-pat")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{}")
+            .create_async()
+            .await;
+
+        let _ = raw_post_lenient(&cfg, "/api/v1/some-endpoint", serde_json::json!({})).await;
+        mock.assert_async().await;
+
+        std::env::remove_var("PUP_MOCK_SERVER");
+    }
+
+    /// `raw_delete` must use the shared `apply_auth` so PAT/SAT callers can
+    /// hit endpoints routed through it (cost-CCM delete paths, etc.).
+    #[tokio::test]
+    async fn test_raw_delete_with_pat() {
+        let _guard = ENV_LOCK.lock().await;
+        let mut server = mockito::Server::new_async().await;
+        std::env::set_var("PUP_MOCK_SERVER", server.url());
+
+        let mut cfg = test_cfg();
+        cfg.api_key = None;
+        cfg.app_key = None;
+        cfg.pat = Some("the-pat".into());
+        cfg.pat_kind = Some(crate::config::PatKind::Personal);
+
+        let mock = server
+            .mock("DELETE", "/api/v1/some-resource")
+            .match_header("Authorization", "Bearer the-pat")
+            .with_status(204)
+            .create_async()
+            .await;
+
+        let _ = raw_delete(&cfg, "/api/v1/some-resource").await;
+        mock.assert_async().await;
+
+        std::env::remove_var("PUP_MOCK_SERVER");
+    }
+
+    // Note: we don't unit-test that make_dd_config populates appKeyAuth /
+    // apiKeyAuth slots for a PAT-only Config -- the SDK's `auth_keys` field
+    // is private. The behavior is exercised indirectly via the manual
+    // `apply_auth` path tests above, which assert PAT routing on the wire.
 
     /// `make_dd_config` must propagate `cfg.site` into the SDK's `site`
     /// server variable, otherwise programmatic site resolution (e.g.
@@ -1302,10 +1145,7 @@ mod tests {
         assert_eq!(UNSTABLE_OPS.len(), 166);
     }
 
-    #[test]
-    fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 52);
-    }
+    // `test_oauth_excluded_count` now lives in `src/oauth_excluded.rs` alongside the canonical list.
 
     #[test]
     fn test_make_dd_client_some_without_token() {

@@ -51,6 +51,24 @@ fn inject_auth_env(cmd: &mut std::process::Command, cfg: &Config) {
             cmd.env_remove("DD_ACCESS_TOKEN");
         }
     }
+    // Forward PAT/SAT under the env var name that matches `pat_kind` so the
+    // child sees the same credential kind the parent resolved. If `pat_kind`
+    // is None (no PAT configured), unset both to avoid leaking stale values
+    // from the parent shell.
+    match (&cfg.pat, cfg.pat_kind) {
+        (Some(token), Some(crate::config::PatKind::Personal)) => {
+            cmd.env("DD_PAT", token);
+            cmd.env_remove("DD_SAT");
+        }
+        (Some(token), Some(crate::config::PatKind::Service)) => {
+            cmd.env("DD_SAT", token);
+            cmd.env_remove("DD_PAT");
+        }
+        _ => {
+            cmd.env_remove("DD_PAT");
+            cmd.env_remove("DD_SAT");
+        }
+    }
     match &cfg.api_key {
         Some(key) => {
             cmd.env("DD_API_KEY", key);

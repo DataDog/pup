@@ -87,6 +87,8 @@ pub async fn attachments_delete(
 
     if let Some(token) = &cfg.access_token {
         req = req.header("Authorization", format!("Bearer {token}"));
+    } else if let Some(pat) = &cfg.pat {
+        req = req.header("Authorization", format!("Bearer {pat}"));
     } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
         req = req
             .header("DD-API-KEY", api_key.as_str())

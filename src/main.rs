@@ -10,6 +10,7 @@ mod extensions;
 mod formatter;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
+#[cfg(not(target_arch = "wasm32"))]
 mod skills;
 #[cfg(not(target_arch = "wasm32"))]
 mod tunnel;
@@ -2311,15 +2312,27 @@ enum Commands {
         #[command(subcommand)]
         action: ServiceCatalogActions,
     },
-    /// Manage agent skills for AI coding assistants
+    /// Manage agent skills, subagents, and extensions for AI coding assistants
     ///
-    /// Install structured workflow guides, domain references, and specialized
-    /// agents that teach AI coding assistants how to compose pup commands.
+    /// Install structured workflow guides, domain references, specialized
+    /// agents, and platform extensions that teach AI coding assistants how to
+    /// compose pup commands.
+    ///
+    /// ENTRY TYPES:
+    ///   skill       Single-file markdown guide installed under the agent's skills dir
+    ///   agent       Domain subagent (Claude Code subagent format or SKILL.md fallback)
+    ///   extension   Multi-file bundle for a coding-agent platform (e.g. pi)
+    ///
+    /// EXTENSION SCOPE:
+    ///   By default extensions install project-local when run inside a git
+    ///   repository (e.g. <repo>/.pi/extensions/<name>/), and user-global
+    ///   otherwise (e.g. ~/.pi/agent/extensions/<name>/). Pass --user to force
+    ///   user-global. Skills and agents always install project-local.
     ///
     /// COMMANDS:
-    ///   list      List available skills and agents
-    ///   install   Install skills for the detected AI coding assistant
-    ///   path      Show where skills would be installed
+    ///   list      List available skills, agents, and extensions
+    ///   install   Install entries for the detected AI coding assistant
+    ///   path      Show where entries would be installed
     ///
     /// EXAMPLES:
     ///   pup skills list
@@ -2327,7 +2340,11 @@ enum Commands {
     ///   pup skills install dd-pup
     ///   pup skills install --type=agent
     ///   pup skills install --target-agent=cursor
+    ///   pup skills install --platform=pi
+    ///   pup skills install --platform=pi --user
     ///   pup skills path
+    ///   pup skills path --platform=pi
+    #[cfg(not(target_arch = "wasm32"))]
     #[command(verbatim_doc_comment)]
     Skills {
         #[command(subcommand)]
@@ -8799,17 +8816,18 @@ enum AliasActions {
 }
 
 // ---- Skills ----
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Subcommand)]
 enum SkillsActions {
-    /// List available skills and agents
+    /// List available skills, agents, and extensions
     List {
-        /// Filter by type: skill, agent
+        /// Filter by type: skill, agent, extension
         #[arg(long = "type", name = "type")]
         entry_type: Option<String>,
     },
     /// Install skills for the detected AI coding assistant
     Install {
-        /// Install a specific skill or agent by name
+        /// Install a specific skill, agent, or extension by name
         name: Option<String>,
         /// Override detected AI agent (claude-code, cursor, codex, windsurf, gemini-code)
         #[arg(long = "target-agent")]
@@ -8817,15 +8835,29 @@ enum SkillsActions {
         /// Override install directory
         #[arg(long)]
         dir: Option<String>,
-        /// Filter by type: skill, agent
+        /// Filter by type: skill, agent, extension
         #[arg(long = "type", name = "type")]
         entry_type: Option<String>,
+        /// Extension platform (e.g. pi). Required for extension installs unless
+        /// the detected agent maps to a platform.
+        #[arg(long)]
+        platform: Option<String>,
+        /// Install extensions to the user-global directory (e.g. ~/.pi/agent/extensions)
+        /// instead of the project-local one. Has no effect on skills/agents.
+        #[arg(long = "user")]
+        user_scope: bool,
     },
-    /// Show where skills would be installed
+    /// Show where skills/agents/extensions would be installed
     Path {
         /// Override detected AI agent
         #[arg(long = "target-agent")]
         target_agent: Option<String>,
+        /// Extension platform (e.g. pi)
+        #[arg(long)]
+        platform: Option<String>,
+        /// Show user-global extension path instead of project-local
+        #[arg(long = "user")]
+        user_scope: bool,
     },
 }
 
@@ -13732,6 +13764,7 @@ async fn main_inner() -> anyhow::Result<()> {
             .await?;
         }
         // --- Skills ---
+        #[cfg(not(target_arch = "wasm32"))]
         Commands::Skills { action } => match action {
             SkillsActions::List { entry_type } => commands::skills::list(&cfg, entry_type)?,
             SkillsActions::Install {
@@ -13739,8 +13772,22 @@ async fn main_inner() -> anyhow::Result<()> {
                 target_agent,
                 dir,
                 entry_type,
-            } => commands::skills::install(&cfg, name, target_agent, dir, entry_type)?,
-            SkillsActions::Path { target_agent } => commands::skills::path(target_agent)?,
+                platform,
+                user_scope,
+            } => commands::skills::install(
+                &cfg,
+                name,
+                target_agent,
+                dir,
+                entry_type,
+                platform,
+                user_scope,
+            )?,
+            SkillsActions::Path {
+                target_agent,
+                platform,
+                user_scope,
+            } => commands::skills::path(target_agent, platform, user_scope)?,
         },
         // --- Product Analytics ---
         Commands::ProductAnalytics { action } => {

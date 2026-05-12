@@ -69,6 +69,7 @@ pub mod scorecards;
 pub mod seats;
 pub mod security;
 pub mod service_catalog;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod skills;
 pub mod slos;
 pub mod software_catalog;

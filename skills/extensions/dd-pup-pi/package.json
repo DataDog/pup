@@ -1,0 +1,9 @@
+{
+  "name": "dd-pup",
+  "version": "0.1.0",
+  "description": "pi extension exposing the Datadog pup CLI as LLM tools",
+  "private": true,
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}

@@ -1033,7 +1033,7 @@ pub async fn raw_put(
         let body = resp.text().await.unwrap_or_default();
         anyhow::bail!("PUT {url} failed (HTTP {status}): {body}");
     }
-    Ok(resp.json().await?)
+    parse_response_json(resp).await
 }
 
 /// Like `raw_post`, but returns the parsed JSON body even on non-2xx responses.

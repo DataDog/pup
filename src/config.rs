@@ -289,10 +289,6 @@ impl Config {
         self.access_token.is_some()
     }
 
-    pub fn has_pat(&self) -> bool {
-        self.pat.is_some()
-    }
-
     /// Returns the API host (e.g., "api.datadoghq.com").
     pub fn api_host(&self) -> String {
         #[cfg(not(feature = "browser"))]
@@ -425,9 +421,13 @@ pub fn apply_org_override(cfg: &mut Config, org: String) {
     // We deliberately check the env vars (not cfg.pat) so file-config values
     // remain overridable by per-org session reloads, matching the existing
     // treatment of DD_ACCESS_TOKEN (env-only check, not cfg.access_token).
-    let has_explicit_env_bearer = ["DD_ACCESS_TOKEN", "DD_PAT", "DD_SAT"]
-        .iter()
-        .any(|k| std::env::var(k).ok().filter(|s| !s.is_empty()).is_some());
+    let has_explicit_env_bearer = [
+        "DD_ACCESS_TOKEN",
+        PatKind::Personal.env_var(),
+        PatKind::Service.env_var(),
+    ]
+    .iter()
+    .any(|k| std::env::var(k).ok().filter(|s| !s.is_empty()).is_some());
     if !has_explicit_env_bearer {
         cfg.access_token = load_token_from_storage(&cfg.site, cfg.org.as_deref());
     }
@@ -795,10 +795,13 @@ mod tests {
     }
 
     #[test]
-    fn test_has_pat() {
-        assert!(make_cfg_pat(Some("p")).has_pat());
-        assert!(!make_cfg_pat(None).has_pat());
-        assert!(!make_cfg(None, None, Some("oauth")).has_pat());
+    fn test_pat_kind_set_with_pat() {
+        let cfg = make_cfg_pat(Some("p"));
+        assert!(cfg.pat.is_some() && cfg.pat_kind.is_some());
+        let empty = make_cfg_pat(None);
+        assert!(empty.pat.is_none() && empty.pat_kind.is_none());
+        let oauth = make_cfg(None, None, Some("oauth"));
+        assert!(oauth.pat.is_none() && oauth.pat_kind.is_none());
     }
 
     #[test]

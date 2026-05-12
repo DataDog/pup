@@ -76,26 +76,11 @@ pub async fn attachments_delete(
     incident_id: &str,
     attachment_id: &str,
 ) -> Result<()> {
-    let url = format!(
-        "{}/api/v2/incidents/{}/attachments/{}",
-        cfg.api_base_url(),
-        incident_id,
-        attachment_id
-    );
+    let path = format!("/api/v2/incidents/{incident_id}/attachments/{attachment_id}");
+    let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.delete(&url);
-
-    if let Some(token) = &cfg.access_token {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    } else if let Some(pat) = &cfg.pat {
-        req = req.header("Authorization", format!("Bearer {pat}"));
-    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-        req = req
-            .header("DD-API-KEY", api_key.as_str())
-            .header("DD-APPLICATION-KEY", app_key.as_str());
-    } else {
-        bail!("no authentication configured");
-    }
+    req = crate::client::apply_auth(req, cfg, "DELETE", &path)?;
 
     let resp = req.header("Accept", "application/json").send().await?;
     if !resp.status().is_success() {

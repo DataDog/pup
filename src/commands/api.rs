@@ -134,10 +134,8 @@ pub async fn run(
         .map_err(|_| anyhow::anyhow!("unsupported HTTP method: {method}"))?;
     let mut req = client.request(method_val, &url);
 
-    // For OAuth-excluded endpoints (api_keys, application_keys, ddsql-editor),
-    // OAuth bearer tokens are rejected by the server, and a PAT/SAT must ride
-    // in `DD-APPLICATION-KEY` rather than as `Authorization: Bearer`. The path
-    // component of the URL drives the decision.
+    // Extract the path component (full URLs and relative endpoints both need
+    // to feed the same OAuth-excluded check inside apply_auth).
     let normalized_path = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
         reqwest::Url::parse(&url)
             .ok()
@@ -146,41 +144,7 @@ pub async fn run(
     } else {
         normalize_path(endpoint)
     };
-    let requires_app_key_form =
-        crate::client::requires_api_key_fallback(&method_upper, &normalized_path);
-
-    if requires_app_key_form {
-        // OAuth bearer is unsupported here. Accept PAT/SAT (in DD-APPLICATION-KEY)
-        // or DD_API_KEY+DD_APP_KEY. An OAuth-only caller is rejected up front.
-        if let Some(pat) = &cfg.pat {
-            req = req.header("DD-APPLICATION-KEY", pat.as_str());
-            if let Some(api_key) = &cfg.api_key {
-                req = req.header("DD-API-KEY", api_key.as_str());
-            }
-        } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-            req = req
-                .header("DD-API-KEY", api_key.as_str())
-                .header("DD-APPLICATION-KEY", app_key.as_str());
-        } else {
-            bail!(
-                "{method_upper} {normalized_path} does not accept OAuth2 bearer tokens; \
-                 set DD_PAT / DD_SAT or DD_API_KEY + DD_APP_KEY"
-            );
-        }
-    } else if let Some(token) = &cfg.access_token {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    } else if let Some(pat) = &cfg.pat {
-        req = req.header("Authorization", format!("Bearer {pat}"));
-    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-        req = req
-            .header("DD-API-KEY", api_key.as_str())
-            .header("DD-APPLICATION-KEY", app_key.as_str());
-    } else {
-        bail!(
-            "authentication required: run 'pup auth login', \
-             set DD_PAT / DD_SAT, or set DD_API_KEY and DD_APP_KEY"
-        );
-    }
+    req = crate::client::apply_auth(req, cfg, &method_upper, &normalized_path)?;
 
     req = req
         .header("User-Agent", useragent::get())

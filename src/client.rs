@@ -470,9 +470,9 @@ pub enum AuthType {
     None,
     OAuth,
     /// Datadog Access Token -- Personal (DD_PAT) or Service (DD_SAT). Both
-    /// kinds are wire-identical; the inner option records which env var
-    /// supplied it for status display.
-    AccessToken(Option<crate::config::PatKind>),
+    /// kinds are wire-identical; the inner value records which one for
+    /// status display.
+    AccessToken(crate::config::PatKind),
     ApiKeys,
 }
 
@@ -481,10 +481,9 @@ impl std::fmt::Display for AuthType {
         match self {
             AuthType::None => write!(f, "None"),
             AuthType::OAuth => write!(f, "OAuth2 Bearer Token"),
-            AuthType::AccessToken(Some(kind)) => {
+            AuthType::AccessToken(kind) => {
                 write!(f, "{} ({})", kind.display_name(), kind.env_var())
             }
-            AuthType::AccessToken(None) => write!(f, "Datadog Access Token"),
             AuthType::ApiKeys => write!(f, "API Keys (DD_API_KEY + DD_APP_KEY)"),
         }
     }
@@ -493,10 +492,12 @@ impl std::fmt::Display for AuthType {
 #[allow(dead_code)]
 pub fn get_auth_type(cfg: &Config) -> AuthType {
     // Match auth-precedence in apply_auth: OAuth > PAT/SAT > API+App Key.
+    // `pat_kind` is set together with `pat` (see Config::from_env), so binding
+    // here lets us guarantee a non-None inner value.
     if cfg.has_bearer_token() {
         AuthType::OAuth
-    } else if cfg.has_pat() {
-        AuthType::AccessToken(cfg.pat_kind)
+    } else if let Some(kind) = cfg.pat_kind {
+        AuthType::AccessToken(kind)
     } else if cfg.has_api_keys() {
         AuthType::ApiKeys
     } else {
@@ -736,7 +737,12 @@ async fn raw_post_impl(
     parse_response_json(resp).await
 }
 
-fn apply_auth(
+/// Attach auth headers (OAuth bearer, PAT/SAT, or API+App Key) to a raw
+/// `reqwest::RequestBuilder`. Respects the documented precedence
+/// (OAuth > PAT/SAT > API+App Key) and routes PAT/SAT to `DD-APPLICATION-KEY`
+/// for OAuth-excluded endpoints. Single source of truth used by every native
+/// request path; `commands/*` helpers should delegate here.
+pub fn apply_auth(
     mut req: reqwest::RequestBuilder,
     cfg: &Config,
     method: &str,

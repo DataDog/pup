@@ -442,12 +442,14 @@ fn build_non_oauth_status(cfg: &Config) -> (String, serde_json::Value) {
             (msg, json)
         }
         AuthType::AccessToken(kind) => {
-            let (label, method) = match kind {
-                Some(crate::config::PatKind::Personal) => ("Personal Access Token", "pat"),
-                Some(crate::config::PatKind::Service) => ("Service Access Token", "sat"),
-                None => ("Datadog Access Token", "access_token"),
+            let method = match kind {
+                crate::config::PatKind::Personal => "pat",
+                crate::config::PatKind::Service => "sat",
             };
-            let msg = format!("✅ Authenticated for site: {site}{org_label} ({label})");
+            let msg = format!(
+                "✅ Authenticated for site: {site}{org_label} ({})",
+                kind.display_name()
+            );
             let json = serde_json::json!({
                 "authenticated": true,
                 "auth_method": method,

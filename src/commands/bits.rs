@@ -25,21 +25,9 @@ pub async fn ask(
 
     let app_base = format!("https://app.{}", cfg.site);
 
-    // PAT/SAT ride as `Authorization: Bearer` on Bits AI / lassie endpoints
-    // (not in OAUTH_EXCLUDED_ENDPOINTS), so coalesce them into the
-    // access_token slot resolve_agent_id expects.
-    let bearer = cfg.access_token.as_deref().or(cfg.pat.as_deref());
     let agent_id = match agent_id {
         Some(id) if !id.is_empty() => id,
-        _ => {
-            resolve_agent_id(
-                &app_base,
-                bearer,
-                cfg.api_key.as_deref(),
-                cfg.app_key.as_deref(),
-            )
-            .await?
-        }
+        _ => resolve_agent_id(&app_base, cfg).await?,
     };
 
     let mut session_id: Option<String> = None;
@@ -251,29 +239,11 @@ fn extract_text(val: &serde_json::Value) -> String {
 
 /// Resolve the first available Bits AI agent ID from the API.
 #[cfg(not(target_arch = "wasm32"))]
-async fn resolve_agent_id(
-    app_base: &str,
-    access_token: Option<&str>,
-    api_key: Option<&str>,
-    app_key: Option<&str>,
-) -> Result<String> {
+async fn resolve_agent_id(app_base: &str, cfg: &Config) -> Result<String> {
     let url = format!("{app_base}{LASSIE_BASE}/agents?limit=1");
     let client = reqwest::Client::new();
     let req = client.get(&url).header("Accept", "application/json");
-
-    let req = req.header("User-Agent", crate::useragent::get());
-    // Note: this helper accepts pre-extracted Option<&str> parameters for the
-    // OAuth bearer and API+App Key pair. PAT/SAT callers reach this through
-    // the parent `cfg.pat`, which is threaded in via the `access_token` slot
-    // (PAT rides as `Authorization: Bearer` on this endpoint, same as OAuth).
-    let req = if let Some(token) = access_token {
-        req.header("Authorization", format!("Bearer {token}"))
-    } else if let (Some(ak), Some(apk)) = (api_key, app_key) {
-        req.header("DD-API-KEY", ak)
-            .header("DD-APPLICATION-KEY", apk)
-    } else {
-        anyhow::bail!("no authentication configured");
-    };
+    let req = add_auth(req, cfg)?;
 
     let resp = req
         .send()

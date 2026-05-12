@@ -52,6 +52,10 @@ pub fn list(cfg: &crate::config::Config) -> Result<()> {
 }
 
 pub fn set(name: String, command: String) -> Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::extensions::is_builtin_command(&name) {
+        bail!("'{name}' is a built-in command and cannot be used as an alias name");
+    }
     let mut aliases = load_aliases()?;
     aliases.insert(name.clone(), command.clone());
     save_aliases(&aliases)?;
@@ -69,6 +73,39 @@ pub fn delete(names: Vec<String>) -> Result<()> {
     save_aliases(&aliases)?;
     println!("Deleted {} alias(es).", names.len());
     Ok(())
+}
+
+/// Core expansion logic, operating on an already-loaded alias map.
+/// Exposed separately so unit tests can exercise it without touching the
+/// filesystem.
+fn apply_expansion(args: &[String], name: &str, aliases: &BTreeMap<String, String>) -> Vec<String> {
+    // Built-in commands cannot be shadowed by aliases.
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::extensions::is_builtin_command(name) {
+        return args.to_vec();
+    }
+    let Some(expansion) = aliases.get(name) else {
+        return args.to_vec();
+    };
+    let expansion_tokens: Vec<String> = expansion.split_whitespace().map(String::from).collect();
+    let Some(idx) = args.iter().position(|a| a == name) else {
+        return args.to_vec();
+    };
+    let mut out = args[..idx].to_vec();
+    out.extend(expansion_tokens);
+    out.extend_from_slice(&args[idx + 1..]);
+    out
+}
+
+/// Rewrite `args` by replacing the `name` token with its stored alias expansion.
+/// Returns a clone of `args` unchanged if `name` is not a known alias or on
+/// any I/O error.
+pub fn expand(args: &[String], name: &str) -> Vec<String> {
+    let aliases = match load_aliases() {
+        Ok(m) => m,
+        Err(_) => return args.to_vec(),
+    };
+    apply_expansion(args, name, &aliases)
 }
 
 pub fn import(file: &str) -> Result<()> {
@@ -96,4 +133,69 @@ pub fn import(file: &str) -> Result<()> {
     save_aliases(&aliases)?;
     println!("Imported {count} alias(es) from {file}.");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(s: &str) -> Vec<String> {
+        s.split_whitespace().map(String::from).collect()
+    }
+
+    fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn test_apply_expansion_no_match() {
+        let aliases = map(&[]);
+        let result = apply_expansion(&args("pup infra-list"), "infra-list", &aliases);
+        assert_eq!(result, args("pup infra-list"));
+    }
+
+    #[test]
+    fn test_apply_expansion_simple() {
+        let aliases = map(&[("infra-list", "infrastructure hosts list")]);
+        let result = apply_expansion(&args("pup infra-list"), "infra-list", &aliases);
+        assert_eq!(result, args("pup infrastructure hosts list"));
+    }
+
+    #[test]
+    fn test_apply_expansion_preserves_trailing_args() {
+        let aliases = map(&[("infra-list", "infrastructure hosts list")]);
+        let result = apply_expansion(
+            &args("pup infra-list --filter env:prod"),
+            "infra-list",
+            &aliases,
+        );
+        assert_eq!(
+            result,
+            args("pup infrastructure hosts list --filter env:prod")
+        );
+    }
+
+    #[test]
+    fn test_apply_expansion_preserves_leading_flags() {
+        let aliases = map(&[("infra-list", "infrastructure hosts list")]);
+        let result = apply_expansion(
+            &args("pup --output json infra-list"),
+            "infra-list",
+            &aliases,
+        );
+        assert_eq!(result, args("pup --output json infrastructure hosts list"));
+    }
+
+    #[test]
+    fn test_set_rejects_builtin_name() {
+        let result = super::set(
+            "infrastructure".to_string(),
+            "infrastructure hosts list".to_string(),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("built-in command"));
+    }
 }

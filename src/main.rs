@@ -10249,6 +10249,19 @@ async fn main_inner() -> anyhow::Result<()> {
         }
     }
 
+    // --- Alias expansion (before clap parsing) ---
+    // If the first positional arg matches a stored alias, rewrite args so
+    // that clap sees the expanded command instead of the alias name.
+    #[cfg(not(target_arch = "wasm32"))]
+    let args = {
+        let parsed = extensions::parse_extension_args(&args);
+        if let Some(ref candidate) = parsed.candidate {
+            commands::alias::expand(&args, candidate)
+        } else {
+            args
+        }
+    };
+
     // Build the clap Command and, when extensions are installed, append an
     // "EXTENSIONS:" section to the help output so they are visible in
     // `pup --help` / `pup help`, similar to how `gh` lists extensions.
@@ -10260,7 +10273,7 @@ async fn main_inner() -> anyhow::Result<()> {
             cmd = cmd.after_help(section);
         }
     }
-    let matches = cmd.get_matches();
+    let matches = cmd.get_matches_from(&args);
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
 
     // Handle commands that do not require authentication before Config::from_env() so

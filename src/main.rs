@@ -5649,6 +5649,11 @@ enum RumActions {
             help = "RUM query filter (e.g. '@type:error @application.name:\"My App\"')"
         )]
         query: Option<String>,
+        #[arg(
+            long,
+            help = "Filter to a specific user by email — prepends @usr.email:<value> to the query"
+        )]
+        user_email: Option<String>,
         #[arg(long, default_value = "1h", help = "Start time")]
         from: String,
         #[arg(long, default_value = "now", help = "End time")]
@@ -11889,16 +11894,29 @@ async fn main_inner() -> anyhow::Result<()> {
                 },
                 RumActions::Aggregate {
                     query,
+                    user_email,
                     from,
                     to,
                     compute,
                     group_by,
                     limit,
                 } => {
+                    let base_query = query.unwrap_or_default();
+                    let effective_query = match user_email {
+                        Some(email) => {
+                            let email_filter = format!("@usr.email:{email}");
+                            if base_query.is_empty() {
+                                email_filter
+                            } else {
+                                format!("{email_filter} {base_query}")
+                            }
+                        }
+                        None => base_query,
+                    };
                     commands::rum::aggregate(
                         &cfg,
                         commands::rum::RumAggregateArgs {
-                            query: query.unwrap_or_default(),
+                            query: effective_query,
                             from,
                             to,
                             compute: commands::rum::split_rum_compute_args(&compute),

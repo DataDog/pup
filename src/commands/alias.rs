@@ -52,6 +52,7 @@ pub fn list(cfg: &crate::config::Config) -> Result<()> {
 }
 
 pub fn set(name: String, command: String) -> Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
     if crate::extensions::is_builtin_command(&name) {
         bail!("'{name}' is a built-in command and cannot be used as an alias name");
     }
@@ -79,6 +80,7 @@ pub fn delete(names: Vec<String>) -> Result<()> {
 /// filesystem.
 fn apply_expansion(args: &[String], name: &str, aliases: &BTreeMap<String, String>) -> Vec<String> {
     // Built-in commands cannot be shadowed by aliases.
+    #[cfg(not(target_arch = "wasm32"))]
     if crate::extensions::is_builtin_command(name) {
         return args.to_vec();
     }

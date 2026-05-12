@@ -10298,7 +10298,7 @@ mod resolve_callback_port_tests {
 
 async fn main_inner() -> anyhow::Result<()> {
     // In agent mode, intercept --help to return a JSON schema instead of plain text.
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
     let has_help = args.iter().any(|a| a == "--help" || a == "-h");
     let has_agent_flag = args.iter().any(|a| a == "--agent");
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
@@ -10342,6 +10342,17 @@ async fn main_inner() -> anyhow::Result<()> {
         }
     }
 
+    // --- Alias expansion (before clap parsing) ---
+    // If the first positional arg matches a stored alias, rewrite args so
+    // that clap sees the expanded command instead of the alias name.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let parsed = extensions::parse_extension_args(&args);
+        if let Some(ref candidate) = parsed.candidate {
+            args = commands::alias::expand(&args, candidate);
+        }
+    }
+
     // Build the clap Command and, when extensions are installed, append an
     // "EXTENSIONS:" section to the help output so they are visible in
     // `pup --help` / `pup help`, similar to how `gh` lists extensions.
@@ -10353,7 +10364,7 @@ async fn main_inner() -> anyhow::Result<()> {
             cmd = cmd.after_help(section);
         }
     }
-    let matches = cmd.get_matches();
+    let matches = cmd.get_matches_from(&args);
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
 
     // Handle commands that do not require authentication before Config::from_env() so

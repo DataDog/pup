@@ -9195,6 +9195,26 @@ fn find_subcommand<'a>(cmd: &'a clap::Command, path: &[&str]) -> Option<&'a clap
     }
 }
 
+/// Guidance returned in the agent schema for LLMs that author shell scripts
+/// or runbooks the user will execute outside the agent session. Agent mode
+/// wraps responses in a `{status, data, metadata}` envelope; outside agent
+/// mode, output is raw. Without `--no-agent`, a script tested in-session
+/// silently breaks when the user runs it.
+fn build_script_authoring_guidance() -> serde_json::Value {
+    serde_json::json!({
+        "summary": "Agent mode wraps JSON responses in a {status, data, metadata} envelope. Outside agent mode, pup emits the raw payload. Scripts written without --no-agent will see different shapes depending on who runs them.",
+        "rule": "When authoring a script, alias, runbook, or any pup command that the user (or CI) will run outside this agent session, append --no-agent so the output format matches what they will see.",
+        "examples": [
+            "# Agent runs interactively (envelope wrapped):",
+            "pup monitors list --tag='env:prod'",
+            "",
+            "# Agent writes a script for the user (raw output, parity with their shell):",
+            "pup --no-agent monitors list --tag='env:prod' | jq '.[].name'"
+        ],
+        "detection": "Agent mode is on when any of: --agent flag, FORCE_AGENT_MODE=1, or an agent env var (CLAUDECODE, CURSOR_AGENT, CODEX, etc.) is set."
+    })
+}
+
 /// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`).
 fn build_agent_schema_scoped(
     _root_cmd: &clap::Command,
@@ -9322,8 +9342,11 @@ fn build_agent_schema_scoped(
         "Don't use --from=30d unless you specifically need a month of data; it's slow",
         "Don't retry failed requests without checking the error; 401 means re-authenticate, 403 means missing permissions",
         "Don't use 'pup metrics query' without specifying an aggregation (avg, sum, max, min, count)",
-        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level"
+        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level",
+        "Don't author scripts for the user without --no-agent; the envelope wrapping in agent mode won't appear when they run it (see script_authoring)"
     ]));
+
+    root.insert("script_authoring".into(), build_script_authoring_guidance());
 
     serde_json::Value::Object(root)
 }
@@ -9392,8 +9415,11 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
         "Don't use --from=30d unless you specifically need a month of data; it's slow",
         "Don't retry failed requests without checking the error; 401 means re-authenticate, 403 means missing permissions",
         "Don't use 'pup metrics query' without specifying an aggregation (avg, sum, max, min, count)",
-        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level"
+        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level",
+        "Don't author scripts for the user without --no-agent; the envelope wrapping in agent mode won't appear when they run it (see script_authoring)"
     ]));
+
+    root.insert("script_authoring".into(), build_script_authoring_guidance());
 
     root.insert("best_practices".into(), serde_json::json!([
         "Always specify --from to set a time range; most commands default to 1h but be explicit",
@@ -9897,6 +9923,104 @@ mod test_agent_schema {
                 .iter()
                 .any(|f| f["name"].as_str() == Some("--no-agent")),
             "scoped schema global_flags must include --no-agent"
+        );
+    }
+
+    /// Assert that a `script_authoring` JSON block has the full contract:
+    /// summary + rule + examples + detection, with rule mentioning `--no-agent`.
+    /// Shared between the top-level and scoped schema tests.
+    fn assert_script_authoring_contract(block: &serde_json::Value) {
+        assert!(
+            block.is_object(),
+            "script_authoring must be an object: {block}"
+        );
+        let summary = block["summary"]
+            .as_str()
+            .expect("script_authoring.summary must be a string");
+        assert!(
+            !summary.is_empty(),
+            "script_authoring.summary must not be empty"
+        );
+        let rule = block["rule"]
+            .as_str()
+            .expect("script_authoring.rule must be a string");
+        assert!(
+            rule.contains("--no-agent"),
+            "script_authoring.rule must mention --no-agent: {rule}"
+        );
+        assert!(
+            block["examples"].is_array(),
+            "script_authoring.examples must be an array"
+        );
+        let detection = block["detection"]
+            .as_str()
+            .expect("script_authoring.detection must be a string");
+        assert!(
+            !detection.is_empty(),
+            "script_authoring.detection must not be empty"
+        );
+    }
+
+    /// Top-level schema must surface the script-authoring guidance so that
+    /// LLMs reading `pup --help` in agent mode know to pass `--no-agent`
+    /// when writing scripts the user will run later. Without this, an
+    /// agent's script gets the envelope wrapping the user won't see.
+    #[test]
+    fn schema_includes_script_authoring_guidance() {
+        let schema = get_schema();
+        assert_script_authoring_contract(&schema["script_authoring"]);
+    }
+
+    /// Scoped (per-domain) schema must also include the guidance so an
+    /// agent that only ran `pup logs --help` still gets the warning.
+    #[test]
+    fn scoped_schema_includes_script_authoring_guidance() {
+        let cmd = Cli::command();
+        let logs_cmd = cmd
+            .get_subcommands()
+            .find(|s| s.get_name() == "logs")
+            .expect("logs subcommand not found");
+        let schema = build_agent_schema_scoped(&cmd, logs_cmd, &["logs"]);
+        assert_script_authoring_contract(&schema["script_authoring"]);
+    }
+
+    /// The anti-patterns array should include a pointer to the new
+    /// script_authoring section so LLMs that scan anti_patterns first
+    /// are still led to the full guidance. Match the actual phrasing
+    /// (`see script_authoring`) so an unrelated future entry that
+    /// merely contains the word doesn't accidentally satisfy this test.
+    #[test]
+    fn schema_anti_patterns_reference_script_authoring() {
+        let schema = get_schema();
+        let anti = schema["anti_patterns"]
+            .as_array()
+            .expect("anti_patterns missing");
+        assert!(
+            anti.iter().any(|v| v
+                .as_str()
+                .is_some_and(|s| s.contains("see script_authoring"))),
+            "anti_patterns must reference script_authoring so LLMs find it"
+        );
+    }
+
+    /// Same as above for the scoped schema — agents that only ever call
+    /// `pup logs --help` should still get pointed at script_authoring.
+    #[test]
+    fn scoped_schema_anti_patterns_reference_script_authoring() {
+        let cmd = Cli::command();
+        let logs_cmd = cmd
+            .get_subcommands()
+            .find(|s| s.get_name() == "logs")
+            .expect("logs subcommand not found");
+        let schema = build_agent_schema_scoped(&cmd, logs_cmd, &["logs"]);
+        let anti = schema["anti_patterns"]
+            .as_array()
+            .expect("scoped anti_patterns missing");
+        assert!(
+            anti.iter().any(|v| v
+                .as_str()
+                .is_some_and(|s| s.contains("see script_authoring"))),
+            "scoped anti_patterns must reference script_authoring"
         );
     }
 }

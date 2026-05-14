@@ -133,7 +133,10 @@ pup cases comment PROJ-123 --body "Root cause: Redis cache miss"
 pup cases delete-comment PROJ-123 --comment-id 0521a6f2-4247-45db-9ad9-999628a30e2e
 ```
 
-The API at this revision does not expose a list-comments endpoint. To read comments, use the Datadog UI. The `comment_count` field on `pup cases get` does not refresh promptly — don't rely on it to verify a write.
+The API at this revision does not expose a list-comments endpoint. To read comments, use the Datadog UI. Two related gaps make comments hard to manage via CLI:
+
+- `pup cases search --query "<text>"` matches against **title and description only** — comment text is not indexed. You cannot find a case via a unique substring of its comments.
+- **`comment_count` is always `0` on `pup cases get`.** The field is populated only in `pup cases search` results. To get the true comment count for a case, find it via search (e.g. by `project_id` + filter client-side) and read `comment_count` from there.
 
 ### Update
 ```bash

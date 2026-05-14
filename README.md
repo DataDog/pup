@@ -294,7 +294,7 @@ pup auth logout
 ### Test Connection
 
 ```bash
-pup test
+pup auth test
 ```
 
 ### Monitors

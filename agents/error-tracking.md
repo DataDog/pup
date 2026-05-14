@@ -29,7 +29,7 @@ You are a specialized agent for interacting with Datadog's Error Tracking API. Y
 ### Integration Support
 - **Create Jira Issues**: Link errors to Jira tickets
 - **Team Assignment**: Route errors to responsible teams
-- **Case Management**: Link to Datadog case management
+- **Case Management**: Link to Datadog case management (see the [`case-management`](./case-management.md) agent for case CLI operations)
 
 ## Important Context
 

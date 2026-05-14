@@ -3,19 +3,39 @@ use datadog_api_client::datadogV2::api_case_management::{
     CaseManagementAPI, SearchCasesOptionalParams,
 };
 use datadog_api_client::datadogV2::model::{
-    CaseAssign, CaseAssignAttributes, CaseAssignRequest, CaseCreateRequest, CaseEmpty,
-    CaseEmptyRequest, CaseNotificationRuleCreateRequest, CaseNotificationRuleUpdateRequest,
-    CasePriority, CaseResourceType, CaseStatus, CaseUpdatePriority, CaseUpdatePriorityAttributes,
-    CaseUpdatePriorityRequest, CaseUpdateStatus, CaseUpdateStatusAttributes,
-    CaseUpdateStatusRequest, CaseUpdateTitle, CaseUpdateTitleAttributes, CaseUpdateTitleRequest,
-    JiraIssueCreateRequest, JiraIssueLinkRequest, ProjectCreate, ProjectCreateAttributes,
-    ProjectCreateRequest, ProjectRelationship, ProjectRelationshipData, ProjectResourceType,
-    ProjectUpdateRequest, ServiceNowTicketCreateRequest,
+    CaseAssign, CaseAssignAttributes, CaseAssignRequest, CaseComment, CaseCommentAttributes,
+    CaseCommentRequest, CaseCreate, CaseCreateAttributes, CaseCreateRelationships,
+    CaseCreateRequest, CaseEmpty, CaseEmptyRequest, CaseNotificationRuleCreateRequest,
+    CaseNotificationRuleUpdateRequest, CasePriority, CaseResourceType, CaseStatus,
+    CaseUpdatePriority, CaseUpdatePriorityAttributes, CaseUpdatePriorityRequest, CaseUpdateStatus,
+    CaseUpdateStatusAttributes, CaseUpdateStatusRequest, CaseUpdateTitle,
+    CaseUpdateTitleAttributes, CaseUpdateTitleRequest, JiraIssueCreateRequest,
+    JiraIssueLinkRequest, ProjectCreate, ProjectCreateAttributes, ProjectCreateRequest,
+    ProjectRelationship, ProjectRelationshipData, ProjectResourceType, ProjectUpdateRequest,
+    ServiceNowTicketCreateRequest,
 };
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Parse a priority string into a `CasePriority`.
+///
+/// Accepts the canonical names (P1..P5, NOT_DEFINED), case-insensitive.
+fn parse_priority(s: &str) -> Result<CasePriority> {
+    Ok(match s.to_uppercase().as_str() {
+        "P1" => CasePriority::P1,
+        "P2" => CasePriority::P2,
+        "P3" => CasePriority::P3,
+        "P4" => CasePriority::P4,
+        "P5" => CasePriority::P5,
+        "NOT_DEFINED" => CasePriority::NOT_DEFINED,
+        _ => anyhow::bail!("invalid priority: {s} (use P1, P2, P3, P4, P5, NOT_DEFINED)"),
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build a CaseManagementAPI with bearer-token support
@@ -74,22 +94,54 @@ pub async fn create_from_flags(
     type_id: &str,
     priority: &str,
     description: Option<&str>,
+    project_id: Option<&str>,
 ) -> Result<()> {
-    let mut body = serde_json::json!({
-        "data": {
-            "type": "case",
-            "attributes": {
-                "title": title,
-                "priority": priority,
-                "type": type_id,
-            }
-        }
-    });
+    let api = make_api(cfg);
+    let priority_val = parse_priority(priority)?;
+    let mut attrs =
+        CaseCreateAttributes::new(title.to_string(), type_id.to_string()).priority(priority_val);
     if let Some(desc) = description {
-        body["data"]["attributes"]["description"] = serde_json::json!(desc);
+        attrs = attrs.description(desc.to_string());
     }
-    let data = client::raw_post(cfg, "/api/v2/cases", body).await?;
-    crate::formatter::output(cfg, &data)
+    let mut case_create = CaseCreate::new(attrs, CaseResourceType::CASE);
+    if let Some(pid) = project_id {
+        case_create =
+            case_create.relationships(CaseCreateRelationships::new(ProjectRelationship::new(
+                ProjectRelationshipData::new(pid.to_string(), ProjectResourceType::PROJECT),
+            )));
+    }
+    let body = CaseCreateRequest::new(case_create);
+    let resp = api
+        .create_case(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create case: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+// ---------------------------------------------------------------------------
+// Comments
+// ---------------------------------------------------------------------------
+
+pub async fn comment(cfg: &Config, case_id: &str, body: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let req = CaseCommentRequest::new(CaseComment::new(
+        CaseCommentAttributes::new(body.to_string()),
+        CaseResourceType::CASE,
+    ));
+    let resp = api
+        .comment_case(case_id.to_string(), req)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to add comment: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn delete_comment(cfg: &Config, case_id: &str, comment_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    api.delete_case_comment(case_id.to_string(), comment_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete comment: {e:?}"))?;
+    println!("Comment {comment_id} deleted from case {case_id}.");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -181,15 +233,7 @@ pub async fn assign(cfg: &Config, case_id: &str, user_id: &str) -> Result<()> {
 
 pub async fn update_priority(cfg: &Config, case_id: &str, priority: &str) -> Result<()> {
     let api = make_api(cfg);
-    let priority_val = match priority.to_uppercase().as_str() {
-        "P1" => CasePriority::P1,
-        "P2" => CasePriority::P2,
-        "P3" => CasePriority::P3,
-        "P4" => CasePriority::P4,
-        "P5" => CasePriority::P5,
-        "NOT_DEFINED" => CasePriority::NOT_DEFINED,
-        _ => anyhow::bail!("invalid priority: {priority} (use P1, P2, P3, P4, P5, NOT_DEFINED)"),
-    };
+    let priority_val = parse_priority(priority)?;
     let body = CaseUpdatePriorityRequest::new(CaseUpdatePriority::new(
         CaseUpdatePriorityAttributes::new(priority_val),
         CaseResourceType::CASE,
@@ -421,5 +465,111 @@ mod tests {
         mock_all(&mut s, r#"{}"#).await;
         let _ = super::projects_delete(&cfg, "proj1").await;
         cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_create_from_flags() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": {}}"#).await;
+        let _ = super::create_from_flags(
+            &cfg,
+            "title",
+            "00000000-0000-0000-0000-000000000001",
+            "P2",
+            Some("description"),
+            None,
+        )
+        .await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_create_from_flags_with_project_id() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": {}}"#).await;
+        let _ = super::create_from_flags(
+            &cfg,
+            "title",
+            "00000000-0000-0000-0000-000000000001",
+            "NOT_DEFINED",
+            None,
+            Some("d59d89e1-b144-47e2-ae70-179203edf0ba"),
+        )
+        .await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_create_from_flags_invalid_priority() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://nowhere.invalid");
+        let result = super::create_from_flags(
+            &cfg,
+            "title",
+            "00000000-0000-0000-0000-000000000001",
+            "P9",
+            None,
+            None,
+        )
+        .await;
+        cleanup_env();
+        assert!(result.is_err(), "expected error for invalid priority P9");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("invalid priority"),
+            "expected 'invalid priority' in error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cases_comment() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": {}}"#).await;
+        let _ = super::comment(&cfg, "case1", "hello").await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_delete_comment() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{}"#).await;
+        let _ = super::delete_comment(&cfg, "case1", "comment1").await;
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_parse_priority_valid() {
+        for (input, expected) in [
+            ("P1", super::CasePriority::P1),
+            ("p2", super::CasePriority::P2),
+            ("P3", super::CasePriority::P3),
+            ("P4", super::CasePriority::P4),
+            ("P5", super::CasePriority::P5),
+            ("NOT_DEFINED", super::CasePriority::NOT_DEFINED),
+            ("not_defined", super::CasePriority::NOT_DEFINED),
+        ] {
+            let got = super::parse_priority(input).expect("valid priority should parse");
+            assert_eq!(
+                got, expected,
+                "priority {input} should parse to {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_priority_invalid() {
+        let err = super::parse_priority("P9").unwrap_err().to_string();
+        assert!(
+            err.contains("invalid priority"),
+            "expected 'invalid priority' in error, got: {err}"
+        );
     }
 }

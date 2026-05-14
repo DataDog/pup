@@ -5199,7 +5199,7 @@ enum CaseActions {
         query: Option<String>,
         #[arg(long, default_value_t = 10, help = "Results per page")]
         page_size: i64,
-        #[arg(long, default_value_t = 0, help = "Page number")]
+        #[arg(long, default_value_t = 1, help = "Page number (1-indexed)")]
         page_number: i64,
     },
     /// Get case details
@@ -5219,8 +5219,27 @@ enum CaseActions {
         priority: String,
         #[arg(long, help = "Case description")]
         description: Option<String>,
-        #[arg(long, help = "JSON file with request body (required)", conflicts_with_all = ["title", "type-id"])]
+        #[arg(
+            long,
+            name = "project-id",
+            help = "Project UUID to assign the case to (optional)"
+        )]
+        project_id: Option<String>,
+        #[arg(long, help = "JSON file with request body (required)", conflicts_with_all = ["title", "type-id", "project-id"])]
         file: Option<String>,
+    },
+    /// Add a comment to a case
+    Comment {
+        case_id: String,
+        #[arg(long, help = "Comment body (required)")]
+        body: String,
+    },
+    /// Delete a comment from a case
+    #[command(name = "delete-comment")]
+    DeleteComment {
+        case_id: String,
+        #[arg(long, name = "comment-id", help = "Comment UUID (required)")]
+        comment_id: String,
     },
     /// Archive a case
     Archive { case_id: String },
@@ -11673,6 +11692,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     type_id,
                     priority,
                     description,
+                    project_id,
                     file,
                 } => {
                     if let Some(f) = file {
@@ -11684,9 +11704,19 @@ async fn main_inner() -> anyhow::Result<()> {
                             &type_id.unwrap(),
                             &priority,
                             description.as_deref(),
+                            project_id.as_deref(),
                         )
                         .await?;
                     }
+                }
+                CaseActions::Comment { case_id, body } => {
+                    commands::cases::comment(&cfg, &case_id, &body).await?;
+                }
+                CaseActions::DeleteComment {
+                    case_id,
+                    comment_id,
+                } => {
+                    commands::cases::delete_comment(&cfg, &case_id, &comment_id).await?;
                 }
                 CaseActions::Archive { case_id } => {
                     commands::cases::archive(&cfg, &case_id).await?;

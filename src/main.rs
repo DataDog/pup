@@ -8340,6 +8340,11 @@ enum LlmObsActions {
         #[command(subcommand)]
         action: LlmObsEvalConfigActions,
     },
+    /// List LLM Observability evaluators
+    Evals {
+        #[command(subcommand)]
+        action: LlmObsEvalsActions,
+    },
 }
 
 #[derive(Subcommand)]
@@ -8472,27 +8477,151 @@ enum LlmObsSpansActions {
         limit: u32,
         #[arg(long, help = "Pagination cursor from a previous response")]
         cursor: Option<String>,
+        #[arg(
+            long,
+            help = "Return only essential fields (span_id, trace_id, name, kind, status, duration, timestamps) — drops tags, llm_info, and content previews"
+        )]
+        summary: bool,
     },
-    /// Get detailed metadata and token/cost metrics for one or more spans
-    Details {
+    /// Get the full trace structure as a span hierarchy tree
+    #[command(name = "get-trace")]
+    GetTrace {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(long, help = "Include full span tree structure")]
+        include_tree: bool,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Get detailed metadata for one or more spans
+    #[command(name = "get-details")]
+    GetDetails {
         #[arg(long, help = "Trace ID (required)")]
         trace_id: String,
         #[arg(
             long,
-            help = "Span ID(s) to fetch details for (repeat for multiple)",
-            required = true
+            value_delimiter = ',',
+            help = "Span IDs to fetch details for (comma-separated, required)"
         )]
-        span_id: Vec<String>,
+        span_ids: Vec<String>,
         #[arg(
             long,
-            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
         )]
-        from: Option<String>,
+        from: String,
         #[arg(
             long,
-            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
         )]
-        to: Option<String>,
+        to: String,
+    },
+    /// Get content fields for a span (input, output, messages, documents, metadata)
+    #[command(name = "get-content")]
+    GetContent {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(long, help = "Span ID (required)")]
+        span_id: String,
+        #[arg(
+            long,
+            help = "Content field to retrieve: input, output, expected_output, messages, documents, metadata"
+        )]
+        field: String,
+        #[arg(long, help = "JSONPath within the field")]
+        path: Option<String>,
+        #[arg(long, help = "Maximum tokens to return")]
+        max_tokens: Option<u32>,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Find all error spans within a trace
+    #[command(name = "find-errors")]
+    FindErrors {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Expand children of spans for progressive tree exploration
+    Expand {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Span IDs to expand (comma-separated, required)"
+        )]
+        span_ids: Vec<String>,
+        #[arg(long, help = "Maximum depth to expand")]
+        max_depth: Option<u32>,
+        #[arg(long, help = "Filter expanded spans by kind (llm, agent, tool, etc.)")]
+        filter_kind: Option<String>,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Get the chronological agent execution loop for a trace
+    #[command(name = "get-agent-loop")]
+    GetAgentLoop {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(long, help = "Starting span ID")]
+        span_id: Option<String>,
+        #[arg(long, help = "Maximum content length per step")]
+        max_content_length: Option<u32>,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
     },
 }
 
@@ -8589,6 +8718,57 @@ enum LlmObsEvalConfigActions {
     /// Delete a custom evaluator config by name
     Delete {
         #[arg(help = "Evaluator name")]
+        eval_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsEvalsActions {
+    /// List all evaluators configured for this org
+    List,
+    /// List evaluators for a specific ML app
+    #[command(name = "list-by-ml-app")]
+    ListByMlApp {
+        #[arg(long, help = "ML app name (required)")]
+        ml_app: String,
+    },
+    /// Get full evaluator configuration (span filters, sampling, scope) via MCP endpoint
+    #[command(name = "get-evaluator")]
+    GetEvaluator {
+        #[arg(help = "Evaluator name (required)")]
+        eval_name: String,
+    },
+    /// Get pass/fail rates and score distributions for an evaluator over a time window
+    #[command(name = "get-aggregate-stats")]
+    GetAggregateStats {
+        #[arg(help = "Evaluator name (required)")]
+        eval_name: String,
+        #[arg(long, help = "Filter to a specific ML app")]
+        ml_app: Option<String>,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Create or fully replace an LLM-judge evaluator config (full replace semantics)
+    #[command(name = "create-or-update")]
+    CreateOrUpdate {
+        #[arg(help = "Evaluator name (required)")]
+        eval_name: String,
+        #[arg(long, help = "JSON file with evaluator config body (required)")]
+        file: String,
+    },
+    /// Delete an evaluator by name
+    Delete {
+        #[arg(help = "Evaluator name (required)")]
         eval_name: String,
     },
 }
@@ -14442,6 +14622,7 @@ async fn main_inner() -> anyhow::Result<()> {
                         to,
                         limit,
                         cursor,
+                        summary,
                     } => {
                         commands::llm_obs::spans_search(
                             &cfg,
@@ -14456,16 +14637,83 @@ async fn main_inner() -> anyhow::Result<()> {
                             to,
                             limit,
                             cursor,
+                            summary,
                         )
                         .await?;
                     }
-                    LlmObsSpansActions::Details {
+                    LlmObsSpansActions::GetTrace {
                         trace_id,
-                        span_id,
+                        include_tree,
                         from,
                         to,
                     } => {
-                        commands::llm_obs::spans_details(&cfg, trace_id, span_id, from, to).await?;
+                        commands::llm_obs::spans_get_trace(&cfg, &trace_id, include_tree, from, to)
+                            .await?;
+                    }
+                    LlmObsSpansActions::GetDetails {
+                        trace_id,
+                        span_ids,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::spans_get_span_details(
+                            &cfg, &trace_id, span_ids, from, to,
+                        )
+                        .await?;
+                    }
+                    LlmObsSpansActions::GetContent {
+                        trace_id,
+                        span_id,
+                        field,
+                        path,
+                        max_tokens,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::spans_get_span_content(
+                            &cfg, &trace_id, &span_id, &field, path, max_tokens, from, to,
+                        )
+                        .await?;
+                    }
+                    LlmObsSpansActions::FindErrors { trace_id, from, to } => {
+                        commands::llm_obs::spans_find_error_spans(&cfg, &trace_id, from, to)
+                            .await?;
+                    }
+                    LlmObsSpansActions::Expand {
+                        trace_id,
+                        span_ids,
+                        max_depth,
+                        filter_kind,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::spans_expand_spans(
+                            &cfg,
+                            &trace_id,
+                            span_ids,
+                            max_depth,
+                            filter_kind,
+                            from,
+                            to,
+                        )
+                        .await?;
+                    }
+                    LlmObsSpansActions::GetAgentLoop {
+                        trace_id,
+                        span_id,
+                        max_content_length,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::spans_get_agent_loop(
+                            &cfg,
+                            &trace_id,
+                            span_id,
+                            max_content_length,
+                            from,
+                            to,
+                        )
+                        .await?;
                     }
                 },
                 LlmObsActions::AnnotationQueues { action } => match action {
@@ -14513,6 +14761,34 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     LlmObsEvalConfigActions::Delete { eval_name } => {
                         commands::llm_obs::eval_config_delete(&cfg, &eval_name).await?;
+                    }
+                },
+                LlmObsActions::Evals { action } => match action {
+                    LlmObsEvalsActions::List => {
+                        commands::llm_obs::evals_list(&cfg).await?;
+                    }
+                    LlmObsEvalsActions::ListByMlApp { ml_app } => {
+                        commands::llm_obs::evals_list_by_ml_app(&cfg, &ml_app).await?;
+                    }
+                    LlmObsEvalsActions::GetEvaluator { eval_name } => {
+                        commands::llm_obs::evals_get_evaluator(&cfg, &eval_name).await?;
+                    }
+                    LlmObsEvalsActions::GetAggregateStats {
+                        eval_name,
+                        ml_app,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::evals_get_aggregate_stats(
+                            &cfg, &eval_name, ml_app, from, to,
+                        )
+                        .await?;
+                    }
+                    LlmObsEvalsActions::CreateOrUpdate { eval_name, file } => {
+                        commands::llm_obs::evals_create_or_update(&cfg, &eval_name, &file).await?;
+                    }
+                    LlmObsEvalsActions::Delete { eval_name } => {
+                        commands::llm_obs::evals_delete(&cfg, &eval_name).await?;
                     }
                 },
             }

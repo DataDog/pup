@@ -328,6 +328,94 @@ pub async fn eval_config_delete(cfg: &Config, eval_name: &str) -> Result<()> {
     Ok(())
 }
 
+// ---- Evals (no typed equivalent — unstable MCP endpoint) ----
+
+pub async fn evals_list(cfg: &Config) -> Result<()> {
+    let resp = client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/eval/list-for-org",
+        serde_json::json!({}),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to list evals: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn evals_list_by_ml_app(cfg: &Config, ml_app: &str) -> Result<()> {
+    let resp = client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/eval/list",
+        serde_json::json!({ "ml_app": ml_app }),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to list evals by ml app: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn evals_get_evaluator(cfg: &Config, eval_name: &str) -> Result<()> {
+    let resp = client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/custom-evaluator/get",
+        serde_json::json!({ "eval_name": eval_name }),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to get evaluator: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn evals_get_aggregate_stats(
+    cfg: &Config,
+    eval_name: &str,
+    ml_app: Option<String>,
+    from: String,
+    to: String,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "eval_name": eval_name });
+    if let Some(a) = ml_app {
+        body["ml_app"] = serde_json::json!(a);
+    }
+    let from_ms = util::parse_time_to_unix_millis(&from)
+        .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
+    body["from"] = serde_json::json!(from_ms.to_string());
+    let to_ms = util::parse_time_to_unix_millis(&to)
+        .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
+    body["to"] = serde_json::json!(to_ms.to_string());
+    let resp = client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/eval/aggregate-stats",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to get eval aggregate stats: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn evals_create_or_update(cfg: &Config, eval_name: &str, file: &str) -> Result<()> {
+    let mut body: serde_json::Value = util::read_json_file(file)?;
+    body["eval_name"] = serde_json::json!(eval_name);
+    client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/custom-evaluator/create-or-update",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to create or update evaluator: {e:?}"))?;
+    eprintln!("Evaluator '{eval_name}' created or updated.");
+    Ok(())
+}
+
+pub async fn evals_delete(cfg: &Config, eval_name: &str) -> Result<()> {
+    client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/custom-evaluator/delete",
+        serde_json::json!({ "eval_name": eval_name }),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to delete evaluator: {e:?}"))?;
+    eprintln!("Evaluator '{eval_name}' deleted.");
+    Ok(())
+}
+
 // ---- Spans (no typed equivalent — unstable MCP endpoint) ----
 
 #[allow(clippy::too_many_arguments)]
@@ -344,6 +432,7 @@ pub async fn spans_search(
     to: String,
     limit: u32,
     cursor: Option<String>,
+    summary: bool,
 ) -> Result<()> {
     let mut body = serde_json::json!({ "limit": limit });
     if root_spans_only {
@@ -380,33 +469,198 @@ pub async fn spans_search(
     let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/search-spans", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to search spans: {e:?}"))?;
+    if summary {
+        let slim: Vec<serde_json::Value> = resp["spans"]
+            .as_array()
+            .map(|spans| {
+                spans
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "span_id": s["span_id"],
+                            "trace_id": s["trace_id"],
+                            "apm_trace_id": s["apm_trace_id"],
+                            "name": s["name"],
+                            "span_kind": s["span_kind"],
+                            "ml_app": s["ml_app"],
+                            "service": s["service"],
+                            "status": s["status"],
+                            "duration_ms": s["duration_ms"],
+                            "start_ms": s["start_ms"],
+                            "parent_id": s["parent_id"],
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        return formatter::output(cfg, &serde_json::json!({ "spans": slim }));
+    }
     formatter::output(cfg, &resp)
 }
 
-pub async fn spans_details(
+pub async fn spans_get_trace(
     cfg: &Config,
-    trace_id: String,
-    span_ids: Vec<String>,
-    from: Option<String>,
-    to: Option<String>,
+    trace_id: &str,
+    include_tree: bool,
+    from: String,
+    to: String,
 ) -> Result<()> {
-    let mut body = serde_json::json!({
-        "trace_id": trace_id,
-        "span_ids": span_ids,
-    });
-    if let Some(f) = from {
-        let from_ms = crate::util::parse_time_to_unix_millis(&f)
-            .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
-        body["from"] = serde_json::json!(from_ms.to_string());
+    let mut body = serde_json::json!({ "trace_id": trace_id });
+    if include_tree {
+        body["include_tree"] = serde_json::json!(true);
     }
-    if let Some(t) = to {
-        let to_ms = crate::util::parse_time_to_unix_millis(&t)
-            .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
-        body["to"] = serde_json::json!(to_ms.to_string());
-    }
+    let from_ms = util::parse_time_to_unix_millis(&from)
+        .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
+    body["from"] = serde_json::json!(from_ms.to_string());
+    let to_ms = util::parse_time_to_unix_millis(&to)
+        .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
+    body["to"] = serde_json::json!(to_ms.to_string());
+    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/get-trace", body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get trace: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn spans_get_span_details(
+    cfg: &Config,
+    trace_id: &str,
+    span_ids: Vec<String>,
+    from: String,
+    to: String,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "trace_id": trace_id, "span_ids": span_ids });
+    let from_ms = util::parse_time_to_unix_millis(&from)
+        .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
+    body["from"] = serde_json::json!(from_ms.to_string());
+    let to_ms = util::parse_time_to_unix_millis(&to)
+        .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
+    body["to"] = serde_json::json!(to_ms.to_string());
+    let requested = span_ids.len();
     let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/span-details", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get span details: {e:?}"))?;
+    let returned = resp["spans"].as_array().map(|a| a.len()).unwrap_or(0);
+    let missing = requested.saturating_sub(returned);
+    if missing > 0 {
+        eprintln!(
+            "warning: {missing} of {requested} requested span(s) not found in trace \
+            hierarchy — the span may exist but be orphaned (no path to a root span). \
+            Use 'spans get-content' to retrieve its content directly."
+        );
+    }
+    formatter::output(cfg, &resp)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn spans_get_span_content(
+    cfg: &Config,
+    trace_id: &str,
+    span_id: &str,
+    field: &str,
+    path: Option<String>,
+    max_tokens: Option<u32>,
+    from: String,
+    to: String,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "trace_id": trace_id, "span_id": span_id, "field": field });
+    if let Some(p) = path {
+        body["path"] = serde_json::json!(p);
+    }
+    if let Some(m) = max_tokens {
+        body["max_tokens"] = serde_json::json!(m);
+    }
+    let from_ms = util::parse_time_to_unix_millis(&from)
+        .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
+    body["from"] = serde_json::json!(from_ms.to_string());
+    let to_ms = util::parse_time_to_unix_millis(&to)
+        .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
+    body["to"] = serde_json::json!(to_ms.to_string());
+    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/span-content", body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get span content: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn spans_find_error_spans(
+    cfg: &Config,
+    trace_id: &str,
+    from: String,
+    to: String,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "trace_id": trace_id });
+    let from_ms = util::parse_time_to_unix_millis(&from)
+        .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
+    body["from"] = serde_json::json!(from_ms.to_string());
+    let to_ms = util::parse_time_to_unix_millis(&to)
+        .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
+    body["to"] = serde_json::json!(to_ms.to_string());
+    let resp = client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/trace/find-error-spans",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to find error spans: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn spans_expand_spans(
+    cfg: &Config,
+    trace_id: &str,
+    span_ids: Vec<String>,
+    max_depth: Option<u32>,
+    filter_kind: Option<String>,
+    from: String,
+    to: String,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "trace_id": trace_id, "span_ids": span_ids });
+    if let Some(d) = max_depth {
+        body["max_depth"] = serde_json::json!(d);
+    }
+    if let Some(k) = filter_kind {
+        body["filter_kind"] = serde_json::json!(k);
+    }
+    let from_ms = util::parse_time_to_unix_millis(&from)
+        .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
+    body["from"] = serde_json::json!(from_ms.to_string());
+    let to_ms = util::parse_time_to_unix_millis(&to)
+        .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
+    body["to"] = serde_json::json!(to_ms.to_string());
+    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/expand-spans", body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to expand spans: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn spans_get_agent_loop(
+    cfg: &Config,
+    trace_id: &str,
+    span_id: Option<String>,
+    max_content_length: Option<u32>,
+    from: String,
+    to: String,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "trace_id": trace_id });
+    if let Some(s) = span_id {
+        body["span_id"] = serde_json::json!(s);
+    }
+    if let Some(m) = max_content_length {
+        body["max_content_length"] = serde_json::json!(m);
+    }
+    let from_ms = util::parse_time_to_unix_millis(&from)
+        .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
+    body["from"] = serde_json::json!(from_ms.to_string());
+    let to_ms = util::parse_time_to_unix_millis(&to)
+        .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
+    body["to"] = serde_json::json!(to_ms.to_string());
+    let resp = client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/trace/get-agent-loop",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to get agent loop: {e:?}"))?;
     formatter::output(cfg, &resp)
 }
 
@@ -1374,7 +1628,7 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
-        let body = r#"{"status":"success","data":{"spans":[{"span_id":"s-1","trace_id":"t-1","name":"llm-call","span_kind":"llm","ml_app":"my-app","status":"ok","duration_ms":42.0,"start_ms":1000000,"tags":[],"llm_info":{"model_name":"claude-opus-4-6","model_provider":"anthropic","input_tokens":1024,"output_tokens":256,"total_tokens":1280}}]}}"#;
+        let body = r#"{"spans":[{"span_id":"s-1","trace_id":"t-1","name":"llm-call","span_kind":"llm","ml_app":"my-app","status":"ok","duration_ms":42.0,"start_ms":1000000,"tags":[]}]}"#;
         let _mock = mock_post(
             &mut server,
             "/api/unstable/llm-obs-mcp/v1/trace/search-spans",
@@ -1396,6 +1650,7 @@ mod tests {
             "now".into(),
             10,
             None,
+            false,
         )
         .await;
         assert!(result.is_ok(), "spans_search failed: {:?}", result.err());
@@ -1408,13 +1663,12 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
-        let resp = r#"{"status":"success","data":{"spans":[]}}"#;
+        let resp = r#"{"spans":[]}"#;
         let _mock = server
             .mock("POST", "/api/unstable/llm-obs-mcp/v1/trace/search-spans")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(resp)
-            // Assert both from and to are 13-digit epoch ms strings, not relative strings
             .match_body(mockito::Matcher::Regex(r#""from":"\d{13}""#.to_string()))
             .match_body(mockito::Matcher::Regex(r#""to":"\d{13}""#.to_string()))
             .create_async()
@@ -1433,6 +1687,7 @@ mod tests {
             "now".into(),
             5,
             None,
+            false,
         )
         .await;
         assert!(result.is_ok(), "spans_search failed: {:?}", result.err());
@@ -1446,7 +1701,6 @@ mod tests {
         let server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
-        // No mock needed — should error before any network call
         let result = super::spans_search(
             &cfg,
             None,
@@ -1460,6 +1714,7 @@ mod tests {
             "now".into(),
             5,
             None,
+            false,
         )
         .await;
         assert!(result.is_err(), "expected error for invalid --from value");
@@ -1472,7 +1727,7 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
-        let body = r#"{"status":"success","data":{"spans":[]}}"#;
+        let body = r#"{"spans":[]}"#;
         let _mock = mock_post(
             &mut server,
             "/api/unstable/llm-obs-mcp/v1/trace/search-spans",
@@ -1494,6 +1749,7 @@ mod tests {
             "now".into(),
             20,
             None,
+            false,
         )
         .await;
         assert!(
@@ -1531,6 +1787,7 @@ mod tests {
             "now".into(),
             20,
             None,
+            false,
         )
         .await;
         assert!(result.is_err(), "should fail on 500");
@@ -1567,19 +1824,165 @@ mod tests {
             "now".into(),
             20,
             None,
+            false,
         )
         .await;
         assert!(result.is_err(), "should fail without auth");
         cleanup_env();
     }
 
+    // ---- evals_list ----
+
     #[tokio::test]
-    async fn test_llm_obs_spans_details() {
+    async fn test_llm_obs_evals_list() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
-        let body = r#"{"status":"success","data":{"spans":[{"span_id":"s-1","trace_id":"t-1","name":"llm-call","kind":"llm","ml_app":"my-app","status":"ok","duration_ms":42.0,"start_ms":1000000,"tags":[],"llm_info":{"model_name":"claude-opus-4-6","model_provider":"anthropic","input_tokens":1024,"output_tokens":256,"total_tokens":1280},"metrics":{"input_tokens":1024,"output_tokens":256,"total_tokens":1280,"non_cached_input_tokens":512,"cache_read_input_tokens":512,"cache_write_input_tokens":0,"estimated_input_cost":3072000,"estimated_output_cost":5120000,"estimated_total_cost":8192000,"estimated_cache_read_input_cost":512000,"estimated_cache_write_input_cost":0,"estimated_non_cached_input_cost":2560000,"estimated_reasoning_output_cost":0,"reasoning_output_tokens":0},"content_info":{}}]}}"#;
+        let body = r#"{"status":"success","data":{"evaluators":[{"eval_name":"toxicity","ml_app":"my-app","created_at":"2024-01-01T00:00:00Z"}]}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/eval/list-for-org",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::evals_list(&cfg).await;
+        assert!(result.is_ok(), "evals_list failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_list_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/eval/list-for-org",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::evals_list(&cfg).await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    // ---- evals_list_by_ml_app ----
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_list_by_ml_app() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"evaluators":[{"eval_name":"faithfulness","ml_app":"my-app","created_at":"2024-01-01T00:00:00Z"}]}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/eval/list",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::evals_list_by_ml_app(&cfg, "my-app").await;
+        assert!(
+            result.is_ok(),
+            "evals_list_by_ml_app failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_list_by_ml_app_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/eval/list",
+            404,
+            r#"{"errors":["not found"]}"#,
+        )
+        .await;
+
+        let result = super::evals_list_by_ml_app(&cfg, "missing-app").await;
+        assert!(result.is_err(), "should fail on 404");
+        assert!(result.unwrap_err().to_string().contains("404"));
+        cleanup_env();
+    }
+
+    // ---- spans_get_trace ----
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_trace() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"trace_id":"t-1","spans":[{"span_id":"s-1","name":"root","span_kind":"agent","children":[]}]}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/get-trace",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::spans_get_trace(&cfg, "t-1", false, "1h".into(), "now".into()).await;
+        assert!(result.is_ok(), "spans_get_trace failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_trace_invalid_from() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result =
+            super::spans_get_trace(&cfg, "t-1", false, "not-a-time".into(), "now".into()).await;
+        assert!(result.is_err(), "expected error for invalid --from value");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_trace_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/get-trace",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::spans_get_trace(&cfg, "t-1", false, "1h".into(), "now".into()).await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    // ---- spans_get_span_details ----
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_span_details() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body =
+            r#"{"spans":[{"span_id":"s-1","name":"llm-call","duration_ms":42.0,"error":null}]}"#;
         let _mock = mock_post(
             &mut server,
             "/api/unstable/llm-obs-mcp/v1/trace/span-details",
@@ -1588,13 +1991,90 @@ mod tests {
         )
         .await;
 
-        let result = super::spans_details(&cfg, "t-1".into(), vec!["s-1".into()], None, None).await;
-        assert!(result.is_ok(), "spans_details failed: {:?}", result.err());
+        let result = super::spans_get_span_details(
+            &cfg,
+            "t-1",
+            vec!["s-1".into()],
+            "1h".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "spans_get_span_details failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 
     #[tokio::test]
-    async fn test_llm_obs_spans_details_404() {
+    async fn test_llm_obs_spans_get_span_details_all_found_no_warning() {
+        // Regression test: warning must NOT fire when returned == requested.
+        // The raw API response has "spans" at top level (no "data" wrapper).
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body =
+            r#"{"spans":[{"span_id":"s-1","name":"found"},{"span_id":"s-2","name":"also-found"}]}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/span-details",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::spans_get_span_details(
+            &cfg,
+            "t-1",
+            vec!["s-1".into(), "s-2".into()],
+            "1h".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "spans_get_span_details failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_span_details_partial_missing() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Two span IDs requested, only one returned — simulates orphaned span
+        let body = r#"{"spans":[{"span_id":"s-1","name":"found"}]}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/span-details",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::spans_get_span_details(
+            &cfg,
+            "t-1",
+            vec!["s-1".into(), "s-orphan".into()],
+            "1h".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "spans_get_span_details partial missing failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_span_details_500() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
@@ -1602,59 +2082,559 @@ mod tests {
         let _mock = mock_post(
             &mut server,
             "/api/unstable/llm-obs-mcp/v1/trace/span-details",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::spans_get_span_details(
+            &cfg,
+            "t-1",
+            vec!["s-1".into()],
+            "1h".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    // ---- spans_get_span_content ----
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_span_content() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"span_id":"s-1","field":"output","content":"hello world"}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/span-content",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::spans_get_span_content(
+            &cfg,
+            "t-1",
+            "s-1",
+            "output",
+            None,
+            None,
+            "1h".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "spans_get_span_content failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_span_content_invalid_from() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result = super::spans_get_span_content(
+            &cfg,
+            "t-1",
+            "s-1",
+            "output",
+            None,
+            None,
+            "bad-time".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(result.is_err(), "expected error for invalid --from value");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_span_content_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/span-content",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::spans_get_span_content(
+            &cfg,
+            "t-1",
+            "s-1",
+            "output",
+            None,
+            None,
+            "1h".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    // ---- spans_find_error_spans ----
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_find_error_spans() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"error_spans":[{"span_id":"s-err","name":"llm-call","error":{"type":"ValueError","message":"bad input"}}]}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/find-error-spans",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::spans_find_error_spans(&cfg, "t-1", "1h".into(), "now".into()).await;
+        assert!(
+            result.is_ok(),
+            "spans_find_error_spans failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_find_error_spans_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/find-error-spans",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::spans_find_error_spans(&cfg, "t-1", "1h".into(), "now".into()).await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    // ---- spans_expand_spans ----
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_expand_spans() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"spans":[{"span_id":"s-child","parent_id":"s-1","name":"tool-call","span_kind":"tool"}]}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/expand-spans",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::spans_expand_spans(
+            &cfg,
+            "t-1",
+            vec!["s-1".into()],
+            None,
+            None,
+            "1h".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "spans_expand_spans failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_expand_spans_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/expand-spans",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::spans_expand_spans(
+            &cfg,
+            "t-1",
+            vec!["s-1".into()],
+            None,
+            None,
+            "1h".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    // ---- spans_get_agent_loop ----
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_agent_loop() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"trace_id":"t-1","steps":[{"step":1,"span_id":"s-1","action":"tool_call","content":"search query"}]}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/get-agent-loop",
+            200,
+            body,
+        )
+        .await;
+
+        let result =
+            super::spans_get_agent_loop(&cfg, "t-1", None, None, "1h".into(), "now".into()).await;
+        assert!(
+            result.is_ok(),
+            "spans_get_agent_loop failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_get_agent_loop_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/get-agent-loop",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result =
+            super::spans_get_agent_loop(&cfg, "t-1", None, None, "1h".into(), "now".into()).await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    // ---- evals_get_evaluator ----
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_get_evaluator() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body =
+            r#"{"evaluator":{"eval_name":"toxicity","ml_app":"my-app","sampling_rate":1.0}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/custom-evaluator/get",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::evals_get_evaluator(&cfg, "toxicity").await;
+        assert!(
+            result.is_ok(),
+            "evals_get_evaluator failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_get_evaluator_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/custom-evaluator/get",
             404,
             r#"{"errors":["not found"]}"#,
         )
         .await;
 
-        let result = super::spans_details(
-            &cfg,
-            "t-missing".into(),
-            vec!["s-missing".into()],
-            None,
-            None,
+        let result = super::evals_get_evaluator(&cfg, "missing").await;
+        assert!(result.is_err(), "should fail on 404");
+        assert!(result.unwrap_err().to_string().contains("404"));
+        cleanup_env();
+    }
+
+    // ---- evals_get_aggregate_stats ----
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_get_aggregate_stats() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"stats":{"eval_name":"toxicity","pass_rate":0.85,"total":100,"by_value":{"pass":85,"fail":15}}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/eval/aggregate-stats",
+            200,
+            body,
         )
         .await;
-        assert!(result.is_err(), "should fail on 404");
+
+        let result =
+            super::evals_get_aggregate_stats(&cfg, "toxicity", None, "1h".into(), "now".into())
+                .await;
+        assert!(
+            result.is_ok(),
+            "evals_get_aggregate_stats failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 
     #[tokio::test]
-    async fn test_llm_obs_spans_details_no_auth() {
+    async fn test_llm_obs_evals_get_aggregate_stats_with_ml_app() {
         let _lock = lock_env().await;
-        let cfg = Config {
-            api_key: None,
-            app_key: None,
-            access_token: None,
-            site: "datadoghq.com".into(),
-            site_explicit: false,
-            org: None,
-            output_format: OutputFormat::Json,
-            auto_approve: false,
-            agent_mode: false,
-            read_only: false,
-        };
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
 
-        let result = super::spans_details(&cfg, "t-1".into(), vec!["s-1".into()], None, None).await;
-        assert!(result.is_err(), "should fail without auth");
+        let body =
+            r#"{"stats":{"eval_name":"toxicity","ml_app":"my-app","pass_rate":0.9,"total":50}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/eval/aggregate-stats",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::evals_get_aggregate_stats(
+            &cfg,
+            "toxicity",
+            Some("my-app".into()),
+            "1h".into(),
+            "now".into(),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "evals_get_aggregate_stats with ml_app failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 
     #[tokio::test]
-    async fn test_llm_obs_spans_details_invalid_from_returns_error() {
+    async fn test_llm_obs_evals_get_aggregate_stats_invalid_from() {
         let _lock = lock_env().await;
         let server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
-        let result = super::spans_details(
+        let result = super::evals_get_aggregate_stats(
             &cfg,
-            "t-1".into(),
-            vec!["s-1".into()],
-            Some("not-a-valid-time".into()),
+            "toxicity",
             None,
+            "not-a-time".into(),
+            "now".into(),
         )
         .await;
         assert!(result.is_err(), "expected error for invalid --from value");
+        cleanup_env();
+    }
+
+    // ---- evals_create_or_update ----
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_create_or_update() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_eval_create.json",
+            r#"{"prompt_template":"Rate: {{input}}","output_schema":{"type":"score"}}"#,
+        );
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/custom-evaluator/create-or-update",
+            200,
+            r#"{"status":"ok"}"#,
+        )
+        .await;
+
+        let result = super::evals_create_or_update(&cfg, "toxicity", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "evals_create_or_update failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_create_or_update_400() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json("pup_test_eval_create_400.json", r#"{"invalid":"body"}"#);
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/custom-evaluator/create-or-update",
+            400,
+            r#"{"errors":["bad request"]}"#,
+        )
+        .await;
+
+        let result = super::evals_create_or_update(&cfg, "toxicity", tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    // ---- evals_delete ----
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_delete() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/custom-evaluator/delete",
+            200,
+            r#"{"status":"ok"}"#,
+        )
+        .await;
+
+        let result = super::evals_delete(&cfg, "toxicity").await;
+        assert!(result.is_ok(), "evals_delete failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_delete_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/custom-evaluator/delete",
+            404,
+            r#"{"errors":["not found"]}"#,
+        )
+        .await;
+
+        let result = super::evals_delete(&cfg, "missing").await;
+        assert!(result.is_err(), "should fail on 404");
+        assert!(result.unwrap_err().to_string().contains("404"));
+        cleanup_env();
+    }
+
+    // ---- spans_search --summary ----
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_search_summary_drops_verbose_fields() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"spans":[{"span_id":"s-1","trace_id":"t-1","name":"llm-call","span_kind":"llm","ml_app":"my-app","service":"svc","status":"ok","duration_ms":42.0,"start_ms":1000000,"parent_id":"undefined","tags":["env:prod"],"llm_info":{"model_name":"gpt-4","input_tokens":100},"input":{"preview":"hello"}}]}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/search-spans",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::spans_search(
+            &cfg,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            "1h".into(),
+            "now".into(),
+            10,
+            None,
+            true,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "spans_search --summary failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_search_no_summary() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"spans":[{"span_id":"s-1","trace_id":"t-1","name":"llm-call","span_kind":"llm","ml_app":"my-app","status":"ok","duration_ms":42.0,"start_ms":1000000}]}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/trace/search-spans",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::spans_search(
+            &cfg,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            "1h".into(),
+            "now".into(),
+            10,
+            None,
+            false,
+        )
+        .await;
+        assert!(result.is_ok(), "spans_search failed: {:?}", result.err());
         cleanup_env();
     }
 }

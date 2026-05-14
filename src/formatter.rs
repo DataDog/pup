@@ -16,14 +16,15 @@ pub struct Metadata {
     pub next_action: Option<String>,
 }
 
-/// Agent mode wrapper: { status, data, metadata }
-#[derive(Serialize)]
-struct AgentEnvelope<'a, T: Serialize> {
-    status: &'static str,
-    data: &'a T,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<&'a Metadata>,
-}
+/// Note injected into `metadata.note` of every agent-mode JSON envelope so
+/// an LLM authoring a script for the user to run later is reminded that
+/// this envelope only appears in agent mode — without `--no-agent` the
+/// user will get raw JSON and any script depending on `.data` / `.status`
+/// will silently break.
+pub const AGENT_ENVELOPE_NOTE: &str = "This envelope (status/data/metadata) \
+    only appears in agent mode. If you are writing a script the user will \
+    run outside this agent session, append --no-agent so the output format \
+    matches what they will see.";
 
 /// Recursively sort all JSON object keys alphabetically.
 fn sort_json_value(v: serde_json::Value) -> serde_json::Value {
@@ -51,6 +52,41 @@ fn go_html_escape(json: &str) -> String {
         .replace('>', "\\u003e")
 }
 
+/// Build the agent-mode envelope as a JSON value. Always sets `status`,
+/// `data`, and `metadata` — `metadata.note` is always present so an LLM
+/// authoring a script for the user is reminded to pass `--no-agent`.
+/// Extracted from `format_and_print` for unit-testability.
+pub fn build_agent_envelope<T: Serialize>(
+    data: &T,
+    meta: Option<&Metadata>,
+) -> Result<serde_json::Value> {
+    let sorted_data = sort_json_value(serde_json::to_value(data)?);
+    // Hoist: when the API wraps its list/object in a nested "data" key,
+    // use that inner value directly so agents see .data[*] instead of .data.data[*].
+    let effective_data = match &sorted_data {
+        serde_json::Value::Object(obj) if obj.contains_key("data") => obj["data"].clone(),
+        _ => sorted_data.clone(),
+    };
+    let mut metadata_value = match meta {
+        Some(m) => serde_json::to_value(m)?,
+        None => serde_json::Value::Object(serde_json::Map::new()),
+    };
+    // `Metadata` is a struct and serializes to an object; an empty map
+    // is constructed above when `meta` is None. The branch is defensive
+    // against future changes that might serialize a non-object type.
+    if let serde_json::Value::Object(ref mut map) = metadata_value {
+        map.insert(
+            "note".to_string(),
+            serde_json::Value::String(AGENT_ENVELOPE_NOTE.to_string()),
+        );
+    }
+    Ok(serde_json::json!({
+        "status": "success",
+        "data": effective_data,
+        "metadata": metadata_value,
+    }))
+}
+
 /// Format and print data to stdout.
 pub fn format_and_print<T: Serialize>(
     data: &T,
@@ -59,18 +95,7 @@ pub fn format_and_print<T: Serialize>(
     meta: Option<&Metadata>,
 ) -> Result<()> {
     if agent_mode && *format == OutputFormat::Json {
-        let sorted_data = sort_json_value(serde_json::to_value(data)?);
-        // Hoist: when the API wraps its list/object in a nested "data" key,
-        // use that inner value directly so agents see .data[*] instead of .data.data[*].
-        let effective_data = match &sorted_data {
-            serde_json::Value::Object(obj) if obj.contains_key("data") => obj["data"].clone(),
-            _ => sorted_data.clone(),
-        };
-        let envelope = AgentEnvelope {
-            status: "success",
-            data: &effective_data,
-            metadata: meta,
-        };
+        let envelope = build_agent_envelope(data, meta)?;
         let json = go_html_escape(&serde_json::to_string_pretty(&envelope)?);
         println!("{json}");
         return Ok(());
@@ -818,6 +843,60 @@ mod tests {
         };
         let result = format_and_print(&data, &OutputFormat::Json, true, Some(&meta));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_agent_envelope_injects_script_authoring_note_with_meta() {
+        let data = serde_json::json!({"name": "test"});
+        let meta = Metadata {
+            count: Some(1),
+            truncated: false,
+            command: Some("monitors list".into()),
+            next_action: None,
+        };
+        let envelope = build_agent_envelope(&data, Some(&meta)).unwrap();
+        assert_eq!(envelope["status"], "success");
+        assert_eq!(envelope["metadata"]["count"], 1);
+        assert_eq!(envelope["metadata"]["command"], "monitors list");
+        assert_eq!(envelope["metadata"]["note"], AGENT_ENVELOPE_NOTE);
+        assert!(
+            envelope["metadata"]["note"]
+                .as_str()
+                .unwrap()
+                .contains("--no-agent"),
+            "note must point agents at --no-agent so the gaslighting case is fixed: {envelope}"
+        );
+    }
+
+    #[test]
+    fn test_agent_envelope_injects_script_authoring_note_without_meta() {
+        let data = serde_json::json!({"name": "test"});
+        let envelope = build_agent_envelope(&data, None).unwrap();
+        // Even when callers pass no Metadata, the note must still appear —
+        // otherwise the "envelope only in agent mode" warning is invisible
+        // for the many commands that don't construct a Metadata.
+        assert_eq!(envelope["metadata"]["note"], AGENT_ENVELOPE_NOTE);
+        assert_eq!(envelope["status"], "success");
+        assert!(envelope["metadata"]["count"].is_null());
+        assert!(
+            envelope["metadata"]["note"]
+                .as_str()
+                .unwrap()
+                .contains("--no-agent"),
+            "note constant itself must mention --no-agent so the rule survives if the constant is rewritten"
+        );
+    }
+
+    #[test]
+    fn test_agent_envelope_hoists_inner_data_and_keeps_note() {
+        // When the caller's payload is `{ "data": [...] }`, the envelope
+        // hoists the inner array so agents see `.data[*]` instead of
+        // `.data.data[*]`. Verify that the hoist and the metadata.note
+        // injection don't interfere with each other — both must happen.
+        let payload = serde_json::json!({"data": [{"id": 1}, {"id": 2}]});
+        let envelope = build_agent_envelope(&payload, None).unwrap();
+        assert_eq!(envelope["data"], serde_json::json!([{"id": 1}, {"id": 2}]));
+        assert_eq!(envelope["metadata"]["note"], AGENT_ENVELOPE_NOTE);
     }
 
     #[test]

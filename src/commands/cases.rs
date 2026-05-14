@@ -7,6 +7,7 @@ use datadog_api_client::datadogV2::model::{
     CaseCommentRequest, CaseCreate, CaseCreateAttributes, CaseCreateRelationships,
     CaseCreateRequest, CaseEmpty, CaseEmptyRequest, CaseNotificationRuleCreateRequest,
     CaseNotificationRuleUpdateRequest, CasePriority, CaseResourceType, CaseStatus,
+    CaseUpdateDescription, CaseUpdateDescriptionAttributes, CaseUpdateDescriptionRequest,
     CaseUpdatePriority, CaseUpdatePriorityAttributes, CaseUpdatePriorityRequest, CaseUpdateStatus,
     CaseUpdateStatusAttributes, CaseUpdateStatusRequest, CaseUpdateTitle,
     CaseUpdateTitleAttributes, CaseUpdateTitleRequest, JiraIssueCreateRequest,
@@ -399,6 +400,22 @@ pub async fn update_title(cfg: &Config, case_id: &str, title: &str) -> Result<()
 }
 
 // ---------------------------------------------------------------------------
+// Update case description
+// ---------------------------------------------------------------------------
+
+pub async fn update_description(cfg: &Config, case_id: &str, description: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let attrs = CaseUpdateDescriptionAttributes::new(description.to_string());
+    let data = CaseUpdateDescription::new(attrs, CaseResourceType::CASE);
+    let body = CaseUpdateDescriptionRequest::new(data);
+    let resp = api
+        .update_case_description(case_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update case description: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+// ---------------------------------------------------------------------------
 // Update project
 // ---------------------------------------------------------------------------
 
@@ -532,6 +549,16 @@ mod tests {
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": {}}"#).await;
         let _ = super::comment(&cfg, "case1", "hello").await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_update_description() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": {}}"#).await;
+        let _ = super::update_description(&cfg, "case1", "new description").await;
         cleanup_env();
     }
 

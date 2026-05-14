@@ -5283,6 +5283,13 @@ enum CaseActions {
         #[arg(long, help = "New title (required)")]
         title: String,
     },
+    /// Update case description
+    #[command(name = "update-description")]
+    UpdateDescription {
+        case_id: String,
+        #[arg(long, help = "New description (required)")]
+        description: String,
+    },
     /// Manage Jira integrations for cases
     Jira {
         #[command(subcommand)]
@@ -11741,6 +11748,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 CaseActions::UpdateTitle { case_id, title } => {
                     commands::cases::update_title(&cfg, &case_id, &title).await?;
+                }
+                CaseActions::UpdateDescription {
+                    case_id,
+                    description,
+                } => {
+                    commands::cases::update_description(&cfg, &case_id, &description).await?;
                 }
                 CaseActions::Projects { action } => match action {
                     CaseProjectActions::List => commands::cases::projects_list(&cfg).await?,

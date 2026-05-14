@@ -149,6 +149,10 @@ pup cases update-priority PROJ-123 --priority P1
 # Title
 pup cases update-title PROJ-123 --title "New title"
 
+# Description (often more useful than comments for synthesizing status —
+# description is search-indexable; comments are not)
+pup cases update-description PROJ-123 --description "$(cat status.md)"
+
 # Move to a different project
 pup cases move PROJ-123 --project-id <new-project-uuid>
 ```
@@ -281,6 +285,7 @@ The comment ID doesn't exist (already deleted). Use the `id` field from the `pup
 4. **Don't rely on `comment_count`** to verify writes. It doesn't refresh promptly. Verify state via the Datadog UI.
 5. **Prefer flag-based create over `--file`** when possible. Reach for `--file` only when you need custom attributes, `status_name`, or other less-common fields not exposed as flags.
 6. **Search facet vocabulary is limited.** `project_id:<uuid>` is the reliable facet. Free text matches title/description. Don't rely on `project.key:`, `status:`, or `key:`-based facets — they often return empty.
+7. **Synthesize status in the description, not in comments.** For tracking cases (rollup of PR links, sub-task state, etc.), update the description as work progresses. The description is indexed by search and returned by `pup cases get`; comments are not indexed and have no list endpoint, making them effectively write-only via CLI. Reserve comments for granular per-event records that operators read in the UI.
 
 ## Integration with Other Agents
 

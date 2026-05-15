@@ -504,42 +504,198 @@ pub static SKILLS: &[SkillEntry] = &[
     },
 ];
 
-/// Resolve the detected agent name, applying override if provided.
-pub fn resolve_agent(agent: Option<&str>) -> String {
-    agent
-        .map(String::from)
-        .unwrap_or_else(|| crate::useragent::detect_agent_info().name)
+/// Static description of one supported AI-coding-assistant platform.
+///
+/// Each platform tells us where skills, agents, and extension bundles live for
+/// both project-local and user-global scopes. Empty path strings mean "not
+/// supported" — e.g. `pi` has no skills/agents dirs, and most platforms have
+/// no extensions dir.
+pub struct PlatformSpec {
+    /// Canonical platform name as users type it on the CLI.
+    pub name: &'static str,
+    /// Additional accepted names (e.g. `claude` for `claude-code`).
+    pub aliases: &'static [&'static str],
+    /// Project-local skills dir, relative to project root.
+    pub project_skills: &'static str,
+    /// User-global skills dir, relative to $HOME.
+    pub user_skills: &'static str,
+    /// Project-local agents dir; if empty, agents share the skills dir.
+    pub project_agents: &'static str,
+    /// User-global agents dir; if empty, agents share the user skills dir.
+    pub user_agents: &'static str,
+    /// Project-local extensions dir, relative to project root.
+    pub project_extensions: &'static str,
+    /// User-global extensions dir, relative to $HOME.
+    pub user_extensions: &'static str,
+    /// True iff agents install as Claude-Code-style `<name>.md` subagents
+    /// rather than `SKILL.md` files.
+    pub uses_agent_md: bool,
 }
 
-/// Resolve the extension platform slug.
+/// Registry of supported platforms.
+pub static PLATFORMS: &[PlatformSpec] = &[
+    PlatformSpec {
+        name: "claude-code",
+        aliases: &["claude"],
+        project_skills: ".claude/skills",
+        user_skills: ".claude/skills",
+        project_agents: ".claude/agents",
+        user_agents: ".claude/agents",
+        project_extensions: "",
+        user_extensions: "",
+        uses_agent_md: true,
+    },
+    PlatformSpec {
+        name: "cursor",
+        aliases: &[],
+        project_skills: ".cursor/skills",
+        user_skills: ".cursor/skills",
+        project_agents: "",
+        user_agents: "",
+        project_extensions: "",
+        user_extensions: "",
+        uses_agent_md: false,
+    },
+    PlatformSpec {
+        name: "codex",
+        aliases: &[],
+        project_skills: ".codex/skills",
+        user_skills: ".codex/skills",
+        project_agents: "",
+        user_agents: "",
+        project_extensions: "",
+        user_extensions: "",
+        uses_agent_md: false,
+    },
+    PlatformSpec {
+        name: "opencode",
+        aliases: &[],
+        project_skills: ".opencode/skills",
+        user_skills: ".config/opencode/skills",
+        project_agents: "",
+        user_agents: "",
+        project_extensions: "",
+        user_extensions: "",
+        uses_agent_md: false,
+    },
+    PlatformSpec {
+        name: "windsurf",
+        aliases: &[],
+        project_skills: ".windsurf/skills",
+        user_skills: ".windsurf/skills",
+        project_agents: "",
+        user_agents: "",
+        project_extensions: "",
+        user_extensions: "",
+        uses_agent_md: false,
+    },
+    PlatformSpec {
+        name: "gemini-code",
+        aliases: &["gemini"],
+        project_skills: ".gemini/skills",
+        user_skills: ".gemini/skills",
+        project_agents: "",
+        user_agents: "",
+        project_extensions: "",
+        user_extensions: "",
+        uses_agent_md: false,
+    },
+    PlatformSpec {
+        name: "pi",
+        aliases: &["pi-dev"],
+        project_skills: "",
+        user_skills: "",
+        project_agents: "",
+        user_agents: "",
+        project_extensions: ".pi/extensions",
+        user_extensions: ".pi/agent/extensions",
+        uses_agent_md: false,
+    },
+];
+
+/// CLI-typed selector for `pup skills install <platform>` and `pup skills
+/// path <platform>`. Each canonical variant maps onto an entry in
+/// [`PLATFORMS`] via [`SkillsPlatform::as_canonical`]; aliases (`claude`,
+/// `gemini`, `pi-dev`) are accepted for ergonomics. The `All` variant
+/// expands to every supported platform — see [`resolve_platform_list`].
 ///
-/// Precedence:
-///   1. explicit `--platform` flag value
-///   2. mapping from the detected/resolved agent name (e.g. `pi-dev` -> `pi`)
-///   3. empty string (caller must decide how to handle)
-///
-/// Supported platforms today: `pi`.
-pub fn resolve_platform(platform: Option<&str>, agent: &str) -> String {
-    if let Some(p) = platform {
-        if !p.is_empty() {
-            return p.to_string();
+/// Keep this in sync with [`PLATFORMS`]: the `platform_enum_matches_table`
+/// test enforces the mapping.
+#[cfg(feature = "native")]
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+#[clap(rename_all = "kebab-case")]
+pub enum SkillsPlatform {
+    #[clap(alias = "claude")]
+    ClaudeCode,
+    Cursor,
+    Codex,
+    Opencode,
+    Windsurf,
+    #[clap(alias = "gemini")]
+    GeminiCode,
+    #[clap(alias = "pi-dev")]
+    Pi,
+    All,
+}
+
+#[cfg(feature = "native")]
+impl SkillsPlatform {
+    /// Canonical platform name as used by [`lookup_platform`]. `All` returns
+    /// `"all"`, which [`resolve_platform_list`] expands into every supported
+    /// platform.
+    pub fn as_canonical(self) -> &'static str {
+        match self {
+            SkillsPlatform::ClaudeCode => "claude-code",
+            SkillsPlatform::Cursor => "cursor",
+            SkillsPlatform::Codex => "codex",
+            SkillsPlatform::Opencode => "opencode",
+            SkillsPlatform::Windsurf => "windsurf",
+            SkillsPlatform::GeminiCode => "gemini-code",
+            SkillsPlatform::Pi => "pi",
+            SkillsPlatform::All => "all",
         }
     }
-    match agent {
-        "pi-dev" | "pi" => "pi".to_string(),
-        _ => String::new(),
-    }
 }
 
-/// Determine the install directory for an extension on a given platform.
+/// Look up a platform by canonical name or alias. Returns `None` for unknown.
+pub fn lookup_platform(name: &str) -> Option<&'static PlatformSpec> {
+    PLATFORMS
+        .iter()
+        .find(|p| p.name == name || p.aliases.contains(&name))
+}
+
+/// Resolve the canonical platform name from a CLI input.
 ///
-/// When `user_scope` is true, returns the per-user global location
-/// (`~/.pi/agent/extensions` for pi). Otherwise returns the project-local
-/// location (`<project_root>/.pi/extensions` for pi).
+/// `None` or empty input falls back to environment detection. Aliases are
+/// normalized to the canonical name. Unknown names return the input unchanged
+/// so the caller can produce a useful error.
+pub fn resolve_platform_name(input: Option<&str>) -> String {
+    let raw = input.unwrap_or("").trim();
+    if raw.is_empty() {
+        let detected = crate::useragent::detect_agent_info().name;
+        return lookup_platform(&detected)
+            .map(|p| p.name.to_string())
+            .unwrap_or(detected);
+    }
+    lookup_platform(raw)
+        .map(|p| p.name.to_string())
+        .unwrap_or_else(|| raw.to_string())
+}
+
+/// Expand a CLI platform input into the list of platforms to operate on.
 ///
-/// Returns `None` for unsupported platforms, or in user-scope mode when the
-/// home directory cannot be resolved (HOME/USERPROFILE unset). The caller is
-/// expected to surface this as an error — see [`install_paths`].
+/// - `Some("all")` → every platform in [`PLATFORMS`].
+/// - `Some(name)` → that single platform (canonicalized via aliases).
+/// - `None` or empty → auto-detected platform from the environment.
+pub fn resolve_platform_list(input: Option<&str>) -> Vec<String> {
+    let raw = input.unwrap_or("").trim();
+    if raw.eq_ignore_ascii_case("all") {
+        return PLATFORMS.iter().map(|p| p.name.to_string()).collect();
+    }
+    vec![resolve_platform_name(input)]
+}
+
+/// Determine the extensions install directory for a platform.
 pub fn extensions_dir(platform: &str, project_root: &Path, user_scope: bool) -> Option<PathBuf> {
     extensions_dir_with_home(
         platform,
@@ -557,67 +713,112 @@ pub fn extensions_dir_with_home(
     project_root: &Path,
     user_scope: bool,
 ) -> Option<PathBuf> {
-    match platform {
-        "pi" => {
-            if user_scope {
-                Some(home?.join(".pi").join("agent").join("extensions"))
-            } else {
-                Some(project_root.join(".pi").join("extensions"))
-            }
-        }
-        _ => None,
-    }
+    let spec = lookup_platform(platform)?;
+    let sub = if user_scope {
+        spec.user_extensions
+    } else {
+        spec.project_extensions
+    };
+    resolve_relative(sub, home, project_root, user_scope)
 }
 
-/// Determine the skills install directory for the given agent.
-/// If an existing skills directory is found, use it regardless of detected agent.
-pub fn skills_dir(agent: &str, project_root: &Path) -> PathBuf {
-    let existing_dirs = [
-        ".agents/skills",
-        ".claude/skills",
-        ".cursor/skills",
-        ".windsurf/skills",
-        ".gemini/skills",
-    ];
-    for dir in &existing_dirs {
-        let path = project_root.join(dir);
-        if path.is_dir() {
-            return path;
-        }
-    }
-
-    match agent {
-        "claude-code" => project_root.join(".claude/skills"),
-        "codex" | "opencode" => project_root.join(".agents/skills"),
-        "cursor" => project_root.join(".cursor/skills"),
-        "windsurf" => project_root.join(".windsurf/skills"),
-        "gemini-code" => project_root.join(".gemini/skills"),
-        _ => project_root.join(".agents/skills"),
-    }
+/// Determine the skills install directory for a platform.
+pub fn skills_dir(platform: &str, project_root: &Path, user_scope: bool) -> Option<PathBuf> {
+    skills_dir_with_home(
+        platform,
+        dirs::home_dir().as_deref(),
+        project_root,
+        user_scope,
+    )
 }
 
-/// Determine the agents (subagents) install directory for the given agent.
-/// Claude Code uses `.claude/agents/`; other tools use their skills directory.
-pub fn agents_dir(agent: &str, project_root: &Path) -> PathBuf {
-    match agent {
-        "claude-code" => project_root.join(".claude/agents"),
-        _ => skills_dir(agent, project_root),
-    }
+/// Same as [`skills_dir`] but takes an explicit `home` directory.
+pub fn skills_dir_with_home(
+    platform: &str,
+    home: Option<&Path>,
+    project_root: &Path,
+    user_scope: bool,
+) -> Option<PathBuf> {
+    let spec = lookup_platform(platform)?;
+    let sub = if user_scope {
+        spec.user_skills
+    } else {
+        spec.project_skills
+    };
+    resolve_relative(sub, home, project_root, user_scope)
 }
 
-/// Determine the install path for a single (single-file) entry.
+/// Determine the agents (subagents) install directory for a platform.
 ///
-/// Skills always go to `<skills_dir>/<name>/SKILL.md`.
-/// Agents go to `<agents_dir>/<name>.md` for Claude Code (subagent format),
-/// or `<skills_dir>/<name>/SKILL.md` for other tools.
+/// If the platform has no dedicated agents dir, agents share the skills dir.
+pub fn agents_dir(platform: &str, project_root: &Path, user_scope: bool) -> Option<PathBuf> {
+    agents_dir_with_home(
+        platform,
+        dirs::home_dir().as_deref(),
+        project_root,
+        user_scope,
+    )
+}
+
+/// Same as [`agents_dir`] but takes an explicit `home` directory.
+pub fn agents_dir_with_home(
+    platform: &str,
+    home: Option<&Path>,
+    project_root: &Path,
+    user_scope: bool,
+) -> Option<PathBuf> {
+    let spec = lookup_platform(platform)?;
+    let sub = if user_scope {
+        spec.user_agents
+    } else {
+        spec.project_agents
+    };
+    if sub.is_empty() {
+        // Empty sentinel means "share the skills dir for this scope."
+        return skills_dir_with_home(platform, home, project_root, user_scope);
+    }
+    resolve_relative(sub, home, project_root, user_scope)
+}
+
+/// Resolve a forward-slash-separated relative subpath against either the home
+/// directory (user scope) or the project root (project scope). Returns `None`
+/// when the subpath is empty (the sentinel for "not applicable") or when user
+/// scope is requested but `home` is unavailable.
+fn resolve_relative(
+    sub: &str,
+    home: Option<&Path>,
+    project_root: &Path,
+    user_scope: bool,
+) -> Option<PathBuf> {
+    if sub.is_empty() {
+        return None;
+    }
+    let mut base = if user_scope {
+        home?.to_path_buf()
+    } else {
+        project_root.to_path_buf()
+    };
+    for part in sub.split('/') {
+        base.push(part);
+    }
+    Some(base)
+}
+
+/// Determine the install path for a single-file skill or agent entry.
 ///
+/// Skills install to `<skills_dir>/<name>/SKILL.md`. Agents install to
+/// `<agents_dir>/<name>.md` for platforms with [`PlatformSpec::uses_agent_md`]
+/// (Claude Code subagent format), and `<skills_dir>/<name>/SKILL.md` elsewhere.
+///
+/// Returns `None` when the platform has no skills/agents dir (e.g. `pi`).
 /// Panics if called for an `extension` entry; use [`install_paths`] for those.
 pub fn install_path(
     entry: &SkillEntry,
-    agent: &str,
+    platform: &str,
     project_root: &Path,
     dir_override: Option<&str>,
-) -> (PathBuf, InstallFormat) {
+    user_scope: bool,
+) -> Option<(PathBuf, InstallFormat)> {
     debug_assert_ne!(
         entry.entry_type, "extension",
         "install_path() does not handle extensions; use install_paths()"
@@ -625,72 +826,70 @@ pub fn install_path(
 
     if let Some(d) = dir_override {
         // Explicit --dir: everything as SKILL.md
-        return (
+        return Some((
             PathBuf::from(d).join(entry.name).join("SKILL.md"),
             InstallFormat::SkillMd,
-        );
+        ));
     }
 
-    if entry.entry_type == "agent" && agent == "claude-code" {
-        // Claude Code subagent: .claude/agents/<name>.md
-        let dir = agents_dir(agent, project_root);
-        (
+    let spec = lookup_platform(platform)?;
+    if entry.entry_type == "agent" && spec.uses_agent_md {
+        let dir = agents_dir(platform, project_root, user_scope)?;
+        Some((
             dir.join(format!("{}.md", entry.name)),
             InstallFormat::AgentMd,
-        )
+        ))
     } else {
-        // Everything else: <skills_dir>/<name>/SKILL.md
-        let dir = skills_dir(agent, project_root);
-        (
+        let dir = skills_dir(platform, project_root, user_scope)?;
+        Some((
             dir.join(entry.name).join("SKILL.md"),
             InstallFormat::SkillMd,
-        )
+        ))
     }
 }
 
 /// Resolve install destinations for any entry, including multi-file extensions.
 ///
 /// Returns a list of `(absolute_path, contents)` tuples. For skills and agents
-/// this is always a single-element list using [`install_path`] + [`format_content`].
-/// For extensions this expands to one entry per bundled file.
+/// this is a single-element list. For extensions this expands to one entry
+/// per bundled file.
+///
+/// Returns `Ok(vec![])` (no-op) when the entry isn't applicable to the
+/// platform (e.g. asking for a `pi` extension on `claude-code`, or asking for
+/// a skill on `pi`). The caller can treat an empty result as "skip".
 pub fn install_paths(
     entry: &SkillEntry,
-    agent: &str,
     platform: &str,
     project_root: &Path,
     dir_override: Option<&str>,
     user_scope: bool,
 ) -> anyhow::Result<Vec<(PathBuf, String)>> {
-    if entry.entry_type != "extension" {
-        let (path, fmt) = install_path(entry, agent, project_root, dir_override);
-        return Ok(vec![(path, format_content(entry, &fmt))]);
+    if entry.entry_type == "extension" {
+        let base = if let Some(d) = dir_override {
+            PathBuf::from(d).join(entry.name)
+        } else {
+            // Extensions are tied to a specific platform; only install when
+            // that platform matches the current target.
+            if entry.platform != platform {
+                return Ok(vec![]);
+            }
+            let Some(root) = extensions_dir(platform, project_root, user_scope) else {
+                return Ok(vec![]);
+            };
+            root.join(entry.name)
+        };
+        return Ok(entry
+            .files
+            .iter()
+            .map(|(rel, body)| (base.join(rel), (*body).to_string()))
+            .collect());
     }
 
-    // entry_type == "extension": materialize each bundled file under the
-    // platform-appropriate extension directory.
-    let base = if let Some(d) = dir_override {
-        PathBuf::from(d).join(entry.name)
-    } else {
-        let plat = if platform.is_empty() {
-            entry.platform
-        } else {
-            platform
-        };
-        let root = extensions_dir(plat, project_root, user_scope).ok_or_else(|| {
-            anyhow::anyhow!(
-                "unknown or unsupported extension platform: '{}' (entry: {})",
-                plat,
-                entry.name,
-            )
-        })?;
-        root.join(entry.name)
+    let Some((path, fmt)) = install_path(entry, platform, project_root, dir_override, user_scope)
+    else {
+        return Ok(vec![]);
     };
-
-    Ok(entry
-        .files
-        .iter()
-        .map(|(rel, body)| (base.join(rel), (*body).to_string()))
-        .collect())
+    Ok(vec![(path, format_content(entry, &fmt))])
 }
 
 #[derive(Debug, PartialEq)]
@@ -881,63 +1080,96 @@ mod tests {
     }
 
     #[test]
-    fn test_skills_dir_claude_code() {
+    fn test_skills_dir_claude_code_project() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            skills_dir("claude-code", &root),
-            root.join(".claude/skills")
+            skills_dir_with_home("claude-code", None, &root, false),
+            Some(root.join(".claude/skills"))
         );
     }
 
     #[test]
-    fn test_skills_dir_cursor() {
-        let root = PathBuf::from("/tmp/test-project");
-        assert_eq!(skills_dir("cursor", &root), root.join(".cursor/skills"));
-    }
-
-    #[test]
-    fn test_skills_dir_codex() {
-        let root = PathBuf::from("/tmp/test-project");
-        assert_eq!(skills_dir("codex", &root), root.join(".agents/skills"));
-    }
-
-    #[test]
-    fn test_skills_dir_windsurf() {
-        let root = PathBuf::from("/tmp/test-project");
-        assert_eq!(skills_dir("windsurf", &root), root.join(".windsurf/skills"));
-    }
-
-    #[test]
-    fn test_skills_dir_unknown_defaults() {
+    fn test_skills_dir_cursor_project() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            skills_dir("unknown-agent", &root),
-            root.join(".agents/skills")
+            skills_dir_with_home("cursor", None, &root, false),
+            Some(root.join(".cursor/skills"))
         );
     }
 
     #[test]
-    fn test_skills_dir_respects_existing() {
-        let tmp = std::env::temp_dir().join("pup-test-existing-skills");
-        let existing = tmp.join(".cursor/skills");
-        std::fs::create_dir_all(&existing).unwrap();
-        assert_eq!(skills_dir("claude-code", &tmp), existing);
-        std::fs::remove_dir_all(&tmp).unwrap();
-    }
-
-    #[test]
-    fn test_agents_dir_claude_code() {
+    fn test_skills_dir_codex_project() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            agents_dir("claude-code", &root),
-            root.join(".claude/agents")
+            skills_dir_with_home("codex", None, &root, false),
+            Some(root.join(".codex/skills"))
         );
     }
 
     #[test]
-    fn test_agents_dir_cursor_falls_back() {
+    fn test_skills_dir_opencode_project() {
         let root = PathBuf::from("/tmp/test-project");
-        assert_eq!(agents_dir("cursor", &root), root.join(".cursor/skills"));
+        assert_eq!(
+            skills_dir_with_home("opencode", None, &root, false),
+            Some(root.join(".opencode/skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_opencode_user() {
+        let home = PathBuf::from("/tmp/fake-home");
+        assert_eq!(
+            skills_dir_with_home("opencode", Some(&home), &PathBuf::from("/unused"), true),
+            Some(home.join(".config/opencode/skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_claude_user() {
+        let home = PathBuf::from("/tmp/fake-home");
+        assert_eq!(
+            skills_dir_with_home("claude-code", Some(&home), &PathBuf::from("/unused"), true),
+            Some(home.join(".claude/skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_pi_returns_none() {
+        let root = PathBuf::from("/tmp/test-project");
+        assert_eq!(skills_dir_with_home("pi", None, &root, false), None);
+    }
+
+    #[test]
+    fn test_skills_dir_unknown_returns_none() {
+        let root = PathBuf::from("/tmp/test-project");
+        assert_eq!(skills_dir_with_home("nope", None, &root, false), None);
+    }
+
+    #[test]
+    fn test_agents_dir_claude_code_project() {
+        let root = PathBuf::from("/tmp/test-project");
+        assert_eq!(
+            agents_dir_with_home("claude-code", None, &root, false),
+            Some(root.join(".claude/agents"))
+        );
+    }
+
+    #[test]
+    fn test_agents_dir_claude_code_user() {
+        let home = PathBuf::from("/tmp/fake-home");
+        assert_eq!(
+            agents_dir_with_home("claude-code", Some(&home), &PathBuf::from("/unused"), true),
+            Some(home.join(".claude/agents"))
+        );
+    }
+
+    #[test]
+    fn test_agents_dir_cursor_falls_back_to_skills() {
+        let root = PathBuf::from("/tmp/test-project");
+        assert_eq!(
+            agents_dir_with_home("cursor", None, &root, false),
+            Some(root.join(".cursor/skills"))
+        );
     }
 
     fn entry(name: &'static str, entry_type: &'static str, content: &'static str) -> SkillEntry {
@@ -955,7 +1187,7 @@ mod tests {
     fn test_install_path_skill_claude_code() {
         let root = PathBuf::from("/tmp/test-project");
         let e = entry("dd-pup", "skill", "");
-        let (path, fmt) = install_path(&e, "claude-code", &root, None);
+        let (path, fmt) = install_path(&e, "claude-code", &root, None, false).unwrap();
         assert_eq!(path, root.join(".claude/skills/dd-pup/SKILL.md"));
         assert_eq!(fmt, InstallFormat::SkillMd);
     }
@@ -964,7 +1196,7 @@ mod tests {
     fn test_install_path_agent_claude_code() {
         let root = PathBuf::from("/tmp/test-project");
         let e = entry("logs", "agent", "");
-        let (path, fmt) = install_path(&e, "claude-code", &root, None);
+        let (path, fmt) = install_path(&e, "claude-code", &root, None, false).unwrap();
         assert_eq!(path, root.join(".claude/agents/logs.md"));
         assert_eq!(fmt, InstallFormat::AgentMd);
     }
@@ -973,8 +1205,17 @@ mod tests {
     fn test_install_path_agent_cursor_as_skill() {
         let root = PathBuf::from("/tmp/test-project");
         let e = entry("logs", "agent", "");
-        let (path, fmt) = install_path(&e, "cursor", &root, None);
+        let (path, fmt) = install_path(&e, "cursor", &root, None, false).unwrap();
         assert_eq!(path, root.join(".cursor/skills/logs/SKILL.md"));
+        assert_eq!(fmt, InstallFormat::SkillMd);
+    }
+
+    #[test]
+    fn test_install_path_agent_codex_as_skill() {
+        let root = PathBuf::from("/tmp/test-project");
+        let e = entry("logs", "agent", "");
+        let (path, fmt) = install_path(&e, "codex", &root, None, false).unwrap();
+        assert_eq!(path, root.join(".codex/skills/logs/SKILL.md"));
         assert_eq!(fmt, InstallFormat::SkillMd);
     }
 
@@ -982,9 +1223,16 @@ mod tests {
     fn test_install_path_dir_override() {
         let root = PathBuf::from("/tmp/test-project");
         let e = entry("logs", "agent", "");
-        let (path, fmt) = install_path(&e, "claude-code", &root, Some("/tmp/out"));
+        let (path, fmt) = install_path(&e, "claude-code", &root, Some("/tmp/out"), false).unwrap();
         assert_eq!(path, PathBuf::from("/tmp/out/logs/SKILL.md"));
         assert_eq!(fmt, InstallFormat::SkillMd);
+    }
+
+    #[test]
+    fn test_install_path_skill_on_pi_returns_none() {
+        let root = PathBuf::from("/tmp/test-project");
+        let e = entry("dd-pup", "skill", "");
+        assert!(install_path(&e, "pi", &root, None, false).is_none());
     }
 
     #[test]
@@ -1021,25 +1269,144 @@ mod tests {
         assert!(result.contains("# No Frontmatter"));
     }
 
+    // ---- platform resolution -------------------------------------------------
+
+    #[test]
+    fn test_lookup_platform_canonical() {
+        assert_eq!(
+            lookup_platform("claude-code").map(|p| p.name),
+            Some("claude-code")
+        );
+        assert_eq!(lookup_platform("codex").map(|p| p.name), Some("codex"));
+        assert_eq!(
+            lookup_platform("opencode").map(|p| p.name),
+            Some("opencode")
+        );
+        assert_eq!(lookup_platform("pi").map(|p| p.name), Some("pi"));
+    }
+
+    #[test]
+    fn test_lookup_platform_aliases() {
+        assert_eq!(
+            lookup_platform("claude").map(|p| p.name),
+            Some("claude-code")
+        );
+        assert_eq!(lookup_platform("pi-dev").map(|p| p.name), Some("pi"));
+        assert_eq!(
+            lookup_platform("gemini").map(|p| p.name),
+            Some("gemini-code")
+        );
+    }
+
+    #[test]
+    fn test_lookup_platform_unknown() {
+        assert!(lookup_platform("nope").is_none());
+        assert!(lookup_platform("").is_none());
+    }
+
+    #[test]
+    fn test_resolve_platform_name_canonical_passthrough() {
+        assert_eq!(resolve_platform_name(Some("cursor")), "cursor");
+    }
+
+    #[test]
+    fn test_resolve_platform_name_alias_normalizes() {
+        assert_eq!(resolve_platform_name(Some("claude")), "claude-code");
+        assert_eq!(resolve_platform_name(Some("pi-dev")), "pi");
+    }
+
+    #[test]
+    fn test_resolve_platform_name_unknown_passthrough() {
+        assert_eq!(resolve_platform_name(Some("nope")), "nope");
+    }
+
+    #[test]
+    fn test_resolve_platform_list_all_expands() {
+        let list = resolve_platform_list(Some("all"));
+        let expected: Vec<String> = PLATFORMS.iter().map(|p| p.name.to_string()).collect();
+        assert_eq!(list, expected);
+    }
+
+    #[test]
+    fn test_resolve_platform_list_all_case_insensitive() {
+        assert_eq!(resolve_platform_list(Some("ALL")).len(), PLATFORMS.len());
+    }
+
+    #[test]
+    fn platform_enum_matches_table() {
+        // Every non-`All` SkillsPlatform variant must canonicalize to a real
+        // entry in PLATFORMS, and every PLATFORMS entry must be reachable
+        // from the enum. Failing this means the CLI accepts a value the
+        // runtime can't service, or the runtime supports a platform users
+        // can't select.
+        use clap::ValueEnum;
+        let table: std::collections::BTreeSet<&str> = PLATFORMS.iter().map(|p| p.name).collect();
+        let mut from_enum = std::collections::BTreeSet::new();
+        for variant in SkillsPlatform::value_variants() {
+            let canonical = variant.as_canonical();
+            if canonical == "all" {
+                continue;
+            }
+            assert!(
+                lookup_platform(canonical).is_some(),
+                "SkillsPlatform::{variant:?} -> '{canonical}' not in PLATFORMS",
+            );
+            from_enum.insert(canonical);
+        }
+        assert_eq!(table, from_enum, "PLATFORMS and SkillsPlatform diverge");
+    }
+
+    #[test]
+    fn platform_enum_aliases_match_table_aliases() {
+        // Aliases live in two places: `#[clap(alias = ...)]` on each variant
+        // (parsed by clap from the CLI) and `PlatformSpec.aliases` (used by
+        // `lookup_platform` at runtime). They must agree, or the CLI will
+        // accept a name the runtime can't resolve.
+        use clap::ValueEnum;
+        for variant in SkillsPlatform::value_variants() {
+            let canonical = variant.as_canonical();
+            if canonical == "all" {
+                continue;
+            }
+            let spec = lookup_platform(canonical).expect("variant maps to a known platform");
+            let pv = variant
+                .to_possible_value()
+                .expect("non-hidden value enum variant");
+            let clap_aliases: std::collections::BTreeSet<&str> = pv
+                .get_name_and_aliases()
+                .filter(|a| *a != canonical)
+                .collect();
+            let table_aliases: std::collections::BTreeSet<&str> =
+                spec.aliases.iter().copied().collect();
+            assert_eq!(
+                clap_aliases, table_aliases,
+                "alias drift for SkillsPlatform::{variant:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn platform_enum_all_does_not_resolve_to_a_spec() {
+        // `All` is a CLI quantifier, not a platform — it must not have a
+        // PLATFORMS row, and `as_canonical()` returns the sentinel "all"
+        // that `resolve_platform_list` expands.
+        assert_eq!(SkillsPlatform::All.as_canonical(), "all");
+        assert!(lookup_platform("all").is_none());
+    }
+
+    #[test]
+    fn test_resolve_platform_list_single() {
+        assert_eq!(
+            resolve_platform_list(Some("cursor")),
+            vec!["cursor".to_string()]
+        );
+        assert_eq!(
+            resolve_platform_list(Some("claude")),
+            vec!["claude-code".to_string()]
+        );
+    }
+
     // ---- extension helpers ---------------------------------------------------
-
-    #[test]
-    fn test_resolve_platform_explicit_wins() {
-        assert_eq!(resolve_platform(Some("pi"), "claude-code"), "pi");
-        assert_eq!(resolve_platform(Some("pi"), ""), "pi");
-    }
-
-    #[test]
-    fn test_resolve_platform_from_agent() {
-        assert_eq!(resolve_platform(None, "pi"), "pi");
-        assert_eq!(resolve_platform(None, "pi-dev"), "pi");
-    }
-
-    #[test]
-    fn test_resolve_platform_empty_for_unknown() {
-        assert_eq!(resolve_platform(None, "claude-code"), "");
-        assert_eq!(resolve_platform(Some(""), "claude-code"), "");
-    }
 
     #[test]
     fn test_extensions_dir_pi_project_scope() {
@@ -1077,12 +1444,27 @@ mod tests {
     }
 
     #[test]
+    fn test_extensions_dir_claude_returns_none() {
+        // Claude has no extensions concept.
+        let root = PathBuf::from("/tmp/proj");
+        assert_eq!(extensions_dir("claude-code", &root, false), None);
+    }
+
+    #[test]
     fn test_install_paths_skill_single_file() {
         let root = PathBuf::from("/tmp/proj");
         let e = entry("dd-pup", "skill", "body");
-        let paths = install_paths(&e, "claude-code", "", &root, None, false).unwrap();
+        let paths = install_paths(&e, "claude-code", &root, None, false).unwrap();
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].0, root.join(".claude/skills/dd-pup/SKILL.md"));
+    }
+
+    #[test]
+    fn test_install_paths_skill_on_pi_is_empty() {
+        let root = PathBuf::from("/tmp/proj");
+        let e = entry("dd-pup", "skill", "body");
+        let paths = install_paths(&e, "pi", &root, None, false).unwrap();
+        assert!(paths.is_empty());
     }
 
     #[test]
@@ -1094,7 +1476,7 @@ mod tests {
             ..entry("dd-pup-pi", "extension", "")
         };
         let root = PathBuf::from("/tmp/proj");
-        let paths = install_paths(&e, "claude-code", "pi", &root, None, false).unwrap();
+        let paths = install_paths(&e, "pi", &root, None, false).unwrap();
         assert_eq!(paths.len(), 2);
         assert_eq!(paths[0].0, root.join(".pi/extensions/dd-pup-pi/index.ts"));
         assert_eq!(paths[0].1, "// js");
@@ -1105,6 +1487,19 @@ mod tests {
     }
 
     #[test]
+    fn test_install_paths_extension_skipped_for_wrong_platform() {
+        static FILES: &[(&str, &str)] = &[("index.ts", "// js")];
+        let e = SkillEntry {
+            platform: "pi",
+            files: FILES,
+            ..entry("dd-pup-pi", "extension", "")
+        };
+        let root = PathBuf::from("/tmp/proj");
+        let paths = install_paths(&e, "claude-code", &root, None, false).unwrap();
+        assert!(paths.is_empty(), "pi extension must not install on claude");
+    }
+
+    #[test]
     fn test_install_paths_extension_dir_override() {
         static FILES: &[(&str, &str)] = &[("index.ts", "// js")];
         let e = SkillEntry {
@@ -1112,37 +1507,10 @@ mod tests {
             files: FILES,
             ..entry("dd-pup-pi", "extension", "")
         };
-        let paths = install_paths(
-            &e,
-            "claude-code",
-            "pi",
-            &PathBuf::from("/unused"),
-            Some("/tmp/out"),
-            false,
-        )
-        .unwrap();
+        let paths =
+            install_paths(&e, "pi", &PathBuf::from("/unused"), Some("/tmp/out"), false).unwrap();
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].0, PathBuf::from("/tmp/out/dd-pup-pi/index.ts"));
-    }
-
-    #[test]
-    fn test_install_paths_extension_unknown_platform_errors() {
-        static FILES: &[(&str, &str)] = &[("index.ts", "// js")];
-        let e = SkillEntry {
-            platform: "bogus",
-            files: FILES,
-            ..entry("dd-pup-bogus", "extension", "")
-        };
-        let err = install_paths(
-            &e,
-            "claude-code",
-            "bogus",
-            &PathBuf::from("/tmp/proj"),
-            None,
-            false,
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("bogus"));
     }
 
     #[test]

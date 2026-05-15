@@ -12,14 +12,11 @@ brew tap datadog-labs/pack
 brew install pup
 pup auth login
 
-# 2. install the extension
-#    Default: project-local when run inside a git repo
-#    (<repo>/.pi/extensions/dd-pup-pi/), user-global otherwise
-#    (~/.pi/agent/extensions/dd-pup-pi/).
-pup skills install --platform=pi
+# 2. install the extension (defaults to user-global ~/.pi/agent/extensions)
+pup skills install pi
 
-# Force user-global install regardless of cwd:
-pup skills install --platform=pi --user
+# Install project-local instead (<repo>/.pi/extensions/dd-pup-pi):
+pup skills install pi --project
 ```
 
 pi auto-discovers the extension on next launch (or via `/reload`).

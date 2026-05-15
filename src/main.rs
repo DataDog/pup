@@ -9122,9 +9122,9 @@ enum SkillsActions {
     },
     /// Install skills, agents, and extensions for one or more platforms
     Install {
-        /// Target platform: claude, cursor, codex, opencode, windsurf, gemini,
-        /// pi, or `all`. Auto-detected from environment if omitted.
-        platform: Option<String>,
+        /// Target platform (auto-detected from environment if omitted).
+        #[arg(value_enum)]
+        platform: Option<skills::SkillsPlatform>,
         /// Install a specific skill, agent, or extension by name
         #[arg(long)]
         name: Option<String>,
@@ -9140,9 +9140,9 @@ enum SkillsActions {
     },
     /// Show where skills/agents/extensions would be installed
     Path {
-        /// Target platform: claude, cursor, codex, opencode, windsurf, gemini,
-        /// pi, or `all`. Auto-detected from environment if omitted.
-        platform: Option<String>,
+        /// Target platform (auto-detected from environment if omitted).
+        #[arg(value_enum)]
+        platform: Option<skills::SkillsPlatform>,
         /// Show project-local install paths instead of the user-global default
         #[arg(long)]
         project: bool,
@@ -14266,8 +14266,17 @@ async fn main_inner() -> anyhow::Result<()> {
                 dir,
                 entry_type,
                 project,
-            } => commands::skills::install(&cfg, platform, name, dir, entry_type, project)?,
-            SkillsActions::Path { platform, project } => commands::skills::path(platform, project)?,
+            } => commands::skills::install(
+                &cfg,
+                platform.map(|p| p.as_canonical().to_string()),
+                name,
+                dir,
+                entry_type,
+                project,
+            )?,
+            SkillsActions::Path { platform, project } => {
+                commands::skills::path(platform.map(|p| p.as_canonical().to_string()), project)?
+            }
         },
         // --- Product Analytics ---
         Commands::ProductAnalytics { action } => {

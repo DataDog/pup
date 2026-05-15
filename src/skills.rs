@@ -613,6 +613,50 @@ pub static PLATFORMS: &[PlatformSpec] = &[
     },
 ];
 
+/// CLI-typed selector for `pup skills install <platform>` and `pup skills
+/// path <platform>`. Each canonical variant maps onto an entry in
+/// [`PLATFORMS`] via [`SkillsPlatform::as_canonical`]; aliases (`claude`,
+/// `gemini`, `pi-dev`) are accepted for ergonomics. The `All` variant
+/// expands to every supported platform — see [`resolve_platform_list`].
+///
+/// Keep this in sync with [`PLATFORMS`]: the `platform_enum_matches_table`
+/// test enforces the mapping.
+#[cfg(feature = "native")]
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+#[clap(rename_all = "kebab-case")]
+pub enum SkillsPlatform {
+    #[clap(alias = "claude")]
+    ClaudeCode,
+    Cursor,
+    Codex,
+    Opencode,
+    Windsurf,
+    #[clap(alias = "gemini")]
+    GeminiCode,
+    #[clap(alias = "pi-dev")]
+    Pi,
+    All,
+}
+
+#[cfg(feature = "native")]
+impl SkillsPlatform {
+    /// Canonical platform name as used by [`lookup_platform`]. `All` returns
+    /// `"all"`, which [`resolve_platform_list`] expands into every supported
+    /// platform.
+    pub fn as_canonical(self) -> &'static str {
+        match self {
+            SkillsPlatform::ClaudeCode => "claude-code",
+            SkillsPlatform::Cursor => "cursor",
+            SkillsPlatform::Codex => "codex",
+            SkillsPlatform::Opencode => "opencode",
+            SkillsPlatform::Windsurf => "windsurf",
+            SkillsPlatform::GeminiCode => "gemini-code",
+            SkillsPlatform::Pi => "pi",
+            SkillsPlatform::All => "all",
+        }
+    }
+}
+
 /// Look up a platform by canonical name or alias. Returns `None` for unknown.
 pub fn lookup_platform(name: &str) -> Option<&'static PlatformSpec> {
     PLATFORMS
@@ -1286,6 +1330,68 @@ mod tests {
     #[test]
     fn test_resolve_platform_list_all_case_insensitive() {
         assert_eq!(resolve_platform_list(Some("ALL")).len(), PLATFORMS.len());
+    }
+
+    #[test]
+    fn platform_enum_matches_table() {
+        // Every non-`All` SkillsPlatform variant must canonicalize to a real
+        // entry in PLATFORMS, and every PLATFORMS entry must be reachable
+        // from the enum. Failing this means the CLI accepts a value the
+        // runtime can't service, or the runtime supports a platform users
+        // can't select.
+        use clap::ValueEnum;
+        let table: std::collections::BTreeSet<&str> = PLATFORMS.iter().map(|p| p.name).collect();
+        let mut from_enum = std::collections::BTreeSet::new();
+        for variant in SkillsPlatform::value_variants() {
+            let canonical = variant.as_canonical();
+            if canonical == "all" {
+                continue;
+            }
+            assert!(
+                lookup_platform(canonical).is_some(),
+                "SkillsPlatform::{variant:?} -> '{canonical}' not in PLATFORMS",
+            );
+            from_enum.insert(canonical);
+        }
+        assert_eq!(table, from_enum, "PLATFORMS and SkillsPlatform diverge");
+    }
+
+    #[test]
+    fn platform_enum_aliases_match_table_aliases() {
+        // Aliases live in two places: `#[clap(alias = ...)]` on each variant
+        // (parsed by clap from the CLI) and `PlatformSpec.aliases` (used by
+        // `lookup_platform` at runtime). They must agree, or the CLI will
+        // accept a name the runtime can't resolve.
+        use clap::ValueEnum;
+        for variant in SkillsPlatform::value_variants() {
+            let canonical = variant.as_canonical();
+            if canonical == "all" {
+                continue;
+            }
+            let spec = lookup_platform(canonical).expect("variant maps to a known platform");
+            let pv = variant
+                .to_possible_value()
+                .expect("non-hidden value enum variant");
+            let clap_aliases: std::collections::BTreeSet<&str> = pv
+                .get_name_and_aliases()
+                .filter(|a| *a != canonical)
+                .collect();
+            let table_aliases: std::collections::BTreeSet<&str> =
+                spec.aliases.iter().copied().collect();
+            assert_eq!(
+                clap_aliases, table_aliases,
+                "alias drift for SkillsPlatform::{variant:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn platform_enum_all_does_not_resolve_to_a_spec() {
+        // `All` is a CLI quantifier, not a platform — it must not have a
+        // PLATFORMS row, and `as_canonical()` returns the sentinel "all"
+        // that `resolve_platform_list` expands.
+        assert_eq!(SkillsPlatform::All.as_canonical(), "all");
+        assert!(lookup_platform("all").is_none());
     }
 
     #[test]

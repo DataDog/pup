@@ -499,28 +499,40 @@ See `docs/examples/runbooks/` for ready-to-use examples and [docs/EXAMPLES.md](d
 Pup ships a set of skills and domain agents embedded in the binary, installable to any AI coding assistant. Run `pup skills list` to see what's available in the version you have installed.
 
 ```bash
-# Install all skills and agents for your AI assistant
+# Install all skills and agents for the auto-detected platform
 pup skills install
 
-# Install for a specific tool
-pup skills install --target-agent=claude-code
-pup skills install --target-agent=cursor
+# Install for a specific platform (positional arg)
+pup skills install claude
+pup skills install cursor
+pup skills install codex
+pup skills install opencode
+pup skills install pi
+
+# Install for every supported platform at once
+pup skills install all
+
+# By default installs go to the user-global directory; --project keeps them local
+pup skills install claude --project
 
 # List available skills and agents
 pup skills list
 pup skills list --type=skill
 pup skills list --type=agent
 
-# Install a specific skill
-pup skills install dd-monitors
+# Install a specific skill by name
+pup skills install claude --name dd-monitors
 ```
 
-For Claude Code, skills install to `.claude/skills/` and agents install to `.claude/agents/` (native subagent format). For other tools, everything installs as `SKILL.md` in the tool's skills directory.
+For Claude Code, skills install to `~/.claude/skills/` (or `.claude/skills/` with `--project`) and agents install to `~/.claude/agents/` (native subagent format). For Cursor, Codex, and opencode, everything installs as `SKILL.md` under that tool's skills directory (e.g. `~/.cursor/skills/`, `~/.codex/skills/`, `~/.config/opencode/skills/`).
 
-Pup is also available as a **Claude Code plugin marketplace**:
+Pup ships plugin manifest files for several AI coding assistants:
 
 ```
+# Claude Code
 /plugin marketplace add DataDog/pup
+
+# Codex (reads .codex-plugin/plugin.json from the repo, or marketplace.json from ~/.agents/plugins/)
 ```
 
 ## ACP Server

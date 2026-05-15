@@ -2319,31 +2319,36 @@ enum Commands {
     /// compose pup commands.
     ///
     /// ENTRY TYPES:
-    ///   skill       Single-file markdown guide installed under the agent's skills dir
+    ///   skill       Single-file markdown guide installed under the platform's skills dir
     ///   agent       Domain subagent (Claude Code subagent format or SKILL.md fallback)
     ///   extension   Multi-file bundle for a coding-agent platform (e.g. pi)
     ///
-    /// EXTENSION SCOPE:
-    ///   By default extensions install project-local when run inside a git
-    ///   repository (e.g. <repo>/.pi/extensions/<name>/), and user-global
-    ///   otherwise (e.g. ~/.pi/agent/extensions/<name>/). Pass --user to force
-    ///   user-global. Skills and agents always install project-local.
+    /// PLATFORMS:
+    ///   claude (or claude-code), cursor, codex, opencode, windsurf, gemini, pi
+    ///   Pass `all` to install for every supported platform.
+    ///   If omitted, pup auto-detects the platform from the environment.
+    ///
+    /// SCOPE:
+    ///   By default, installs go to the user-global directory (e.g.
+    ///   ~/.claude/skills, ~/.cursor/skills, ~/.codex/skills,
+    ///   ~/.config/opencode/skills, ~/.pi/agent/extensions). Pass --project to
+    ///   install into the current project instead (e.g. <repo>/.claude/skills).
     ///
     /// COMMANDS:
     ///   list      List available skills, agents, and extensions
-    ///   install   Install entries for the detected AI coding assistant
+    ///   install   Install entries for one or more platforms
     ///   path      Show where entries would be installed
     ///
     /// EXAMPLES:
     ///   pup skills list
     ///   pup skills install
-    ///   pup skills install dd-pup
-    ///   pup skills install --type=agent
-    ///   pup skills install --target-agent=cursor
-    ///   pup skills install --platform=pi
-    ///   pup skills install --platform=pi --user
+    ///   pup skills install claude
+    ///   pup skills install codex --project
+    ///   pup skills install all
+    ///   pup skills install pi --name=dd-pup-pi
+    ///   pup skills install --type=agent claude
     ///   pup skills path
-    ///   pup skills path --platform=pi
+    ///   pup skills path pi
     #[cfg(not(target_arch = "wasm32"))]
     #[command(verbatim_doc_comment)]
     Skills {
@@ -9115,39 +9120,32 @@ enum SkillsActions {
         #[arg(long = "type", name = "type")]
         entry_type: Option<String>,
     },
-    /// Install skills for the detected AI coding assistant
+    /// Install skills, agents, and extensions for one or more platforms
     Install {
+        /// Target platform: claude, cursor, codex, opencode, windsurf, gemini,
+        /// pi, or `all`. Auto-detected from environment if omitted.
+        platform: Option<String>,
         /// Install a specific skill, agent, or extension by name
+        #[arg(long)]
         name: Option<String>,
-        /// Override detected AI agent (claude-code, cursor, codex, windsurf, gemini-code)
-        #[arg(long = "target-agent")]
-        target_agent: Option<String>,
         /// Override install directory
         #[arg(long)]
         dir: Option<String>,
         /// Filter by type: skill, agent, extension
         #[arg(long = "type", name = "type")]
         entry_type: Option<String>,
-        /// Extension platform (e.g. pi). Required for extension installs unless
-        /// the detected agent maps to a platform.
+        /// Install into the current project instead of the user-global location
         #[arg(long)]
-        platform: Option<String>,
-        /// Install extensions to the user-global directory (e.g. ~/.pi/agent/extensions)
-        /// instead of the project-local one. Has no effect on skills/agents.
-        #[arg(long = "user")]
-        user_scope: bool,
+        project: bool,
     },
     /// Show where skills/agents/extensions would be installed
     Path {
-        /// Override detected AI agent
-        #[arg(long = "target-agent")]
-        target_agent: Option<String>,
-        /// Extension platform (e.g. pi)
-        #[arg(long)]
+        /// Target platform: claude, cursor, codex, opencode, windsurf, gemini,
+        /// pi, or `all`. Auto-detected from environment if omitted.
         platform: Option<String>,
-        /// Show user-global extension path instead of project-local
-        #[arg(long = "user")]
-        user_scope: bool,
+        /// Show project-local install paths instead of the user-global default
+        #[arg(long)]
+        project: bool,
     },
 }
 
@@ -14263,26 +14261,13 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Skills { action } => match action {
             SkillsActions::List { entry_type } => commands::skills::list(&cfg, entry_type)?,
             SkillsActions::Install {
+                platform,
                 name,
-                target_agent,
                 dir,
                 entry_type,
-                platform,
-                user_scope,
-            } => commands::skills::install(
-                &cfg,
-                name,
-                target_agent,
-                dir,
-                entry_type,
-                platform,
-                user_scope,
-            )?,
-            SkillsActions::Path {
-                target_agent,
-                platform,
-                user_scope,
-            } => commands::skills::path(target_agent, platform, user_scope)?,
+                project,
+            } => commands::skills::install(&cfg, platform, name, dir, entry_type, project)?,
+            SkillsActions::Path { platform, project } => commands::skills::path(platform, project)?,
         },
         // --- Product Analytics ---
         Commands::ProductAnalytics { action } => {

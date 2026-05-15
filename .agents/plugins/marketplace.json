@@ -1,0 +1,25 @@
+{
+  "name": "datadog-pup",
+  "owner": {
+    "name": "Datadog",
+    "email": "support@datadoghq.com"
+  },
+  "metadata": {
+    "description": "Datadog API CLI with skills and domain agents for AI coding assistants"
+  },
+  "plugins": [
+    {
+      "name": "pup",
+      "source": "./",
+      "description": "Datadog API CLI with 49 command groups, 300+ subcommands. Skills and domain agents for monitoring, logs, APM, security, and infrastructure.",
+      "version": "0.62.0",
+      "author": {
+        "name": "Datadog",
+        "email": "support@datadoghq.com"
+      },
+      "license": "Apache-2.0",
+      "keywords": ["datadog", "monitoring", "logs", "apm", "metrics", "security", "infrastructure"],
+      "category": "observability"
+    }
+  ]
+}

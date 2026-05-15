@@ -41,9 +41,14 @@ Security Signals, and ad-hoc operator workflows. If the user's request is incide
 - **Archive / Unarchive**: Archive resolved cases or restore archived ones
 
 ### Comments
-- **Add Comment**: Post a comment to a case (`pup cases comment <case-id> --body "..."`)
-- **Delete Comment**: Remove a comment by ID (`pup cases delete-comment <case-id> --comment-id <id>`)
-- **Note**: there is no list-comments endpoint in the API at this revision. Comments must be read in the Datadog UI.
+- **List Comments**: List all comments on a case (`pup cases comments list <case-id>`)
+- **Get Comment**: Read a single comment by ID (`pup cases comments get <case-id> --comment-id <id>`)
+- **Create Comment**: Post a comment to a case (`pup cases comments create <case-id> --body "..."`)
+- **Update Comment**: Edit a comment's body (`pup cases comments update <case-id> --comment-id <id> --body "..."`)
+- **Delete Comment**: Remove a comment by ID (`pup cases comments delete <case-id> --comment-id <id>`)
+
+### Timeline
+- **Get Timeline**: Fetch the full activity feed for a case — comments, attribute changes, status transitions (`pup cases timeline <case-id>`)
 
 ### Projects
 - **List / Get / Create / Delete / Update**: Manage the case projects that group cases together
@@ -126,17 +131,40 @@ JSON:API shape:
 
 ### Comments
 ```bash
-# Add a comment
-pup cases comment PROJ-123 --body "Root cause: Redis cache miss"
+# List all comments on a case
+pup cases comments list PROJ-123
 
-# Delete a comment (need the comment UUID, returned from the comment_case response)
-pup cases delete-comment PROJ-123 --comment-id 0521a6f2-4247-45db-9ad9-999628a30e2e
+# Get a single comment by ID
+pup cases comments get PROJ-123 --comment-id 0521a6f2-4247-45db-9ad9-999628a30e2e
+
+# Create a comment
+pup cases comments create PROJ-123 --body "Root cause: Redis cache miss"
+
+# Update a comment's body
+pup cases comments update PROJ-123 --comment-id 0521a6f2-4247-45db-9ad9-999628a30e2e --body "Updated: actually a connection pool exhaustion"
+
+# Delete a comment (need the comment UUID, returned from the create response)
+pup cases comments delete PROJ-123 --comment-id 0521a6f2-4247-45db-9ad9-999628a30e2e
 ```
 
-The API at this revision does not expose a list-comments endpoint. To read comments, use the Datadog UI. Two related gaps make comments hard to manage via CLI:
+Implementation notes:
+- `list` and `get` are derived from `pup cases timeline <case-id>` (the full activity feed) by filtering for `COMMENT` cells. Deleted comments are still returned by the API with `deleted_at` set and a scrubbed body — filter client-side if you only want active ones.
+- The `create` response is a TimelineResponse — the new comment's UUID is at `.data[0].id`. Capture it if you'll want to update or delete the comment later.
 
+Known caveats:
 - `pup cases search --query "<text>"` matches against **title and description only** — comment text is not indexed. You cannot find a case via a unique substring of its comments.
-- **`comment_count` is always `0` on `pup cases get`.** The field is populated only in `pup cases search` results. To get the true comment count for a case, find it via search (e.g. by `project_id` + filter client-side) and read `comment_count` from there.
+- **`comment_count` is always `0` on `pup cases get`.** The field is populated only in `pup cases search` results. To get the true comment count for a case, find it via search (e.g. by `project_id` + filter client-side) and read `comment_count` from there — or just `pup cases comments list <case-id> | jq '.data | length'`.
+
+### Timeline
+```bash
+# Full activity feed: comments, attribute updates, status transitions, etc.
+pup cases timeline PROJ-123
+
+# Filter to a specific cell type
+pup cases timeline PROJ-123 | jq '.data[] | select(.attributes.type == "ATTRIBUTE_UPDATE")'
+```
+
+Cell types observed: `CASE_CREATED`, `COMMENT`, `ATTRIBUTE_UPDATE`. Each cell has `id`, `attributes.type`, `attributes.author`, `attributes.created_at`, and a type-specific `attributes.cell_content`.
 
 ### Update
 ```bash
@@ -253,7 +281,7 @@ pup cases update-status CASE-123 --status IN_PROGRESS
 
 ### "Add a comment"
 ```bash
-pup cases comment CASE-123 --body "Investigation findings: ..."
+pup cases comments create CASE-123 --body "Investigation findings: ..."
 ```
 
 ### "Close a case"
@@ -275,17 +303,17 @@ A required attribute is missing or malformed. Verify `--title`, `--type-id`, and
 The priority parser is case-insensitive but rejects unknown values.
 
 **`failed to delete comment: ResponseError(... 404 ...)`**
-The comment ID doesn't exist (already deleted). Use the `id` field from the `pup cases comment` response (the new comment's id is returned in the response payload).
+The comment ID doesn't exist (already deleted). Use the `id` field from the `pup cases comments create` response (the new comment's id is returned in the response payload), or list comments first with `pup cases comments list <case-id>`.
 
 ## Best Practices
 
 1. **Always set `--project-id` when creating cases.** Cases without a project assignment are hard to search for later — most well-supported search facets require `project_id`.
 2. **Use the human key (e.g. `PROJ-123`) for references.** It's more readable than a UUID in PR descriptions, Slack, etc. CLI subcommands accept both.
-3. **Capture the comment ID when posting** if there's any chance you'll want to revoke. The API only exposes single-comment delete, not list — the `pup cases comment` response is the only place the new comment's ID appears.
-4. **Don't rely on `comment_count`** to verify writes. It doesn't refresh promptly. Verify state via the Datadog UI.
+3. **Capture the comment ID when posting** if you may want to update or delete it. `pup cases comments create` returns the new comment's id at `.data[0].id`. You can also recover it later via `pup cases comments list`.
+4. **Don't rely on `comment_count`** to verify writes — it doesn't refresh promptly. Verify state via `pup cases comments list <case-id>` instead.
 5. **Prefer flag-based create over `--file`** when possible. Reach for `--file` only when you need custom attributes, `status_name`, or other less-common fields not exposed as flags.
 6. **Search facet vocabulary is limited.** `project_id:<uuid>` is the reliable facet. Free text matches title/description. Don't rely on `project.key:`, `status:`, or `key:`-based facets — they often return empty.
-7. **Synthesize status in the description, not in comments.** For tracking cases (rollup of PR links, sub-task state, etc.), update the description as work progresses. The description is indexed by search and returned by `pup cases get`; comments are not indexed and have no list endpoint, making them effectively write-only via CLI. Reserve comments for granular per-event records that operators read in the UI.
+7. **Synthesize status in the description, not in comments.** For tracking cases (rollup of PR links, sub-task state, etc.), update the description as work progresses. The description is indexed by search and returned by `pup cases get`; comment text is not indexed, so a substring of a comment will not match `pup cases search`. Reserve comments for granular per-event records.
 
 ## Integration with Other Agents
 

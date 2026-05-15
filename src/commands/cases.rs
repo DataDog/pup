@@ -16,6 +16,7 @@ use datadog_api_client::datadogV2::model::{
     ServiceNowTicketCreateRequest,
 };
 
+use crate::client;
 use crate::config::Config;
 use crate::formatter;
 
@@ -123,7 +124,7 @@ pub async fn create_from_flags(
 // Comments
 // ---------------------------------------------------------------------------
 
-pub async fn comment(cfg: &Config, case_id: &str, body: &str) -> Result<()> {
+pub async fn comments_create(cfg: &Config, case_id: &str, body: &str) -> Result<()> {
     let api = make_api(cfg);
     let req = CaseCommentRequest::new(CaseComment::new(
         CaseCommentAttributes::new(body.to_string()),
@@ -136,13 +137,104 @@ pub async fn comment(cfg: &Config, case_id: &str, body: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
-pub async fn delete_comment(cfg: &Config, case_id: &str, comment_id: &str) -> Result<()> {
+pub async fn comments_delete(cfg: &Config, case_id: &str, comment_id: &str) -> Result<()> {
     let api = make_api(cfg);
     api.delete_case_comment(case_id.to_string(), comment_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete comment: {e:?}"))?;
     println!("Comment {comment_id} deleted from case {case_id}.");
     Ok(())
+}
+
+/// Update a comment's body. The endpoint is `PUT /api/v2/cases/{case_id}/
+/// comment/{cell_id}` — not yet in the public spec. Responds 200 with an
+/// empty body on success, so we use `raw_request` rather than `raw_put`
+/// (which expects parseable JSON).
+pub async fn comments_update(
+    cfg: &Config,
+    case_id: &str,
+    comment_id: &str,
+    body: &str,
+) -> Result<()> {
+    let path = format!("/api/v2/cases/{case_id}/comment/{comment_id}");
+    let payload = serde_json::json!({
+        "data": {
+            "type": "case",
+            "attributes": { "comment": body },
+        }
+    });
+    let payload_bytes = serde_json::to_vec(&payload)?;
+    client::raw_request(
+        cfg,
+        "PUT",
+        &path,
+        &[],
+        Some(payload_bytes),
+        Some("application/json"),
+        "application/json",
+        &[],
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to update comment: {e:?}"))?;
+    println!("Comment {comment_id} updated on case {case_id}.");
+    Ok(())
+}
+
+/// List a case's comments by filtering the timeline to `COMMENT` cells.
+pub async fn comments_list(cfg: &Config, case_id: &str) -> Result<()> {
+    let resp = fetch_timeline(cfg, case_id).await?;
+    let comments = comment_cells(&resp);
+    formatter::output(cfg, &serde_json::json!({ "data": comments }))
+}
+
+/// Get a single comment by id by filtering the timeline. Errors if no cell
+/// with the given id exists — matches the typical `GET /resource/{id}` shape.
+pub async fn comments_get(cfg: &Config, case_id: &str, comment_id: &str) -> Result<()> {
+    let resp = fetch_timeline(cfg, case_id).await?;
+    let found = comment_cells(&resp)
+        .into_iter()
+        .find(|c| c.get("id").and_then(|v| v.as_str()) == Some(comment_id))
+        .ok_or_else(|| {
+            anyhow::anyhow!("comment {comment_id} not found in timeline for case {case_id}")
+        })?;
+    formatter::output(cfg, &serde_json::json!({ "data": found }))
+}
+
+// ---------------------------------------------------------------------------
+// Timeline (uses raw HTTP — the DD API client doesn't expose this endpoint
+// yet, even though it declares the response model).
+// ---------------------------------------------------------------------------
+
+/// Fetch the full timeline for a case. Returns every cell (comments,
+/// attribute updates, status changes, etc.).
+pub async fn timeline(cfg: &Config, case_id: &str) -> Result<()> {
+    let resp = fetch_timeline(cfg, case_id).await?;
+    formatter::output(cfg, &resp)
+}
+
+async fn fetch_timeline(cfg: &Config, case_id: &str) -> Result<serde_json::Value> {
+    let path = format!("/api/v2/cases/{case_id}/timelines");
+    client::raw_get(cfg, &path, &[])
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get case timeline: {e:?}"))
+}
+
+/// Return all `COMMENT` cells from a timeline response, preserving order.
+fn comment_cells(resp: &serde_json::Value) -> Vec<serde_json::Value> {
+    resp.get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter(|cell| {
+                    cell.get("attributes")
+                        .and_then(|a| a.get("type"))
+                        .and_then(|t| t.as_str())
+                        == Some("COMMENT")
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -543,12 +635,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cases_comment() {
+    async fn test_cases_comments_create() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": {}}"#).await;
-        let _ = super::comment(&cfg, "case1", "hello").await;
+        let _ = super::comments_create(&cfg, "case1", "hello").await;
         cleanup_env();
     }
 
@@ -563,12 +655,112 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cases_delete_comment() {
+    async fn test_cases_comments_delete() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{}"#).await;
-        let _ = super::delete_comment(&cfg, "case1", "comment1").await;
+        let _ = super::comments_delete(&cfg, "case1", "comment1").await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_comments_update() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, "").await;
+        super::comments_update(&cfg, "case1", "comment1", "new body")
+            .await
+            .expect("update should succeed against mock");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_timeline() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        super::timeline(&cfg, "case1")
+            .await
+            .expect("timeline should succeed");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_comments_list_filters_to_comment_cells() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        // Mixed-cell timeline: only the COMMENT cell should be retained.
+        let body = r#"{"data": [
+            {"id": "a", "type": "timeline_cell", "attributes": {"type": "COMMENT", "cell_content": {"message": "hi"}}},
+            {"id": "b", "type": "timeline_cell", "attributes": {"type": "ATTRIBUTE_UPDATE"}},
+            {"id": "c", "type": "timeline_cell", "attributes": {"type": "CASE_CREATED"}}
+        ]}"#;
+        mock_all(&mut s, body).await;
+        super::comments_list(&cfg, "case1")
+            .await
+            .expect("comments_list should succeed");
+        // Also verify the helper directly so the filtering contract is asserted.
+        let resp: serde_json::Value = serde_json::from_str(body).unwrap();
+        let cells = super::comment_cells(&resp);
+        assert_eq!(cells.len(), 1, "only one COMMENT cell expected");
+        assert_eq!(cells[0]["id"], "a");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_comments_get_found() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let body = r#"{"data": [
+            {"id": "target", "type": "timeline_cell", "attributes": {"type": "COMMENT", "cell_content": {"message": "found me"}}}
+        ]}"#;
+        mock_all(&mut s, body).await;
+        super::comments_get(&cfg, "case1", "target")
+            .await
+            .expect("comments_get should find the comment");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_comments_get_not_found() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        // Empty timeline — get should report not found.
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let err = super::comments_get(&cfg, "case1", "missing")
+            .await
+            .expect_err("missing comment should error");
+        assert!(
+            err.to_string().contains("not found"),
+            "expected 'not found' in error, got: {err}"
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_comments_get_skips_non_comment_cell_with_same_id() {
+        // If a non-COMMENT cell happens to share an id (unlikely but worth
+        // defending against), comments_get should ignore it and report not found.
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let body = r#"{"data": [
+            {"id": "shared", "type": "timeline_cell", "attributes": {"type": "ATTRIBUTE_UPDATE"}}
+        ]}"#;
+        mock_all(&mut s, body).await;
+        let err = super::comments_get(&cfg, "case1", "shared")
+            .await
+            .expect_err("non-comment cell should not match comments_get");
+        assert!(
+            err.to_string().contains("not found"),
+            "expected 'not found' in error, got: {err}"
+        );
         cleanup_env();
     }
 

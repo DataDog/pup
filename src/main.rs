@@ -5245,19 +5245,13 @@ enum CaseActions {
         #[arg(long, help = "JSON file with request body (required)", conflicts_with_all = ["title", "type-id", "project-id"])]
         file: Option<String>,
     },
-    /// Add a comment to a case
-    Comment {
-        case_id: String,
-        #[arg(long, help = "Comment body (required)")]
-        body: String,
+    /// Manage comments on a case
+    Comments {
+        #[command(subcommand)]
+        action: CaseCommentActions,
     },
-    /// Delete a comment from a case
-    #[command(name = "delete-comment")]
-    DeleteComment {
-        case_id: String,
-        #[arg(long, name = "comment-id", help = "Comment UUID (required)")]
-        comment_id: String,
-    },
+    /// Get the full timeline for a case (comments, attribute updates, etc.)
+    Timeline { case_id: String },
     /// Archive a case
     Archive { case_id: String },
     /// Unarchive a case
@@ -5316,6 +5310,38 @@ enum CaseActions {
     Servicenow {
         #[command(subcommand)]
         action: CaseServicenowActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaseCommentActions {
+    /// List comments on a case
+    List { case_id: String },
+    /// Get a single comment by ID
+    Get {
+        case_id: String,
+        #[arg(long, name = "comment-id", help = "Comment UUID (required)")]
+        comment_id: String,
+    },
+    /// Create a comment on a case
+    Create {
+        case_id: String,
+        #[arg(long, help = "Comment body (required)")]
+        body: String,
+    },
+    /// Update a comment's body
+    Update {
+        case_id: String,
+        #[arg(long, name = "comment-id", help = "Comment UUID (required)")]
+        comment_id: String,
+        #[arg(long, help = "New comment body (required)")]
+        body: String,
+    },
+    /// Delete a comment from a case
+    Delete {
+        case_id: String,
+        #[arg(long, name = "comment-id", help = "Comment UUID (required)")]
+        comment_id: String,
     },
 }
 
@@ -12052,14 +12078,36 @@ async fn main_inner() -> anyhow::Result<()> {
                         .await?;
                     }
                 }
-                CaseActions::Comment { case_id, body } => {
-                    commands::cases::comment(&cfg, &case_id, &body).await?;
-                }
-                CaseActions::DeleteComment {
-                    case_id,
-                    comment_id,
-                } => {
-                    commands::cases::delete_comment(&cfg, &case_id, &comment_id).await?;
+                CaseActions::Comments { action } => match action {
+                    CaseCommentActions::List { case_id } => {
+                        commands::cases::comments_list(&cfg, &case_id).await?;
+                    }
+                    CaseCommentActions::Get {
+                        case_id,
+                        comment_id,
+                    } => {
+                        commands::cases::comments_get(&cfg, &case_id, &comment_id).await?;
+                    }
+                    CaseCommentActions::Create { case_id, body } => {
+                        commands::cases::comments_create(&cfg, &case_id, &body).await?;
+                    }
+                    CaseCommentActions::Update {
+                        case_id,
+                        comment_id,
+                        body,
+                    } => {
+                        commands::cases::comments_update(&cfg, &case_id, &comment_id, &body)
+                            .await?;
+                    }
+                    CaseCommentActions::Delete {
+                        case_id,
+                        comment_id,
+                    } => {
+                        commands::cases::comments_delete(&cfg, &case_id, &comment_id).await?;
+                    }
+                },
+                CaseActions::Timeline { case_id } => {
+                    commands::cases::timeline(&cfg, &case_id).await?;
                 }
                 CaseActions::Archive { case_id } => {
                     commands::cases::archive(&cfg, &case_id).await?;

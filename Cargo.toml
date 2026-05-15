@@ -91,6 +91,9 @@ http = "1"
 # Error handling
 anyhow = "1"
 
+# POSIX shell word splitting (used for alias expansion)
+shell-words = "1"
+
 # UUID parsing (version-matched to DD client)
 uuid = { version = "1", features = ["v4"], optional = true }
 

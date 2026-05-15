@@ -87,7 +87,12 @@ fn apply_expansion(args: &[String], name: &str, aliases: &BTreeMap<String, Strin
     let Some(expansion) = aliases.get(name) else {
         return args.to_vec();
     };
-    let expansion_tokens: Vec<String> = expansion.split_whitespace().map(String::from).collect();
+    // Use POSIX shell word splitting so quoted strings (e.g. --query "SELECT ...") are
+    // kept as a single token rather than split on interior whitespace.
+    let expansion_tokens = match shell_words::split(expansion) {
+        Ok(tokens) => tokens,
+        Err(_) => return args.to_vec(),
+    };
     let Some(idx) = args.iter().position(|a| a == name) else {
         return args.to_vec();
     };
@@ -187,6 +192,63 @@ mod tests {
             &aliases,
         );
         assert_eq!(result, args("pup --output json infrastructure hosts list"));
+    }
+
+    #[test]
+    fn test_apply_expansion_preserves_quoted_spaces() {
+        // A quoted SQL string must arrive at clap as a single token, not split
+        // on the spaces inside the quotes.
+        let aliases = map(&[(
+            "host-count",
+            r#"ddsql table --query "SELECT COUNT(*) FROM dd.hosts""#,
+        )]);
+        let result = apply_expansion(&args("pup host-count"), "host-count", &aliases);
+        assert_eq!(
+            result,
+            vec![
+                "pup",
+                "ddsql",
+                "table",
+                "--query",
+                "SELECT COUNT(*) FROM dd.hosts"
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_apply_expansion_preserves_multiline_quoted_query() {
+        // Newlines inside a double-quoted string must be preserved as part of
+        // the single --query token (mirrors the YAML |- block scalar case).
+        let aliases = map(&[(
+            "host-count",
+            "ddsql table --query \"SELECT COUNT(*)\nFROM dd.hosts\"",
+        )]);
+        let result = apply_expansion(&args("pup host-count"), "host-count", &aliases);
+        assert_eq!(
+            result,
+            vec![
+                "pup",
+                "ddsql",
+                "table",
+                "--query",
+                "SELECT COUNT(*)\nFROM dd.hosts",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_apply_expansion_unclosed_quote_returns_unchanged() {
+        // A malformed alias value (unclosed quote) must not panic or produce
+        // garbled args — fall back to the original args unchanged.
+        let aliases = map(&[("bad-alias", "ddsql table --query \"unclosed")]);
+        let result = apply_expansion(&args("pup bad-alias"), "bad-alias", &aliases);
+        assert_eq!(result, args("pup bad-alias"));
     }
 
     #[test]

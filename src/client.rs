@@ -232,6 +232,7 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.create_incident",
     "v2.update_incident",
     "v2.delete_incident",
+    "v2.list_incident_attachments",
     "v2.create_global_incident_handle",
     "v2.delete_global_incident_handle",
     "v2.get_global_incident_settings",
@@ -1278,7 +1279,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 166);
+        assert_eq!(UNSTABLE_OPS.len(), 167);
     }
 
     #[test]

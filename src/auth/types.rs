@@ -78,6 +78,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "metrics_read",
         "monitors_read",
         "notebooks_read",
+        "observability_pipelines_read",
         "oci_configuration_read",
         "on_call_read",
         "reference_tables_read",
@@ -180,6 +181,10 @@ pub fn default_scopes() -> Vec<&'static str> {
         // Notebooks
         "notebooks_read",
         "notebooks_write",
+        // Observability Pipelines
+        "observability_pipelines_read",
+        "observability_pipelines_deploy",
+        "observability_pipelines_delete",
         // OCI
         "oci_configuration_edit",
         "oci_configuration_read",
@@ -298,6 +303,10 @@ mod tests {
         assert!(scopes.contains(&"workflows_read"));
         assert!(scopes.contains(&"workflows_run"));
         assert!(scopes.contains(&"workflows_write"));
+        // Observability Pipelines
+        assert!(scopes.contains(&"observability_pipelines_read"));
+        assert!(scopes.contains(&"observability_pipelines_deploy"));
+        assert!(scopes.contains(&"observability_pipelines_delete"));
     }
 
     #[test]

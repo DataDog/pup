@@ -2728,8 +2728,13 @@ enum Commands {
     ///   pup workflows instances cancel <workflow-id> <instance-id>
     ///
     /// AUTHENTICATION:
-    ///   All workflow commands require DD_API_KEY + DD_APP_KEY.
-    ///   OAuth2 bearer tokens are not supported for workflow operations at this time.
+    ///   Workflow CRUD (`workflows get/create/update/delete`) and
+    ///   workflow instance commands (`workflows instances *`) accept
+    ///   OAuth2 (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
+    ///   `workflows run` is API-key-only: it triggers a workflow via
+    ///   the API trigger endpoint, which requires DD_API_KEY + DD_APP_KEY.
+    ///   `workflows connections *` is API-key-only at this time, pending
+    ///   server-side OAuth enablement on the action-connections API.
     #[command(verbatim_doc_comment)]
     Workflows {
         #[command(subcommand)]
@@ -14414,13 +14419,6 @@ async fn main_inner() -> anyhow::Result<()> {
         },
         // --- Workflows ---
         Commands::Workflows { action } => {
-            cfg.validate_api_and_app_keys().map_err(|_| {
-                anyhow::anyhow!(
-                    "workflow commands require DD_API_KEY and DD_APP_KEY with workflow_* scopes\n\
-                     OAuth2 bearer tokens are not supported for workflow operations.\n\
-                     See: https://docs.datadoghq.com/api/latest/workflow-automation"
-                )
-            })?;
             match action {
                 WorkflowActions::Get { workflow_id } => {
                     commands::workflows::get(&cfg, &workflow_id).await?;
@@ -14441,6 +14439,13 @@ async fn main_inner() -> anyhow::Result<()> {
                     wait,
                     timeout,
                 } => {
+                    cfg.validate_api_and_app_keys().map_err(|_| {
+                        anyhow::anyhow!(
+                            "`workflows run` triggers a workflow via the API trigger \
+                             endpoint, which requires DD_API_KEY + DD_APP_KEY.\n\
+                             See: https://docs.datadoghq.com/api/latest/workflow-automation"
+                        )
+                    })?;
                     commands::workflows::run(
                         &cfg,
                         &workflow_id,

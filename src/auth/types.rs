@@ -96,6 +96,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "timeseries_query",
         "usage_read",
         "user_access_read",
+        "workflows_read",
     ]
 }
 
@@ -225,6 +226,9 @@ pub fn default_scopes() -> Vec<&'static str> {
         "usage_read",
         // Users
         "user_access_read",
+        // Workflows
+        "workflows_read",
+        "workflows_write",
     ]
 }
 
@@ -271,7 +275,7 @@ mod tests {
     #[test]
     fn test_default_scopes() {
         let scopes = default_scopes();
-        assert_eq!(scopes.len(), 85);
+        assert_eq!(scopes.len(), 87);
         assert!(scopes.contains(&"dashboards_read"));
         assert!(scopes.contains(&"monitors_read"));
         assert!(scopes.contains(&"logs_read_data"));
@@ -290,6 +294,9 @@ mod tests {
         assert!(scopes.contains(&"on_call_write"));
         assert!(scopes.contains(&"aws_configuration_read"));
         assert!(scopes.contains(&"gcp_configuration_read"));
+        // Workflows
+        assert!(scopes.contains(&"workflows_read"));
+        assert!(scopes.contains(&"workflows_write"));
     }
 
     #[test]

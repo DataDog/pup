@@ -1,0 +1,45 @@
+name: Tag Release
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  tag:
+    name: Create release tag
+    if: >
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: DataDog/dd-octo-sts-action@96a25462dbcb10ebf0bfd6e2ccc917d2ab235b9a # v1.0.4
+        id: octo-sts
+        with:
+          scope: datadog/pup
+          policy: release-tag
+
+      - name: Create tag
+        env:
+          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          TAG_NAME="${HEAD_REF#release/}"
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid tag name '${TAG_NAME}' derived from head_ref '${HEAD_REF}'"
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "::error::Tag '${TAG_NAME}' already exists."
+            exit 1
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${TAG_NAME}" \
+            -f sha="${MERGE_SHA}"
+          echo "Created tag ${TAG_NAME} → ${MERGE_SHA}"

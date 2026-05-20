@@ -41,7 +41,13 @@ pub struct ClientCredentials {
 
 /// All known valid OAuth scopes for validation.
 pub fn all_known_scopes() -> Vec<&'static str> {
-    default_scopes()
+    let mut scopes = default_scopes();
+    scopes.extend([
+        "apps_datastore_manage",
+        "apps_datastore_read",
+        "apps_datastore_write",
+    ]);
+    scopes
 }
 
 /// Read-only OAuth scopes for use with --read-only flag.
@@ -323,7 +329,14 @@ mod tests {
 
     #[test]
     fn test_all_known_scopes_matches_default() {
-        assert_eq!(all_known_scopes(), default_scopes());
+        let known = all_known_scopes();
+        let default: std::collections::HashSet<&str> = default_scopes().into_iter().collect();
+        for scope in default {
+            assert!(known.contains(&scope));
+        }
+        assert!(known.contains(&"apps_datastore_manage"));
+        assert!(known.contains(&"apps_datastore_read"));
+        assert!(known.contains(&"apps_datastore_write"));
     }
 
     #[test]

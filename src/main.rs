@@ -14418,79 +14418,68 @@ async fn main_inner() -> anyhow::Result<()> {
             AuthActions::Test => commands::test::run(&cfg)?,
         },
         // --- Workflows ---
-        Commands::Workflows { action } => {
-            match action {
-                WorkflowActions::Get { workflow_id } => {
-                    commands::workflows::get(&cfg, &workflow_id).await?;
-                }
-                WorkflowActions::Create { file } => {
-                    commands::workflows::create(&cfg, &file).await?;
-                }
-                WorkflowActions::Update { workflow_id, file } => {
-                    commands::workflows::update(&cfg, &workflow_id, &file).await?;
-                }
-                WorkflowActions::Delete { workflow_id } => {
-                    commands::workflows::delete(&cfg, &workflow_id).await?;
-                }
-                WorkflowActions::Run {
-                    workflow_id,
-                    payload,
-                    payload_file,
-                    wait,
-                    timeout,
-                } => {
-                    commands::workflows::run(
-                        &cfg,
-                        &workflow_id,
-                        payload,
-                        payload_file,
-                        wait,
-                        &timeout,
-                    )
-                    .await?;
-                }
-                WorkflowActions::Instances { action } => match action {
-                    WorkflowInstanceActions::List {
-                        workflow_id,
-                        limit,
-                        page,
-                    } => {
-                        commands::workflows::instance_list(&cfg, &workflow_id, limit, page).await?;
-                    }
-                    WorkflowInstanceActions::Get {
-                        workflow_id,
-                        instance_id,
-                    } => {
-                        commands::workflows::instance_get(&cfg, &workflow_id, &instance_id).await?;
-                    }
-                    WorkflowInstanceActions::Cancel {
-                        workflow_id,
-                        instance_id,
-                    } => {
-                        commands::workflows::instance_cancel(&cfg, &workflow_id, &instance_id)
-                            .await?;
-                    }
-                },
-                WorkflowActions::Connections { action } => match action {
-                    WorkflowConnectionActions::Get { connection_id } => {
-                        commands::workflows::connections_get(&cfg, &connection_id).await?;
-                    }
-                    WorkflowConnectionActions::Create { file } => {
-                        commands::workflows::connections_create(&cfg, &file).await?;
-                    }
-                    WorkflowConnectionActions::Update {
-                        connection_id,
-                        file,
-                    } => {
-                        commands::workflows::connections_update(&cfg, &connection_id, &file)
-                            .await?;
-                    }
-                    WorkflowConnectionActions::Delete { connection_id } => {
-                        commands::workflows::connections_delete(&cfg, &connection_id).await?;
-                    }
-                },
+        Commands::Workflows { action } => match action {
+            WorkflowActions::Get { workflow_id } => {
+                commands::workflows::get(&cfg, &workflow_id).await?;
             }
-        }
+            WorkflowActions::Create { file } => {
+                commands::workflows::create(&cfg, &file).await?;
+            }
+            WorkflowActions::Update { workflow_id, file } => {
+                commands::workflows::update(&cfg, &workflow_id, &file).await?;
+            }
+            WorkflowActions::Delete { workflow_id } => {
+                commands::workflows::delete(&cfg, &workflow_id).await?;
+            }
+            WorkflowActions::Run {
+                workflow_id,
+                payload,
+                payload_file,
+                wait,
+                timeout,
+            } => {
+                commands::workflows::run(&cfg, &workflow_id, payload, payload_file, wait, &timeout)
+                    .await?;
+            }
+            WorkflowActions::Instances { action } => match action {
+                WorkflowInstanceActions::List {
+                    workflow_id,
+                    limit,
+                    page,
+                } => {
+                    commands::workflows::instance_list(&cfg, &workflow_id, limit, page).await?;
+                }
+                WorkflowInstanceActions::Get {
+                    workflow_id,
+                    instance_id,
+                } => {
+                    commands::workflows::instance_get(&cfg, &workflow_id, &instance_id).await?;
+                }
+                WorkflowInstanceActions::Cancel {
+                    workflow_id,
+                    instance_id,
+                } => {
+                    commands::workflows::instance_cancel(&cfg, &workflow_id, &instance_id).await?;
+                }
+            },
+            WorkflowActions::Connections { action } => match action {
+                WorkflowConnectionActions::Get { connection_id } => {
+                    commands::workflows::connections_get(&cfg, &connection_id).await?;
+                }
+                WorkflowConnectionActions::Create { file } => {
+                    commands::workflows::connections_create(&cfg, &file).await?;
+                }
+                WorkflowConnectionActions::Update {
+                    connection_id,
+                    file,
+                } => {
+                    commands::workflows::connections_update(&cfg, &connection_id, &file).await?;
+                }
+                WorkflowConnectionActions::Delete { connection_id } => {
+                    commands::workflows::connections_delete(&cfg, &connection_id).await?;
+                }
+            },
+        },
         // --- LLM Observability ---
         Commands::LlmObs { action } => {
             cfg.validate_auth()?;

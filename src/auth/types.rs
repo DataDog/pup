@@ -228,6 +228,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "user_access_read",
         // Workflows
         "workflows_read",
+        "workflows_run",
         "workflows_write",
     ]
 }
@@ -275,7 +276,7 @@ mod tests {
     #[test]
     fn test_default_scopes() {
         let scopes = default_scopes();
-        assert_eq!(scopes.len(), 87);
+        assert_eq!(scopes.len(), 88);
         assert!(scopes.contains(&"dashboards_read"));
         assert!(scopes.contains(&"monitors_read"));
         assert!(scopes.contains(&"logs_read_data"));
@@ -296,6 +297,7 @@ mod tests {
         assert!(scopes.contains(&"gcp_configuration_read"));
         // Workflows
         assert!(scopes.contains(&"workflows_read"));
+        assert!(scopes.contains(&"workflows_run"));
         assert!(scopes.contains(&"workflows_write"));
     }
 

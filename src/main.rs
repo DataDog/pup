@@ -2708,7 +2708,7 @@ enum Commands {
     /// CAPABILITIES:
     ///   • Get workflow details
     ///   • Create, update, and delete workflows
-    ///   • Execute workflows via API trigger (requires DD_API_KEY + DD_APP_KEY)
+    ///   • Execute workflows via API trigger
     ///   • List, inspect, and cancel workflow instances (executions)
     ///
     /// EXAMPLES:
@@ -2728,13 +2728,12 @@ enum Commands {
     ///   pup workflows instances cancel <workflow-id> <instance-id>
     ///
     /// AUTHENTICATION:
-    ///   Workflow CRUD (`workflows get/create/update/delete`) and
-    ///   workflow instance commands (`workflows instances *`) accept
-    ///   OAuth2 (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
-    ///   `workflows run` is API-key-only: it triggers a workflow via
-    ///   the API trigger endpoint, which requires DD_API_KEY + DD_APP_KEY.
-    ///   `workflows connections *` is API-key-only at this time, pending
-    ///   server-side OAuth enablement on the action-connections API.
+    ///   Workflow CRUD (`workflows get/create/update/delete`),
+    ///   `workflows run`, and `workflows instances *` accept OAuth2
+    ///   (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
+    ///   `workflows connections *` requires DD_API_KEY + DD_APP_KEY
+    ///   pending server-side OAuth enablement on the action-connections
+    ///   API.
     #[command(verbatim_doc_comment)]
     Workflows {
         #[command(subcommand)]
@@ -4264,10 +4263,11 @@ enum WorkflowActions {
     },
     /// Delete a workflow
     Delete { workflow_id: String },
-    /// Execute a workflow via API trigger (requires DD_API_KEY + DD_APP_KEY)
+    /// Execute a workflow via API trigger
     ///
-    /// The workflow must have an API trigger configured.
-    /// OAuth tokens are not supported — this command requires API key authentication.
+    /// The workflow must have an API trigger configured. Accepts OAuth2
+    /// (`pup auth login`, requires the `workflows_run` scope) or
+    /// DD_API_KEY + DD_APP_KEY.
     #[command(verbatim_doc_comment)]
     Run {
         workflow_id: String,
@@ -14439,13 +14439,6 @@ async fn main_inner() -> anyhow::Result<()> {
                     wait,
                     timeout,
                 } => {
-                    cfg.validate_api_and_app_keys().map_err(|_| {
-                        anyhow::anyhow!(
-                            "`workflows run` triggers a workflow via the API trigger \
-                             endpoint, which requires DD_API_KEY + DD_APP_KEY.\n\
-                             See: https://docs.datadoghq.com/api/latest/workflow-automation"
-                        )
-                    })?;
                     commands::workflows::run(
                         &cfg,
                         &workflow_id,

@@ -63,7 +63,7 @@ pub async fn delete(cfg: &Config, workflow_id: &str) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Workflow execution (API trigger only — requires DD_API_KEY + DD_APP_KEY)
+// Workflow execution
 // ---------------------------------------------------------------------------
 
 pub async fn run(

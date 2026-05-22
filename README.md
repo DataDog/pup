@@ -219,8 +219,9 @@ OAuth2 provides secure, browser-based authentication with automatic token refres
 
 ```bash
 # Set your Datadog site (optional, defaults to datadoghq.com).
-# Valid values: datadoghq.com, datadoghq.eu, us3.datadoghq.com,
-# us5.datadoghq.com, ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com
+# Common values: datadoghq.com, datadoghq.eu, us3.datadoghq.com,
+# us5.datadoghq.com, ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com.
+# Other Datadog sites are also accepted.
 export DD_SITE="datadoghq.com"
 
 # Login via browser
@@ -241,9 +242,11 @@ pup auth logout
 Pup persists each login as a separate session, so you can authenticate against multiple Datadog sites and orgs and switch between them with `--org <name>` (or `DD_ORG=<name>`) on any subcommand.
 
 ```bash
-# Login to a non-default site. The site is persisted with the session.
+# Login to a non-default site. --site is only accepted by `pup auth login`
+# and `pup auth status`. For other commands, select the site via DD_SITE
+# (or attach --org at login so subsequent commands recall it; see below).
 pup auth login --site datadoghq.eu
-pup monitors list --site datadoghq.eu     # or: DD_SITE=datadoghq.eu pup monitors list
+DD_SITE=datadoghq.eu pup monitors list
 
 # Named session for a parent/child sub-org on the same site.
 pup auth login --org staging-child
@@ -272,15 +275,18 @@ pup auth refresh --org staging-child
 pup auth logout --org staging-child       # clears only that named session
 ```
 
-**Site selection rules** (when pup needs a site for a non-auth command, it checks in order):
-1. `--site` flag, if passed.
-2. `DD_SITE` env var, if set.
-3. The site recorded in `~/.config/pup/sessions.json` for the named `--org` / `DD_ORG`, when the lookup is unambiguous.
-4. Default: `datadoghq.com`.
+Note: `pup auth logout` (default session) also deletes the shared DCR client credentials for that site. Any named-org sessions on the same site will then fail to refresh until you `pup auth login --org <name>` again. Logging out a named session (`--org <name>`) does not touch the shared client credentials.
 
-If multiple sessions share the same org name on different sites, step 3 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to disambiguate. Default (unnamed) sessions on multiple sites also can't be disambiguated by `--org`; set `DD_SITE` to pick one.
+**Site selection rules** (when pup resolves a site for a non-auth command):
+1. `DD_SITE` env var (or `site:` in `~/.config/pup/config.yaml`), if set.
+2. The site recorded in `~/.config/pup/sessions.json` for the named `--org` / `DD_ORG`, when the lookup is unambiguous.
+3. Default: `datadoghq.com`.
 
-**Token Storage**: Tokens are stored securely in your system's keychain by default (macOS Keychain, Windows Credential Manager, Linux Secret Service via the `keyring` crate). When no keychain is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions. Set `DD_TOKEN_STORAGE=file` to force file storage. Tokens for all orgs at a given site share one storage entry (one keychain entry or one `tokens_<site>.json` file), keyed internally by org name.
+`pup auth login` and `pup auth status` additionally accept `--site`, which wins over the above for those two commands.
+
+If multiple sessions share the same org name on different sites, step 2 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to disambiguate. An unnamed (default) session can't be selected by `--org` at all -- if you have multiple unnamed sessions on different sites, set `DD_SITE` to pick one.
+
+**Token Storage**: By default, OAuth tokens and DCR client credentials are stored in your platform's secure store: macOS Keychain (via Apple's Security framework, with Touch ID prompts), Linux Secret Service (via the `keyring` crate), or Windows Credential Manager (via the `keyring` crate; sharded across multiple WinCred entries when the per-site blob exceeds the size limit). When no secure store is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions; in file mode tokens and client credentials are kept in separate files (`tokens_<site>.json`, `client_<site>.json`). Set `DD_TOKEN_STORAGE=file` to force file storage. In either mode, all tokens for a given site share one tokens entry, keyed internally by org name.
 
 **Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available yet, use API key authentication.
 

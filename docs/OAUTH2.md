@@ -66,9 +66,21 @@ Manually refresh your access token using the refresh token. This happens automat
 ### 4. Logout
 
 ```bash
-pup auth logout                     # clears the default (unnamed) session for the current site
-pup auth logout --org staging-child # clears only the named session, leaves other sessions intact
+pup auth logout                                # default session for the current site
+DD_SITE=datadoghq.eu pup auth logout           # default session for a non-default site
+pup auth logout --org staging-child            # one named session, leaves others intact
 ```
+
+`pup auth logout` itself doesn't accept a `--site` flag; use `DD_SITE` to
+pick which default session to clear.
+
+**Side effect on sibling sessions:** logging out the default (unnamed)
+session for a site also deletes that site's shared DCR client
+credentials. Any named-org sessions on the same site will still hold
+valid access tokens, but their next automatic refresh will fail (no
+client credentials), so you'll need to `pup auth login --org <name>`
+again to re-register. Logging out a named session (`--org <name>`) does
+not touch the shared client credentials.
 
 See [Multi-Org Support](#multi-org-support) for managing multiple named
 sessions side-by-side.
@@ -153,16 +165,23 @@ Proof Key for Code Exchange prevents authorization code interception:
 
 #### Token Storage
 
-Tokens are stored in the OS keychain by default (macOS Keychain, Windows
-Credential Manager, Linux Secret Service via the `keyring` crate). When a
-keychain is unavailable, pup falls back to a JSON file at
-`~/.config/pup/tokens_<site>.json` with `0600` permissions. Set
-`DD_TOKEN_STORAGE=file` to force file storage.
+By default, OAuth tokens and DCR client credentials are stored in your
+platform's secure store: macOS Keychain (via Apple's Security framework,
+with Touch ID prompts), Linux Secret Service (via the `keyring` crate),
+or Windows Credential Manager (via the `keyring` crate). When the
+secure store is unavailable, pup falls back to JSON files under
+`~/.config/pup/` with `0600` permissions. Set `DD_TOKEN_STORAGE=file`
+to force file storage.
 
-Each site gets one storage entry. When a site has multiple named-org
-sessions (see [Multi-Org Support](#multi-org-support)), all of their
-tokens live inside that single entry, keyed by org name; there is no
-separate `tokens_<site>_<org>.json` file.
+In secure-store mode each site has one per-site entry holding both
+tokens and client credentials (on Windows, sharded across multiple
+WinCred records when the per-site blob is large). In file mode tokens
+and client credentials are kept in separate files
+(`tokens_<site>.json` and `client_<site>.json`). In either mode, when a
+site has multiple named-org sessions (see
+[Multi-Org Support](#multi-org-support)) all of their tokens live
+inside the per-site tokens entry, keyed internally by org name; there
+is no separate `tokens_<site>_<org>.json` file.
 
 The token payload is:
 
@@ -309,6 +328,15 @@ named session is a `(site, org)` pair, and `--org <name>` (or
 `DD_ORG=<name>`) selects which session a command runs against. The flag is
 global and works on every subcommand, not just `auth`.
 
+**Recommended pattern if you work with more than one org:** give every
+session an explicit `--org <name>` rather than mixing the default
+(unnamed) session with named ones. This way `--org <name>` always
+appears in your commands and there's no ambiguity about which org a
+query targeted. Sharing one default slot across multiple orgs is easy
+to get wrong (you re-log into a different org without realizing it),
+and as noted in [Logout](#4-logout), logging out the default also
+removes the shared DCR client credentials for that site.
+
 ### Logging into multiple orgs
 
 ```bash
@@ -362,19 +390,22 @@ pup auth logout
 
 ### Site selection rules
 
-When pup needs a site for a non-auth command, it resolves in this order:
+When pup resolves a site for a non-auth command:
 
-1. `--site` flag, if passed.
-2. `DD_SITE` env var, if set.
-3. The site recorded in `~/.config/pup/sessions.json` for the named
+1. `DD_SITE` env var (or `site:` in `~/.config/pup/config.yaml`), if set.
+2. The site recorded in `~/.config/pup/sessions.json` for the named
    `--org` / `DD_ORG`, when the lookup is unambiguous.
-4. Default: `datadoghq.com`.
+3. Default: `datadoghq.com`.
 
-If multiple sessions share the same org name on different sites, step 3
+`pup auth login` and `pup auth status` additionally accept `--site`,
+which wins over the above for those two commands. No other subcommand
+accepts `--site`.
+
+If multiple sessions share the same org name on different sites, step 2
 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to
-disambiguate. Default (unnamed) sessions on different sites cannot be
-disambiguated by `--org` either, since they have no name; pass `DD_SITE`
-to pick one.
+disambiguate. An unnamed (default) session can't be selected by `--org`
+at all (it has no name to look up), so if you have multiple unnamed
+sessions on different sites, set `DD_SITE` to pick one.
 
 ### Session registry
 
@@ -498,10 +529,13 @@ This indicates a potential security issue. Run `pup auth login` again to start a
 └── sessions.json           # Named-session registry (site, org, org_uuid; no secrets)
 ```
 
-On platforms with a keychain, `tokens_<site>.json` is replaced by a
-single keychain entry per site (the named-by-org map is stored as the
-entry's value). `client_<site>.json` and `sessions.json` are always
-file-based.
+On platforms using the secure-store backend (macOS, plus Linux/Windows
+when a keychain is available), both `client_<site>.json` and
+`tokens_<site>.json` are absent: their contents live together in a
+per-site secure-store entry. On Windows, this entry may be sharded
+across multiple WinCred records when the per-site blob exceeds the
+WinCred size limit. `sessions.json` is always file-based regardless of
+backend.
 
 ### Code Structure
 

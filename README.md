@@ -244,7 +244,8 @@ Pup persists each login as a separate session, so you can authenticate against m
 ```bash
 # Login to a non-default site. --site is only accepted by `pup auth login`
 # and `pup auth status`. For other commands, select the site via DD_SITE
-# (or attach --org at login so subsequent commands recall it; see below).
+# (or use a named session and pass --org on every subsequent command; see
+# the Named session examples below).
 pup auth login --site datadoghq.eu
 DD_SITE=datadoghq.eu pup monitors list
 
@@ -267,7 +268,7 @@ pup auth login --org acme-prod --subdomain acme
 # the same named session.
 pup auth login --org acme-prod --org-uuid 11111111-2222-3333-4444-555555555555
 
-# List all stored sessions (sites, orgs, expiry).
+# List all stored sessions (site, org, org_uuid, scopes, expiry, status).
 pup auth list
 
 # Refresh or log out a specific named session.
@@ -275,7 +276,7 @@ pup auth refresh --org staging-child
 pup auth logout --org staging-child       # clears only that named session
 ```
 
-Note: `pup auth logout` (default session) also deletes the shared DCR client credentials for that site. Any named-org sessions on the same site will then fail to refresh until you `pup auth login --org <name>` again. Logging out a named session (`--org <name>`) does not touch the shared client credentials.
+Note: `pup auth logout` (default session) also deletes the shared DCR client credentials for that site. Named-org sessions on the same site keep their access tokens but will fail to refresh until the shared credentials are re-registered, which happens automatically on the next `pup auth login` on that site (any org, named or default). Logging out a named session (`--org <name>`) does not touch the shared client credentials.
 
 **Site selection rules** (when pup resolves a site for a non-auth command):
 1. `DD_SITE` env var (or `site:` in `~/.config/pup/config.yaml`), if set.
@@ -286,7 +287,7 @@ Note: `pup auth logout` (default session) also deletes the shared DCR client cre
 
 If multiple sessions share the same org name on different sites, step 2 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to disambiguate. An unnamed (default) session can't be selected by `--org` at all -- if you have multiple unnamed sessions on different sites, set `DD_SITE` to pick one.
 
-**Token Storage**: By default, OAuth tokens and DCR client credentials are stored in your platform's secure store: macOS Keychain (via Apple's Security framework, with Touch ID prompts), Linux Secret Service (via the `keyring` crate), or Windows Credential Manager (via the `keyring` crate; sharded across multiple WinCred entries when the per-site blob exceeds the size limit). When no secure store is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions; in file mode tokens and client credentials are kept in separate files (`tokens_<site>.json`, `client_<site>.json`). Set `DD_TOKEN_STORAGE=file` to force file storage. In either mode, all tokens for a given site share one tokens entry, keyed internally by org name.
+**Token Storage**: By default, OAuth tokens and DCR client credentials are stored in your platform's secure store: macOS Keychain (via Apple's Security framework, with Touch ID prompts), Linux Secret Service (via the `keyring` crate), or Windows Credential Manager (via the `keyring` crate; sharded across multiple WinCred entries to stay within WinCred's per-record size limit). When no secure store is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions; in file mode tokens and client credentials are kept in separate files (`tokens_<site>.json`, `client_<site>.json`). Set `DD_TOKEN_STORAGE=file` to force file storage. In either mode, all tokens for a given site share one tokens entry, keyed internally by org name.
 
 **Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available yet, use API key authentication.
 

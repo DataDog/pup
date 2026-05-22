@@ -78,9 +78,11 @@ pick which default session to clear.
 session for a site also deletes that site's shared DCR client
 credentials. Any named-org sessions on the same site will still hold
 valid access tokens, but their next automatic refresh will fail (no
-client credentials), so you'll need to `pup auth login --org <name>`
-again to re-register. Logging out a named session (`--org <name>`) does
-not touch the shared client credentials.
+client credentials). The shared credentials are re-registered
+automatically by the next `pup auth login` on that site (any org,
+named or default), and the sibling sessions can refresh again from
+that point on. Logging out a named session (`--org <name>`) does not
+touch the shared client credentials.
 
 See [Multi-Org Support](#multi-org-support) for managing multiple named
 sessions side-by-side.
@@ -175,10 +177,10 @@ to force file storage.
 
 In secure-store mode each site has one per-site entry holding both
 tokens and client credentials (on Windows, sharded across multiple
-WinCred records when the per-site blob is large). In file mode tokens
-and client credentials are kept in separate files
-(`tokens_<site>.json` and `client_<site>.json`). In either mode, when a
-site has multiple named-org sessions (see
+WinCred records to stay within WinCred's per-record size limit). In
+file mode tokens and client credentials are kept in separate files
+(`tokens_<site>.json` and `client_<site>.json`). In either mode, when
+a site has multiple named-org sessions (see
 [Multi-Org Support](#multi-org-support)) all of their tokens live
 inside the per-site tokens entry, keyed internally by org name; there
 is no separate `tokens_<site>_<org>.json` file.
@@ -317,9 +319,11 @@ pup auth login --site ddog-gov.com
 DD_SITE=datadoghq.eu pup auth login
 ```
 
-Each site maintains separate:
-- Client credentials (`client_<site>.json`)
-- Access/refresh tokens (one storage entry per site, keyed internally by org)
+Each site maintains separate state:
+- Client credentials, shared across orgs on the same site.
+- Access/refresh tokens, in a single per-site entry keyed internally by org.
+
+See [Token Storage](#token-storage) for the secure-store-vs-file layout.
 
 ## Multi-Org Support
 
@@ -375,7 +379,7 @@ DD_ORG=prod-child pup metrics query --query "avg:system.cpu.user{*}"
 ### Inspecting and managing sessions
 
 ```bash
-# List every stored session (site, org, expiry, status).
+# List every stored session (site, org, org_uuid, scopes, expiry, status).
 pup auth list
 
 # Refresh a specific named session.
@@ -532,10 +536,10 @@ This indicates a potential security issue. Run `pup auth login` again to start a
 On platforms using the secure-store backend (macOS, plus Linux/Windows
 when a keychain is available), both `client_<site>.json` and
 `tokens_<site>.json` are absent: their contents live together in a
-per-site secure-store entry. On Windows, this entry may be sharded
-across multiple WinCred records when the per-site blob exceeds the
-WinCred size limit. `sessions.json` is always file-based regardless of
-backend.
+per-site secure-store entry. On Windows, this entry is sharded into
+multiple WinCred records (one count record plus one or more chunk
+records) to stay within WinCred's per-record size limit.
+`sessions.json` is always file-based regardless of backend.
 
 ### Code Structure
 

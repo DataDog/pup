@@ -11,11 +11,11 @@ use crate::formatter::{self, Metadata};
 use crate::util;
 
 // ---------------------------------------------------------------------------
-// Helper: build a WorkflowAutomationAPI (API key auth only)
+// Helper: build a WorkflowAutomationAPI
 // ---------------------------------------------------------------------------
 
 fn make_api(cfg: &Config) -> WorkflowAutomationAPI {
-    crate::make_api_no_auth!(WorkflowAutomationAPI, cfg)
+    crate::make_api!(WorkflowAutomationAPI, cfg)
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ pub async fn delete(cfg: &Config, workflow_id: &str) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Workflow execution (API trigger only — requires DD_API_KEY + DD_APP_KEY)
+// Workflow execution
 // ---------------------------------------------------------------------------
 
 pub async fn run(
@@ -74,7 +74,7 @@ pub async fn run(
     wait: bool,
     timeout: &str,
 ) -> Result<()> {
-    let api = crate::make_api_no_auth!(WorkflowAutomationAPI, cfg);
+    let api = crate::make_api!(WorkflowAutomationAPI, cfg);
 
     let input_payload: Option<BTreeMap<String, serde_json::Value>> = match (&payload, &payload_file)
     {
@@ -132,7 +132,7 @@ pub async fn run(
 
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-        let api = crate::make_api_no_auth!(WorkflowAutomationAPI, cfg);
+        let api = crate::make_api!(WorkflowAutomationAPI, cfg);
         let status = api
             .get_workflow_instance(workflow_id.to_string(), instance_id.clone())
             .await

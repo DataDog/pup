@@ -2708,7 +2708,7 @@ enum Commands {
     /// CAPABILITIES:
     ///   • Get workflow details
     ///   • Create, update, and delete workflows
-    ///   • Execute workflows via API trigger (requires DD_API_KEY + DD_APP_KEY)
+    ///   • Execute workflows via API trigger
     ///   • List, inspect, and cancel workflow instances (executions)
     ///
     /// EXAMPLES:
@@ -2728,8 +2728,12 @@ enum Commands {
     ///   pup workflows instances cancel <workflow-id> <instance-id>
     ///
     /// AUTHENTICATION:
-    ///   All workflow commands require DD_API_KEY + DD_APP_KEY.
-    ///   OAuth2 bearer tokens are not supported for workflow operations at this time.
+    ///   Workflow CRUD (`workflows get/create/update/delete`),
+    ///   `workflows run`, and `workflows instances *` accept OAuth2
+    ///   (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
+    ///   `workflows connections *` requires DD_API_KEY + DD_APP_KEY
+    ///   pending server-side OAuth enablement on the action-connections
+    ///   API.
     #[command(verbatim_doc_comment)]
     Workflows {
         #[command(subcommand)]
@@ -4259,10 +4263,11 @@ enum WorkflowActions {
     },
     /// Delete a workflow
     Delete { workflow_id: String },
-    /// Execute a workflow via API trigger (requires DD_API_KEY + DD_APP_KEY)
+    /// Execute a workflow via API trigger
     ///
-    /// The workflow must have an API trigger configured.
-    /// OAuth tokens are not supported — this command requires API key authentication.
+    /// The workflow must have an API trigger configured. Accepts OAuth2
+    /// (`pup auth login`, requires the `workflows_run` scope) or
+    /// DD_API_KEY + DD_APP_KEY.
     #[command(verbatim_doc_comment)]
     Run {
         workflow_id: String,
@@ -14413,86 +14418,68 @@ async fn main_inner() -> anyhow::Result<()> {
             AuthActions::Test => commands::test::run(&cfg)?,
         },
         // --- Workflows ---
-        Commands::Workflows { action } => {
-            cfg.validate_api_and_app_keys().map_err(|_| {
-                anyhow::anyhow!(
-                    "workflow commands require DD_API_KEY and DD_APP_KEY with workflow_* scopes\n\
-                     OAuth2 bearer tokens are not supported for workflow operations.\n\
-                     See: https://docs.datadoghq.com/api/latest/workflow-automation"
-                )
-            })?;
-            match action {
-                WorkflowActions::Get { workflow_id } => {
-                    commands::workflows::get(&cfg, &workflow_id).await?;
-                }
-                WorkflowActions::Create { file } => {
-                    commands::workflows::create(&cfg, &file).await?;
-                }
-                WorkflowActions::Update { workflow_id, file } => {
-                    commands::workflows::update(&cfg, &workflow_id, &file).await?;
-                }
-                WorkflowActions::Delete { workflow_id } => {
-                    commands::workflows::delete(&cfg, &workflow_id).await?;
-                }
-                WorkflowActions::Run {
-                    workflow_id,
-                    payload,
-                    payload_file,
-                    wait,
-                    timeout,
-                } => {
-                    commands::workflows::run(
-                        &cfg,
-                        &workflow_id,
-                        payload,
-                        payload_file,
-                        wait,
-                        &timeout,
-                    )
-                    .await?;
-                }
-                WorkflowActions::Instances { action } => match action {
-                    WorkflowInstanceActions::List {
-                        workflow_id,
-                        limit,
-                        page,
-                    } => {
-                        commands::workflows::instance_list(&cfg, &workflow_id, limit, page).await?;
-                    }
-                    WorkflowInstanceActions::Get {
-                        workflow_id,
-                        instance_id,
-                    } => {
-                        commands::workflows::instance_get(&cfg, &workflow_id, &instance_id).await?;
-                    }
-                    WorkflowInstanceActions::Cancel {
-                        workflow_id,
-                        instance_id,
-                    } => {
-                        commands::workflows::instance_cancel(&cfg, &workflow_id, &instance_id)
-                            .await?;
-                    }
-                },
-                WorkflowActions::Connections { action } => match action {
-                    WorkflowConnectionActions::Get { connection_id } => {
-                        commands::workflows::connections_get(&cfg, &connection_id).await?;
-                    }
-                    WorkflowConnectionActions::Create { file } => {
-                        commands::workflows::connections_create(&cfg, &file).await?;
-                    }
-                    WorkflowConnectionActions::Update {
-                        connection_id,
-                        file,
-                    } => {
-                        commands::workflows::connections_update(&cfg, &connection_id, &file)
-                            .await?;
-                    }
-                    WorkflowConnectionActions::Delete { connection_id } => {
-                        commands::workflows::connections_delete(&cfg, &connection_id).await?;
-                    }
-                },
+        Commands::Workflows { action } => match action {
+            WorkflowActions::Get { workflow_id } => {
+                commands::workflows::get(&cfg, &workflow_id).await?;
             }
-        }
+            WorkflowActions::Create { file } => {
+                commands::workflows::create(&cfg, &file).await?;
+            }
+            WorkflowActions::Update { workflow_id, file } => {
+                commands::workflows::update(&cfg, &workflow_id, &file).await?;
+            }
+            WorkflowActions::Delete { workflow_id } => {
+                commands::workflows::delete(&cfg, &workflow_id).await?;
+            }
+            WorkflowActions::Run {
+                workflow_id,
+                payload,
+                payload_file,
+                wait,
+                timeout,
+            } => {
+                commands::workflows::run(&cfg, &workflow_id, payload, payload_file, wait, &timeout)
+                    .await?;
+            }
+            WorkflowActions::Instances { action } => match action {
+                WorkflowInstanceActions::List {
+                    workflow_id,
+                    limit,
+                    page,
+                } => {
+                    commands::workflows::instance_list(&cfg, &workflow_id, limit, page).await?;
+                }
+                WorkflowInstanceActions::Get {
+                    workflow_id,
+                    instance_id,
+                } => {
+                    commands::workflows::instance_get(&cfg, &workflow_id, &instance_id).await?;
+                }
+                WorkflowInstanceActions::Cancel {
+                    workflow_id,
+                    instance_id,
+                } => {
+                    commands::workflows::instance_cancel(&cfg, &workflow_id, &instance_id).await?;
+                }
+            },
+            WorkflowActions::Connections { action } => match action {
+                WorkflowConnectionActions::Get { connection_id } => {
+                    commands::workflows::connections_get(&cfg, &connection_id).await?;
+                }
+                WorkflowConnectionActions::Create { file } => {
+                    commands::workflows::connections_create(&cfg, &file).await?;
+                }
+                WorkflowConnectionActions::Update {
+                    connection_id,
+                    file,
+                } => {
+                    commands::workflows::connections_update(&cfg, &connection_id, &file).await?;
+                }
+                WorkflowConnectionActions::Delete { connection_id } => {
+                    commands::workflows::connections_delete(&cfg, &connection_id).await?;
+                }
+            },
+        },
         // --- LLM Observability ---
         Commands::LlmObs { action } => {
             cfg.validate_auth()?;

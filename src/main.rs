@@ -4571,7 +4571,26 @@ enum SecurityActions {
         action: AsmExclusionActions,
     },
     /// Manage resource restriction policies
-    #[command(name = "restriction-policies")]
+    ///
+    /// Restriction policies live at `/api/v2/restriction_policy/{resource}`
+    /// where `{resource}` is `<type>:<id>` (ex: `dashboard:abc-123`,
+    /// `monitor:12345`). The server accepts OAuth2 or DD_API_KEY +
+    /// DD_APP_KEY.
+    ///
+    /// The required OAuth scope depends on the resource type embedded in
+    /// the resource ID. The server enforces the same permission a user would
+    /// need to view/edit the underlying resource (ex: `dashboards_read` for
+    /// a `dashboard:*` GET, `monitors_write` for a `monitor:*` POST).
+    ///
+    /// Common types covered by pup's default OAuth scopes today: dashboard,
+    /// monitor, slo, workflow, notebook, security-rule, logs-archive,
+    /// rum-application, reference-table, case-management-project,
+    /// on-call-*, status-page, integration-*. Other resource types (ex:
+    /// connection, app-builder-app, obs-pipelines-*, spreadsheet,
+    /// feature-flag, agent-builder-agent, product-analytics-*) require
+    /// scopes pup does not yet request; for those, use DD_API_KEY +
+    /// DD_APP_KEY.
+    #[command(name = "restriction-policies", verbatim_doc_comment)]
     RestrictionPolicies {
         #[command(subcommand)]
         action: RestrictionPolicyActions,

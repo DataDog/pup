@@ -218,8 +218,10 @@ Pup supports two authentication methods. **OAuth2 is preferred** and will be use
 OAuth2 provides secure, browser-based authentication with automatic token refresh.
 
 ```bash
-# Set your Datadog site (optional)
-export DD_SITE="datadoghq.com"  # Defaults to datadoghq.com
+# Set your Datadog site (optional, defaults to datadoghq.com).
+# Valid values: datadoghq.com, datadoghq.eu, us3.datadoghq.com,
+# us5.datadoghq.com, ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com
+export DD_SITE="datadoghq.com"
 
 # Login via browser
 pup auth login
@@ -234,7 +236,51 @@ pup auth status
 pup auth logout
 ```
 
-**Token Storage**: Tokens are stored securely in your system's keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Set `DD_TOKEN_STORAGE=file` to use file-based storage instead.
+#### Multiple sites and orgs
+
+Pup persists each login as a separate session, so you can authenticate against multiple Datadog sites and orgs and switch between them with `--org <name>` (or `DD_ORG=<name>`) on any subcommand.
+
+```bash
+# Login to a non-default site. The site is persisted with the session.
+pup auth login --site datadoghq.eu
+pup monitors list --site datadoghq.eu     # or: DD_SITE=datadoghq.eu pup monitors list
+
+# Named session for a parent/child sub-org on the same site.
+pup auth login --org staging-child
+pup monitors list --org staging-child     # site recalled from the session, no DD_SITE needed
+
+# Named session on another site. DD_SITE / --site is only needed at login.
+pup auth login --site ap2.datadoghq.com --org ap2-prod
+pup monitors list --org ap2-prod          # site recalled
+
+# SAML/SSO org. --subdomain narrows the consent page to one org for tenants
+# with subdomain-routed SSO. It is only used during the browser flow and is
+# not persisted.
+pup auth login --org acme-prod --subdomain acme
+
+# Pre-target a specific org by UUID (sent as dd_oid). Skips the org switcher
+# when the browser session already matches and pre-routes SAML/SSO. The UUID
+# is persisted and re-emitted on subsequent `pup auth login` invocations for
+# the same named session.
+pup auth login --org acme-prod --org-uuid 11111111-2222-3333-4444-555555555555
+
+# List all stored sessions (sites, orgs, expiry).
+pup auth list
+
+# Refresh or log out a specific named session.
+pup auth refresh --org staging-child
+pup auth logout --org staging-child       # clears only that named session
+```
+
+**Site selection rules** (when pup needs a site for a non-auth command, it checks in order):
+1. `--site` flag, if passed.
+2. `DD_SITE` env var, if set.
+3. The site recorded in `~/.config/pup/sessions.json` for the named `--org` / `DD_ORG`, when the lookup is unambiguous.
+4. Default: `datadoghq.com`.
+
+If multiple sessions share the same org name on different sites, step 3 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to disambiguate. Default (unnamed) sessions on multiple sites also can't be disambiguated by `--org`; set `DD_SITE` to pick one.
+
+**Token Storage**: Tokens are stored securely in your system's keychain by default (macOS Keychain, Windows Credential Manager, Linux Secret Service via the `keyring` crate). When no keychain is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions. Set `DD_TOKEN_STORAGE=file` to force file storage. Tokens for all orgs at a given site share one storage entry (one keychain entry or one `tokens_<site>.json` file), keyed internally by org name.
 
 **Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available yet, use API key authentication.
 

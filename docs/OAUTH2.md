@@ -27,7 +27,9 @@ Pup supports OAuth2 authentication with PKCE (Proof Key for Code Exchange) for s
 ### 1. Login
 
 ```bash
-pup auth login
+pup auth login                          # default site (datadoghq.com), default org
+pup auth login --site datadoghq.eu      # a different Datadog site
+pup auth login --org staging-child      # a named session for a second org
 ```
 
 This will:
@@ -38,6 +40,9 @@ This will:
 5. Wait for you to approve the requested scopes
 6. Exchange the authorization code for access/refresh tokens
 7. Store tokens securely (OS keychain, or JSON file under `~/.config/pup/` with `0600` permissions when no keychain is available)
+
+See [Multi-Site Support](#multi-site-support) and
+[Multi-Org Support](#multi-org-support) for managing multiple sessions.
 
 ### 2. Check Status
 
@@ -61,10 +66,12 @@ Manually refresh your access token using the refresh token. This happens automat
 ### 4. Logout
 
 ```bash
-pup auth logout
+pup auth logout                     # clears the default (unnamed) session for the current site
+pup auth logout --org staging-child # clears only the named session, leaves other sessions intact
 ```
 
-Clears all stored tokens and client credentials for the current site.
+See [Multi-Org Support](#multi-org-support) for managing multiple named
+sessions side-by-side.
 
 ## OAuth2 Flow Details
 
@@ -151,6 +158,11 @@ Credential Manager, Linux Secret Service via the `keyring` crate). When a
 keychain is unavailable, pup falls back to a JSON file at
 `~/.config/pup/tokens_<site>.json` with `0600` permissions. Set
 `DD_TOKEN_STORAGE=file` to force file storage.
+
+Each site gets one storage entry. When a site has multiple named-org
+sessions (see [Multi-Org Support](#multi-org-support)), all of their
+tokens live inside that single entry, keyed by org name; there is no
+separate `tokens_<site>_<org>.json` file.
 
 The token payload is:
 
@@ -262,29 +274,114 @@ Pup supports all Datadog sites with separate credentials per site:
 
 ```bash
 # US1 (default)
-export DD_SITE="datadoghq.com"
-pup auth login
+pup auth login --site datadoghq.com
 
 # EU1
-export DD_SITE="datadoghq.eu"
-pup auth login
+pup auth login --site datadoghq.eu
 
 # US3
-export DD_SITE="us3.datadoghq.com"
-pup auth login
+pup auth login --site us3.datadoghq.com
 
 # US5
-export DD_SITE="us5.datadoghq.com"
-pup auth login
+pup auth login --site us5.datadoghq.com
 
 # AP1
-export DD_SITE="ap1.datadoghq.com"
-pup auth login
+pup auth login --site ap1.datadoghq.com
+
+# AP2
+pup auth login --site ap2.datadoghq.com
+
+# Gov
+pup auth login --site ddog-gov.com
+
+# DD_SITE env var also works on any of the above.
+DD_SITE=datadoghq.eu pup auth login
 ```
 
 Each site maintains separate:
 - Client credentials (`client_<site>.json`)
-- Access/refresh tokens (`tokens_<site>.json`)
+- Access/refresh tokens (one storage entry per site, keyed internally by org)
+
+## Multi-Org Support
+
+Pup supports multiple Datadog orgs side-by-side via *named sessions*. Each
+named session is a `(site, org)` pair, and `--org <name>` (or
+`DD_ORG=<name>`) selects which session a command runs against. The flag is
+global and works on every subcommand, not just `auth`.
+
+### Logging into multiple orgs
+
+```bash
+# Two child orgs on the default site (US1).
+pup auth login --org prod-child
+pup auth login --org staging-child
+
+# A child org on a different site. --site is only needed at login;
+# subsequent commands recall it from the session registry.
+pup auth login --site ap2.datadoghq.com --org ap2-prod
+
+# A SAML/SSO org. --subdomain narrows the consent page to one org for
+# tenants with subdomain-routed SSO. It is only used during the browser
+# flow and is not persisted with the session.
+pup auth login --org acme-prod --subdomain acme
+
+# Pre-target a specific org by UUID (sent as `dd_oid`). Skips the org
+# switcher when the existing browser session matches, and pre-routes
+# SAML/SSO routing for first-time logins. The UUID is persisted with the
+# session and re-emitted on subsequent `pup auth login` invocations for
+# the same named session.
+pup auth login --org acme-prod --org-uuid 11111111-2222-3333-4444-555555555555
+```
+
+### Using a named session
+
+```bash
+# Site is recalled from sessions.json; no DD_SITE / --site needed.
+pup monitors list --org prod-child
+pup logs query --org ap2-prod --query "service:web-store" --limit 10
+
+# DD_ORG env var is equivalent to --org.
+DD_ORG=prod-child pup metrics query --query "avg:system.cpu.user{*}"
+```
+
+### Inspecting and managing sessions
+
+```bash
+# List every stored session (site, org, expiry, status).
+pup auth list
+
+# Refresh a specific named session.
+pup auth refresh --org prod-child
+
+# Log out of a single named session (other sessions are untouched).
+pup auth logout --org staging-child
+
+# Log out of the default (unnamed) session for the current site.
+pup auth logout
+```
+
+### Site selection rules
+
+When pup needs a site for a non-auth command, it resolves in this order:
+
+1. `--site` flag, if passed.
+2. `DD_SITE` env var, if set.
+3. The site recorded in `~/.config/pup/sessions.json` for the named
+   `--org` / `DD_ORG`, when the lookup is unambiguous.
+4. Default: `datadoghq.com`.
+
+If multiple sessions share the same org name on different sites, step 3
+is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to
+disambiguate. Default (unnamed) sessions on different sites cannot be
+disambiguated by `--org` either, since they have no name; pass `DD_SITE`
+to pick one.
+
+### Session registry
+
+Named-session metadata lives in `~/.config/pup/sessions.json`. The file
+records the `site`, `org`, and (when supplied at login) `org_uuid` for
+each session. No tokens or secrets are stored here. The registry is what
+enables `--org <name>` to recall the right site on a non-auth command.
 
 ## Troubleshooting
 
@@ -396,9 +493,15 @@ This indicates a potential security issue. Run `pup auth login` again to start a
 
 ```
 ~/.config/pup/
-├── client_datadoghq_com.json      # DCR client credentials
-└── tokens_datadoghq_com.json      # OAuth2 tokens
+├── client_<site>.json      # DCR client credentials, one per site (shared across orgs)
+├── tokens_<site>.json      # OAuth2 tokens, one per site (keyed internally by org)
+└── sessions.json           # Named-session registry (site, org, org_uuid; no secrets)
 ```
+
+On platforms with a keychain, `tokens_<site>.json` is replaced by a
+single keychain entry per site (the named-by-org map is stored as the
+entry's value). `client_<site>.json` and `sessions.json` are always
+file-based.
 
 ### Code Structure
 

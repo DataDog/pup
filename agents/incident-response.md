@@ -369,7 +369,7 @@ pup cases create \
   --project-id "<project-uuid>"
 
 # Track investigation progress
-pup cases comment <case-id> --body "Investigation update: ..."
+pup cases comments create <case-id> --body "Investigation update: ..."
 pup cases update-status <case-id> --status IN_PROGRESS
 
 # Close out after resolution
@@ -521,7 +521,7 @@ pup cases assign CASE-XXX --user-id <user-uuid>
 pup cases update-status CASE-XXX --status IN_PROGRESS
 
 # 7. COLLABORATION: Add investigation findings
-pup cases comment CASE-XXX --body "Root cause: Database connection pool exhaustion"
+pup cases comments create CASE-XXX --body "Root cause: Database connection pool exhaustion"
 
 # 8. ESCALATION: If needed, escalate page
 pup on-call page escalate <page-id>

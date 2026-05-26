@@ -10,9 +10,11 @@ use datadog_api_client::datadogV2::api_test_optimization::{
     SearchFlakyTestsOptionalParams, TestOptimizationAPI,
 };
 use datadog_api_client::datadogV2::model::{
-    CIAppPipelineEventsRequest, CIAppPipelinesQueryFilter, CIAppQueryPageOptions, CIAppSort,
-    CIAppTestEventsRequest, CIAppTestsQueryFilter, DORADeploymentPatchRequest,
-    FlakyTestsSearchRequest, UpdateFlakyTestsRequest,
+    CIAppAggregationFunction, CIAppCompute, CIAppPipelineEventsRequest,
+    CIAppPipelinesAggregateRequest, CIAppPipelinesGroupBy, CIAppPipelinesQueryFilter,
+    CIAppQueryPageOptions, CIAppSort, CIAppTestEventsRequest, CIAppTestsAggregateRequest,
+    CIAppTestsGroupBy, CIAppTestsQueryFilter, DORADeploymentPatchRequest, FlakyTestsSearchRequest,
+    UpdateFlakyTestsRequest,
 };
 
 use crate::config::Config;
@@ -30,14 +32,8 @@ pub async fn pipelines_list(
 ) -> Result<()> {
     let api = crate::make_api!(CIVisibilityPipelinesAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
-    let from_str = chrono::DateTime::from_timestamp_millis(from_ms)
-        .ok_or_else(|| anyhow::anyhow!("--from value {from_ms}ms is out of representable range"))?
-        .to_rfc3339();
-    let to_str = chrono::DateTime::from_timestamp_millis(to_ms)
-        .ok_or_else(|| anyhow::anyhow!("--to value {to_ms}ms is out of representable range"))?
-        .to_rfc3339();
+    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
 
     let mut query_parts: Vec<String> = Vec::new();
     if let Some(q) = query {
@@ -102,17 +98,12 @@ pub async fn events_search(
     to: String,
     limit: i32,
     sort: String,
+    level: String,
 ) -> Result<()> {
     let api = crate::make_api!(CIVisibilityPipelinesAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
-    let from_str = chrono::DateTime::from_timestamp_millis(from_ms)
-        .ok_or_else(|| anyhow::anyhow!("--from value {from_ms}ms is out of representable range"))?
-        .to_rfc3339();
-    let to_str = chrono::DateTime::from_timestamp_millis(to_ms)
-        .ok_or_else(|| anyhow::anyhow!("--to value {to_ms}ms is out of representable range"))?
-        .to_rfc3339();
+    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
 
     let sort_val = match sort.as_str() {
         "asc" | "timestamp" => CIAppSort::TIMESTAMP_ASCENDING,
@@ -122,10 +113,22 @@ pub async fn events_search(
         ),
     };
 
+    let level = level.to_lowercase();
+    let effective_query = match level.as_str() {
+        "pipeline" => query,
+        "stage" | "job" | "step" => match query.trim() {
+            "" => format!("@ci.level:{level}"),
+            q => format!("@ci.level:{level} {q}"),
+        },
+        other => anyhow::bail!(
+            "invalid --level value: {other:?}\nExpected: pipeline, stage, job, or step"
+        ),
+    };
+
     let filter = CIAppPipelinesQueryFilter::new()
         .from(from_str)
         .to(to_str)
-        .query(query);
+        .query(effective_query);
 
     let body = CIAppPipelineEventsRequest::new()
         .filter(filter)
@@ -140,28 +143,36 @@ pub async fn events_search(
     formatter::output(cfg, &resp)
 }
 
-pub async fn events_aggregate(cfg: &Config, query: String, from: String, to: String) -> Result<()> {
+pub async fn events_aggregate(
+    cfg: &Config,
+    query: String,
+    from: String,
+    to: String,
+    compute: String,
+    group_by: Option<String>,
+    limit: i64,
+) -> Result<()> {
     let api = crate::make_api!(CIVisibilityPipelinesAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
-    let from_str = chrono::DateTime::from_timestamp_millis(from_ms)
-        .ok_or_else(|| anyhow::anyhow!("--from value {from_ms}ms is out of representable range"))?
-        .to_rfc3339();
-    let to_str = chrono::DateTime::from_timestamp_millis(to_ms)
-        .ok_or_else(|| anyhow::anyhow!("--to value {to_ms}ms is out of representable range"))?
-        .to_rfc3339();
+    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
+    let compute_spec = build_ci_compute_spec(&compute)?;
 
     let filter = CIAppPipelinesQueryFilter::new()
         .from(from_str)
         .to(to_str)
         .query(query);
 
-    let body = CIAppPipelineEventsRequest::new().filter(filter);
+    let mut body = CIAppPipelinesAggregateRequest::new()
+        .compute(vec![compute_spec])
+        .filter(filter);
 
-    let params = SearchCIAppPipelineEventsOptionalParams::default().body(body);
+    if let Some(gb) = group_by {
+        body = body.group_by(vec![CIAppPipelinesGroupBy::new(gb).limit(limit)]);
+    }
+
     let resp = api
-        .search_ci_app_pipeline_events(params)
+        .aggregate_ci_app_pipeline_events(body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to aggregate pipeline events: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -176,14 +187,8 @@ pub async fn tests_search(
 ) -> Result<()> {
     let api = crate::make_api!(CIVisibilityTestsAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
-    let from_str = chrono::DateTime::from_timestamp_millis(from_ms)
-        .ok_or_else(|| anyhow::anyhow!("--from value {from_ms}ms is out of representable range"))?
-        .to_rfc3339();
-    let to_str = chrono::DateTime::from_timestamp_millis(to_ms)
-        .ok_or_else(|| anyhow::anyhow!("--to value {to_ms}ms is out of representable range"))?
-        .to_rfc3339();
+    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
 
     let filter = CIAppTestsQueryFilter::new()
         .from(from_str)
@@ -203,28 +208,36 @@ pub async fn tests_search(
     formatter::output(cfg, &resp)
 }
 
-pub async fn tests_aggregate(cfg: &Config, query: String, from: String, to: String) -> Result<()> {
+pub async fn tests_aggregate(
+    cfg: &Config,
+    query: String,
+    from: String,
+    to: String,
+    compute: String,
+    group_by: Option<String>,
+    limit: i64,
+) -> Result<()> {
     let api = crate::make_api!(CIVisibilityTestsAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
-    let from_str = chrono::DateTime::from_timestamp_millis(from_ms)
-        .ok_or_else(|| anyhow::anyhow!("--from value {from_ms}ms is out of representable range"))?
-        .to_rfc3339();
-    let to_str = chrono::DateTime::from_timestamp_millis(to_ms)
-        .ok_or_else(|| anyhow::anyhow!("--to value {to_ms}ms is out of representable range"))?
-        .to_rfc3339();
+    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
+    let compute_spec = build_ci_compute_spec(&compute)?;
 
     let filter = CIAppTestsQueryFilter::new()
         .from(from_str)
         .to(to_str)
         .query(query);
 
-    let body = CIAppTestEventsRequest::new().filter(filter);
+    let mut body = CIAppTestsAggregateRequest::new()
+        .compute(vec![compute_spec])
+        .filter(filter);
 
-    let params = SearchCIAppTestEventsOptionalParams::default().body(body);
+    if let Some(gb) = group_by {
+        body = body.group_by(vec![CIAppTestsGroupBy::new(gb).limit(limit)]);
+    }
+
     let resp = api
-        .search_ci_app_test_events(params)
+        .aggregate_ci_app_test_events(body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to aggregate test events: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -325,6 +338,35 @@ pub async fn flaky_tests_update(cfg: &Config, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+fn parse_ci_agg(compute: &str) -> Result<(CIAppAggregationFunction, Option<String>)> {
+    let (func, metric) = util::parse_compute_raw(compute)?;
+    let agg = match func.as_str() {
+        "count" => CIAppAggregationFunction::COUNT,
+        "avg" => CIAppAggregationFunction::AVG,
+        "sum" => CIAppAggregationFunction::SUM,
+        "min" => CIAppAggregationFunction::MIN,
+        "max" => CIAppAggregationFunction::MAX,
+        "median" => CIAppAggregationFunction::MEDIAN,
+        "cardinality" => CIAppAggregationFunction::CARDINALITY,
+        "pc75" => CIAppAggregationFunction::PERCENTILE_75,
+        "pc90" => CIAppAggregationFunction::PERCENTILE_90,
+        "pc95" => CIAppAggregationFunction::PERCENTILE_95,
+        "pc98" => CIAppAggregationFunction::PERCENTILE_98,
+        "pc99" => CIAppAggregationFunction::PERCENTILE_99,
+        _ => anyhow::bail!("unknown aggregation function: {func}"),
+    };
+    Ok((agg, metric))
+}
+
+fn build_ci_compute_spec(compute: &str) -> Result<CIAppCompute> {
+    let (agg_fn, metric) = parse_ci_agg(compute)?;
+    let mut spec = CIAppCompute::new(agg_fn);
+    if let Some(m) = metric {
+        spec = spec.metric(m);
+    }
+    Ok(spec)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -391,6 +433,7 @@ mod tests {
             "now".into(),
             10,
             "bogus".into(),
+            "pipeline".into(),
         )
         .await;
         assert!(result.is_err());
@@ -398,5 +441,113 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("invalid --sort value"));
+    }
+
+    #[tokio::test]
+    async fn test_cicd_events_search_invalid_level() {
+        let cfg = test_config("http://unused.local");
+        let result = super::events_search(
+            &cfg,
+            "*".into(),
+            "1h".into(),
+            "now".into(),
+            10,
+            "desc".into(),
+            "bogus".into(),
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid --level value"));
+    }
+
+    #[tokio::test]
+    async fn test_parse_ci_agg_invalid() {
+        let result = super::parse_ci_agg("bogus");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid --compute format"));
+    }
+
+    #[tokio::test]
+    async fn test_cicd_events_aggregate() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": {"buckets": []}}"#).await;
+        let _ = super::events_aggregate(
+            &cfg,
+            "@ci.status:error".into(),
+            "1h".into(),
+            "now".into(),
+            "count".into(),
+            Some("@git.branch".into()),
+            10,
+        )
+        .await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cicd_events_aggregate_invalid_compute() {
+        let cfg = test_config("http://unused.local");
+        let result = super::events_aggregate(
+            &cfg,
+            "*".into(),
+            "1h".into(),
+            "now".into(),
+            "bogus".into(),
+            None,
+            10,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid --compute format"));
+    }
+
+    #[tokio::test]
+    async fn test_cicd_tests_aggregate() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": {"buckets": []}}"#).await;
+        let _ = super::tests_aggregate(
+            &cfg,
+            "@test.status:fail".into(),
+            "1h".into(),
+            "now".into(),
+            "count".into(),
+            Some("@test.service".into()),
+            10,
+        )
+        .await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cicd_tests_aggregate_invalid_compute() {
+        let cfg = test_config("http://unused.local");
+        let result = super::tests_aggregate(
+            &cfg,
+            "*".into(),
+            "1h".into(),
+            "now".into(),
+            "bogus".into(),
+            None,
+            10,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid --compute format"));
     }
 }

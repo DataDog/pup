@@ -31,11 +31,6 @@ Pup CLI for Datadog API operations. Supports OAuth2 and API key auth.
 | Find probe-able methods | `pup symdb search --service my-svc --query MyController --view probe-locations` |
 | Check auth | `pup auth status` |
 | Refresh token | `pup auth refresh` |
-| Search failing CI jobs | `pup cicd events search --query "@ci.status:error" --level job --from 24h` |
-| Count CI failures per branch | `pup cicd events aggregate --query "@ci.status:error" --compute count --group-by "@git.branch" --from 24h` |
-| List active flaky tests | `pup cicd flaky-tests search --query "flaky_test_state:active" --sort "-pipelines_duration_lost"` |
-| Quarantine a flaky test | `pup test-optimization flaky-tests update --file body.json` |
-| Get test optimization settings | `pup test-optimization settings get --file body.json` |
 
 ## Prerequisites
 

@@ -108,6 +108,22 @@ pub static SKILLS: &[SkillEntry] = &[
         platform: "",
         files: &[],
     },
+    SkillEntry {
+        name: "dd-unblock-pr",
+        description: "Investigate a failing PR CI pipeline — attribute failures as flaky, infra, or regression and propose a targeted action.",
+        entry_type: "skill",
+        content: include_str!("../skills/dd-unblock-pr/SKILL.md"),
+        platform: "",
+        files: &[],
+    },
+    SkillEntry {
+        name: "dd-triage-flaky-test",
+        description: "Investigate a specific flaky test — get history, category, and recommend fix or quarantine.",
+        entry_type: "skill",
+        content: include_str!("../skills/dd-triage-flaky-test/SKILL.md"),
+        platform: "",
+        files: &[],
+    },
     // --- Domain Agents (from datadog-api-claude-plugin) ---
     SkillEntry {
         name: "agentless-scanning",
@@ -1057,7 +1073,7 @@ mod tests {
     #[test]
     fn test_skill_count() {
         let skills: Vec<_> = SKILLS.iter().filter(|e| e.entry_type == "skill").collect();
-        assert_eq!(skills.len(), 9, "expected 9 skills");
+        assert_eq!(skills.len(), 11, "expected 11 skills");
     }
 
     #[test]

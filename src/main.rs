@@ -6031,12 +6031,16 @@ enum CicdTestActions {
         from: String,
         #[arg(long, default_value = "now", help = "End time")]
         to: String,
-        #[arg(long, default_value = "count", help = "Aggregation function")]
+        #[arg(
+            long,
+            default_value = "count",
+            help = "Aggregation function: count, avg(@duration), sum(@duration), percentile(@duration, 95), etc."
+        )]
         compute: String,
-        #[arg(long, help = "Group by field(s)")]
+        #[arg(long, help = "Group by field (e.g. @test.service)")]
         group_by: Option<String>,
         #[arg(long, default_value_t = 10, help = "Maximum groups")]
-        limit: i32,
+        limit: i64,
     },
 }
 
@@ -6054,6 +6058,12 @@ enum CicdEventActions {
         limit: i32,
         #[arg(long, default_value = "desc", help = "Sort order: asc or desc")]
         sort: String,
+        #[arg(
+            long,
+            default_value = "pipeline",
+            help = "CI event granularity: pipeline, stage, job, or step"
+        )]
+        level: String,
     },
     /// Aggregate CI/CD events
     Aggregate {
@@ -6063,12 +6073,16 @@ enum CicdEventActions {
         from: String,
         #[arg(long, default_value = "now", help = "End time")]
         to: String,
-        #[arg(long, default_value = "count", help = "Aggregation function")]
+        #[arg(
+            long,
+            default_value = "count",
+            help = "Aggregation function: count, avg(@duration), sum(@duration), percentile(@duration, 95), etc."
+        )]
         compute: String,
-        #[arg(long, help = "Group by field(s)")]
+        #[arg(long, help = "Group by field (e.g. @git.branch)")]
         group_by: Option<String>,
         #[arg(long, default_value_t = 10, help = "Maximum groups")]
-        limit: i32,
+        limit: i64,
     },
 }
 
@@ -12594,9 +12608,17 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::cicd::tests_search(&cfg, query, from, to, limit).await?;
                     }
                     CicdTestActions::Aggregate {
-                        query, from, to, ..
+                        query,
+                        from,
+                        to,
+                        compute,
+                        group_by,
+                        limit,
                     } => {
-                        commands::cicd::tests_aggregate(&cfg, query, from, to).await?;
+                        commands::cicd::tests_aggregate(
+                            &cfg, query, from, to, compute, group_by, limit,
+                        )
+                        .await?;
                     }
                 },
                 CicdActions::Events { action } => match action {
@@ -12606,13 +12628,23 @@ async fn main_inner() -> anyhow::Result<()> {
                         to,
                         limit,
                         sort,
+                        level,
                     } => {
-                        commands::cicd::events_search(&cfg, query, from, to, limit, sort).await?;
+                        commands::cicd::events_search(&cfg, query, from, to, limit, sort, level)
+                            .await?;
                     }
                     CicdEventActions::Aggregate {
-                        query, from, to, ..
+                        query,
+                        from,
+                        to,
+                        compute,
+                        group_by,
+                        limit,
                     } => {
-                        commands::cicd::events_aggregate(&cfg, query, from, to).await?;
+                        commands::cicd::events_aggregate(
+                            &cfg, query, from, to, compute, group_by, limit,
+                        )
+                        .await?;
                     }
                 },
                 CicdActions::Dora { action } => match action {

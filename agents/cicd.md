@@ -75,43 +75,89 @@ pup cicd tests aggregate \
   --from="7d"
 ```
 
-#### List Flaky Tests
+#### Search Flaky Tests
 ```bash
-pup cicd tests flaky \
-  --service="my-service"
+pup cicd flaky-tests search \
+  --query="flaky_test_state:active @test.service:my-service" \
+  --sort="-pipelines_duration_lost"
+```
+
+#### Update Flaky Test States
+```bash
+# Quarantine a flaky test (suppress CI failures while a fix is prepared)
+# body.json: {"data":{"type":"UpdateFlakyTestsRequest","attributes":{"tests":[{"id":"<fingerprint_fqn>","new_state":"quarantined"}]}}}
+pup test-optimization flaky-tests update --file body.json
+```
+
+States: `quarantined` (suppress failures), `disabled` (skip test), `fixed` (mark resolved), `active` (restore).
+All state changes are reversible — set `new_state: active` to undo.
+
+### Test Optimization Settings
+
+#### Get Service Settings
+Returns enabled/disabled state for ITR, EFD, ATR, Code Coverage, etc. per service.
+
+```bash
+# body.json: {"data":{"type":"test_optimization_get_service_settings_request","attributes":{"service":"my-service","env":"production"}}}
+pup test-optimization settings get --file body.json
+```
+
+#### Update Service Settings
+```bash
+# body.json: {"data":{"type":"test_optimization_update_service_settings_request","attributes":{"service":"my-service","env":"production","itr_enabled":true,"flaky_test_management_enabled":true}}}
+pup test-optimization settings update --file body.json
+```
+
+#### Get Flaky Test Management Policies
+Returns FTM policy rules (auto-quarantine thresholds, quarantine duration) for a repository.
+
+```bash
+# body.json: {"data":{"type":"test_optimization_get_flaky_tests_management_policies_request","attributes":{"repository_id":"github.com/org/repo"}}}
+pup test-optimization flaky-tests policies get --file body.json
 ```
 
 ### Pipeline Visibility
 
 #### Search Pipeline Events
+Use `pup cicd events search` to query pipeline events. Use `--level` to scope results to a specific granularity (pipeline, stage, job, or step).
+
 ```bash
-# Search all pipeline events
-pup cicd pipelines search \
+# Search all pipeline-level events in the last hour
+pup cicd events search \
   --query="*" \
   --from="1h" \
   --to="now"
 ```
 
-Search failed pipelines:
+Search failed job-level events on a branch:
 ```bash
-pup cicd pipelines search \
-  --query="@ci.status:error" \
+pup cicd events search \
+  --query="@ci.status:error @git.branch:my-feature" \
+  --level="job" \
   --from="24h"
 ```
 
-Search pipelines for specific repository:
+Search pipeline events for a specific repository:
 ```bash
-pup cicd pipelines search \
-  --query="@git.repository.name:my-repo" \
+pup cicd events search \
+  --query="@git.repository.id_v2:\"github.com/org/repo\"" \
   --from="7d"
 ```
 
 #### Aggregate Pipeline Analytics
 ```bash
-# Get pipeline success rate by branch
-pup cicd pipelines aggregate \
+# Count failed pipelines grouped by branch
+pup cicd events aggregate \
+  --query="@ci.status:error" \
   --compute="count" \
   --group-by="@git.branch" \
+  --from="7d"
+
+# P95 pipeline duration by pipeline name
+pup cicd events aggregate \
+  --query="*" \
+  --compute="percentile(@duration, 95)" \
+  --group-by="@ci.pipeline.name" \
   --from="7d"
 ```
 
@@ -307,14 +353,15 @@ pup cicd dora metrics \
 
 ### "Show me flaky tests for my-service"
 ```bash
-pup cicd tests flaky \
-  --service="my-service"
+pup cicd flaky-tests search \
+  --query="flaky_test_state:active @test.service:my-service" \
+  --sort="-pipelines_duration_lost"
 ```
 
 ### "List all failed pipeline runs for main branch"
 ```bash
-pup cicd pipelines search \
-  --query="@ci.status:error AND @git.branch:main" \
+pup cicd events search \
+  --query="@ci.status:error @git.branch:main" \
   --from="7d"
 ```
 

@@ -23,6 +23,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          submodules: recursive
       - name: Fetch all tags
         run: git fetch --force --tags
       - name: Install Rust
@@ -70,6 +71,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          submodules: recursive
       - name: Fetch all tags
         run: git fetch --force --tags
       - name: Install Rust
@@ -116,6 +118,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          submodules: recursive
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
@@ -163,6 +166,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          submodules: recursive
       - name: Enable long paths
         run: git config --global core.longpaths true
       - name: Install NASM
@@ -216,6 +220,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

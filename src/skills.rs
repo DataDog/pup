@@ -31,7 +31,7 @@ pub static SKILLS: &[SkillEntry] = &[
         name: "dd-apm",
         description: "APM - traces, services, dependencies, performance analysis.",
         entry_type: "skill",
-        content: include_str!("../skills/dd-apm/SKILL.md"),
+        content: include_str!("../agent-skills/dd-apm/SKILL.md"),
     },
     SkillEntry {
         name: "dd-debugger",
@@ -351,6 +351,73 @@ pub static SKILLS: &[SkillEntry] = &[
         description: "Manage workflow automations.",
         entry_type: "agent",
         content: include_str!("../agents/workflows.md"),
+    },
+];
+
+/// A nested file belonging to a parent skill (e.g. a sub-skill SKILL.md
+/// under `dd-apm/service-remapping/`). Written verbatim under the parent
+/// skill's install directory at the given relative path.
+pub struct SubSkillFile {
+    pub parent: &'static str,
+    pub rel_path: &'static str,
+    pub content: &'static str,
+}
+
+pub static SUB_SKILLS: &[SubSkillFile] = &[
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "service-remapping/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/service-remapping/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "k8s-ssi/agent-install/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/k8s-ssi/agent-install/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "k8s-ssi/enable-ssi/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/k8s-ssi/enable-ssi/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "k8s-ssi/verify-ssi/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/k8s-ssi/verify-ssi/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "k8s-ssi/troubleshoot-ssi/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/k8s-ssi/troubleshoot-ssi/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "k8s-ssi/onboarding-summary/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/k8s-ssi/onboarding-summary/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "linux-ssi/agent-install/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/linux-ssi/agent-install/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "linux-ssi/enable-ssi/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/linux-ssi/enable-ssi/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "linux-ssi/verify-ssi/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/linux-ssi/verify-ssi/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "linux-ssi/troubleshoot-ssi/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/linux-ssi/troubleshoot-ssi/SKILL.md"),
+    },
+    SubSkillFile {
+        parent: "dd-apm",
+        rel_path: "linux-ssi/onboarding-summary/SKILL.md",
+        content: include_str!("../agent-skills/dd-apm/linux-ssi/onboarding-summary/SKILL.md"),
     },
 ];
 

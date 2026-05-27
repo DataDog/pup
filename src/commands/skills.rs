@@ -66,6 +66,22 @@ pub fn install(
         let content = skills::format_content(entry, &fmt);
         std::fs::write(&path, &content)?;
         installed += 1;
+
+        // Write any nested sub-skill files under the parent skill's directory.
+        // Only applies when the parent installs as a skill directory
+        // (`<skills_dir>/<name>/SKILL.md`), not as a single subagent .md file.
+        if fmt == skills::InstallFormat::SkillMd {
+            if let Some(parent_dir) = path.parent() {
+                for sub in skills::SUB_SKILLS.iter().filter(|s| s.parent == entry.name) {
+                    let sub_path = parent_dir.join(sub.rel_path);
+                    if let Some(sub_parent) = sub_path.parent() {
+                        std::fs::create_dir_all(sub_parent)?;
+                    }
+                    std::fs::write(&sub_path, sub.content)?;
+                    installed += 1;
+                }
+            }
+        }
     }
 
     if cfg.agent_mode {

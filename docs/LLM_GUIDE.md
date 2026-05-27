@@ -256,10 +256,27 @@ In agent mode, command output is wrapped in a metadata envelope:
     "count": 42,
     "truncated": false,
     "command": "monitors list",
-    "warnings": []
+    "warnings": [],
+    "note": "This envelope (status/data/metadata) only appears in agent mode. If you are writing a script the user will run outside this agent session, append --no-agent so the output format matches what they will see."
   }
 }
 ```
+
+### Authoring scripts the user will run
+
+**The envelope only exists in agent mode.** If you write a script, alias, or runbook that the user (or CI) will run outside this agent session, those callers will not have an agent env var set — so pup will emit the raw payload, not the `{status, data, metadata}` wrapper. A script of yours that does `pup ... | jq '.data[]'` will break when the user runs it.
+
+Append `--no-agent` whenever you produce pup commands the user will execute later:
+
+```bash
+# Interactive (agent mode auto-detected — envelope wrapped):
+pup monitors list --tag='env:prod'
+
+# In a script you're handing to the user (raw output, parity with their shell):
+pup --no-agent monitors list --tag='env:prod' | jq '.[].name'
+```
+
+This is also surfaced in the agent schema under the `script_authoring` key (run `pup agent schema | jq '.script_authoring'`) and called out in `anti_patterns`.
 
 Error responses in agent mode:
 

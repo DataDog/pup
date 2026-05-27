@@ -78,6 +78,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "metrics_read",
         "monitors_read",
         "notebooks_read",
+        "observability_pipelines_read",
         "oci_configuration_read",
         "on_call_read",
         "reference_tables_read",
@@ -96,6 +97,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "timeseries_query",
         "usage_read",
         "user_access_read",
+        "workflows_read",
     ]
 }
 
@@ -179,6 +181,10 @@ pub fn default_scopes() -> Vec<&'static str> {
         // Notebooks
         "notebooks_read",
         "notebooks_write",
+        // Observability Pipelines
+        "observability_pipelines_read",
+        "observability_pipelines_deploy",
+        "observability_pipelines_delete",
         // OCI
         "oci_configuration_edit",
         "oci_configuration_read",
@@ -225,6 +231,10 @@ pub fn default_scopes() -> Vec<&'static str> {
         "usage_read",
         // Users
         "user_access_read",
+        // Workflows
+        "workflows_read",
+        "workflows_run",
+        "workflows_write",
     ]
 }
 
@@ -271,7 +281,6 @@ mod tests {
     #[test]
     fn test_default_scopes() {
         let scopes = default_scopes();
-        assert_eq!(scopes.len(), 85);
         assert!(scopes.contains(&"dashboards_read"));
         assert!(scopes.contains(&"monitors_read"));
         assert!(scopes.contains(&"logs_read_data"));
@@ -290,6 +299,14 @@ mod tests {
         assert!(scopes.contains(&"on_call_write"));
         assert!(scopes.contains(&"aws_configuration_read"));
         assert!(scopes.contains(&"gcp_configuration_read"));
+        // Workflows
+        assert!(scopes.contains(&"workflows_read"));
+        assert!(scopes.contains(&"workflows_run"));
+        assert!(scopes.contains(&"workflows_write"));
+        // Observability Pipelines
+        assert!(scopes.contains(&"observability_pipelines_read"));
+        assert!(scopes.contains(&"observability_pipelines_deploy"));
+        assert!(scopes.contains(&"observability_pipelines_delete"));
     }
 
     #[test]

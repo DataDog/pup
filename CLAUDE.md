@@ -4,6 +4,7 @@ Rust-based CLI wrapper for Datadog APIs. Provides OAuth2 + API key authenticatio
 
 ## Documentation Index
 
+- **[ALIASES.md](docs/ALIASES.md)** - Alias management (storage, commands, expansion)
 - **[COMMANDS.md](docs/COMMANDS.md)** - Complete command reference
 - **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** - Git workflow, PR process, commit format
 - **[TESTING.md](docs/TESTING.md)** - Test strategy, coverage requirements, CI/CD

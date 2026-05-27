@@ -10,6 +10,7 @@ mod extensions;
 mod formatter;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
+#[cfg(not(target_arch = "wasm32"))]
 mod skills;
 #[cfg(not(target_arch = "wasm32"))]
 mod tunnel;
@@ -2311,23 +2312,44 @@ enum Commands {
         #[command(subcommand)]
         action: ServiceCatalogActions,
     },
-    /// Manage agent skills for AI coding assistants
+    /// Manage agent skills, subagents, and extensions for AI coding assistants
     ///
-    /// Install structured workflow guides, domain references, and specialized
-    /// agents that teach AI coding assistants how to compose pup commands.
+    /// Install structured workflow guides, domain references, specialized
+    /// agents, and platform extensions that teach AI coding assistants how to
+    /// compose pup commands.
+    ///
+    /// ENTRY TYPES:
+    ///   skill       Single-file markdown guide installed under the platform's skills dir
+    ///   agent       Domain subagent (Claude Code subagent format or SKILL.md fallback)
+    ///   extension   Multi-file bundle for a coding-agent platform (e.g. pi)
+    ///
+    /// PLATFORMS:
+    ///   claude (or claude-code), cursor, codex, opencode, windsurf, gemini, pi
+    ///   Pass `all` to install for every supported platform.
+    ///   If omitted, pup auto-detects the platform from the environment.
+    ///
+    /// SCOPE:
+    ///   By default, installs go to the user-global directory (e.g.
+    ///   ~/.claude/skills, ~/.cursor/skills, ~/.codex/skills,
+    ///   ~/.config/opencode/skills, ~/.pi/agent/extensions). Pass --project to
+    ///   install into the current project instead (e.g. <repo>/.claude/skills).
     ///
     /// COMMANDS:
-    ///   list      List available skills and agents
-    ///   install   Install skills for the detected AI coding assistant
-    ///   path      Show where skills would be installed
+    ///   list      List available skills, agents, and extensions
+    ///   install   Install entries for one or more platforms
+    ///   path      Show where entries would be installed
     ///
     /// EXAMPLES:
     ///   pup skills list
     ///   pup skills install
-    ///   pup skills install dd-pup
-    ///   pup skills install --type=agent
-    ///   pup skills install --target-agent=cursor
+    ///   pup skills install claude
+    ///   pup skills install codex --project
+    ///   pup skills install all
+    ///   pup skills install pi --name=dd-pup-pi
+    ///   pup skills install --type=agent claude
     ///   pup skills path
+    ///   pup skills path pi
+    #[cfg(not(target_arch = "wasm32"))]
     #[command(verbatim_doc_comment)]
     Skills {
         #[command(subcommand)]
@@ -2686,7 +2708,7 @@ enum Commands {
     /// CAPABILITIES:
     ///   • Get workflow details
     ///   • Create, update, and delete workflows
-    ///   • Execute workflows via API trigger (requires DD_API_KEY + DD_APP_KEY)
+    ///   • Execute workflows via API trigger
     ///   • List, inspect, and cancel workflow instances (executions)
     ///
     /// EXAMPLES:
@@ -2706,8 +2728,12 @@ enum Commands {
     ///   pup workflows instances cancel <workflow-id> <instance-id>
     ///
     /// AUTHENTICATION:
-    ///   All workflow commands require DD_API_KEY + DD_APP_KEY.
-    ///   OAuth2 bearer tokens are not supported for workflow operations at this time.
+    ///   Workflow CRUD (`workflows get/create/update/delete`),
+    ///   `workflows run`, and `workflows instances *` accept OAuth2
+    ///   (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
+    ///   `workflows connections *` requires DD_API_KEY + DD_APP_KEY
+    ///   pending server-side OAuth enablement on the action-connections
+    ///   API.
     #[command(verbatim_doc_comment)]
     Workflows {
         #[command(subcommand)]
@@ -4237,10 +4263,11 @@ enum WorkflowActions {
     },
     /// Delete a workflow
     Delete { workflow_id: String },
-    /// Execute a workflow via API trigger (requires DD_API_KEY + DD_APP_KEY)
+    /// Execute a workflow via API trigger
     ///
-    /// The workflow must have an API trigger configured.
-    /// OAuth tokens are not supported — this command requires API key authentication.
+    /// The workflow must have an API trigger configured. Accepts OAuth2
+    /// (`pup auth login`, requires the `workflows_run` scope) or
+    /// DD_API_KEY + DD_APP_KEY.
     #[command(verbatim_doc_comment)]
     Run {
         workflow_id: String,
@@ -4544,7 +4571,26 @@ enum SecurityActions {
         action: AsmExclusionActions,
     },
     /// Manage resource restriction policies
-    #[command(name = "restriction-policies")]
+    ///
+    /// Restriction policies live at `/api/v2/restriction_policy/{resource}`
+    /// where `{resource}` is `<type>:<id>` (ex: `dashboard:abc-123`,
+    /// `monitor:12345`). The server accepts OAuth2 or DD_API_KEY +
+    /// DD_APP_KEY.
+    ///
+    /// The required OAuth scope depends on the resource type embedded in
+    /// the resource ID. The server enforces the same permission a user would
+    /// need to view/edit the underlying resource (ex: `dashboards_read` for
+    /// a `dashboard:*` GET, `monitors_write` for a `monitor:*` POST).
+    ///
+    /// Common types covered by pup's default OAuth scopes today: dashboard,
+    /// monitor, slo, workflow, notebook, security-rule, logs-archive,
+    /// rum-application, reference-table, case-management-project,
+    /// on-call-*, status-page, integration-*. Other resource types (ex:
+    /// connection, app-builder-app, obs-pipelines-*, spreadsheet,
+    /// feature-flag, agent-builder-agent, product-analytics-*) require
+    /// scopes pup does not yet request; for those, use DD_API_KEY +
+    /// DD_APP_KEY.
+    #[command(name = "restriction-policies", verbatim_doc_comment)]
     RestrictionPolicies {
         #[command(subcommand)]
         action: RestrictionPolicyActions,
@@ -5199,7 +5245,7 @@ enum CaseActions {
         query: Option<String>,
         #[arg(long, default_value_t = 10, help = "Results per page")]
         page_size: i64,
-        #[arg(long, default_value_t = 0, help = "Page number")]
+        #[arg(long, default_value_t = 1, help = "Page number (1-indexed)")]
         page_number: i64,
     },
     /// Get case details
@@ -5219,9 +5265,22 @@ enum CaseActions {
         priority: String,
         #[arg(long, help = "Case description")]
         description: Option<String>,
-        #[arg(long, help = "JSON file with request body (required)", conflicts_with_all = ["title", "type-id"])]
+        #[arg(
+            long,
+            name = "project-id",
+            help = "Project UUID to assign the case to (optional)"
+        )]
+        project_id: Option<String>,
+        #[arg(long, help = "JSON file with request body (required)", conflicts_with_all = ["title", "type-id", "project-id"])]
         file: Option<String>,
     },
+    /// Manage comments on a case
+    Comments {
+        #[command(subcommand)]
+        action: CaseCommentActions,
+    },
+    /// Get the full timeline for a case (comments, attribute updates, etc.)
+    Timeline { case_id: String },
     /// Archive a case
     Archive { case_id: String },
     /// Unarchive a case
@@ -5264,6 +5323,13 @@ enum CaseActions {
         #[arg(long, help = "New title (required)")]
         title: String,
     },
+    /// Update case description
+    #[command(name = "update-description")]
+    UpdateDescription {
+        case_id: String,
+        #[arg(long, help = "New description (required)")]
+        description: String,
+    },
     /// Manage Jira integrations for cases
     Jira {
         #[command(subcommand)]
@@ -5273,6 +5339,38 @@ enum CaseActions {
     Servicenow {
         #[command(subcommand)]
         action: CaseServicenowActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaseCommentActions {
+    /// List comments on a case
+    List { case_id: String },
+    /// Get a single comment by ID
+    Get {
+        case_id: String,
+        #[arg(long, name = "comment-id", help = "Comment UUID (required)")]
+        comment_id: String,
+    },
+    /// Create a comment on a case
+    Create {
+        case_id: String,
+        #[arg(long, help = "Comment body (required)")]
+        body: String,
+    },
+    /// Update a comment's body
+    Update {
+        case_id: String,
+        #[arg(long, name = "comment-id", help = "Comment UUID (required)")]
+        comment_id: String,
+        #[arg(long, help = "New comment body (required)")]
+        body: String,
+    },
+    /// Delete a comment from a case
+    Delete {
+        case_id: String,
+        #[arg(long, name = "comment-id", help = "Comment UUID (required)")]
+        comment_id: String,
     },
 }
 
@@ -5624,10 +5722,19 @@ enum NotebookActions {
         #[arg(long, help = "JSON file with notebook data (required)")]
         file: String,
     },
-    /// Update a notebook
+    /// Update a notebook (full replace)
     Update {
         notebook_id: i64,
         #[arg(long, help = "JSON file with notebook data (required)")]
+        file: String,
+    },
+    /// Append cells to an existing notebook (reads current notebook first, then appends)
+    Edit {
+        notebook_id: i64,
+        #[arg(
+            long,
+            help = "JSON file containing an array of cell objects to append (required)"
+        )]
         file: String,
     },
     /// Delete a notebook
@@ -5649,6 +5756,11 @@ enum RumActions {
             help = "RUM query filter (e.g. '@type:error @application.name:\"My App\"')"
         )]
         query: Option<String>,
+        #[arg(
+            long,
+            help = "Filter to a specific user by email — prepends @usr.email:<value> to the query"
+        )]
+        user_email: Option<String>,
         #[arg(long, default_value = "1h", help = "Start time")]
         from: String,
         #[arg(long, default_value = "now", help = "End time")]
@@ -5919,12 +6031,16 @@ enum CicdTestActions {
         from: String,
         #[arg(long, default_value = "now", help = "End time")]
         to: String,
-        #[arg(long, default_value = "count", help = "Aggregation function")]
+        #[arg(
+            long,
+            default_value = "count",
+            help = "Aggregation function: count, avg(@duration), sum(@duration), percentile(@duration, 95), etc."
+        )]
         compute: String,
-        #[arg(long, help = "Group by field(s)")]
+        #[arg(long, help = "Group by field (e.g. @test.service)")]
         group_by: Option<String>,
         #[arg(long, default_value_t = 10, help = "Maximum groups")]
-        limit: i32,
+        limit: i64,
     },
 }
 
@@ -5942,6 +6058,12 @@ enum CicdEventActions {
         limit: i32,
         #[arg(long, default_value = "desc", help = "Sort order: asc or desc")]
         sort: String,
+        #[arg(
+            long,
+            default_value = "pipeline",
+            help = "CI event granularity: pipeline, stage, job, or step"
+        )]
+        level: String,
     },
     /// Aggregate CI/CD events
     Aggregate {
@@ -5951,12 +6073,16 @@ enum CicdEventActions {
         from: String,
         #[arg(long, default_value = "now", help = "End time")]
         to: String,
-        #[arg(long, default_value = "count", help = "Aggregation function")]
+        #[arg(
+            long,
+            default_value = "count",
+            help = "Aggregation function: count, avg(@duration), sum(@duration), percentile(@duration, 95), etc."
+        )]
         compute: String,
-        #[arg(long, help = "Group by field(s)")]
+        #[arg(long, help = "Group by field (e.g. @git.branch)")]
         group_by: Option<String>,
         #[arg(long, default_value_t = 10, help = "Maximum groups")]
-        limit: i32,
+        limit: i64,
     },
 }
 
@@ -8283,6 +8409,11 @@ enum LlmObsActions {
         #[command(subcommand)]
         action: LlmObsEvalConfigActions,
     },
+    /// List LLM Observability evaluators
+    Evals {
+        #[command(subcommand)]
+        action: LlmObsEvalsActions,
+    },
 }
 
 #[derive(Subcommand)]
@@ -8415,27 +8546,151 @@ enum LlmObsSpansActions {
         limit: u32,
         #[arg(long, help = "Pagination cursor from a previous response")]
         cursor: Option<String>,
+        #[arg(
+            long,
+            help = "Return only essential fields (span_id, trace_id, name, kind, status, duration, timestamps) — drops tags, llm_info, and content previews"
+        )]
+        summary: bool,
     },
-    /// Get detailed metadata and token/cost metrics for one or more spans
-    Details {
+    /// Get the full trace structure as a span hierarchy tree
+    #[command(name = "get-trace")]
+    GetTrace {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(long, help = "Include full span tree structure")]
+        include_tree: bool,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Get detailed metadata for one or more spans
+    #[command(name = "get-details")]
+    GetDetails {
         #[arg(long, help = "Trace ID (required)")]
         trace_id: String,
         #[arg(
             long,
-            help = "Span ID(s) to fetch details for (repeat for multiple)",
-            required = true
+            value_delimiter = ',',
+            help = "Span IDs to fetch details for (comma-separated, required)"
         )]
-        span_id: Vec<String>,
+        span_ids: Vec<String>,
         #[arg(
             long,
-            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
         )]
-        from: Option<String>,
+        from: String,
         #[arg(
             long,
-            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
         )]
-        to: Option<String>,
+        to: String,
+    },
+    /// Get content fields for a span (input, output, messages, documents, metadata)
+    #[command(name = "get-content")]
+    GetContent {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(long, help = "Span ID (required)")]
+        span_id: String,
+        #[arg(
+            long,
+            help = "Content field to retrieve: input, output, expected_output, messages, documents, metadata"
+        )]
+        field: String,
+        #[arg(long, help = "JSONPath within the field")]
+        path: Option<String>,
+        #[arg(long, help = "Maximum tokens to return")]
+        max_tokens: Option<u32>,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Find all error spans within a trace
+    #[command(name = "find-errors")]
+    FindErrors {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Expand children of spans for progressive tree exploration
+    Expand {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Span IDs to expand (comma-separated, required)"
+        )]
+        span_ids: Vec<String>,
+        #[arg(long, help = "Maximum depth to expand")]
+        max_depth: Option<u32>,
+        #[arg(long, help = "Filter expanded spans by kind (llm, agent, tool, etc.)")]
+        filter_kind: Option<String>,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Get the chronological agent execution loop for a trace
+    #[command(name = "get-agent-loop")]
+    GetAgentLoop {
+        #[arg(long, help = "Trace ID (required)")]
+        trace_id: String,
+        #[arg(long, help = "Starting span ID")]
+        span_id: Option<String>,
+        #[arg(long, help = "Maximum content length per step")]
+        max_content_length: Option<u32>,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
     },
 }
 
@@ -8532,6 +8787,57 @@ enum LlmObsEvalConfigActions {
     /// Delete a custom evaluator config by name
     Delete {
         #[arg(help = "Evaluator name")]
+        eval_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsEvalsActions {
+    /// List all evaluators configured for this org
+    List,
+    /// List evaluators for a specific ML app
+    #[command(name = "list-by-ml-app")]
+    ListByMlApp {
+        #[arg(long, help = "ML app name (required)")]
+        ml_app: String,
+    },
+    /// Get full evaluator configuration (span filters, sampling, scope) via MCP endpoint
+    #[command(name = "get-evaluator")]
+    GetEvaluator {
+        #[arg(help = "Evaluator name (required)")]
+        eval_name: String,
+    },
+    /// Get pass/fail rates and score distributions for an evaluator over a time window
+    #[command(name = "get-aggregate-stats")]
+    GetAggregateStats {
+        #[arg(help = "Evaluator name (required)")]
+        eval_name: String,
+        #[arg(long, help = "Filter to a specific ML app")]
+        ml_app: Option<String>,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: relative (1h, 30m), RFC3339, or Unix ms"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: relative, RFC3339, or Unix ms"
+        )]
+        to: String,
+    },
+    /// Create or fully replace an LLM-judge evaluator config (full replace semantics)
+    #[command(name = "create-or-update")]
+    CreateOrUpdate {
+        #[arg(help = "Evaluator name (required)")]
+        eval_name: String,
+        #[arg(long, help = "JSON file with evaluator config body (required)")]
+        file: String,
+    },
+    /// Delete an evaluator by name
+    Delete {
+        #[arg(help = "Evaluator name (required)")]
         eval_name: String,
     },
 }
@@ -8869,33 +9175,41 @@ enum AliasActions {
 }
 
 // ---- Skills ----
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Subcommand)]
 enum SkillsActions {
-    /// List available skills and agents
+    /// List available skills, agents, and extensions
     List {
-        /// Filter by type: skill, agent
+        /// Filter by type: skill, agent, extension
         #[arg(long = "type", name = "type")]
         entry_type: Option<String>,
     },
-    /// Install skills for the detected AI coding assistant
+    /// Install skills, agents, and extensions for one or more platforms
     Install {
-        /// Install a specific skill or agent by name
+        /// Target platform (auto-detected from environment if omitted).
+        #[arg(value_enum)]
+        platform: Option<skills::SkillsPlatform>,
+        /// Install a specific skill, agent, or extension by name
+        #[arg(long)]
         name: Option<String>,
-        /// Override detected AI agent (claude-code, cursor, codex, windsurf, gemini-code)
-        #[arg(long = "target-agent")]
-        target_agent: Option<String>,
         /// Override install directory
         #[arg(long)]
         dir: Option<String>,
-        /// Filter by type: skill, agent
+        /// Filter by type: skill, agent, extension
         #[arg(long = "type", name = "type")]
         entry_type: Option<String>,
+        /// Install into the current project instead of the user-global location
+        #[arg(long)]
+        project: bool,
     },
-    /// Show where skills would be installed
+    /// Show where skills/agents/extensions would be installed
     Path {
-        /// Override detected AI agent
-        #[arg(long = "target-agent")]
-        target_agent: Option<String>,
+        /// Target platform (auto-detected from environment if omitted).
+        #[arg(value_enum)]
+        platform: Option<skills::SkillsPlatform>,
+        /// Show project-local install paths instead of the user-global default
+        #[arg(long)]
+        project: bool,
     },
 }
 
@@ -9181,6 +9495,26 @@ fn find_subcommand<'a>(cmd: &'a clap::Command, path: &[&str]) -> Option<&'a clap
     }
 }
 
+/// Guidance returned in the agent schema for LLMs that author shell scripts
+/// or runbooks the user will execute outside the agent session. Agent mode
+/// wraps responses in a `{status, data, metadata}` envelope; outside agent
+/// mode, output is raw. Without `--no-agent`, a script tested in-session
+/// silently breaks when the user runs it.
+fn build_script_authoring_guidance() -> serde_json::Value {
+    serde_json::json!({
+        "summary": "Agent mode wraps JSON responses in a {status, data, metadata} envelope. Outside agent mode, pup emits the raw payload. Scripts written without --no-agent will see different shapes depending on who runs them.",
+        "rule": "When authoring a script, alias, runbook, or any pup command that the user (or CI) will run outside this agent session, append --no-agent so the output format matches what they will see.",
+        "examples": [
+            "# Agent runs interactively (envelope wrapped):",
+            "pup monitors list --tag='env:prod'",
+            "",
+            "# Agent writes a script for the user (raw output, parity with their shell):",
+            "pup --no-agent monitors list --tag='env:prod' | jq '.[].name'"
+        ],
+        "detection": "Agent mode is on when any of: --agent flag, FORCE_AGENT_MODE=1, or an agent env var (CLAUDECODE, CURSOR_AGENT, CODEX, etc.) is set."
+    })
+}
+
 /// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`).
 fn build_agent_schema_scoped(
     _root_cmd: &clap::Command,
@@ -9308,8 +9642,11 @@ fn build_agent_schema_scoped(
         "Don't use --from=30d unless you specifically need a month of data; it's slow",
         "Don't retry failed requests without checking the error; 401 means re-authenticate, 403 means missing permissions",
         "Don't use 'pup metrics query' without specifying an aggregation (avg, sum, max, min, count)",
-        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level"
+        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level",
+        "Don't author scripts for the user without --no-agent; the envelope wrapping in agent mode won't appear when they run it (see script_authoring)"
     ]));
+
+    root.insert("script_authoring".into(), build_script_authoring_guidance());
 
     serde_json::Value::Object(root)
 }
@@ -9378,8 +9715,11 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
         "Don't use --from=30d unless you specifically need a month of data; it's slow",
         "Don't retry failed requests without checking the error; 401 means re-authenticate, 403 means missing permissions",
         "Don't use 'pup metrics query' without specifying an aggregation (avg, sum, max, min, count)",
-        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level"
+        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level",
+        "Don't author scripts for the user without --no-agent; the envelope wrapping in agent mode won't appear when they run it (see script_authoring)"
     ]));
+
+    root.insert("script_authoring".into(), build_script_authoring_guidance());
 
     root.insert("best_practices".into(), serde_json::json!([
         "Always specify --from to set a time range; most commands default to 1h but be explicit",
@@ -9885,6 +10225,104 @@ mod test_agent_schema {
             "scoped schema global_flags must include --no-agent"
         );
     }
+
+    /// Assert that a `script_authoring` JSON block has the full contract:
+    /// summary + rule + examples + detection, with rule mentioning `--no-agent`.
+    /// Shared between the top-level and scoped schema tests.
+    fn assert_script_authoring_contract(block: &serde_json::Value) {
+        assert!(
+            block.is_object(),
+            "script_authoring must be an object: {block}"
+        );
+        let summary = block["summary"]
+            .as_str()
+            .expect("script_authoring.summary must be a string");
+        assert!(
+            !summary.is_empty(),
+            "script_authoring.summary must not be empty"
+        );
+        let rule = block["rule"]
+            .as_str()
+            .expect("script_authoring.rule must be a string");
+        assert!(
+            rule.contains("--no-agent"),
+            "script_authoring.rule must mention --no-agent: {rule}"
+        );
+        assert!(
+            block["examples"].is_array(),
+            "script_authoring.examples must be an array"
+        );
+        let detection = block["detection"]
+            .as_str()
+            .expect("script_authoring.detection must be a string");
+        assert!(
+            !detection.is_empty(),
+            "script_authoring.detection must not be empty"
+        );
+    }
+
+    /// Top-level schema must surface the script-authoring guidance so that
+    /// LLMs reading `pup --help` in agent mode know to pass `--no-agent`
+    /// when writing scripts the user will run later. Without this, an
+    /// agent's script gets the envelope wrapping the user won't see.
+    #[test]
+    fn schema_includes_script_authoring_guidance() {
+        let schema = get_schema();
+        assert_script_authoring_contract(&schema["script_authoring"]);
+    }
+
+    /// Scoped (per-domain) schema must also include the guidance so an
+    /// agent that only ran `pup logs --help` still gets the warning.
+    #[test]
+    fn scoped_schema_includes_script_authoring_guidance() {
+        let cmd = Cli::command();
+        let logs_cmd = cmd
+            .get_subcommands()
+            .find(|s| s.get_name() == "logs")
+            .expect("logs subcommand not found");
+        let schema = build_agent_schema_scoped(&cmd, logs_cmd, &["logs"]);
+        assert_script_authoring_contract(&schema["script_authoring"]);
+    }
+
+    /// The anti-patterns array should include a pointer to the new
+    /// script_authoring section so LLMs that scan anti_patterns first
+    /// are still led to the full guidance. Match the actual phrasing
+    /// (`see script_authoring`) so an unrelated future entry that
+    /// merely contains the word doesn't accidentally satisfy this test.
+    #[test]
+    fn schema_anti_patterns_reference_script_authoring() {
+        let schema = get_schema();
+        let anti = schema["anti_patterns"]
+            .as_array()
+            .expect("anti_patterns missing");
+        assert!(
+            anti.iter().any(|v| v
+                .as_str()
+                .is_some_and(|s| s.contains("see script_authoring"))),
+            "anti_patterns must reference script_authoring so LLMs find it"
+        );
+    }
+
+    /// Same as above for the scoped schema — agents that only ever call
+    /// `pup logs --help` should still get pointed at script_authoring.
+    #[test]
+    fn scoped_schema_anti_patterns_reference_script_authoring() {
+        let cmd = Cli::command();
+        let logs_cmd = cmd
+            .get_subcommands()
+            .find(|s| s.get_name() == "logs")
+            .expect("logs subcommand not found");
+        let schema = build_agent_schema_scoped(&cmd, logs_cmd, &["logs"]);
+        let anti = schema["anti_patterns"]
+            .as_array()
+            .expect("scoped anti_patterns missing");
+        assert!(
+            anti.iter().any(|v| v
+                .as_str()
+                .is_some_and(|s| s.contains("see script_authoring"))),
+            "scoped anti_patterns must reference script_authoring"
+        );
+    }
 }
 
 // ---- Main ----
@@ -10235,6 +10673,19 @@ async fn main_inner() -> anyhow::Result<()> {
         }
     }
 
+    // --- Alias expansion (before clap parsing) ---
+    // If the first positional arg matches a stored alias, rewrite args so
+    // that clap sees the expanded command instead of the alias name.
+    #[cfg(not(target_arch = "wasm32"))]
+    let args = {
+        let parsed = extensions::parse_extension_args(&args);
+        if let Some(ref candidate) = parsed.candidate {
+            commands::alias::expand(&args, candidate)
+        } else {
+            args
+        }
+    };
+
     // Build the clap Command and, when extensions are installed, append an
     // "EXTENSIONS:" section to the help output so they are visible in
     // `pup --help` / `pup help`, similar to how `gh` lists extensions.
@@ -10246,7 +10697,7 @@ async fn main_inner() -> anyhow::Result<()> {
             cmd = cmd.after_help(section);
         }
     }
-    let matches = cmd.get_matches();
+    let matches = cmd.get_matches_from(&args);
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
 
     // Handle commands that do not require authentication before Config::from_env() so
@@ -11646,6 +12097,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     type_id,
                     priority,
                     description,
+                    project_id,
                     file,
                 } => {
                     if let Some(f) = file {
@@ -11657,9 +12109,41 @@ async fn main_inner() -> anyhow::Result<()> {
                             &type_id.unwrap(),
                             &priority,
                             description.as_deref(),
+                            project_id.as_deref(),
                         )
                         .await?;
                     }
+                }
+                CaseActions::Comments { action } => match action {
+                    CaseCommentActions::List { case_id } => {
+                        commands::cases::comments_list(&cfg, &case_id).await?;
+                    }
+                    CaseCommentActions::Get {
+                        case_id,
+                        comment_id,
+                    } => {
+                        commands::cases::comments_get(&cfg, &case_id, &comment_id).await?;
+                    }
+                    CaseCommentActions::Create { case_id, body } => {
+                        commands::cases::comments_create(&cfg, &case_id, &body).await?;
+                    }
+                    CaseCommentActions::Update {
+                        case_id,
+                        comment_id,
+                        body,
+                    } => {
+                        commands::cases::comments_update(&cfg, &case_id, &comment_id, &body)
+                            .await?;
+                    }
+                    CaseCommentActions::Delete {
+                        case_id,
+                        comment_id,
+                    } => {
+                        commands::cases::comments_delete(&cfg, &case_id, &comment_id).await?;
+                    }
+                },
+                CaseActions::Timeline { case_id } => {
+                    commands::cases::timeline(&cfg, &case_id).await?;
                 }
                 CaseActions::Archive { case_id } => {
                     commands::cases::archive(&cfg, &case_id).await?;
@@ -11684,6 +12168,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 CaseActions::UpdateTitle { case_id, title } => {
                     commands::cases::update_title(&cfg, &case_id, &title).await?;
+                }
+                CaseActions::UpdateDescription {
+                    case_id,
+                    description,
+                } => {
+                    commands::cases::update_description(&cfg, &case_id, &description).await?;
                 }
                 CaseActions::Projects { action } => match action {
                     CaseProjectActions::List => commands::cases::projects_list(&cfg).await?,
@@ -11934,6 +12424,9 @@ async fn main_inner() -> anyhow::Result<()> {
                 NotebookActions::Update { notebook_id, file } => {
                     commands::notebooks::update(&cfg, notebook_id, &file).await?;
                 }
+                NotebookActions::Edit { notebook_id, file } => {
+                    commands::notebooks::edit(&cfg, notebook_id, &file).await?;
+                }
                 NotebookActions::Delete { notebook_id } => {
                     commands::notebooks::delete(&cfg, notebook_id).await?;
                 }
@@ -11959,16 +12452,29 @@ async fn main_inner() -> anyhow::Result<()> {
                 },
                 RumActions::Aggregate {
                     query,
+                    user_email,
                     from,
                     to,
                     compute,
                     group_by,
                     limit,
                 } => {
+                    let base_query = query.unwrap_or_default();
+                    let effective_query = match user_email {
+                        Some(email) => {
+                            let email_filter = format!("@usr.email:{email}");
+                            if base_query.is_empty() {
+                                email_filter
+                            } else {
+                                format!("{email_filter} {base_query}")
+                            }
+                        }
+                        None => base_query,
+                    };
                     commands::rum::aggregate(
                         &cfg,
                         commands::rum::RumAggregateArgs {
-                            query: query.unwrap_or_default(),
+                            query: effective_query,
                             from,
                             to,
                             compute: commands::rum::split_rum_compute_args(&compute),
@@ -12102,9 +12608,17 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::cicd::tests_search(&cfg, query, from, to, limit).await?;
                     }
                     CicdTestActions::Aggregate {
-                        query, from, to, ..
+                        query,
+                        from,
+                        to,
+                        compute,
+                        group_by,
+                        limit,
                     } => {
-                        commands::cicd::tests_aggregate(&cfg, query, from, to).await?;
+                        commands::cicd::tests_aggregate(
+                            &cfg, query, from, to, compute, group_by, limit,
+                        )
+                        .await?;
                     }
                 },
                 CicdActions::Events { action } => match action {
@@ -12114,13 +12628,23 @@ async fn main_inner() -> anyhow::Result<()> {
                         to,
                         limit,
                         sort,
+                        level,
                     } => {
-                        commands::cicd::events_search(&cfg, query, from, to, limit, sort).await?;
+                        commands::cicd::events_search(&cfg, query, from, to, limit, sort, level)
+                            .await?;
                     }
                     CicdEventActions::Aggregate {
-                        query, from, to, ..
+                        query,
+                        from,
+                        to,
+                        compute,
+                        group_by,
+                        limit,
                     } => {
-                        commands::cicd::events_aggregate(&cfg, query, from, to).await?;
+                        commands::cicd::events_aggregate(
+                            &cfg, query, from, to, compute, group_by, limit,
+                        )
+                        .await?;
                     }
                 },
                 CicdActions::Dora { action } => match action {
@@ -13837,15 +14361,26 @@ async fn main_inner() -> anyhow::Result<()> {
             .await?;
         }
         // --- Skills ---
+        #[cfg(not(target_arch = "wasm32"))]
         Commands::Skills { action } => match action {
             SkillsActions::List { entry_type } => commands::skills::list(&cfg, entry_type)?,
             SkillsActions::Install {
+                platform,
                 name,
-                target_agent,
                 dir,
                 entry_type,
-            } => commands::skills::install(&cfg, name, target_agent, dir, entry_type)?,
-            SkillsActions::Path { target_agent } => commands::skills::path(target_agent)?,
+                project,
+            } => commands::skills::install(
+                &cfg,
+                platform.map(|p| p.as_canonical().to_string()),
+                name,
+                dir,
+                entry_type,
+                project,
+            )?,
+            SkillsActions::Path { platform, project } => {
+                commands::skills::path(platform.map(|p| p.as_canonical().to_string()), project)?
+            }
         },
         // --- Product Analytics ---
         Commands::ProductAnalytics { action } => {
@@ -13982,86 +14517,68 @@ async fn main_inner() -> anyhow::Result<()> {
             AuthActions::Test => commands::test::run(&cfg)?,
         },
         // --- Workflows ---
-        Commands::Workflows { action } => {
-            cfg.validate_api_and_app_keys().map_err(|_| {
-                anyhow::anyhow!(
-                    "workflow commands require DD_API_KEY and DD_APP_KEY with workflow_* scopes\n\
-                     OAuth2 bearer tokens are not supported for workflow operations.\n\
-                     See: https://docs.datadoghq.com/api/latest/workflow-automation"
-                )
-            })?;
-            match action {
-                WorkflowActions::Get { workflow_id } => {
-                    commands::workflows::get(&cfg, &workflow_id).await?;
-                }
-                WorkflowActions::Create { file } => {
-                    commands::workflows::create(&cfg, &file).await?;
-                }
-                WorkflowActions::Update { workflow_id, file } => {
-                    commands::workflows::update(&cfg, &workflow_id, &file).await?;
-                }
-                WorkflowActions::Delete { workflow_id } => {
-                    commands::workflows::delete(&cfg, &workflow_id).await?;
-                }
-                WorkflowActions::Run {
-                    workflow_id,
-                    payload,
-                    payload_file,
-                    wait,
-                    timeout,
-                } => {
-                    commands::workflows::run(
-                        &cfg,
-                        &workflow_id,
-                        payload,
-                        payload_file,
-                        wait,
-                        &timeout,
-                    )
-                    .await?;
-                }
-                WorkflowActions::Instances { action } => match action {
-                    WorkflowInstanceActions::List {
-                        workflow_id,
-                        limit,
-                        page,
-                    } => {
-                        commands::workflows::instance_list(&cfg, &workflow_id, limit, page).await?;
-                    }
-                    WorkflowInstanceActions::Get {
-                        workflow_id,
-                        instance_id,
-                    } => {
-                        commands::workflows::instance_get(&cfg, &workflow_id, &instance_id).await?;
-                    }
-                    WorkflowInstanceActions::Cancel {
-                        workflow_id,
-                        instance_id,
-                    } => {
-                        commands::workflows::instance_cancel(&cfg, &workflow_id, &instance_id)
-                            .await?;
-                    }
-                },
-                WorkflowActions::Connections { action } => match action {
-                    WorkflowConnectionActions::Get { connection_id } => {
-                        commands::workflows::connections_get(&cfg, &connection_id).await?;
-                    }
-                    WorkflowConnectionActions::Create { file } => {
-                        commands::workflows::connections_create(&cfg, &file).await?;
-                    }
-                    WorkflowConnectionActions::Update {
-                        connection_id,
-                        file,
-                    } => {
-                        commands::workflows::connections_update(&cfg, &connection_id, &file)
-                            .await?;
-                    }
-                    WorkflowConnectionActions::Delete { connection_id } => {
-                        commands::workflows::connections_delete(&cfg, &connection_id).await?;
-                    }
-                },
+        Commands::Workflows { action } => match action {
+            WorkflowActions::Get { workflow_id } => {
+                commands::workflows::get(&cfg, &workflow_id).await?;
             }
-        }
+            WorkflowActions::Create { file } => {
+                commands::workflows::create(&cfg, &file).await?;
+            }
+            WorkflowActions::Update { workflow_id, file } => {
+                commands::workflows::update(&cfg, &workflow_id, &file).await?;
+            }
+            WorkflowActions::Delete { workflow_id } => {
+                commands::workflows::delete(&cfg, &workflow_id).await?;
+            }
+            WorkflowActions::Run {
+                workflow_id,
+                payload,
+                payload_file,
+                wait,
+                timeout,
+            } => {
+                commands::workflows::run(&cfg, &workflow_id, payload, payload_file, wait, &timeout)
+                    .await?;
+            }
+            WorkflowActions::Instances { action } => match action {
+                WorkflowInstanceActions::List {
+                    workflow_id,
+                    limit,
+                    page,
+                } => {
+                    commands::workflows::instance_list(&cfg, &workflow_id, limit, page).await?;
+                }
+                WorkflowInstanceActions::Get {
+                    workflow_id,
+                    instance_id,
+                } => {
+                    commands::workflows::instance_get(&cfg, &workflow_id, &instance_id).await?;
+                }
+                WorkflowInstanceActions::Cancel {
+                    workflow_id,
+                    instance_id,
+                } => {
+                    commands::workflows::instance_cancel(&cfg, &workflow_id, &instance_id).await?;
+                }
+            },
+            WorkflowActions::Connections { action } => match action {
+                WorkflowConnectionActions::Get { connection_id } => {
+                    commands::workflows::connections_get(&cfg, &connection_id).await?;
+                }
+                WorkflowConnectionActions::Create { file } => {
+                    commands::workflows::connections_create(&cfg, &file).await?;
+                }
+                WorkflowConnectionActions::Update {
+                    connection_id,
+                    file,
+                } => {
+                    commands::workflows::connections_update(&cfg, &connection_id, &file).await?;
+                }
+                WorkflowConnectionActions::Delete { connection_id } => {
+                    commands::workflows::connections_delete(&cfg, &connection_id).await?;
+                }
+            },
+        },
         // --- LLM Observability ---
         Commands::LlmObs { action } => {
             cfg.validate_auth()?;
@@ -14185,6 +14702,7 @@ async fn main_inner() -> anyhow::Result<()> {
                         to,
                         limit,
                         cursor,
+                        summary,
                     } => {
                         commands::llm_obs::spans_search(
                             &cfg,
@@ -14199,16 +14717,83 @@ async fn main_inner() -> anyhow::Result<()> {
                             to,
                             limit,
                             cursor,
+                            summary,
                         )
                         .await?;
                     }
-                    LlmObsSpansActions::Details {
+                    LlmObsSpansActions::GetTrace {
                         trace_id,
-                        span_id,
+                        include_tree,
                         from,
                         to,
                     } => {
-                        commands::llm_obs::spans_details(&cfg, trace_id, span_id, from, to).await?;
+                        commands::llm_obs::spans_get_trace(&cfg, &trace_id, include_tree, from, to)
+                            .await?;
+                    }
+                    LlmObsSpansActions::GetDetails {
+                        trace_id,
+                        span_ids,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::spans_get_span_details(
+                            &cfg, &trace_id, span_ids, from, to,
+                        )
+                        .await?;
+                    }
+                    LlmObsSpansActions::GetContent {
+                        trace_id,
+                        span_id,
+                        field,
+                        path,
+                        max_tokens,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::spans_get_span_content(
+                            &cfg, &trace_id, &span_id, &field, path, max_tokens, from, to,
+                        )
+                        .await?;
+                    }
+                    LlmObsSpansActions::FindErrors { trace_id, from, to } => {
+                        commands::llm_obs::spans_find_error_spans(&cfg, &trace_id, from, to)
+                            .await?;
+                    }
+                    LlmObsSpansActions::Expand {
+                        trace_id,
+                        span_ids,
+                        max_depth,
+                        filter_kind,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::spans_expand_spans(
+                            &cfg,
+                            &trace_id,
+                            span_ids,
+                            max_depth,
+                            filter_kind,
+                            from,
+                            to,
+                        )
+                        .await?;
+                    }
+                    LlmObsSpansActions::GetAgentLoop {
+                        trace_id,
+                        span_id,
+                        max_content_length,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::spans_get_agent_loop(
+                            &cfg,
+                            &trace_id,
+                            span_id,
+                            max_content_length,
+                            from,
+                            to,
+                        )
+                        .await?;
                     }
                 },
                 LlmObsActions::AnnotationQueues { action } => match action {
@@ -14256,6 +14841,34 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     LlmObsEvalConfigActions::Delete { eval_name } => {
                         commands::llm_obs::eval_config_delete(&cfg, &eval_name).await?;
+                    }
+                },
+                LlmObsActions::Evals { action } => match action {
+                    LlmObsEvalsActions::List => {
+                        commands::llm_obs::evals_list(&cfg).await?;
+                    }
+                    LlmObsEvalsActions::ListByMlApp { ml_app } => {
+                        commands::llm_obs::evals_list_by_ml_app(&cfg, &ml_app).await?;
+                    }
+                    LlmObsEvalsActions::GetEvaluator { eval_name } => {
+                        commands::llm_obs::evals_get_evaluator(&cfg, &eval_name).await?;
+                    }
+                    LlmObsEvalsActions::GetAggregateStats {
+                        eval_name,
+                        ml_app,
+                        from,
+                        to,
+                    } => {
+                        commands::llm_obs::evals_get_aggregate_stats(
+                            &cfg, &eval_name, ml_app, from, to,
+                        )
+                        .await?;
+                    }
+                    LlmObsEvalsActions::CreateOrUpdate { eval_name, file } => {
+                        commands::llm_obs::evals_create_or_update(&cfg, &eval_name, &file).await?;
+                    }
+                    LlmObsEvalsActions::Delete { eval_name } => {
+                        commands::llm_obs::evals_delete(&cfg, &eval_name).await?;
                     }
                 },
             }

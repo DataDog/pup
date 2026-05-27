@@ -645,7 +645,7 @@ pub async fn asm_exclusions_delete(cfg: &Config, exclusion_filter_id: &str) -> R
 // ---- Restriction Policies ----
 
 pub async fn restriction_policy_get(cfg: &Config, resource_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(RestrictionPoliciesAPI, cfg);
+    let api = crate::make_api!(RestrictionPoliciesAPI, cfg);
     let resp = api
         .get_restriction_policy(resource_id.to_string())
         .await
@@ -655,7 +655,7 @@ pub async fn restriction_policy_get(cfg: &Config, resource_id: &str) -> Result<(
 
 pub async fn restriction_policy_update(cfg: &Config, resource_id: &str, file: &str) -> Result<()> {
     let body: RestrictionPolicyUpdateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(RestrictionPoliciesAPI, cfg);
+    let api = crate::make_api!(RestrictionPoliciesAPI, cfg);
     let resp = api
         .update_restriction_policy(
             resource_id.to_string(),
@@ -668,7 +668,7 @@ pub async fn restriction_policy_update(cfg: &Config, resource_id: &str, file: &s
 }
 
 pub async fn restriction_policy_delete(cfg: &Config, resource_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(RestrictionPoliciesAPI, cfg);
+    let api = crate::make_api!(RestrictionPoliciesAPI, cfg);
     api.delete_restriction_policy(resource_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete restriction policy: {e:?}"))?;

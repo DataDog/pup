@@ -1,0 +1,14 @@
+# Policy for: .github/workflows/release-tag.yml in DataDog/pup
+issuer: https://token.actions.githubusercontent.com
+subject: repo:DataDog/pup:pull_request
+
+claim_pattern:
+  base_ref: main
+  event_name: pull_request
+  head_ref: release/v[0-9]+\.[0-9]+\.[0-9]+
+  job_workflow_ref: DataDog/pup/\.github/workflows/release-tag\.yml@refs/heads/main
+  ref: refs/heads/main
+  repository: DataDog/pup
+
+permissions:
+  contents: write

@@ -441,6 +441,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_incidents_attachments_list() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let result = super::attachments_list(&cfg, "inc1").await;
+        assert!(
+            result.is_ok(),
+            "attachments_list should succeed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_incidents_attachments_list_error() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _mock = s
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(404)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Not Found"]}"#)
+            .create_async()
+            .await;
+        let result = super::attachments_list(&cfg, "missing").await;
+        assert!(result.is_err(), "attachments_list should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_incidents_attachments_delete() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _mock = s
+            .mock("DELETE", "/api/v2/incidents/inc1/attachments/att1")
+            .with_status(204)
+            .create_async()
+            .await;
+        let result = super::attachments_delete(&cfg, "inc1", "att1").await;
+        assert!(
+            result.is_ok(),
+            "attachments_delete should succeed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_incidents_attachments_delete_error() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _mock = s
+            .mock("DELETE", "/api/v2/incidents/inc1/attachments/missing")
+            .with_status(404)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Not Found"]}"#)
+            .create_async()
+            .await;
+        let result = super::attachments_delete(&cfg, "inc1", "missing").await;
+        assert!(result.is_err(), "attachments_delete should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
     async fn test_incidents_settings_get() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;

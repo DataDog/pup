@@ -2,6 +2,40 @@ use anyhow::{bail, Result};
 
 use crate::skills;
 
+/// Resolve the platform list from CLI input, validating each entry.
+///
+/// Validation runs in every mode — `--dir` may override the destination path
+/// but does not let the caller pass a typo'd platform name silently. A
+/// mistyped platform still has user-visible meaning (it's printed in success
+/// messages, it controls extension-vs-skill routing, etc.), so we always
+/// require it to be a recognized value.
+fn resolve_or_bail(input: Option<&str>) -> Result<Vec<String>> {
+    let auto_detected = input.map(|s| s.trim().is_empty()).unwrap_or(true);
+    let platforms = skills::resolve_platform_list(input);
+    if platforms.iter().any(|p| p.is_empty()) {
+        bail!(
+            "could not auto-detect AI assistant. Specify a platform: claude, \
+             cursor, codex, opencode, windsurf, gemini, pi, or `all`."
+        );
+    }
+    for p in &platforms {
+        if skills::lookup_platform(p).is_none() {
+            if auto_detected {
+                bail!(
+                    "auto-detected '{p}' is not a supported platform. Specify \
+                     one explicitly: claude, cursor, codex, opencode, windsurf, \
+                     gemini, pi, or `all`."
+                );
+            }
+            bail!(
+                "unknown platform: '{p}'. Supported: claude, cursor, codex, \
+                 opencode, windsurf, gemini, pi, or `all`."
+            );
+        }
+    }
+    Ok(platforms)
+}
+
 pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<()> {
     let entries: Vec<_> = skills::SKILLS
         .iter()
@@ -14,11 +48,21 @@ pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<(
     let items: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
-            serde_json::json!({
+            let mut v = serde_json::json!({
                 "name": e.name,
                 "type": e.entry_type,
                 "description": e.description,
-            })
+            });
+            if e.entry_type == "extension" {
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("platform".to_string(), serde_json::json!(e.platform));
+                    obj.insert(
+                        "files".to_string(),
+                        serde_json::json!(e.files.iter().map(|(r, _)| *r).collect::<Vec<_>>()),
+                    );
+                }
+            }
+            v
         })
         .collect();
 
@@ -28,14 +72,15 @@ pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<(
 
 pub fn install(
     cfg: &crate::config::Config,
+    platform: Option<String>,
     name: Option<String>,
-    target_agent: Option<String>,
     dir: Option<String>,
     entry_type: Option<String>,
+    project: bool,
 ) -> Result<()> {
-    let project_root =
-        skills::find_project_root().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let agent = skills::resolve_agent(target_agent.as_deref());
+    let (project_root, _) = skills::project_root_or_cwd();
+    let user_scope = !project;
+    let platforms = resolve_or_bail(platform.as_deref())?;
 
     let entries: Vec<_> = skills::SKILLS
         .iter()
@@ -55,63 +100,215 @@ pub fn install(
         }
     }
 
-    let mut installed = 0;
+    let mut installed_files = 0usize;
     let mut dirs_used = std::collections::BTreeSet::new();
-    for entry in &entries {
-        let (path, fmt) = skills::install_path(entry, &agent, &project_root, dir.as_deref());
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-            dirs_used.insert(parent.display().to_string());
-        }
-        let content = skills::format_content(entry, &fmt);
-        std::fs::write(&path, &content)?;
-        installed += 1;
-
-        // Write any nested sub-skill files under the parent skill's directory.
-        // Only applies when the parent installs as a skill directory
-        // (`<skills_dir>/<name>/SKILL.md`), not as a single subagent .md file.
-        if fmt == skills::InstallFormat::SkillMd {
-            if let Some(parent_dir) = path.parent() {
-                for sub in skills::SUB_SKILLS.iter().filter(|s| s.parent == entry.name) {
-                    let sub_path = parent_dir.join(sub.rel_path);
-                    if let Some(sub_parent) = sub_path.parent() {
-                        std::fs::create_dir_all(sub_parent)?;
-                    }
-                    std::fs::write(&sub_path, sub.content)?;
-                    installed += 1;
+    let mut entry_hits = std::collections::BTreeSet::new();
+    for plat in &platforms {
+        for entry in &entries {
+            let targets =
+                skills::install_paths(entry, plat, &project_root, dir.as_deref(), user_scope)?;
+            if targets.is_empty() {
+                continue;
+            }
+            entry_hits.insert(entry.name);
+            for (path, content) in targets {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                    dirs_used.insert(parent.display().to_string());
                 }
+                std::fs::write(&path, &content)?;
+                installed_files += 1;
             }
         }
     }
 
+    // If the user filtered with --name or --type but nothing actually
+    // installed across the selected platforms, the command succeeded by doing
+    // nothing — surface that as an error so a typo doesn't silently no-op.
+    if entry_hits.is_empty() && (name.is_some() || entry_type.is_some()) {
+        let filter = match (&name, &entry_type) {
+            (Some(n), Some(t)) => format!("name={n}, type={t}"),
+            (Some(n), None) => format!("name={n}"),
+            (None, Some(t)) => format!("type={t}"),
+            (None, None) => unreachable!(),
+        };
+        bail!(
+            "no install target matched {filter} on the selected platform(s): {}",
+            platforms.join(", "),
+        );
+    }
+
+    let installed_entries = entry_hits.len();
     if cfg.agent_mode {
         let directories: Vec<_> = dirs_used.into_iter().collect();
         let result = serde_json::json!({
-            "installed": installed,
+            "installed": installed_entries,
+            "files": installed_files,
             "directories": directories,
+            "platforms": platforms,
         });
         crate::formatter::format_and_print(&result, &cfg.output_format, cfg.agent_mode, None)?;
     } else {
         for d in &dirs_used {
             println!("  {d}");
         }
-        println!("Installed {} skill(s) and agent(s)", installed);
+        println!(
+            "Installed {} entry(ies), {} file(s) across {} platform(s)",
+            installed_entries,
+            installed_files,
+            platforms.len(),
+        );
     }
 
     Ok(())
 }
 
-pub fn path(target_agent: Option<String>) -> Result<()> {
-    let project_root =
-        skills::find_project_root().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let agent = skills::resolve_agent(target_agent.as_deref());
-    let sd = skills::skills_dir(&agent, &project_root);
-    let ad = skills::agents_dir(&agent, &project_root);
-    if sd == ad {
-        println!("{}", sd.display());
-    } else {
-        println!("skills: {}", sd.display());
-        println!("agents: {}", ad.display());
+pub fn path(platform: Option<String>, project: bool) -> Result<()> {
+    let (project_root, _) = skills::project_root_or_cwd();
+    let user_scope = !project;
+    let platforms = resolve_or_bail(platform.as_deref())?;
+    let scope_label = if user_scope { "user" } else { "project" };
+
+    for plat in &platforms {
+        println!("platform: {plat} (scope: {scope_label})");
+        let sd = skills::skills_dir(plat, &project_root, user_scope);
+        if let Some(ref sd) = sd {
+            println!("  skills:     {}", sd.display());
+        }
+        if let Some(ad) = skills::agents_dir(plat, &project_root, user_scope) {
+            // Suppress redundant agents path when it matches skills (most
+            // platforms share the dir; only Claude Code splits them).
+            if sd.as_ref() != Some(&ad) {
+                println!("  agents:     {}", ad.display());
+            }
+        }
+        if let Some(ed) = skills::extensions_dir(plat, &project_root, user_scope) {
+            println!("  extensions: {}", ed.display());
+        }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::test_support::TempDir;
+
+    fn base_cfg() -> Config {
+        Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.com".to_string(),
+            site_explicit: false,
+            org: None,
+            output_format: crate::config::OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        }
+    }
+
+    #[test]
+    fn resolve_or_bail_normalizes_alias() {
+        let p = resolve_or_bail(Some("claude")).unwrap();
+        assert_eq!(p, vec!["claude-code".to_string()]);
+    }
+
+    #[test]
+    fn resolve_or_bail_expands_all() {
+        let p = resolve_or_bail(Some("all")).unwrap();
+        // All known platforms — must include each canonical name.
+        for expected in ["claude-code", "cursor", "codex", "opencode", "pi"] {
+            assert!(p.iter().any(|x| x == expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn resolve_or_bail_rejects_unknown_platform() {
+        let err = resolve_or_bail(Some("clood")).unwrap_err().to_string();
+        assert!(err.contains("unknown platform"), "got: {err}");
+        assert!(err.contains("clood"), "got: {err}");
+    }
+
+    #[test]
+    fn resolve_or_bail_dir_override_still_validates() {
+        // --dir does NOT exempt the platform name from validation — a typo
+        // would otherwise silently write to the override dir with a
+        // misleading "success" message.
+        assert!(resolve_or_bail(Some("clood")).is_err());
+    }
+
+    #[test]
+    fn install_dir_override_writes_named_skill() {
+        let tmp = TempDir::new("install_dir_named");
+        let cfg = base_cfg();
+        install(
+            &cfg,
+            Some("claude".to_string()),
+            Some("dd-pup".to_string()),
+            Some(tmp.path().to_str().unwrap().to_string()),
+            None,
+            false,
+        )
+        .unwrap();
+        let file = tmp.path().join("dd-pup").join("SKILL.md");
+        assert!(file.exists(), "expected {} to exist", file.display());
+        let body = std::fs::read_to_string(&file).unwrap();
+        assert!(body.contains("name: dd-pup"));
+    }
+
+    #[test]
+    fn install_bails_when_named_entry_does_not_apply_to_platform() {
+        let cfg = base_cfg();
+        // dd-pup-pi is a pi-only extension. Trying to install it on claude
+        // (without --dir) must error rather than silently succeed.
+        let err = install(
+            &cfg,
+            Some("claude".to_string()),
+            Some("dd-pup-pi".to_string()),
+            None,
+            None,
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("no install target"), "got: {err}");
+        assert!(err.contains("dd-pup-pi"), "got: {err}");
+    }
+
+    #[test]
+    fn install_bails_when_type_filter_matches_nothing_on_platform() {
+        let cfg = base_cfg();
+        // Skills don't apply to pi.
+        let err = install(
+            &cfg,
+            Some("pi".to_string()),
+            None,
+            None,
+            Some("skill".to_string()),
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("no install target"), "got: {err}");
+        assert!(err.contains("type=skill"), "got: {err}");
+    }
+
+    #[test]
+    fn install_bails_when_named_entry_does_not_exist() {
+        let cfg = base_cfg();
+        let err = install(
+            &cfg,
+            Some("claude".to_string()),
+            Some("nonexistent-skill".to_string()),
+            None,
+            None,
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("skill not found"), "got: {err}");
+    }
 }

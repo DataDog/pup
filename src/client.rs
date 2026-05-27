@@ -232,6 +232,7 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.create_incident",
     "v2.update_incident",
     "v2.delete_incident",
+    "v2.list_incident_attachments",
     "v2.create_global_incident_handle",
     "v2.delete_global_incident_handle",
     "v2.get_global_incident_settings",
@@ -1033,7 +1034,7 @@ pub async fn raw_put(
         let body = resp.text().await.unwrap_or_default();
         anyhow::bail!("PUT {url} failed (HTTP {status}): {body}");
     }
-    Ok(resp.json().await?)
+    parse_response_json(resp).await
 }
 
 /// Like `raw_post`, but returns the parsed JSON body even on non-2xx responses.
@@ -1278,7 +1279,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 166);
+        assert_eq!(UNSTABLE_OPS.len(), 167);
     }
 
     #[test]

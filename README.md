@@ -218,8 +218,11 @@ Pup supports two authentication methods. **OAuth2 is preferred** and will be use
 OAuth2 provides secure, browser-based authentication with automatic token refresh.
 
 ```bash
-# Set your Datadog site (optional)
-export DD_SITE="datadoghq.com"  # Defaults to datadoghq.com
+# Set your Datadog site (optional, defaults to datadoghq.com).
+# Common values: datadoghq.com, datadoghq.eu, us3.datadoghq.com,
+# us5.datadoghq.com, ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com.
+# Other Datadog sites are also accepted.
+export DD_SITE="datadoghq.com"
 
 # Login via browser
 pup auth login
@@ -234,7 +237,57 @@ pup auth status
 pup auth logout
 ```
 
-**Token Storage**: Tokens are stored securely in your system's keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Set `DD_TOKEN_STORAGE=file` to use file-based storage instead.
+#### Multiple sites and orgs
+
+Pup persists each login as a separate session, so you can authenticate against multiple Datadog sites and orgs and switch between them with `--org <name>` (or `DD_ORG=<name>`) on any subcommand.
+
+```bash
+# Login to a non-default site. --site is only accepted by `pup auth login`
+# and `pup auth status`. For other commands, select the site via DD_SITE
+# (or use a named session and pass --org on every subsequent command; see
+# the Named session examples below).
+pup auth login --site datadoghq.eu
+DD_SITE=datadoghq.eu pup monitors list
+
+# Named session for a parent/child sub-org on the same site.
+pup auth login --org staging-child
+pup monitors list --org staging-child     # site recalled from the session, no DD_SITE needed
+
+# Named session on another site. DD_SITE / --site is only needed at login.
+pup auth login --site ap2.datadoghq.com --org ap2-prod
+pup monitors list --org ap2-prod          # site recalled
+
+# SAML/SSO org. --subdomain narrows the consent page to one org for tenants
+# with subdomain-routed SSO. It is only used during the browser flow and is
+# not persisted.
+pup auth login --org acme-prod --subdomain acme
+
+# Pre-target a specific org by UUID (sent as dd_oid). Skips the org switcher
+# when the browser session already matches and pre-routes SAML/SSO. The UUID
+# is persisted and re-emitted on subsequent `pup auth login` invocations for
+# the same named session.
+pup auth login --org acme-prod --org-uuid 11111111-2222-3333-4444-555555555555
+
+# List all stored sessions (site, org, org_uuid, scopes, expiry, status).
+pup auth list
+
+# Refresh or log out a specific named session.
+pup auth refresh --org staging-child
+pup auth logout --org staging-child       # clears only that named session
+```
+
+Note: `pup auth logout` (default session) also deletes the shared DCR client credentials for that site. Named-org sessions on the same site keep their access tokens but will fail to refresh until the shared credentials are re-registered, which happens automatically on the next `pup auth login` on that site (any org, named or default). Logging out a named session (`--org <name>`) does not touch the shared client credentials.
+
+**Site selection rules** (when pup resolves a site for a non-auth command):
+1. `DD_SITE` env var (or `site:` in `~/.config/pup/config.yaml`), if set.
+2. The site recorded in `~/.config/pup/sessions.json` for the named `--org` / `DD_ORG`, when the lookup is unambiguous.
+3. Default: `datadoghq.com`.
+
+`pup auth login` and `pup auth status` additionally accept `--site`, which wins over the above for those two commands.
+
+If multiple sessions share the same org name on different sites, step 2 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to disambiguate. An unnamed (default) session can't be selected by `--org` at all -- if you have multiple unnamed sessions on different sites, set `DD_SITE` to pick one.
+
+**Token Storage**: By default, OAuth tokens and DCR client credentials are stored in your platform's secure store: macOS Keychain (via Apple's Security framework, with Touch ID prompts), Linux Secret Service (via the `keyring` crate), or Windows Credential Manager (via the `keyring` crate; sharded across multiple WinCred entries to stay within WinCred's per-record size limit). When no secure store is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions; in file mode tokens and client credentials are kept in separate files (`tokens_<site>.json`, `client_<site>.json`). Set `DD_TOKEN_STORAGE=file` to force file storage. In either mode, all tokens for a given site share one tokens entry, keyed internally by org name.
 
 **Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available yet, use API key authentication.
 
@@ -294,7 +347,7 @@ pup auth logout
 ### Test Connection
 
 ```bash
-pup test
+pup auth test
 ```
 
 ### Monitors
@@ -499,28 +552,40 @@ See `docs/examples/runbooks/` for ready-to-use examples and [docs/EXAMPLES.md](d
 Pup ships a set of skills and domain agents embedded in the binary, installable to any AI coding assistant. Run `pup skills list` to see what's available in the version you have installed.
 
 ```bash
-# Install all skills and agents for your AI assistant
+# Install all skills and agents for the auto-detected platform
 pup skills install
 
-# Install for a specific tool
-pup skills install --target-agent=claude-code
-pup skills install --target-agent=cursor
+# Install for a specific platform (positional arg)
+pup skills install claude
+pup skills install cursor
+pup skills install codex
+pup skills install opencode
+pup skills install pi
+
+# Install for every supported platform at once
+pup skills install all
+
+# By default installs go to the user-global directory; --project keeps them local
+pup skills install claude --project
 
 # List available skills and agents
 pup skills list
 pup skills list --type=skill
 pup skills list --type=agent
 
-# Install a specific skill
-pup skills install dd-monitors
+# Install a specific skill by name
+pup skills install claude --name dd-monitors
 ```
 
-For Claude Code, skills install to `.claude/skills/` and agents install to `.claude/agents/` (native subagent format). For other tools, everything installs as `SKILL.md` in the tool's skills directory.
+For Claude Code, skills install to `~/.claude/skills/` (or `.claude/skills/` with `--project`) and agents install to `~/.claude/agents/` (native subagent format). For Cursor, Codex, and opencode, everything installs as `SKILL.md` under that tool's skills directory (e.g. `~/.cursor/skills/`, `~/.codex/skills/`, `~/.config/opencode/skills/`).
 
-Pup is also available as a **Claude Code plugin marketplace**:
+Pup ships plugin manifest files for several AI coding assistants:
 
 ```
+# Claude Code
 /plugin marketplace add DataDog/pup
+
+# Codex (reads .codex-plugin/plugin.json from the repo, or marketplace.json from ~/.agents/plugins/)
 ```
 
 ## ACP Server

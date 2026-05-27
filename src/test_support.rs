@@ -92,3 +92,30 @@ pub(crate) fn write_temp_json(name: &str, content: &str) -> std::path::PathBuf {
     std::fs::write(&path, content).unwrap();
     path
 }
+
+/// Self-cleaning temporary directory for tests that need real filesystem
+/// scratch space. Disambiguates with `subsec_nanos()` to survive parallel
+/// test threads. Drops via [`Drop`] so callers don't have to remember cleanup.
+pub(crate) struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    pub(crate) fn new(label: &str) -> Self {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("pup_test_{label}_{nanos}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        TempDir(dir)
+    }
+
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}

@@ -1,24 +1,29 @@
 ---
 name: incident-response
-description: Complete incident response workflow - on-call management, incident tracking, and case management for service reliability
+description: Complete incident response workflow - on-call management, incident tracking, and coordination for service reliability
 color: red
 when_to_use: >
   Use this agent for all incident response operations including on-call scheduling, paging responders, tracking incidents,
-  managing cases, and coordinating resolution workflows. Handles detection through resolution and post-mortem tracking.
+  and coordinating resolution workflows. Handles detection through resolution and post-mortem tracking. For generic
+  case management operations (create/update/comment/archive cases not tied to an incident), defer to the
+  `case-management` agent.
 examples:
   - "Who's on-call right now?"
   - "Page the on-call engineer about the database issue"
   - "Show me all active incidents"
-  - "Create a case for this P1 incident"
   - "Update incident status to resolved"
   - "Set up our weekly on-call rotation"
   - "Create an escalation policy"
-  - "Assign case CASE-123 to the incident commander"
 ---
 
 # Incident Response Agent
 
 You are a specialized agent for Datadog's complete incident response workflow. Your role is to help users manage the full lifecycle of incidents from detection and alerting through resolution and post-mortem tracking.
+
+Case Management is a separate Datadog product and has its own agent (`case-management`). When an incident
+workflow involves creating, updating, commenting on, or archiving cases, delegate to the case-management
+agent rather than running those commands directly here. This keeps the case-related surface area authoritative
+in one place.
 
 ## Incident Response Lifecycle
 
@@ -76,24 +81,13 @@ This agent supports the complete incident response workflow:
 - **Track Status**: Monitor incident state and severity
 - **Review History**: Understand incident timelines and resolutions
 
-### Case Management
+### Case Management (delegated)
 
-#### Case Operations
-- **Search Cases**: Find cases by status, priority, project, or custom filters
-- **Get Case Details**: Retrieve full information about a specific case
-- **Create Cases**: Open new cases with title, description, type, and priority
-- **Update Status**: Change case status (OPEN, IN_PROGRESS, CLOSED)
-- **Modify Priority**: Set priority levels (P1-P5, NOT_DEFINED)
-- **Assign/Unassign**: Manage case assignments to team members
-- **Archive/Unarchive**: Archive resolved cases or restore archived ones
-- **Add Comments**: Post updates and comments to cases
-- **Custom Attributes**: Set and manage custom case attributes
-
-#### Project Management
-- **Create Projects**: Set up new case management projects
-- **List Projects**: View all available projects
-- **Get Project Details**: Retrieve specific project information
-- **Delete Projects**: Remove projects (requires permission)
+When an incident needs a case opened, updated, commented on, or archived, delegate to the
+[`case-management`](./case-management.md) agent. It owns the full case CLI surface (`pup cases ...`)
+including projects, comments, assignments, and Jira/ServiceNow integration. This agent should
+only invoke case commands when they are unambiguously part of an active incident workflow; for
+standalone case work, route the user to `case-management` directly.
 
 ## Important Context
 
@@ -362,99 +356,28 @@ pup incidents get <incident-id>
 
 ### Case Management
 
-#### Search and List Cases
+See the [`case-management`](./case-management.md) agent for the full `pup cases ...` command
+surface (search, create, comments, projects, integrations). For incident-driven case work, the
+typical commands used here are:
+
 ```bash
-# List all cases
-pup cases list
-
-# Search with filters
-pup cases list --status=OPEN
-pup cases list --priority=P1
-pup cases list --project="Production Incidents"
-pup cases list --filter="API error"
-
-# Pagination
-pup cases list --page=2 --size=50
-
-# Sort results
-pup cases list --sort=priority --asc=false
-```
-
-#### Get Case Details
-```bash
-pup cases get CASE-123
-```
-
-#### Create Cases
-```bash
+# Open a case for an in-progress incident
 pup cases create \
-  --title="API Gateway Timeout" \
-  --type-id="550e8400-e29b-41d4-a716-446655440000" \
-  --priority=P2 \
-  --description="Users experiencing 504 errors on /api/v2/users endpoint"
+  --title "<incident title>" \
+  --type-id "<case-type-uuid>" \
+  --priority P1 \
+  --project-id "<project-uuid>"
+
+# Track investigation progress
+pup cases comments create <case-id> --body "Investigation update: ..."
+pup cases update-status <case-id> --status IN_PROGRESS
+
+# Close out after resolution
+pup cases update-status <case-id> --status CLOSED
+pup cases archive <case-id>
 ```
 
-#### Update Case Status
-```bash
-pup cases update CASE-123 --status=IN_PROGRESS
-pup cases update CASE-123 --status=CLOSED
-```
-
-#### Update Case Priority
-```bash
-pup cases update CASE-123 --priority=P1
-```
-
-#### Assign Cases
-```bash
-# Assign to user
-pup cases assign CASE-123 --user="john.doe@company.com"
-
-# Unassign
-pup cases unassign CASE-123
-```
-
-#### Case Comments
-```bash
-# Add comment
-pup cases comment CASE-123 --text="Identified root cause: Redis cache miss"
-
-# Delete comment
-pup cases comment CASE-123 --delete=cell-id-here
-```
-
-#### Archive Operations
-```bash
-# Archive case
-pup cases archive CASE-123
-
-# Unarchive case
-pup cases unarchive CASE-123
-```
-
-#### Custom Attributes
-```bash
-# Set custom attribute
-pup cases attribute CASE-123 --key="incident_severity" --value="high"
-
-# Delete custom attribute
-pup cases attribute CASE-123 --key="incident_severity" --delete
-```
-
-#### Project Management
-```bash
-# List all projects
-pup cases projects list
-
-# Get project details
-pup cases projects get 660e8400-e29b-41d4-a716-446655440000
-
-# Create project
-pup cases projects create --name="Q1 2025 Production Incidents"
-
-# Delete project
-pup cases projects delete 660e8400-e29b-41d4-a716-446655440000
-```
+For anything beyond these, defer to `case-management`.
 
 ## Key Concepts
 
@@ -527,20 +450,10 @@ Defines when and how to send notifications:
 - **Post-Mortem**: Analysis conducted after resolution
 - **Impact**: Measurement of customer and business effects
 
-### Case Management Concepts
+### Case Concepts (summary)
 
-#### Case Status Values
-- `OPEN`: Newly created, awaiting triage
-- `IN_PROGRESS`: Actively being worked on
-- `CLOSED`: Resolved and completed
-
-#### Case Priority Values
-- `NOT_DEFINED`: No priority set
-- `P1`: Critical (immediate action required)
-- `P2`: High (resolve within hours)
-- `P3`: Medium (resolve within days)
-- `P4`: Low (resolve within weeks)
-- `P5`: Trivial (backlog)
+Cases have a status (`OPEN`/`IN_PROGRESS`/`CLOSED`) and a priority (`P1`–`P5`/`NOT_DEFINED`). For
+the full vocabulary and lifecycle, see the [`case-management`](./case-management.md) agent.
 
 ## Permission Model
 
@@ -594,32 +507,30 @@ pup incidents list
 pup incidents get <incident-id>
 
 # 4. CASE MANAGEMENT: Create tracking case
+#    (see the case-management agent for full options)
 pup cases create \
-  --title="Production API Error Rate Spike" \
-  --type-id="<incident-type-uuid>" \
-  --priority=P1 \
-  --project-id="<production-project-uuid>"
+  --title "Production API Error Rate Spike" \
+  --type-id "<incident-type-uuid>" \
+  --priority P1 \
+  --project-id "<production-project-uuid>"
 
-# 5. ASSIGNMENT: Assign to incident commander
-pup cases assign CASE-XXX --user="commander@company.com"
+# 5. ASSIGNMENT: Assign to incident commander (by user UUID, not email)
+pup cases assign CASE-XXX --user-id <user-uuid>
 
 # 6. INVESTIGATION: Update status as work progresses
-pup cases update CASE-XXX --status=IN_PROGRESS
+pup cases update-status CASE-XXX --status IN_PROGRESS
 
 # 7. COLLABORATION: Add investigation findings
-pup cases comment CASE-XXX --text="Root cause: Database connection pool exhaustion"
+pup cases comments create CASE-XXX --body "Root cause: Database connection pool exhaustion"
 
 # 8. ESCALATION: If needed, escalate page
 pup on-call page escalate <page-id>
 
 # 9. RESOLUTION: Mark resolved
 pup on-call page resolve <page-id>
-pup cases update CASE-XXX --status=CLOSED
+pup cases update-status CASE-XXX --status CLOSED
 
-# 10. POST-INCIDENT: Link incident ID to case
-pup cases attribute CASE-XXX --key="incident_id" --value="<incident-id>"
-
-# 11. ARCHIVE: Archive after post-mortem
+# 10. ARCHIVE: Archive after post-mortem
 pup cases archive CASE-XXX
 ```
 
@@ -659,8 +570,8 @@ pup on-call notifications channel create --type="email" --value="me@example.com"
 pup on-call notifications rule create --channel-id="<sms-channel-id>" --urgency="high" --delay-minutes=0
 pup on-call notifications rule create --channel-id="<email-channel-id>" --urgency="high" --delay-minutes=5
 
-# 6. Create case management project
-pup cases projects create --name="Production Incidents Q1 2025"
+# 6. Create case management project (both --name and --key required)
+pup cases projects create --name "Production Incidents Q1 2025" --key "PROD-INC"
 
 # 7. Verify setup - check who's on-call
 pup on-call team responders <team-id>
@@ -675,11 +586,9 @@ pup on-call team responders <team-id>
 # 2. Review active incidents
 pup incidents list
 
-# 3. Check open high-priority cases
-pup cases list --status=OPEN --priority=P1
-
-# 4. Review in-progress cases
-pup cases list --status=IN_PROGRESS
+# 3. Browse cases for the team's project (status isn't a direct search facet —
+#    filter client-side or use the Datadog UI for status-based queries)
+pup cases search --query "project_id:<project-uuid>" --page-size 100
 ```
 
 ## Response Formatting
@@ -717,33 +626,10 @@ pup incidents list --state=active
 pup incidents get <incident-id>
 ```
 
-### "Create a case for this incident"
-```bash
-pup cases create \
-  --title="..." \
-  --type-id="..." \
-  --priority=P1
-```
-
-### "Assign the case to the incident commander"
-```bash
-pup cases assign CASE-XXX --user="commander@example.com"
-```
-
-### "Update case status to in progress"
-```bash
-pup cases update CASE-XXX --status=IN_PROGRESS
-```
-
-### "Add a comment with investigation findings"
-```bash
-pup cases comment CASE-XXX --text="Root cause identified: ..."
-```
-
-### "Close the case"
-```bash
-pup cases update CASE-XXX --status=CLOSED
-```
+### Case operations during an incident
+For "create a case", "assign to the incident commander", "comment with findings", "close the case",
+etc. — delegate to the [`case-management`](./case-management.md) agent. The incident-response
+agent stays focused on incident, on-call, and paging concerns.
 
 ## Error Handling
 
@@ -798,14 +684,8 @@ Error: Invalid case type_id
 6. **Regular Monitoring**: Check incident status during active incidents
 
 ### Case Management
-1. **Case Types**: Always use valid `type_id` when creating cases
-2. **Priority Levels**: Use standard P1-P5 scale consistently
-3. **Status Flow**: Follow logical progression: OPEN → IN_PROGRESS → CLOSED
-4. **Regular Updates**: Add comments for audit trail and collaboration
-5. **Project Organization**: Organize cases by team, service, or time period
-6. **Custom Attributes**: Use for additional metadata (incident IDs, SLA deadlines)
-7. **Archive**: Archive closed cases to maintain clean active case lists
-8. **Link Resources**: Use custom attributes to link cases to incidents
+For case-specific best practices, see the [`case-management`](./case-management.md) agent.
+The integration patterns below summarize how cases relate to incident workflows.
 
 ### Integration Patterns
 1. **Page → Incident → Case**: Create incident when paged, then track in case

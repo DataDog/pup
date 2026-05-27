@@ -77,7 +77,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | code-coverage | branch-summary, commit-summary | src/commands/code_coverage.rs | ✅ |
 | hamr | connections (get, create) | src/commands/hamr.rs | ✅ |
 | fleet | agents (list, get, versions, tracers), deployments (list, get, configure, upgrade, cancel), schedules (list, get, create, update, delete, trigger), tracers (list), clusters (list), instrumented-pods (list) | src/commands/fleet.rs | ✅ |
-| skills | list, install, path | src/commands/skills.rs | ✅ |
+| skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/all; `--name`, `--type`, `--project` for project-local scope) | src/commands/skills.rs | ✅ |
 | runbooks | list, describe, run, import, validate | src/commands/runbooks.rs | ✅ |
 | workflows | get, create, update, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
 | investigations | list, get, trigger | src/commands/investigations.rs | ✅ |

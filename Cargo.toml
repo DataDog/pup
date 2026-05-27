@@ -1,6 +1,6 @@
 [package]
 name = "pup"
-version = "0.59.0"
+version = "0.64.1"
 edition = "2021"
 rust-version = "1.93.1"
 publish = false
@@ -90,6 +90,9 @@ http = "1"
 
 # Error handling
 anyhow = "1"
+
+# POSIX shell word splitting (used for alias expansion)
+shell-words = "1"
 
 # UUID parsing (version-matched to DD client)
 uuid = { version = "1", features = ["v4"], optional = true }

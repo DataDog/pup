@@ -48,14 +48,15 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Release: bump, commit to main, tag. Triggers release.yml via the tag push.
+  # Release: bump Cargo.toml/Cargo.lock on a release/<tag> branch and open a PR.
+  # Merging the PR triggers release-tag.yml, which creates the tag and triggers
+  # release.yml.
   # ---------------------------------------------------------------------------
   release:
-    name: Bump, Commit, Tag
+    name: Open Release PR
     needs: check
     if: needs.check.outputs.proceed == 'true'
     runs-on: ubuntu-latest
-    environment: release
     steps:
       - uses: DataDog/dd-octo-sts-action@96a25462dbcb10ebf0bfd6e2ccc917d2ab235b9a # v1.0.4
         id: octo-sts
@@ -66,7 +67,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          token: ${{ steps.octo-sts.outputs.token }}
 
       - name: Compute next version
         id: version
@@ -82,17 +82,26 @@ jobs:
           esac
           NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
           NEW_TAG="v${NEW_VERSION}"
+          BRANCH="release/${NEW_TAG}"
           echo "current-tag=${CURRENT_TAG}" >> "$GITHUB_OUTPUT"
           echo "new-version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
           echo "new-tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
           echo "Current: ${CURRENT_TAG}"
           echo "Next:    ${NEW_TAG} (${BUMP} bump)"
 
       - name: Preflight check
+        env:
+          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
+          NEW_TAG: ${{ steps.version.outputs.new-tag }}
+          BRANCH: ${{ steps.version.outputs.branch }}
         run: |
-          NEW_TAG="${{ steps.version.outputs.new-tag }}"
           if git tag -l "$NEW_TAG" | grep -q .; then
             echo "::error::Tag '${NEW_TAG}' already exists."
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/${BRANCH}" >/dev/null 2>&1; then
+            echo "::error::Branch '${BRANCH}' already exists."
             exit 1
           fi
 
@@ -126,26 +135,66 @@ jobs:
       - name: Refresh Cargo.lock
         run: cargo check --quiet 2>&1 | grep -v "^$" || true
 
-      - name: Commit to main and tag
+      - name: Create release branch via API (signed commit)
+        id: commit
+        env:
+          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
+          NEW_TAG: ${{ steps.version.outputs.new-tag }}
+          CURRENT_TAG: ${{ steps.version.outputs.current-tag }}
+          NEW_VERSION: ${{ steps.version.outputs.new-version }}
+          BRANCH: ${{ steps.version.outputs.branch }}
         run: |
-          NEW_TAG="${{ steps.version.outputs.new-tag }}"
-          CURRENT_TAG="${{ steps.version.outputs.current-tag }}"
-          NEW_VERSION="${{ steps.version.outputs.new-version }}"
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
 
-          git config user.name "dd-octo-sts[bot]"
-          git config user.email "dd-octo-sts[bot]@users.noreply.github.com"
+          BASE_SHA=$(gh api "repos/${REPO}/git/refs/heads/main" --jq .object.sha)
+          BASE_TREE=$(gh api "repos/${REPO}/git/commits/${BASE_SHA}" --jq .tree.sha)
 
-          git add Cargo.toml Cargo.lock
-          git commit -m "$(cat <<EOF
-          chore(release): bump version to ${NEW_TAG}
+          CARGO_TOML_BLOB=$(jq -n --rawfile c Cargo.toml '{content: $c, encoding: "utf-8"}' \
+            | gh api "repos/${REPO}/git/blobs" --input - --jq .sha)
+          CARGO_LOCK_BLOB=$(jq -n --rawfile c Cargo.lock '{content: $c, encoding: "utf-8"}' \
+            | gh api "repos/${REPO}/git/blobs" --input - --jq .sha)
 
-          - Update Cargo.toml package version ${CURRENT_TAG#v} → ${NEW_VERSION}
-          - Refresh Cargo.lock
-          EOF
-          )"
+          TREE_SHA=$(jq -n \
+            --arg base "${BASE_TREE}" \
+            --arg toml "${CARGO_TOML_BLOB}" \
+            --arg lock "${CARGO_LOCK_BLOB}" \
+            '{
+              base_tree: $base,
+              tree: [
+                {path: "Cargo.toml", mode: "100644", type: "blob", sha: $toml},
+                {path: "Cargo.lock", mode: "100644", type: "blob", sha: $lock}
+              ]
+            }' | gh api "repos/${REPO}/git/trees" --input - --jq .sha)
 
-          git push origin main
+          MESSAGE=$(printf 'chore(release): bump version to %s\n\n- Update Cargo.toml package version %s → %s\n- Refresh Cargo.lock' \
+            "${NEW_TAG}" "${CURRENT_TAG#v}" "${NEW_VERSION}")
 
-          git tag -a "$NEW_TAG" -m "$NEW_TAG"
-          git push origin "$NEW_TAG"
-          echo "Tagged and pushed ${NEW_TAG}"
+          COMMIT_SHA=$(jq -n \
+            --arg msg "${MESSAGE}" \
+            --arg tree "${TREE_SHA}" \
+            --arg parent "${BASE_SHA}" \
+            '{message: $msg, tree: $tree, parents: [$parent]}' \
+            | gh api "repos/${REPO}/git/commits" --input - --jq .sha)
+
+          gh api "repos/${REPO}/git/refs" \
+            -f ref="refs/heads/${BRANCH}" \
+            -f sha="${COMMIT_SHA}"
+
+          echo "commit-sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Created signed commit ${COMMIT_SHA} on ${BRANCH}"
+
+      - name: Open Release PR
+        env:
+          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
+          NEW_TAG: ${{ steps.version.outputs.new-tag }}
+          CURRENT_TAG: ${{ steps.version.outputs.current-tag }}
+          BRANCH: ${{ steps.version.outputs.branch }}
+        run: |
+          BODY=$(printf 'Automated version bump from %s to %s.\n\nMerging this PR triggers `release-tag.yml`, which creates the `%s` tag and in turn triggers `release.yml` (goreleaser).' \
+            "${CURRENT_TAG}" "${NEW_TAG}" "${NEW_TAG}")
+          gh pr create \
+            --base main \
+            --head "${BRANCH}" \
+            --title "chore(release): bump version to ${NEW_TAG}" \
+            --body "${BODY}"

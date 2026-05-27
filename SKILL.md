@@ -17,13 +17,22 @@ Rust-based CLI for Datadog APIs. 49 command groups, 300+ subcommands across 53 c
 ## Install Skills
 
 ```bash
-# Install all skills and agents for your AI coding assistant
+# Install all skills and agents for the auto-detected AI assistant
 pup skills install
 
-# Or install specific skills
-pup skills install dd-pup
-pup skills install dd-monitors
-pup skills install dd-logs
+# Or install for a specific platform (claude, cursor, codex, opencode, pi)
+pup skills install claude
+pup skills install codex
+pup skills install cursor
+
+# Install for every supported platform at once
+pup skills install all
+
+# Install a single skill by name
+pup skills install claude --name dd-pup
+
+# Default scope is user-global; pass --project to install into the repo
+pup skills install claude --project
 
 # List all available skills
 pup skills list

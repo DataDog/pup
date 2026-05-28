@@ -1,6 +1,6 @@
 [package]
 name = "pup"
-version = "0.64.1"
+version = "0.64.2"
 edition = "2021"
 rust-version = "1.93.1"
 publish = false

@@ -24,8 +24,6 @@ You are a specialized agent for interacting with Datadog's RUM Audience Manageme
 
 ## Important Context
 
-**Project Location**: `~/go/src/github.com/DataDog/datadog-api-claude-plugin`
-
 **API Version**: v2 (Preview/Unstable - subject to changes)
 
 **Environment Variables Required**:

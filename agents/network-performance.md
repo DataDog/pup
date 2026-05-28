@@ -26,8 +26,6 @@ You are a specialized agent for interacting with Datadog's Network Performance M
 
 ## Important Context
 
-**Project Location**: `~/go/src/github.com/DataDog/datadog-api-claude-plugin`
-
 **CLI Tool**: This agent uses the `pup` CLI tool to execute Datadog API commands
 
 **Environment Variables Required**:

@@ -18,52 +18,40 @@ examples:
 
 # DD File Issue Skill
 
-This skill helps you file GitHub issues to the correct repository - either the `pup` CLI tool or the Claude plugin, depending on the nature of the issue.
+This skill helps you file GitHub issues to the correct repository. All issues — whether related to the `pup` CLI, skills, agents, or documentation — are tracked in `DataDog/pup`.
 
 **Invocation**: `/dd-file-issue`
 
 ## Decision Logic: Which Repository?
 
 ### File to `DataDog/pup` Repository
-Issues related to the `pup` CLI tool itself:
+All issues are filed here, including:
 - **API Functionality**: API calls failing, incorrect responses, missing API endpoints
 - **Authentication**: OAuth2 issues, token refresh problems, API key handling
 - **CLI Behavior**: Command syntax, flags not working, output format issues
 - **pup Installation**: Binary installation, PATH issues, version problems
 - **API Coverage**: Missing Datadog API endpoints, incomplete command coverage
-- **Performance**: Slow API calls, timeout issues (when not related to agents)
+- **Performance**: Slow API calls, timeout issues
 - **Error Messages**: Confusing pup error messages, API errors
+- **Agent Behavior**: Agent selection, agent prompts, agent responses
+- **Documentation**: README, CLAUDE.md, AGENTS.md, agent files inaccurate
+- **Agent Prompts**: Agent giving wrong guidance, unclear instructions
+- **Skill Issues**: Skills not working correctly
+- **Agent Selection**: Claude picking wrong agent for task
+- **Examples/Guides**: Missing or incorrect examples in agent files
+- **User Experience**: Confusing workflows, unclear instructions
 
-**Example Issues for pup**:
+**Example Issues**:
 - "pup logs search returns 404 error"
 - "OAuth token refresh not working"
 - "Need support for new Datadog API endpoint"
 - "pup --output=json returns invalid JSON"
 - "pup auth login fails on Linux"
-
-### File to `DataDog/datadog-api-claude-plugin` Repository
-Issues related to the Claude plugin and its agents:
-- **Agent Behavior**: Agent selection, agent prompts, agent responses
-- **Documentation**: README, CLAUDE.md, AGENTS.md, agent files inaccurate
-- **Agent Prompts**: Agent giving wrong guidance, unclear instructions
-- **Skill Issues**: Skills not working correctly
-- **Plugin Installation**: Plugin setup, configuration issues
-- **Agent Selection**: Claude picking wrong agent for task
-- **Examples/Guides**: Missing or incorrect examples in agent files
-- **User Experience**: Confusing workflows, unclear instructions
-
-**Example Issues for plugin**:
 - "logs agent doesn't explain query syntax clearly"
 - "Agent tells me to use wrong pup command"
 - "Documentation says to use TypeScript but we use pup now"
 - "Need better examples for metrics queries"
 - "Agent selection guide is confusing"
-
-### Unclear Cases (Ask User)
-If unclear which repository the issue belongs to:
-- Ask the user for more context
-- Explain the difference between pup and plugin issues
-- Let user decide
 
 ## Workflow
 
@@ -74,8 +62,7 @@ If unclear which repository the issue belongs to:
    - What agent/command were you using?
 
 2. **Determine Repository**
-   - Analyze the issue against decision logic above
-   - If unclear, ask user to clarify
+   - All issues go to `DataDog/pup`
 
 3. **Check for Existing Issues**
    - Search the target repository for similar issues
@@ -105,7 +92,7 @@ If unclear which repository the issue belongs to:
 
 ### 1. Determine Repository
 
-Ask clarifying questions:
+All issues are filed against `DataDog/pup`. Ask clarifying questions to gather detail:
 
 ```markdown
 To file this issue correctly, I need to understand:
@@ -113,47 +100,28 @@ To file this issue correctly, I need to understand:
 1. What were you trying to do?
 2. What went wrong?
 3. Was this a problem with:
-   - A pup command not working? (→ pup repo)
-   - An agent giving bad guidance? (→ plugin repo)
-   - Documentation being wrong/unclear? (→ plugin repo)
+   - A pup command not working?
+   - An agent giving bad guidance?
+   - Documentation being wrong/unclear?
 ```
 
 ### 2. Search for Existing Issues
 
-For pup repository:
 ```bash
 gh issue list \
   --repo DataDog/pup \
-  --search "your search terms" \
-  --limit 10
-```
-
-For plugin repository:
-```bash
-gh issue list \
-  --repo DataDog/datadog-api-claude-plugin \
   --search "your search terms" \
   --limit 10
 ```
 
 ### 3. Create Issue
 
-For pup repository:
 ```bash
 gh issue create \
   --repo DataDog/pup \
   --title "Clear, concise title" \
   --body "Detailed description" \
   --label "bug" # or "enhancement", "documentation"
-```
-
-For plugin repository:
-```bash
-gh issue create \
-  --repo DataDog/datadog-api-claude-plugin \
-  --title "Clear, concise title" \
-  --body "Detailed description" \
-  --label "bug" # or "enhancement", "documentation", "agent"
 ```
 
 ### Issue Body Template
@@ -217,12 +185,6 @@ Use this template for comprehensive issue reports:
 - `bug` - Something isn't working
 - `enhancement` - New feature or request
 - `documentation` - Improvements or additions to documentation
-- `question` - Further information is requested
-
-**For plugin repository**:
-- `bug` - Something isn't working
-- `enhancement` - New feature or request
-- `documentation` - Improvements or additions to documentation
 - `agent` - Related to specific agent behavior
 - `skill` - Related to skills
 - `question` - Further information is requested
@@ -270,19 +232,19 @@ Error: request timeout after 30000ms
   --label "bug"
 ```
 
-### Example 2: Filing a Plugin Documentation Issue
+### Example 2: Filing a Documentation Issue
 
 **User**: "The logs agent documentation shows TypeScript examples instead of pup commands"
 
-**Analysis**: This is a plugin issue (documentation)
+**Analysis**: This is a documentation issue
 
 **Steps**:
-1. Search existing issues: `gh issue list --repo DataDog/datadog-api-claude-plugin --search "TypeScript"`
+1. Search existing issues: `gh issue list --repo DataDog/pup --search "TypeScript"`
 2. Create issue:
 
 ```bash
 gh issue create \
-  --repo DataDog/datadog-api-claude-plugin \
+  --repo DataDog/pup \
   --title "logs agent: outdated TypeScript examples in documentation" \
   --body "## Description
 The logs agent documentation still shows TypeScript/Node.js examples instead of pup CLI commands.
@@ -310,15 +272,15 @@ Confusing for users who expect pup CLI commands
   --label "agent"
 ```
 
-### Example 3: Feature Request for Plugin
+### Example 3: Feature Request
 
 **User**: "Can we add an agent for Datadog SLO reporting?"
 
-**Analysis**: This is a plugin enhancement (new agent)
+**Analysis**: This is a pup enhancement (new agent)
 
 ```bash
 gh issue create \
-  --repo DataDog/datadog-api-claude-plugin \
+  --repo DataDog/pup \
   --title "enhancement: add SLO reporting agent" \
   --body "## Feature Request
 
@@ -362,9 +324,9 @@ After successfully filing an issue:
 ```markdown
 ✅ Issue created successfully!
 
-**Repository**: DataDog/[repo-name]
+**Repository**: DataDog/pup
 **Issue**: #123
-**URL**: https://github.com/DataDog/[repo-name]/issues/123
+**URL**: https://github.com/DataDog/pup/issues/123
 **Title**: [issue title]
 
 The team will review your issue and respond soon. You can:

@@ -700,6 +700,29 @@ enum Commands {
         #[command(subcommand)]
         action: ChangeManagementActions,
     },
+    /// Retrieve change events for an APM service over a time range.
+    /// Use to correlate changes with anomalies, performance issues or incidents.
+    ///
+    /// Tracked change types: deployment (code/version), feature_flag, traffic_anomaly,
+    /// watchdog (Datadog anomaly detection), kubernetes (k8s deployment manifest updates),
+    /// scale (manual k8s scale events), crashloopbackoff (k8s crashloops),
+    /// database (DB schema or setting changes), schema (data stream schemas only; not DB/API schema),
+    /// configuration (limited to specific tracked sources — absence does not imply no config changed).
+    ///
+    /// COMMANDS:
+    ///   list   List change stories for a service over a time window
+    ///
+    /// EXAMPLES:
+    ///   pup change-stories list --service api --from 2024-01-15T00:00:00Z --to 2024-01-15T01:00:00Z
+    ///   pup change-stories list --service api --env prod --story-types deployment --from 1h --to now
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication (pup auth login) or API keys.
+    #[command(name = "change-stories", verbatim_doc_comment)]
+    ChangeStories {
+        #[command(subcommand)]
+        action: ChangeStoriesActions,
+    },
     /// Manage CI/CD visibility
     ///
     /// Manage Datadog CI/CD visibility for pipeline and test monitoring.
@@ -5012,6 +5035,44 @@ enum ChangeRequestDecisionActions {
         decision_id: String,
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
+    },
+}
+
+// ---- Change Stories ----
+#[derive(Subcommand)]
+enum ChangeStoriesActions {
+    /// List change stories for a service over a time window
+    List {
+        #[arg(long, help = "APM service name (required) - no wildcards (*)")]
+        service: String,
+        #[arg(
+            long,
+            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        from: String,
+        #[arg(
+            long,
+            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        to: String,
+        #[arg(
+            long,
+            help = "Environment filter (e.g. prod). Omit to include all environments"
+        )]
+        env: Option<String>,
+        #[arg(
+            long = "story-types",
+            value_delimiter = ',',
+            help = "Filter by type(s), comma-separated or repeated. Allowed: deployment, feature_flag, configuration, database, kubernetes, scale, crashloopbackoff, traffic_anomaly, schema, watchdog. Omit for all."
+        )]
+        story_types: Vec<String>,
+        #[arg(
+            long = "filter-tags",
+            help = "Primary tag (key:value, e.g. datacenter:us1.prod.dog)"
+        )]
+        filter_tags: Option<String>,
+        #[arg(long = "token-limit", help = "Max response tokens (default: 10000)")]
+        token_limit: Option<i64>,
     },
 }
 
@@ -12253,6 +12314,33 @@ async fn main_inner() -> anyhow::Result<()> {
                         .await?;
                     }
                 },
+            }
+        }
+        // --- Change Stories ---
+        Commands::ChangeStories { action } => {
+            cfg.validate_auth()?;
+            match action {
+                ChangeStoriesActions::List {
+                    service,
+                    env,
+                    from,
+                    to,
+                    story_types,
+                    filter_tags,
+                    token_limit,
+                } => {
+                    commands::change_stories::list(
+                        &cfg,
+                        service,
+                        env,
+                        from,
+                        to,
+                        story_types,
+                        filter_tags,
+                        token_limit,
+                    )
+                    .await?;
+                }
             }
         }
         // --- Cloud ---

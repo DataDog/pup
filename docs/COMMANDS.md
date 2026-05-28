@@ -82,6 +82,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | workflows | get, create, update, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
 | investigations | list, get, trigger | src/commands/investigations.rs | ✅ |
 | change-requests | create, get, update, create-branch, decisions (update, delete) | src/commands/change_management.rs | ✅ |
+| change-stories | list | src/commands/change_stories.rs | ✅ |
 | app-builder | list, get, create, update, delete, delete-batch, publish, unpublish | src/commands/app_builder.rs | ✅ |
 
 **Note:** RUM command is fully operational. Apps and sessions work completely. Metrics and retention-filters support list/get operations (create/update/delete operations pending due to complex API type structures).
@@ -192,6 +193,7 @@ pup infrastructure hosts list
 - **workflows** - Workflow Automation (get, create, update, delete, run, instances, connections)
 - **investigations** - Bits AI SRE investigations (list, get, trigger)
 - **change-requests** - Change request management (create, get, update, create-branch, decisions)
+- **change-stories** - Change events for a service (deployments, feature flags, config, k8s, watchdog) over time window
 
 ### Organization & Access
 - **users** - User management (list, get, roles)

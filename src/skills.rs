@@ -12,9 +12,14 @@ pub struct SkillEntry {
     /// Platform slug for entry_type == "extension". One of: "pi".
     /// Empty for skills and agents.
     pub platform: &'static str,
-    /// Files to materialize for entry_type == "extension".
-    /// Each tuple is `(relative_path_within_extension_dir, file_contents)`.
-    /// Empty for skills and agents.
+    /// Extra files to materialize alongside the entry.
+    /// Each tuple is `(relative_path, file_contents)`, written verbatim.
+    /// - For `extension`: relative to the extension's install dir; this is
+    ///   the only source of files (`content` is empty).
+    /// - For `skill`: relative to the parent skill's install dir, used to
+    ///   ship nested sub-skill SKILL.md files (e.g. `dd-apm` ships
+    ///   `service-remapping/SKILL.md` and the k8s-ssi/linux-ssi trees).
+    /// - For `agent`: unused; leave empty.
     pub files: &'static [(&'static str, &'static str)],
 }
 
@@ -64,9 +69,9 @@ pub static SKILLS: &[SkillEntry] = &[
         name: "dd-apm",
         description: "APM - traces, services, dependencies, performance analysis.",
         entry_type: "skill",
-        content: include_str!("../skills/dd-apm/SKILL.md"),
+        content: agent_skills::DD_APM_SKILL,
         platform: "",
-        files: &[],
+        files: agent_skills::DD_APM_SUB_SKILLS,
     },
     SkillEntry {
         name: "dd-debugger",
@@ -928,7 +933,19 @@ pub fn install_paths(
     else {
         return Ok(vec![]);
     };
-    Ok(vec![(path, format_content(entry, &fmt))])
+    let mut out = vec![(path.clone(), format_content(entry, &fmt))];
+    // Skills can ship nested sub-skill files alongside the root SKILL.md
+    // (e.g. dd-apm's k8s-ssi/, linux-ssi/, service-remapping/ trees).
+    // Only applies when the parent installs as a skill directory; subagent
+    // .md files have no surrounding directory to nest under.
+    if fmt == InstallFormat::SkillMd && !entry.files.is_empty() {
+        if let Some(parent_dir) = path.parent() {
+            for (rel, body) in entry.files {
+                out.push((parent_dir.join(rel), (*body).to_string()));
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[derive(Debug, PartialEq)]
@@ -1499,6 +1516,44 @@ mod tests {
         // Claude has no extensions concept.
         let root = PathBuf::from("/tmp/proj");
         assert_eq!(extensions_dir("claude-code", &root, false), None);
+    }
+
+    #[test]
+    fn test_install_paths_skill_with_sub_skills() {
+        static SUB_FILES: &[(&str, &str)] = &[
+            ("service-remapping/SKILL.md", "# Service Remapping"),
+            ("k8s-ssi/agent-install/SKILL.md", "# K8s Agent Install"),
+        ];
+        let root = PathBuf::from("/tmp/proj");
+        let e = SkillEntry {
+            files: SUB_FILES,
+            ..entry("dd-apm", "skill", "body")
+        };
+        let paths = install_paths(&e, "claude-code", &root, None, false).unwrap();
+        assert_eq!(paths.len(), 3);
+        assert_eq!(paths[0].0, root.join(".claude/skills/dd-apm/SKILL.md"));
+        assert_eq!(
+            paths[1].0,
+            root.join(".claude/skills/dd-apm/service-remapping/SKILL.md")
+        );
+        assert_eq!(
+            paths[2].0,
+            root.join(".claude/skills/dd-apm/k8s-ssi/agent-install/SKILL.md")
+        );
+    }
+
+    #[test]
+    fn test_install_paths_sub_skills_skipped_for_agent_md() {
+        // AgentMd format (Claude Code agents dir) has no surrounding directory,
+        // so sub-skill files must not be written.
+        static SUB_FILES: &[(&str, &str)] = &[("sub/SKILL.md", "# Sub")];
+        let root = PathBuf::from("/tmp/proj");
+        let e = SkillEntry {
+            files: SUB_FILES,
+            ..entry("dd-apm", "agent", "body")
+        };
+        let paths = install_paths(&e, "claude-code", &root, None, false).unwrap();
+        assert_eq!(paths.len(), 1, "sub-skills must not be written for agent-md format");
     }
 
     #[test]

@@ -68,6 +68,10 @@ browser = [
 ]
 
 [dependencies]
+# Skills content from datadog-labs/agent-skills (local path dep; switch to
+# `{ git = "...", rev = "..." }` once agent-skills ships a Cargo.toml)
+agent-skills = { path = "crates/agent-skills" }
+
 # CLI (optional — not needed for browser WASM library)
 clap = { version = "4", features = ["derive"], optional = true }
 clap_complete = { version = "4", optional = true }

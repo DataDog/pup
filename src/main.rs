@@ -9891,6 +9891,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "remove"
         || name == "install"
         || name == "assign"
+        || name == "unassign"
         || name == "archive"
         || name == "unarchive"
         || name == "activate"
@@ -9902,6 +9903,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "upgrade"
         || name.starts_with("update-")
         || name.starts_with("create-")
+        || name.ends_with("-create")
         || name == "submit"
         || name == "send"
         || name == "import"
@@ -9910,6 +9912,20 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name.contains("delete")
         || name == "patch"
         || name.starts_with("patch-")
+        || name == "run"
+        || name == "enable"
+        || name == "disable"
+        || name == "edit"
+        || name == "upsert"
+        || name == "upload"
+        || name == "publish"
+        || name == "unpublish"
+        || name == "comment"
+        || name == "start"
+        || name == "stop"
+        || name == "pause"
+        || name == "resume"
+        || name == "generate"
 }
 
 fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {

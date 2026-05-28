@@ -30,6 +30,23 @@ fn test_is_write_command_name_writes() {
     assert!(crate::is_write_command_name("create-page"));
     assert!(crate::is_write_command_name("patch"));
     assert!(crate::is_write_command_name("patch-deployment"));
+    // Mutation verbs added to fix issue #528
+    assert!(crate::is_write_command_name("run"));
+    assert!(crate::is_write_command_name("enable"));
+    assert!(crate::is_write_command_name("disable"));
+    assert!(crate::is_write_command_name("edit"));
+    assert!(crate::is_write_command_name("upsert"));
+    assert!(crate::is_write_command_name("upload"));
+    assert!(crate::is_write_command_name("publish"));
+    assert!(crate::is_write_command_name("unpublish"));
+    assert!(crate::is_write_command_name("comment"));
+    assert!(crate::is_write_command_name("start"));
+    assert!(crate::is_write_command_name("stop"));
+    assert!(crate::is_write_command_name("pause"));
+    assert!(crate::is_write_command_name("resume"));
+    assert!(crate::is_write_command_name("generate"));
+    assert!(crate::is_write_command_name("unassign"));
+    assert!(crate::is_write_command_name("batch-create"));
 }
 
 #[test]

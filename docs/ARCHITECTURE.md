@@ -279,12 +279,16 @@ Domain-specific flags:
 
 1. **Command-line flags** (highest priority)
 2. **Environment variables** (`DD_*`, `PUP_*`)
-3. **Config file** (`~/.config/pup/config.yaml`)
+3. **Config file** (see paths below)
 4. **Default values** (lowest priority)
 
 ### Config File
 
-Location: `~/.config/pup/config.yaml`
+Platform-specific locations (checked in this order):
+- **Linux**: `~/.config/pup/config.yaml` (or `$XDG_CONFIG_HOME/pup/config.yaml`)
+- **macOS**: `~/Library/Application Support/pup/config.yaml`, falling back to `~/.config/pup/config.yaml`
+
+Override with `PUP_CONFIG_DIR=/your/path` (e.g. for testing).
 
 ```yaml
 # Authentication

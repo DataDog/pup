@@ -829,8 +829,8 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "datadog-api-client"
-version = "0.30.0"
-source = "git+https://github.com/DataDog/datadog-api-client-rust?rev=aa0c8416e3af27038cf6a17e74ff1bf11d6bc1a6#aa0c8416e3af27038cf6a17e74ff1bf11d6bc1a6"
+version = "0.31.0"
+source = "git+https://github.com/DataDog/datadog-api-client-rust?rev=d4954b117c5451c0a8932dd0ad0db450fcb0989c#d4954b117c5451c0a8932dd0ad0db450fcb0989c"
 dependencies = [
  "async-stream",
  "chrono",

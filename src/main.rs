@@ -3096,11 +3096,6 @@ enum IncidentActions {
         #[command(subcommand)]
         action: IncidentPostmortemActions,
     },
-    /// Manage incident teams
-    Teams {
-        #[command(subcommand)]
-        action: IncidentTeamActions,
-    },
     /// Manage incident services
     Services {
         #[command(subcommand)]
@@ -3111,27 +3106,6 @@ enum IncidentActions {
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
     },
-}
-
-#[derive(Subcommand)]
-enum IncidentTeamActions {
-    /// List incident teams
-    List,
-    /// Get incident team details
-    Get { team_id: String },
-    /// Create an incident team from JSON
-    Create {
-        #[arg(long, help = "JSON file with team data (required)")]
-        file: String,
-    },
-    /// Update an incident team
-    Update {
-        team_id: String,
-        #[arg(long, help = "JSON file with team data (required)")]
-        file: String,
-    },
-    /// Delete an incident team
-    Delete { team_id: String },
 }
 
 #[derive(Subcommand)]
@@ -10988,23 +10962,6 @@ async fn main_inner() -> anyhow::Result<()> {
                     IncidentPostmortemActions::Delete { template_id } => {
                         commands::incidents::postmortem_templates_delete(&cfg, &template_id)
                             .await?;
-                    }
-                },
-                IncidentActions::Teams { action } => match action {
-                    IncidentTeamActions::List => {
-                        commands::incidents::teams_list(&cfg).await?;
-                    }
-                    IncidentTeamActions::Get { team_id } => {
-                        commands::incidents::teams_get(&cfg, &team_id).await?;
-                    }
-                    IncidentTeamActions::Create { file } => {
-                        commands::incidents::teams_create(&cfg, &file).await?;
-                    }
-                    IncidentTeamActions::Update { team_id, file } => {
-                        commands::incidents::teams_update(&cfg, &team_id, &file).await?;
-                    }
-                    IncidentTeamActions::Delete { team_id } => {
-                        commands::incidents::teams_delete(&cfg, &team_id).await?;
                     }
                 },
                 IncidentActions::Services { action } => match action {

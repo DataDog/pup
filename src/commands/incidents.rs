@@ -2,9 +2,6 @@ use anyhow::{bail, Result};
 use datadog_api_client::datadogV2::api_incident_services::{
     GetIncidentServiceOptionalParams, IncidentServicesAPI, ListIncidentServicesOptionalParams,
 };
-use datadog_api_client::datadogV2::api_incident_teams::{
-    GetIncidentTeamOptionalParams, IncidentTeamsAPI, ListIncidentTeamsOptionalParams,
-};
 use datadog_api_client::datadogV2::api_incidents::{
     CreateGlobalIncidentHandleOptionalParams, GetIncidentOptionalParams,
     ImportIncidentOptionalParams, IncidentsAPI, ListGlobalIncidentHandlesOptionalParams,
@@ -223,64 +220,6 @@ pub async fn postmortem_templates_delete(cfg: &Config, template_id: &str) -> Res
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete postmortem template: {:?}", e))?;
     println!("Postmortem template {template_id} deleted.");
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Incident teams
-// ---------------------------------------------------------------------------
-
-fn make_teams_api(cfg: &Config) -> IncidentTeamsAPI {
-    crate::make_api!(IncidentTeamsAPI, cfg)
-}
-
-pub async fn teams_list(cfg: &Config) -> Result<()> {
-    let api = make_teams_api(cfg);
-    let resp = api
-        .list_incident_teams(ListIncidentTeamsOptionalParams::default())
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to list incident teams: {:?}", e))?;
-    formatter::output(cfg, &resp)
-}
-
-pub async fn teams_get(cfg: &Config, team_id: &str) -> Result<()> {
-    let api = make_teams_api(cfg);
-    let resp = api
-        .get_incident_team(
-            team_id.to_string(),
-            GetIncidentTeamOptionalParams::default(),
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to get incident team: {:?}", e))?;
-    formatter::output(cfg, &resp)
-}
-
-pub async fn teams_create(cfg: &Config, file: &str) -> Result<()> {
-    let body = util::read_json_file(file)?;
-    let api = make_teams_api(cfg);
-    let resp = api
-        .create_incident_team(body)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to create incident team: {:?}", e))?;
-    formatter::output(cfg, &resp)
-}
-
-pub async fn teams_update(cfg: &Config, team_id: &str, file: &str) -> Result<()> {
-    let body = util::read_json_file(file)?;
-    let api = make_teams_api(cfg);
-    let resp = api
-        .update_incident_team(team_id.to_string(), body)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to update incident team: {:?}", e))?;
-    formatter::output(cfg, &resp)
-}
-
-pub async fn teams_delete(cfg: &Config, team_id: &str) -> Result<()> {
-    let api = make_teams_api(cfg);
-    api.delete_incident_team(team_id.to_string())
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to delete incident team: {:?}", e))?;
-    println!("Incident team {team_id} deleted.");
     Ok(())
 }
 
@@ -537,23 +476,6 @@ mod tests {
         mock_all(&mut s, r#"{"data": []}"#).await;
         let _ = super::postmortem_templates_list(&cfg).await;
         cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_incident_teams_list() {
-        let _lock = lock_env().await;
-        std::env::set_var("DD_TOKEN_STORAGE", "file");
-        let mut server = mockito::Server::new_async().await;
-        let cfg = test_config(&server.url());
-        let _mock = mock_any(&mut server, "GET", r#"{"data":[],"meta":{}}"#).await;
-        let result = super::teams_list(&cfg).await;
-        assert!(
-            result.is_ok(),
-            "incident teams list failed: {:?}",
-            result.err()
-        );
-        cleanup_env();
-        std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
     #[tokio::test]

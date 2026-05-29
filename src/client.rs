@@ -244,12 +244,6 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.get_incident_postmortem_template",
     "v2.list_incident_postmortem_templates",
     "v2.update_incident_postmortem_template",
-    // Incident Teams (5)
-    "v2.create_incident_team",
-    "v2.delete_incident_team",
-    "v2.get_incident_team",
-    "v2.list_incident_teams",
-    "v2.update_incident_team",
     // Incident Services (5)
     "v2.create_incident_service",
     "v2.delete_incident_service",
@@ -1279,7 +1273,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 167);
+        assert_eq!(UNSTABLE_OPS.len(), 162);
     }
 
     #[test]

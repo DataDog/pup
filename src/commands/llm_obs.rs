@@ -4,9 +4,11 @@ use datadog_api_client::datadogV2::api_llm_observability::{
 };
 use datadog_api_client::datadogV2::model::{
     LLMObsAnnotationQueueInteractionsRequest, LLMObsAnnotationQueueRequest,
-    LLMObsAnnotationQueueUpdateRequest, LLMObsCustomEvalConfigUpdateRequest, LLMObsDatasetRequest,
-    LLMObsDeleteAnnotationQueueInteractionsRequest, LLMObsDeleteExperimentsRequest,
-    LLMObsExperimentRequest, LLMObsExperimentUpdateRequest, LLMObsProjectRequest,
+    LLMObsAnnotationQueueUpdateRequest, LLMObsCustomEvalConfigUpdateRequest,
+    LLMObsDatasetBatchUpdateRequest, LLMObsDatasetCloneRequest, LLMObsDatasetRequest,
+    LLMObsDatasetRestoreVersionRequest, LLMObsDeleteAnnotationQueueInteractionsRequest,
+    LLMObsDeleteExperimentsRequest, LLMObsExperimentRequest, LLMObsExperimentUpdateRequest,
+    LLMObsProjectRequest,
 };
 
 use crate::client;
@@ -105,6 +107,51 @@ pub async fn datasets_list(cfg: &Config, project_id: &str) -> Result<()> {
     let resp = client::raw_get(cfg, &path, &[])
         .await
         .map_err(|e| anyhow::anyhow!("failed to list LLM obs datasets: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn datasets_batch_update(
+    cfg: &Config,
+    project_id: &str,
+    dataset_id: &str,
+    file: &str,
+) -> Result<()> {
+    let body: LLMObsDatasetBatchUpdateRequest = util::read_json_file(file)?;
+    let api = make_api(cfg);
+    let resp = api
+        .batch_update_llm_obs_dataset(project_id.to_string(), dataset_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to batch update dataset records: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn datasets_clone(
+    cfg: &Config,
+    project_id: &str,
+    dataset_id: &str,
+    file: &str,
+) -> Result<()> {
+    let body: LLMObsDatasetCloneRequest = util::read_json_file(file)?;
+    let api = make_api(cfg);
+    let resp = api
+        .clone_llm_obs_dataset(project_id.to_string(), dataset_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to clone dataset: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn datasets_restore(
+    cfg: &Config,
+    project_id: &str,
+    dataset_id: &str,
+    file: &str,
+) -> Result<()> {
+    let body: LLMObsDatasetRestoreVersionRequest = util::read_json_file(file)?;
+    let api = make_api(cfg);
+    let resp = api
+        .restore_llm_obs_dataset_version(project_id.to_string(), dataset_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to restore dataset version: {e:?}"))?;
     formatter::output(cfg, &resp)
 }
 
@@ -2636,5 +2683,166 @@ mod tests {
         .await;
         assert!(result.is_ok(), "spans_search failed: {:?}", result.err());
         cleanup_env();
+    }
+
+    // ---- datasets_batch_update ----
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_batch_update() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_batch_update.json",
+            r#"{"data":{"type":"dataset_batch_update","attributes":{"upsert":[],"delete":[]}}}"#,
+        );
+        let resp_body = r#"{"data":{"type":"dataset_records_mutation","attributes":{"upserted_ids":[],"deleted_ids":[]}}}"#;
+        let _mock = mock_any(&mut server, "POST", resp_body).await;
+
+        let result =
+            super::datasets_batch_update(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "datasets_batch_update failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_batch_update_400() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_batch_update_400.json",
+            r#"{"data":{"type":"dataset_batch_update","attributes":{"upsert":[],"delete":[]}}}"#,
+        );
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["bad request"]}"#)
+            .create_async()
+            .await;
+
+        let result =
+            super::datasets_batch_update(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    // ---- datasets_clone ----
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_clone() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_clone.json",
+            r#"{"data":{"type":"dataset_clone","attributes":{"name":"cloned-dataset"}}}"#,
+        );
+        let resp_body = r#"{"data":{"id":"ds-2","type":"datasets","attributes":{"name":"cloned-dataset","description":null,"metadata":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z","current_version":1}}}"#;
+        let _mock = mock_any(&mut server, "POST", resp_body).await;
+
+        let result = super::datasets_clone(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap()).await;
+        assert!(result.is_ok(), "datasets_clone failed: {:?}", result.err());
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_clone_404() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_clone_404.json",
+            r#"{"data":{"type":"dataset_clone","attributes":{"name":"cloned-dataset"}}}"#,
+        );
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(404)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["not found"]}"#)
+            .create_async()
+            .await;
+
+        let result =
+            super::datasets_clone(&cfg, "proj-1", "ds-missing", tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "should fail on 404");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    // ---- datasets_restore ----
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_restore() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_restore.json",
+            r#"{"data":{"type":"dataset_restore","attributes":{"version":2}}}"#,
+        );
+        let resp_body = r#"{"data":{"id":"ds-1","type":"datasets","attributes":{"name":"my-dataset","description":null,"metadata":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z","current_version":2}}}"#;
+        let _mock = mock_any(&mut server, "POST", resp_body).await;
+
+        let result = super::datasets_restore(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "datasets_restore failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_restore_400() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_restore_400.json",
+            r#"{"data":{"type":"dataset_restore","attributes":{"version":99}}}"#,
+        );
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["invalid version"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::datasets_restore(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
     }
 }

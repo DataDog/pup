@@ -266,10 +266,41 @@ pub fn config_dir() -> Option<PathBuf> {
     None
 }
 
+/// Returns candidate config.yaml paths in priority order.
+///
+/// On macOS, `dirs::config_dir()` returns `~/Library/Application Support` rather
+/// than `~/.config`. To keep the documented `~/.config/pup/config.yaml` path
+/// working cross-platform, the XDG-style path is checked as a fallback when
+/// `PUP_CONFIG_DIR` has not been set explicitly.
+#[cfg(not(feature = "browser"))]
+fn config_file_candidates() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(dir) = config_dir() {
+        paths.push(dir.join("config.yaml"));
+    }
+    // On macOS, also try the XDG-style path as a fallback. Skip when
+    // PUP_CONFIG_DIR is set so explicit overrides are fully respected.
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "macos"))]
+    if std::env::var("PUP_CONFIG_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        if let Some(home) = dirs::home_dir() {
+            let xdg = home.join(".config/pup/config.yaml");
+            if !paths.contains(&xdg) {
+                paths.push(xdg);
+            }
+        }
+    }
+    paths
+}
+
 #[cfg(not(feature = "browser"))]
 fn load_config_file() -> Option<FileConfig> {
-    let path = config_dir()?.join("config.yaml");
-    let contents = std::fs::read_to_string(path).ok()?;
+    let contents = config_file_candidates()
+        .into_iter()
+        .find_map(|p| std::fs::read_to_string(p).ok())?;
     serde_norway::from_str(&contents).ok()
 }
 
@@ -865,6 +896,76 @@ mod tests {
             dir,
             Some(std::path::PathBuf::from("/tmp/pup_test_override"))
         );
+    }
+
+    // --- config_file_candidates tests ---
+
+    #[test]
+    fn test_config_file_candidates_includes_primary() {
+        let _guard = ENV_LOCK.blocking_lock();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_candidates_primary_{nanos}"));
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+        let candidates = config_file_candidates();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], tmp.join("config.yaml"));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_config_file_candidates_macos_includes_xdg_fallback() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let candidates = config_file_candidates();
+        let xdg = dirs::home_dir()
+            .unwrap()
+            .join(".config/pup/config.yaml");
+        assert!(
+            candidates.contains(&xdg),
+            "XDG fallback should be in candidates on macOS: {candidates:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_config_file_candidates_macos_pup_config_dir_suppresses_xdg() {
+        let _guard = ENV_LOCK.blocking_lock();
+        let tmp = std::env::temp_dir().join("pup_candidates_suppress_xdg");
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+        let candidates = config_file_candidates();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let xdg = dirs::home_dir()
+            .unwrap()
+            .join(".config/pup/config.yaml");
+        assert_eq!(candidates.len(), 1, "only primary when PUP_CONFIG_DIR is set");
+        assert!(!candidates.contains(&xdg));
+    }
+
+    #[test]
+    fn test_load_config_from_primary_path() {
+        let _guard = ENV_LOCK.blocking_lock();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_primary_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("config.yaml"), "site: us5.datadoghq.com\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+        std::env::remove_var("DD_SITE");
+        std::env::remove_var("DD_ACCESS_TOKEN");
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+        std::env::remove_var("DD_ORG");
+        let cfg = Config::from_env().unwrap();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(cfg.site, "us5.datadoghq.com");
+        assert!(cfg.site_explicit);
     }
 
     #[test]

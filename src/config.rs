@@ -921,9 +921,7 @@ mod tests {
         let _guard = ENV_LOCK.blocking_lock();
         std::env::remove_var("PUP_CONFIG_DIR");
         let candidates = config_file_candidates();
-        let xdg = dirs::home_dir()
-            .unwrap()
-            .join(".config/pup/config.yaml");
+        let xdg = dirs::home_dir().unwrap().join(".config/pup/config.yaml");
         assert!(
             candidates.contains(&xdg),
             "XDG fallback should be in candidates on macOS: {candidates:?}"
@@ -938,10 +936,12 @@ mod tests {
         std::env::set_var("PUP_CONFIG_DIR", &tmp);
         let candidates = config_file_candidates();
         std::env::remove_var("PUP_CONFIG_DIR");
-        let xdg = dirs::home_dir()
-            .unwrap()
-            .join(".config/pup/config.yaml");
-        assert_eq!(candidates.len(), 1, "only primary when PUP_CONFIG_DIR is set");
+        let xdg = dirs::home_dir().unwrap().join(".config/pup/config.yaml");
+        assert_eq!(
+            candidates.len(),
+            1,
+            "only primary when PUP_CONFIG_DIR is set"
+        );
         assert!(!candidates.contains(&xdg));
     }
 

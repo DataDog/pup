@@ -6879,6 +6879,15 @@ enum ErrorTrackingIssueActions {
             help = "Client persona filter: ALL, BROWSER, MOBILE, or BACKEND"
         )]
         persona: Option<String>,
+        #[arg(
+            long,
+            help = "Filter by issue state: OPEN, ACKNOWLEDGED, RESOLVED, IGNORED, EXCLUDED"
+        )]
+        state: Option<String>,
+        #[arg(long, help = "Filter by team UUID assignee")]
+        team: Option<String>,
+        #[arg(long, help = "Filter by user UUID assignee")]
+        assignee: Option<String>,
     },
     /// Get issue details
     Get { issue_id: String },
@@ -13045,9 +13054,13 @@ async fn main_inner() -> anyhow::Result<()> {
                         order_by,
                         track,
                         persona,
+                        state,
+                        team,
+                        assignee,
                     } => {
                         commands::error_tracking::issues_search(
-                            &cfg, query, limit, from, to, order_by, track, persona,
+                            &cfg, query, limit, from, to, order_by, track, persona, state, team,
+                            assignee,
                         )
                         .await?;
                     }

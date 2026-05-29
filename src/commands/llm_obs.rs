@@ -2696,9 +2696,9 @@ mod tests {
 
         let tmp = write_temp_json(
             "pup_test_ds_batch_update.json",
-            r#"{"data":{"type":"dataset_batch_update","attributes":{"upsert":[],"delete":[]}}}"#,
+            r#"{"data":{"id":"ds-1","type":"datasets","attributes":{"insert_records":[],"delete_records":[]}}}"#,
         );
-        let resp_body = r#"{"data":{"type":"dataset_records_mutation","attributes":{"upserted_ids":[],"deleted_ids":[]}}}"#;
+        let resp_body = r#"{"data":[]}"#;
         let _mock = mock_any(&mut server, "POST", resp_body).await;
 
         let result =
@@ -2722,7 +2722,7 @@ mod tests {
 
         let tmp = write_temp_json(
             "pup_test_ds_batch_update_400.json",
-            r#"{"data":{"type":"dataset_batch_update","attributes":{"upsert":[],"delete":[]}}}"#,
+            r#"{"data":{"id":"ds-1","type":"datasets","attributes":{"insert_records":[],"delete_records":[]}}}"#,
         );
         let _mock = server
             .mock("POST", mockito::Matcher::Any)
@@ -2752,7 +2752,7 @@ mod tests {
 
         let tmp = write_temp_json(
             "pup_test_ds_clone.json",
-            r#"{"data":{"type":"dataset_clone","attributes":{"name":"cloned-dataset"}}}"#,
+            r#"{"data":{"id":"ds-1","type":"datasets","attributes":{"name":"cloned-dataset"}}}"#,
         );
         let resp_body = r#"{"data":{"id":"ds-2","type":"datasets","attributes":{"name":"cloned-dataset","description":null,"metadata":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z","current_version":1}}}"#;
         let _mock = mock_any(&mut server, "POST", resp_body).await;
@@ -2773,7 +2773,7 @@ mod tests {
 
         let tmp = write_temp_json(
             "pup_test_ds_clone_404.json",
-            r#"{"data":{"type":"dataset_clone","attributes":{"name":"cloned-dataset"}}}"#,
+            r#"{"data":{"id":"ds-1","type":"datasets","attributes":{"name":"cloned-dataset"}}}"#,
         );
         let _mock = server
             .mock("POST", mockito::Matcher::Any)
@@ -2803,7 +2803,7 @@ mod tests {
 
         let tmp = write_temp_json(
             "pup_test_ds_restore.json",
-            r#"{"data":{"type":"dataset_restore","attributes":{"version":2}}}"#,
+            r#"{"data":{"id":"ds-1","type":"datasets","attributes":{"dataset_version":2}}}"#,
         );
         let resp_body = r#"{"data":{"id":"ds-1","type":"datasets","attributes":{"name":"my-dataset","description":null,"metadata":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z","current_version":2}}}"#;
         let _mock = mock_any(&mut server, "POST", resp_body).await;
@@ -2828,7 +2828,7 @@ mod tests {
 
         let tmp = write_temp_json(
             "pup_test_ds_restore_400.json",
-            r#"{"data":{"type":"dataset_restore","attributes":{"version":99}}}"#,
+            r#"{"data":{"id":"ds-1","type":"datasets","attributes":{"dataset_version":99}}}"#,
         );
         let _mock = server
             .mock("POST", mockito::Matcher::Any)

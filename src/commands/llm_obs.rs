@@ -148,11 +148,11 @@ pub async fn datasets_restore(
 ) -> Result<()> {
     let body: LLMObsDatasetRestoreVersionRequest = util::read_json_file(file)?;
     let api = make_api(cfg);
-    let resp = api
-        .restore_llm_obs_dataset_version(project_id.to_string(), dataset_id.to_string(), body)
+    api.restore_llm_obs_dataset_version(project_id.to_string(), dataset_id.to_string(), body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to restore dataset version: {e:?}"))?;
-    formatter::output(cfg, &resp)
+    println!("Dataset {dataset_id} restored.");
+    Ok(())
 }
 
 // ---- Experiment analytics (no typed equivalent — unstable MCP endpoints) ----

@@ -225,7 +225,11 @@ mod tests {
         let cfg = test_config(&server.url());
         let _mock = mock_any(&mut server, "GET", r#"{"data":[]}"#).await;
         let result = super::oci_configs_list(&cfg).await;
-        assert!(result.is_ok(), "oci_configs_list failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "oci_configs_list failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 

@@ -3,7 +3,7 @@ use datadog_api_client::datadogV2::api_error_tracking::{
     ErrorTrackingAPI, GetIssueOptionalParams, SearchIssuesOptionalParams,
 };
 use datadog_api_client::datadogV2::model::{
-    IssuesSearchRequest, IssuesSearchRequestData, IssuesSearchRequestDataAttributes,
+    IssueState, IssuesSearchRequest, IssuesSearchRequestData, IssuesSearchRequestDataAttributes,
     IssuesSearchRequestDataAttributesOrderBy, IssuesSearchRequestDataAttributesPersona,
     IssuesSearchRequestDataAttributesTrack, IssuesSearchRequestDataType,
 };
@@ -22,6 +22,9 @@ pub async fn issues_search(
     order_by: String,
     track: Option<String>,
     persona: Option<String>,
+    state: Option<String>,
+    team: Option<String>,
+    assignee: Option<String>,
 ) -> Result<()> {
     let api = crate::make_api!(ErrorTrackingAPI, cfg);
 
@@ -65,6 +68,31 @@ pub async fn issues_search(
             ),
         };
         attrs = attrs.persona(persona_value);
+    }
+    if let Some(ref s) = state {
+        let state_value = match s.to_uppercase().as_str() {
+            "OPEN" => IssueState::OPEN,
+            "ACKNOWLEDGED" => IssueState::ACKNOWLEDGED,
+            "RESOLVED" => IssueState::RESOLVED,
+            "IGNORED" => IssueState::IGNORED,
+            "EXCLUDED" => IssueState::EXCLUDED,
+            other => anyhow::bail!(
+                "invalid --state value '{}': must be OPEN, ACKNOWLEDGED, RESOLVED, IGNORED, or EXCLUDED",
+                other
+            ),
+        };
+        attrs = attrs.states(vec![state_value]);
+    }
+    if let Some(ref t) = team {
+        let team_id = uuid::Uuid::parse_str(t)
+            .map_err(|_| anyhow::anyhow!("invalid --team value '{}': must be a valid UUID", t))?;
+        attrs = attrs.team_ids(vec![team_id]);
+    }
+    if let Some(ref a) = assignee {
+        let assignee_id = uuid::Uuid::parse_str(a).map_err(|_| {
+            anyhow::anyhow!("invalid --assignee value '{}': must be a valid UUID", a)
+        })?;
+        attrs = attrs.assignee_ids(vec![assignee_id]);
     }
     let data = IssuesSearchRequestData::new(attrs, IssuesSearchRequestDataType::SEARCH_REQUEST);
     let body = IssuesSearchRequest::new(data);
@@ -119,6 +147,9 @@ mod tests {
             "TOTAL_COUNT".into(),
             Some("trace".into()),
             None,
+            None,
+            None,
+            None,
         )
         .await;
         cleanup_env();
@@ -139,6 +170,9 @@ mod tests {
             "TOTAL_COUNT".into(),
             None,
             Some("BROWSER".into()),
+            None,
+            None,
+            None,
         )
         .await;
         cleanup_env();
@@ -159,6 +193,9 @@ mod tests {
             "TOTAL_COUNT".into(),
             Some("RUM".into()),
             None,
+            None,
+            None,
+            None,
         )
         .await;
         cleanup_env();
@@ -176,6 +213,9 @@ mod tests {
             "INVALID".into(),
             Some("trace".into()),
             None,
+            None,
+            None,
+            None,
         )
         .await;
         assert!(result.is_err());
@@ -183,6 +223,102 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("invalid --order-by value"));
+    }
+
+    #[tokio::test]
+    async fn test_issues_search_with_state() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let result = super::issues_search(
+            &cfg,
+            None,
+            10,
+            "1d".into(),
+            "now".into(),
+            "TOTAL_COUNT".into(),
+            Some("trace".into()),
+            None,
+            Some("OPEN".into()),
+            None,
+            None,
+        )
+        .await;
+        assert!(result.is_ok());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_issues_search_invalid_state() {
+        let cfg = test_config("http://unused.local");
+        let result = super::issues_search(
+            &cfg,
+            None,
+            10,
+            "1d".into(),
+            "now".into(),
+            "TOTAL_COUNT".into(),
+            Some("trace".into()),
+            None,
+            Some("BADSTATE".into()),
+            None,
+            None,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid --state value"));
+    }
+
+    #[tokio::test]
+    async fn test_issues_search_invalid_team_uuid() {
+        let cfg = test_config("http://unused.local");
+        let result = super::issues_search(
+            &cfg,
+            None,
+            10,
+            "1d".into(),
+            "now".into(),
+            "TOTAL_COUNT".into(),
+            Some("trace".into()),
+            None,
+            None,
+            Some("not-a-uuid".into()),
+            None,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid --team value"));
+    }
+
+    #[tokio::test]
+    async fn test_issues_search_invalid_assignee_uuid() {
+        let cfg = test_config("http://unused.local");
+        let result = super::issues_search(
+            &cfg,
+            None,
+            10,
+            "1d".into(),
+            "now".into(),
+            "TOTAL_COUNT".into(),
+            Some("trace".into()),
+            None,
+            None,
+            None,
+            Some("not-a-uuid".into()),
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid --assignee value"));
     }
 
     #[test]
@@ -214,6 +350,24 @@ mod tests {
         assert!(
             result.is_err(),
             "expected error when neither --track nor --persona is provided"
+        );
+    }
+
+    #[test]
+    fn test_error_tracking_clap_state_accepted() {
+        let result = crate::Cli::command().try_get_matches_from([
+            "pup",
+            "error-tracking",
+            "issues",
+            "search",
+            "--track",
+            "trace",
+            "--state",
+            "OPEN",
+        ]);
+        assert!(
+            result.is_ok(),
+            "expected success when --state is provided alongside --track"
         );
     }
 }

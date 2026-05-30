@@ -172,7 +172,7 @@ pup infrastructure hosts list
 ### Development & Quality
 - **cicd** - CI/CD visibility (pipelines, events, tests, dora, flaky-tests)
 - **code-coverage** - Code coverage summaries (branch, commit)
-- **error-tracking** - Error management (issues search, issues get)
+- **error-tracking** - Error management (issues search, issues get); search supports `--state`, `--team`, `--assignee` filters
 - **scorecards** - Service quality (rules, outcomes)
 - **service-catalog** - Service registry (list, get)
 - **idp** - Service Catalog agent access (assist, find, owner, deps, register)
@@ -221,6 +221,14 @@ Available on all commands:
 ```
 
 ## Recent Enhancements
+
+### v0.64.x — Error Tracking Issue Filters (SDK PRs #1568, #1480)
+
+- **error-tracking issues search** — new optional filter flags:
+  - `--state <STATE>` — filter by issue state: `OPEN`, `ACKNOWLEDGED`, `RESOLVED`, `IGNORED`, `EXCLUDED`
+  - `--team <UUID>` — filter by team UUID assignee
+  - `--assignee <UUID>` — filter by user UUID assignee
+  - These flags are independent of the existing `--track`/`--persona` mutual exclusion
 
 ### v0.34.1 — ACP Server (Datadog AI Agent Integration)
 

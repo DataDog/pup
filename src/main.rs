@@ -3425,6 +3425,31 @@ enum MetricActions {
         #[command(subcommand)]
         action: MetricTagActions,
     },
+    /// Query v2 timeseries data via TimeseriesFormulaQueryRequest JSON body (SDK PR #1564)
+    ///
+    /// Provide a JSON file matching the TimeseriesFormulaQueryRequest schema.
+    /// To query across organisations, include `cross_org_uuids` inside each
+    /// query object in the file (SDK PR #1564 added this field to
+    /// MetricsTimeseriesQuery and MetricsScalarQuery).
+    ///
+    /// Example body (timeseries_request.json):
+    ///   {
+    ///     "data": {
+    ///       "attributes": {
+    ///         "formulas": [{"formula": "a"}],
+    ///         "from": 1700000000000,
+    ///         "interval": 5000,
+    ///         "queries": [{"data_source": "metrics", "query": "avg:system.cpu.user{*}", "name": "a",
+    ///                       "cross_org_uuids": ["<org-uuid>"]}],
+    ///         "to": 1700003600000
+    ///       },
+    ///       "type": "timeseries_request"
+    ///     }
+    ///   }
+    Timeseries {
+        #[arg(long, help = "JSON file with TimeseriesFormulaQueryRequest body")]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -3436,6 +3461,11 @@ enum MetricTagActions {
         from: String,
         #[arg(long, default_value = "now", help = "End time")]
         to: String,
+        #[arg(
+            long,
+            help = "Lookback window in seconds (SDK PR #1593; default 3600, max 2592000)"
+        )]
+        window_seconds: Option<i64>,
     },
 }
 
@@ -11189,10 +11219,17 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                 },
                 MetricActions::Tags { action } => match action {
-                    MetricTagActions::List { metric_name, .. } => {
-                        commands::metrics::tags_list(&cfg, &metric_name).await?;
+                    MetricTagActions::List {
+                        metric_name,
+                        window_seconds,
+                        ..
+                    } => {
+                        commands::metrics::tags_list(&cfg, &metric_name, window_seconds).await?;
                     }
                 },
+                MetricActions::Timeseries { file } => {
+                    commands::metrics::query_timeseries(&cfg, &file).await?;
+                }
             }
         }
         // --- SLOs ---

@@ -23,7 +23,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 |--------|-------------|------|--------|
 | acp | serve | src/commands/acp.rs | ✅ |
 | auth | login, logout, status, refresh | src/commands/auth.rs | ✅ |
-| metrics | query, list, get, search | src/commands/metrics.rs | ✅ |
+| metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, delete, search | src/commands/monitors.rs | ✅ |
@@ -113,6 +113,8 @@ pup logs search --query="service:api" --from="7d" --storage="flex"
 pup dbm samples search --query="dbm_type:activity service:orders env:prod" --from="1h" --limit=10
 pup metrics search --query="avg:system.cpu.user{*}" --from="1h"
 pup metrics query --query="avg:system.cpu.user{*}" --from="1h"
+pup metrics tags list system.cpu.user --window-seconds=3600
+pup metrics timeseries --file=request.json
 pup events search --query="@user.id:12345"
 ```
 

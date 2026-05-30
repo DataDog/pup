@@ -209,6 +209,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "security_monitoring_filters_read",
         "security_monitoring_filters_write",
         "security_monitoring_findings_read",
+        "security_monitoring_findings_write",
         "security_monitoring_rules_read",
         "security_monitoring_rules_write",
         "security_monitoring_signals_read",

@@ -136,17 +136,36 @@ pub async fn submit(cfg: &Config, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
-pub async fn tags_list(cfg: &Config, metric_name: &str) -> Result<()> {
+pub async fn tags_list(cfg: &Config, metric_name: &str, window_seconds: Option<i64>) -> Result<()> {
     use datadog_api_client::datadogV2::api_metrics::ListTagsByMetricNameOptionalParams;
 
     let api = crate::make_api!(MetricsV2API, cfg);
+    let mut params = ListTagsByMetricNameOptionalParams::default();
+    if let Some(w) = window_seconds {
+        params = params.window_seconds(w);
+    }
     let resp = api
-        .list_tags_by_metric_name(
-            metric_name.to_string(),
-            ListTagsByMetricNameOptionalParams::default(),
-        )
+        .list_tags_by_metric_name(metric_name.to_string(), params)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list tags for metric {metric_name}: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+/// Query timeseries data using the v2 metrics API.
+///
+/// The request body is provided as a JSON file matching the
+/// `TimeseriesFormulaQueryRequest` schema. Use `cross_org_uuids` inside the
+/// individual query objects in that file to enable cross-organisation queries
+/// (SDK PR #1564).
+pub async fn query_timeseries(cfg: &Config, file: &str) -> Result<()> {
+    use datadog_api_client::datadogV2::model::TimeseriesFormulaQueryRequest;
+
+    let api = crate::make_api!(MetricsV2API, cfg);
+    let body: TimeseriesFormulaQueryRequest = util::read_json_file(file)?;
+    let resp = api
+        .query_timeseries_data(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to query timeseries data: {e:?}"))?;
     formatter::output(cfg, &resp)
 }
 
@@ -253,6 +272,84 @@ mod tests {
             "metrics metadata get failed: {:?}",
             result.err()
         );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_metrics_tags_list_no_window() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(&mut server, "GET", r#"{"data": null}"#).await;
+
+        let result = super::tags_list(&cfg, "system.cpu.user", None).await;
+        assert!(
+            result.is_ok(),
+            "metrics tags list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_metrics_tags_list_with_window() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(&mut server, "GET", r#"{"data": null}"#).await;
+
+        let result = super::tags_list(&cfg, "system.cpu.user", Some(3600)).await;
+        assert!(
+            result.is_ok(),
+            "metrics tags list with window_seconds failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_metrics_query_timeseries() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(
+            &mut server,
+            "POST",
+            r#"{"data": {"type": "timeseries_response", "attributes": {"times": [], "values": [], "series": []}}}"#,
+        )
+        .await;
+
+        let body = r#"{
+            "data": {
+                "attributes": {
+                    "formulas": [{"formula": "a"}],
+                    "from": 0,
+                    "interval": 5000,
+                    "queries": [{"data_source": "metrics", "query": "avg:system.cpu.user{*}", "name": "a"}],
+                    "to": 3600000
+                },
+                "type": "timeseries_request"
+            }
+        }"#;
+        let tmp = write_temp_json("timeseries_test.json", body);
+        let result = super::query_timeseries(&cfg, tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "metrics query timeseries failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_metrics_query_timeseries_bad_file() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _ = mock_any(&mut server, "POST", r#"{}"#).await;
+
+        let result = super::query_timeseries(&cfg, "/nonexistent/path/request.json").await;
+        assert!(result.is_err(), "expected error for missing file, got ok");
         cleanup_env();
     }
 }

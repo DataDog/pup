@@ -18,9 +18,10 @@ use datadog_api_client::datadogV2::api_security_monitoring::{
 use datadog_api_client::datadogV2::model::{
     ApplicationSecurityWafCustomRuleCreateRequest, ApplicationSecurityWafCustomRuleUpdateRequest,
     ApplicationSecurityWafExclusionFilterCreateRequest,
-    ApplicationSecurityWafExclusionFilterUpdateRequest, RestrictionPolicyUpdateRequest,
-    SecurityMonitoringRuleBulkExportAttributes, SecurityMonitoringRuleBulkExportData,
-    SecurityMonitoringRuleBulkExportDataType, SecurityMonitoringRuleBulkExportPayload,
+    ApplicationSecurityWafExclusionFilterUpdateRequest, MuteFindingsRequest,
+    RestrictionPolicyUpdateRequest, SecurityMonitoringRuleBulkExportAttributes,
+    SecurityMonitoringRuleBulkExportData, SecurityMonitoringRuleBulkExportDataType,
+    SecurityMonitoringRuleBulkExportPayload, SecurityMonitoringRuleConvertBulkPayload,
     SecurityMonitoringRuleConvertPayload, SecurityMonitoringRuleSort,
     SecurityMonitoringSignalListRequest, SecurityMonitoringSignalListRequestFilter,
     SecurityMonitoringSignalListRequestPage, SecurityMonitoringSignalsSort,
@@ -288,6 +289,21 @@ pub async fn findings_search(cfg: &Config, query: Option<String>, limit: i64) ->
     formatter::output(cfg, &resp)
 }
 
+// ---- Mute Findings ----
+
+/// Mute or unmute security findings (stable, SDK #1519/#1660).
+/// Accepts up to 100 finding IDs per request. The `--file` must contain a
+/// JSON body shaped as `MuteFindingsRequest` (see Datadog docs).
+pub async fn findings_mute(cfg: &Config, file: &str) -> Result<()> {
+    let body: MuteFindingsRequest = util::read_json_file(file)?;
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+    let resp = api
+        .mute_security_findings(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to mute findings: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
 // ---- Bulk Export ----
 
 pub async fn rules_bulk_export(cfg: &Config, rule_ids: Vec<String>) -> Result<()> {
@@ -328,6 +344,22 @@ pub async fn rules_to_terraform(cfg: &Config, file: &str) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("failed to convert rule to Terraform: {e:?}"))?;
     formatter::output(cfg, &resp)
+}
+
+/// Bulk convert existing security monitoring rules to Terraform (SDK #1675).
+/// The `--file` must contain a JSON body shaped as
+/// `SecurityMonitoringRuleConvertBulkPayload`. Returns a ZIP archive written
+/// to stdout (pipe to a file if you want to save it).
+pub async fn rules_bulk_convert(cfg: &Config, file: &str) -> Result<()> {
+    let body: SecurityMonitoringRuleConvertBulkPayload = util::read_json_file(file)?;
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+    let bytes = api
+        .bulk_convert_existing_security_monitoring_rules(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to bulk convert security rules: {e:?}"))?;
+    let output = String::from_utf8_lossy(&bytes);
+    println!("{output}");
+    Ok(())
 }
 
 pub async fn terraform_export(cfg: &Config, resource_type: &str, resource_id: &str) -> Result<()> {
@@ -1098,5 +1130,105 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("invalid --sort value"));
+    }
+
+    #[tokio::test]
+    async fn test_findings_mute_ok() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = write_temp_json(
+            "pup_test_findings_mute.json",
+            r#"{"data":{"type":"mute","attributes":{"mute":{"is_muted":true,"reason":"FALSE_POSITIVE"}},"relationships":{"findings":{"data":[]}}}}"#,
+        );
+        let _mock = mock_any(
+            &mut server,
+            "PATCH",
+            r#"{"data":{"id":"mute-job-1","type":"mute_findings_response"}}"#,
+        )
+        .await;
+        let result = super::findings_mute(&cfg, tmp.to_str().unwrap()).await;
+        assert!(result.is_ok(), "findings_mute failed: {:?}", result.err());
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_findings_mute_error() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = write_temp_json(
+            "pup_test_findings_mute_err.json",
+            r#"{"data":{"type":"mute","attributes":{"mute":{"is_muted":true,"reason":"FALSE_POSITIVE"}},"relationships":{"findings":{"data":[]}}}}"#,
+        );
+        let _mock = server
+            .mock("PATCH", mockito::Matcher::Any)
+            .with_status(403)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Forbidden"]}"#)
+            .create_async()
+            .await;
+        let result = super::findings_mute(&cfg, tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "expected error for 403 response");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_rules_bulk_convert_ok() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = write_temp_json(
+            "pup_test_rules_bulk_convert.json",
+            r#"{"data":{"type":"security_monitoring_rules_convert_bulk","attributes":{"ruleIds":["abc-123"]}}}"#,
+        );
+        let zip_bytes: &[u8] = b"PK\x03\x04fake-zip-bytes";
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/zip")
+            .with_body(zip_bytes)
+            .create_async()
+            .await;
+        let result = super::rules_bulk_convert(&cfg, tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "rules_bulk_convert failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_rules_bulk_convert_error() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = write_temp_json(
+            "pup_test_rules_bulk_convert_err.json",
+            r#"{"data":{"type":"security_monitoring_rules_convert_bulk","attributes":{"ruleIds":["bad"]}}}"#,
+        );
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Bad Request"]}"#)
+            .create_async()
+            .await;
+        let result = super::rules_bulk_convert(&cfg, tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "expected error for 400 response");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
     }
 }

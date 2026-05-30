@@ -225,6 +225,12 @@ macro_rules! make_api_no_auth {
 
 /// All unstable operations (snake_case for the Rust DD client).
 static UNSTABLE_OPS: &[&str] = &[
+    // Annotations (5)
+    "v2.create_annotation",
+    "v2.delete_annotation",
+    "v2.get_page_annotations",
+    "v2.list_annotations",
+    "v2.update_annotation",
     // Incidents (26)
     "v2.list_incidents",
     "v2.search_incidents",
@@ -244,12 +250,6 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.get_incident_postmortem_template",
     "v2.list_incident_postmortem_templates",
     "v2.update_incident_postmortem_template",
-    // Incident Teams (5)
-    "v2.create_incident_team",
-    "v2.delete_incident_team",
-    "v2.get_incident_team",
-    "v2.list_incident_teams",
-    "v2.update_incident_team",
     // Incident Services (5)
     "v2.create_incident_service",
     "v2.delete_incident_service",
@@ -356,7 +356,7 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.delete_aws_cloud_auth_persona_mapping",
     "v2.get_aws_cloud_auth_persona_mapping",
     "v2.list_aws_cloud_auth_persona_mappings",
-    // LLM Observability (18)
+    // LLM Observability (21)
     "v2.create_llm_obs_project",
     "v2.list_llm_obs_projects",
     "v2.create_llm_obs_experiment",
@@ -365,6 +365,9 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.delete_llm_obs_experiments",
     "v2.create_llm_obs_dataset",
     "v2.list_llm_obs_datasets",
+    "v2.batch_update_llm_obs_dataset",
+    "v2.clone_llm_obs_dataset",
+    "v2.restore_llm_obs_dataset_version",
     "v2.create_llm_obs_annotation_queue",
     "v2.list_llm_obs_annotation_queues",
     "v2.update_llm_obs_annotation_queue",
@@ -420,6 +423,8 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.get_investigation",
     "v2.list_investigations",
     "v2.trigger_investigation",
+    // Cloud Cost Management — Anomalies (1)
+    "v2.list_cost_anomalies",
 ];
 
 // ---------------------------------------------------------------------------
@@ -642,7 +647,7 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
         path: "/api/v2/obs-pipelines/pipelines/validate",
         method: "POST",
     },
-    // Cost / Billing (9) — API key only, no OAuth support
+    // Cost / Billing (11) — API key only, no OAuth support
     EndpointRequirement {
         path: "/api/v2/usage/projected_cost",
         method: "GET",
@@ -703,6 +708,14 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
     EndpointRequirement {
         path: "/api/v2/cost/gcp_uc_config/",
         method: "DELETE",
+    },
+    EndpointRequirement {
+        path: "/api/v2/cost/oci_config",
+        method: "GET",
+    },
+    EndpointRequirement {
+        path: "/api/v2/cost/anomalies",
+        method: "GET",
     },
     // Profiling (4)
     // No OAuth scope is declared for Continuous Profiler endpoints; force API-key auth.
@@ -1279,12 +1292,12 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 167);
+        assert_eq!(UNSTABLE_OPS.len(), 171);
     }
 
     #[test]
     fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 52);
+        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 54);
     }
 
     #[test]

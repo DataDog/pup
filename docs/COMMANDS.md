@@ -23,11 +23,11 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 |--------|-------------|------|--------|
 | acp | serve | src/commands/acp.rs | ✅ |
 | auth | login, logout, status, refresh | src/commands/auth.rs | ✅ |
-| metrics | query, list, get, search | src/commands/metrics.rs | ✅ |
+| metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, delete, search | src/commands/monitors.rs | ✅ |
-| dashboards | list, get, delete, url | src/commands/dashboards.rs | ✅ |
+| dashboards | list, get, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
 | ddsql | table, time-series, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |
 | debugger | probes (list, get, create, delete, watch) | src/commands/debugger.rs | ✅ |
@@ -44,12 +44,12 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | api-keys | list, get, create, delete | src/commands/api_keys.rs | ✅ |
 | app-keys | list, get, create, update, delete | src/commands/app_keys.rs | ✅ |
 | infrastructure | hosts (list, get) | src/commands/infrastructure.rs | ✅ |
-| synthetics | tests, locations, suites | src/commands/synthetics.rs | ✅ |
+| synthetics | tests, locations, suites, downtime | src/commands/synthetics.rs | ✅ |
 | symdb | search | src/commands/symdb.rs | ✅ |
 | logs-restriction | list, get, create, update, delete, roles (list, add) | src/commands/logs_restriction.rs | ✅ |
 | processes | list | src/commands/processes.rs | ✅ |
 | users | list, get, roles, service-accounts (create, app-keys CRUD) | src/commands/users.rs | ✅ |
-| notebooks | list, get, delete | src/commands/notebooks.rs | ✅ |
+| notebooks | list, get, delete, annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |
@@ -66,7 +66,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
 | obs-pipelines | list, get, create, update, delete, validate | src/commands/obs_pipelines.rs | ✅ |
-| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get), metric-values, dimension-values), datasets (create, list), spans (search) | src/commands/llm_obs.rs | ✅ |
+| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore), spans (search) | src/commands/llm_obs.rs | ✅ |
 | reference-tables | list, get, create, batch-query | src/commands/reference_tables.rs | ✅ |
 | network | flows list, devices (list, get, interfaces, tags), interfaces (list, update) | src/commands/network.rs | ✅ |
 | cloud | aws, gcp, azure, oci | src/commands/cloud.rs | ✅ |
@@ -113,6 +113,8 @@ pup logs search --query="service:api" --from="7d" --storage="flex"
 pup dbm samples search --query="dbm_type:activity service:orders env:prod" --from="1h" --limit=10
 pup metrics search --query="avg:system.cpu.user{*}" --from="1h"
 pup metrics query --query="avg:system.cpu.user{*}" --from="1h"
+pup metrics tags list system.cpu.user --window-seconds=3600
+pup metrics timeseries --file=request.json
 pup events search --query="@user.id:12345"
 ```
 
@@ -148,7 +150,7 @@ pup infrastructure hosts list
 - **monitors** - Monitor management (list, get, delete)
 - **dashboards** - Dashboard management (list, get, delete, url)
 - **slos** - Service Level Objectives (list, get, delete, status)
-- **synthetics** - Synthetic monitoring (tests, locations, suites)
+- **synthetics** - Synthetic monitoring (tests, locations, suites, downtime)
 - **notebooks** - Investigation notebooks (list, get, delete)
 - **downtime** - Monitor downtime (list, get, cancel)
 - **status-pages** - Status pages with components and degradations
@@ -161,6 +163,8 @@ pup infrastructure hosts list
 
 ### Security & Compliance
 - **security** - Security monitoring (rules, signals, findings, content-packs, risk-scores)
+  - `pup security findings mute --file <body.json>` — Mute or unmute up to 100 findings (stable, SDK #1519/#1660)
+  - `pup security rules bulk-convert --file <payload.json>` — Bulk convert existing rules to Terraform ZIP archive (SDK #1675)
 - **static-analysis** - Code security (custom-rulesets, custom-rules)
 - **audit-logs** - Audit trail (list, search)
 - **data-governance** - Sensitive data scanning (scanner-rules list)
@@ -172,7 +176,7 @@ pup infrastructure hosts list
 ### Development & Quality
 - **cicd** - CI/CD visibility (pipelines, events, tests, dora, flaky-tests)
 - **code-coverage** - Code coverage summaries (branch, commit)
-- **error-tracking** - Error management (issues search, issues get)
+- **error-tracking** - Error management (issues search, issues get); search supports `--state`, `--team`, `--assignee` filters
 - **scorecards** - Service quality (rules, outcomes)
 - **service-catalog** - Service registry (list, get)
 - **idp** - Service Catalog agent access (assist, find, owner, deps, register)
@@ -197,7 +201,7 @@ pup infrastructure hosts list
 
 ### Cost & Usage
 - **usage** - Usage and billing (summary, hourly)
-- **costs** - Cost management: `datadog` subgroup (projected, attribution, by-org, aws-config, azure-config, gcp-config) and `ccm` subgroup (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments)
+- **costs** - Cost management: `datadog` subgroup (projected, attribution, by-org, aws-config, azure-config, gcp-config), `ccm` subgroup (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments), `oci-configs` subgroup (list), and `anomalies` subgroup (list)
 
 ### Configuration & Data Management
 - **obs-pipelines** - Observability pipelines (list, get, create, update, delete, validate)
@@ -222,6 +226,14 @@ Available on all commands:
 
 ## Recent Enhancements
 
+### v0.64.x — Error Tracking Issue Filters (SDK PRs #1568, #1480)
+
+- **error-tracking issues search** — new optional filter flags:
+  - `--state <STATE>` — filter by issue state: `OPEN`, `ACKNOWLEDGED`, `RESOLVED`, `IGNORED`, `EXCLUDED`
+  - `--team <UUID>` — filter by team UUID assignee
+  - `--assignee <UUID>` — filter by user UUID assignee
+  - These flags are independent of the existing `--track`/`--persona` mutual exclusion
+
 ### v0.34.1 — ACP Server (Datadog AI Agent Integration)
 
 - ✅ **acp** (new) — Local ACP + OpenAI-compatible server that proxies to Datadog Bits AI
@@ -243,7 +255,7 @@ Available on all commands:
 
 ### v0.28.0 — New Command Groups and Full Pipeline Implementation
 
-- ✅ **llm-obs** (new) — LLM Observability: projects (create, list), experiments (create, list, update, delete, summary, events (list, get), metric-values, dimension-values), datasets (create, list), spans (search)
+- ✅ **llm-obs** (new) — LLM Observability: projects (create, list), experiments (create, list, update, delete, summary, events (list, get), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore), spans (search)
 - ✅ **reference-tables** (new) — Reference table management (list, get, create, batch-query)
 - ✅ **obs-pipelines** (upgraded from placeholder) — Full CRUD: list, get, create, update, delete, validate
 - **costs** — Added cloud cost configs: `aws-config`, `azure-config`, `gcp-config` (list, get, create, delete each)
@@ -256,6 +268,7 @@ Available on all commands:
 - **integrations** — Added Jira integration (accounts, templates CRUD) and ServiceNow integration (instances, templates, users, assignment groups, business services)
 - **cloud** — Added OCI integration (tenancy configs CRUD, products)
 - **synthetics** — Added suites management (V2 API: search, get, create, update, delete)
+- **synthetics** — Added downtime management (V2 API: list, create, delete)
 - **security** — Added content packs (list, activate, deactivate), bulk rule export, and entity risk scores
 - **incidents** — Added global settings, handles, and postmortem template management
 - **cases** — Added Jira/ServiceNow issue linking, case project moves, and notification rules

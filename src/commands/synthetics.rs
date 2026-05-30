@@ -5,13 +5,14 @@ use datadog_api_client::datadogV1::api_synthetics::{
 use datadog_api_client::datadogV2::api_synthetics::{
     GetSyntheticsBrowserTestResultOptionalParams, GetSyntheticsTestResultOptionalParams,
     GetSyntheticsTestVersionOptionalParams, ListSyntheticsBrowserTestLatestResultsOptionalParams,
-    ListSyntheticsTestLatestResultsOptionalParams, ListSyntheticsTestVersionsOptionalParams,
-    SearchSuitesOptionalParams, SyntheticsAPI as SyntheticsV2API,
+    ListSyntheticsDowntimesOptionalParams, ListSyntheticsTestLatestResultsOptionalParams,
+    ListSyntheticsTestVersionsOptionalParams, SearchSuitesOptionalParams,
+    SyntheticsAPI as SyntheticsV2API,
 };
 use datadog_api_client::datadogV2::model::{
     DeletedSuitesRequestDelete, DeletedSuitesRequestDeleteAttributes,
-    DeletedSuitesRequestDeleteRequest, SuiteCreateEditRequest, SyntheticsTestResultRunType,
-    SyntheticsTestResultStatus,
+    DeletedSuitesRequestDeleteRequest, SuiteCreateEditRequest, SyntheticsDowntimeRequest,
+    SyntheticsTestResultRunType, SyntheticsTestResultStatus,
 };
 
 use crate::config::Config;
@@ -540,6 +541,47 @@ pub async fn tests_list_versions(
     formatter::output(cfg, &resp)
 }
 
+// ---- Downtimes (V2 API) ----
+
+pub async fn downtime_list(
+    cfg: &Config,
+    filter_test_ids: Option<String>,
+    filter_active: Option<String>,
+) -> Result<()> {
+    let api = crate::make_api!(SyntheticsV2API, cfg);
+    let mut params = ListSyntheticsDowntimesOptionalParams::default();
+    if let Some(ids) = filter_test_ids {
+        params = params.filter_test_ids(ids);
+    }
+    if let Some(active) = filter_active {
+        params = params.filter_active(active);
+    }
+    let resp = api
+        .list_synthetics_downtimes(params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list synthetics downtimes: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn downtime_create(cfg: &Config, file: &str) -> Result<()> {
+    let api = crate::make_api!(SyntheticsV2API, cfg);
+    let body: SyntheticsDowntimeRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .create_synthetics_downtime(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create synthetics downtime: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn downtime_delete(cfg: &Config, downtime_id: &str) -> Result<()> {
+    let api = crate::make_api!(SyntheticsV2API, cfg);
+    api.delete_synthetics_downtime(downtime_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete synthetics downtime: {e:?}"))?;
+    println!("Synthetics downtime {downtime_id} deleted.");
+    Ok(())
+}
+
 // ---- Multistep (V2 API) ----
 
 pub async fn multistep_get_subtests(cfg: &Config, public_id: &str) -> Result<()> {
@@ -819,5 +861,110 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("at least one result-id"));
+    }
+
+    #[tokio::test]
+    async fn test_synthetics_downtime_list() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _mock = mock_any(&mut s, "GET", r#"{"data":[]}"#).await;
+        let result = super::downtime_list(&cfg, None, None).await;
+        assert!(result.is_ok(), "downtime_list failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_synthetics_downtime_list_with_filters() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _mock = mock_any(&mut s, "GET", r#"{"data":[]}"#).await;
+        let result = super::downtime_list(
+            &cfg,
+            Some("abc-def-ghi".to_string()),
+            Some("true".to_string()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "downtime_list with filters failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_synthetics_downtime_list_error() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .with_status(403)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Forbidden"]}"#)
+            .create_async()
+            .await;
+        let result = super::downtime_list(&cfg, None, None).await;
+        assert!(result.is_err(), "expected 403 error from downtime_list");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_synthetics_downtime_create() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _mock = mock_any(
+            &mut s,
+            "POST",
+            r#"{"data":{"id":"dt-123","type":"downtime","attributes":{"createdAt":"2024-01-01T00:00:00+00:00","createdBy":"u1","createdByName":"User One","description":"","isEnabled":true,"name":"test","tags":[],"testIds":[],"timeSlots":[],"updatedAt":"2024-01-01T00:00:00+00:00","updatedBy":"u1","updatedByName":"User One"}}}"#,
+        )
+        .await;
+        let tmp = write_temp_json(
+            "downtime_create.json",
+            r#"{"data":{"type":"downtime","attributes":{"name":"test","isEnabled":true,"testIds":[],"timeSlots":[]}}}"#,
+        );
+        let result = super::downtime_create(&cfg, tmp.to_str().unwrap()).await;
+        assert!(result.is_ok(), "downtime_create failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_synthetics_downtime_delete() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _mock = server_mock_delete(&mut s).await;
+        let result = super::downtime_delete(&cfg, "dt-abc-123").await;
+        assert!(result.is_ok(), "downtime_delete failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_synthetics_downtime_delete_error() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("DELETE", mockito::Matcher::Any)
+            .with_status(404)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Not Found"]}"#)
+            .create_async()
+            .await;
+        let result = super::downtime_delete(&cfg, "nonexistent-dt").await;
+        assert!(result.is_err(), "expected 404 error from downtime_delete");
+        cleanup_env();
+    }
+
+    async fn server_mock_delete(s: &mut mockito::Server) -> mockito::Mock {
+        s.mock("DELETE", mockito::Matcher::Any)
+            .with_status(204)
+            .with_header("content-type", "application/json")
+            .with_body("")
+            .create_async()
+            .await
     }
 }

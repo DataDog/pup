@@ -3096,11 +3096,6 @@ enum IncidentActions {
         #[command(subcommand)]
         action: IncidentPostmortemActions,
     },
-    /// Manage incident teams
-    Teams {
-        #[command(subcommand)]
-        action: IncidentTeamActions,
-    },
     /// Manage incident services
     Services {
         #[command(subcommand)]
@@ -3111,27 +3106,6 @@ enum IncidentActions {
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
     },
-}
-
-#[derive(Subcommand)]
-enum IncidentTeamActions {
-    /// List incident teams
-    List,
-    /// Get incident team details
-    Get { team_id: String },
-    /// Create an incident team from JSON
-    Create {
-        #[arg(long, help = "JSON file with team data (required)")]
-        file: String,
-    },
-    /// Update an incident team
-    Update {
-        team_id: String,
-        #[arg(long, help = "JSON file with team data (required)")]
-        file: String,
-    },
-    /// Delete an incident team
-    Delete { team_id: String },
 }
 
 #[derive(Subcommand)]
@@ -3250,6 +3224,11 @@ enum DashboardActions {
     Widgets {
         #[command(subcommand)]
         action: WidgetActions,
+    },
+    /// Manage annotations on dashboard pages
+    Annotations {
+        #[command(subcommand)]
+        action: AnnotationsActions,
     },
 }
 
@@ -3451,6 +3430,31 @@ enum MetricActions {
         #[command(subcommand)]
         action: MetricTagActions,
     },
+    /// Query v2 timeseries data via TimeseriesFormulaQueryRequest JSON body (SDK PR #1564)
+    ///
+    /// Provide a JSON file matching the TimeseriesFormulaQueryRequest schema.
+    /// To query across organisations, include `cross_org_uuids` inside each
+    /// query object in the file (SDK PR #1564 added this field to
+    /// MetricsTimeseriesQuery and MetricsScalarQuery).
+    ///
+    /// Example body (timeseries_request.json):
+    ///   {
+    ///     "data": {
+    ///       "attributes": {
+    ///         "formulas": [{"formula": "a"}],
+    ///         "from": 1700000000000,
+    ///         "interval": 5000,
+    ///         "queries": [{"data_source": "metrics", "query": "avg:system.cpu.user{*}", "name": "a",
+    ///                       "cross_org_uuids": ["<org-uuid>"]}],
+    ///         "to": 1700003600000
+    ///       },
+    ///       "type": "timeseries_request"
+    ///     }
+    ///   }
+    Timeseries {
+        #[arg(long, help = "JSON file with TimeseriesFormulaQueryRequest body")]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -3462,6 +3466,11 @@ enum MetricTagActions {
         from: String,
         #[arg(long, default_value = "now", help = "End time")]
         to: String,
+        #[arg(
+            long,
+            help = "Lookback window in seconds (SDK PR #1593; default 3600, max 2592000)"
+        )]
+        window_seconds: Option<i64>,
     },
 }
 
@@ -3572,6 +3581,34 @@ enum SyntheticsActions {
     Multistep {
         #[command(subcommand)]
         action: SyntheticsMultistepActions,
+    },
+    /// Manage Synthetics downtimes
+    Downtime {
+        #[command(subcommand)]
+        action: SyntheticsDowntimeActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum SyntheticsDowntimeActions {
+    /// List all Synthetics downtimes
+    List {
+        /// Comma-separated list of Synthetics test public IDs to filter by
+        #[arg(long = "filter-test-ids")]
+        filter_test_ids: Option<String>,
+        /// If set to true, return only currently active downtimes
+        #[arg(long = "filter-active")]
+        filter_active: Option<String>,
+    },
+    /// Create a new Synthetics downtime (body from JSON file)
+    Create {
+        #[arg(long, help = "JSON file with downtime definition (required)")]
+        file: String,
+    },
+    /// Delete a Synthetics downtime by ID
+    Delete {
+        /// Downtime ID to delete
+        downtime_id: String,
     },
 }
 
@@ -4715,6 +4752,15 @@ enum SecurityRuleActions {
         #[arg(long, help = "JSON file with the rule conversion payload (required)")]
         file: String,
     },
+    /// Bulk convert existing rules to Terraform (returns a ZIP archive)
+    #[command(name = "bulk-convert")]
+    BulkConvert {
+        #[arg(
+            long,
+            help = "JSON file with SecurityMonitoringRuleConvertBulkPayload body (required)"
+        )]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -4784,6 +4830,11 @@ enum SecurityFindingActions {
         /// Max rows to return
         #[arg(long, default_value_t = 100)]
         limit: i64,
+    },
+    /// Mute or unmute security findings (up to 100 per request)
+    Mute {
+        #[arg(long, help = "JSON file with MuteFindingsRequest body (required)")]
+        file: String,
     },
 }
 
@@ -5739,6 +5790,11 @@ enum NotebookActions {
     },
     /// Delete a notebook
     Delete { notebook_id: i64 },
+    /// Manage annotations on notebook pages
+    Annotations {
+        #[command(subcommand)]
+        action: AnnotationsActions,
+    },
 }
 
 // ---- RUM ----
@@ -6905,6 +6961,15 @@ enum ErrorTrackingIssueActions {
             help = "Client persona filter: ALL, BROWSER, MOBILE, or BACKEND"
         )]
         persona: Option<String>,
+        #[arg(
+            long,
+            help = "Filter by issue state: OPEN, ACKNOWLEDGED, RESOLVED, IGNORED, EXCLUDED"
+        )]
+        state: Option<String>,
+        #[arg(long, help = "Filter by team UUID assignee")]
+        team: Option<String>,
+        #[arg(long, help = "Filter by user UUID assignee")]
+        assignee: Option<String>,
     },
     /// Get issue details
     Get { issue_id: String },
@@ -7518,6 +7583,17 @@ enum CostActions {
         #[command(subcommand)]
         action: CostCcmActions,
     },
+    /// Manage OCI (Oracle Cloud Infrastructure) cost configs
+    #[command(name = "oci-configs")]
+    OciConfigs {
+        #[command(subcommand)]
+        action: CostOciConfigsActions,
+    },
+    /// Manage Cloud Cost Management anomalies
+    Anomalies {
+        #[command(subcommand)]
+        action: CostAnomaliesActions,
+    },
 }
 
 #[derive(Subcommand)]
@@ -7943,6 +8019,20 @@ enum CostCcmCommitmentsActions {
         #[arg(long, help = "Tag filter (key:value syntax)")]
         filter_by: Option<String>,
     },
+}
+
+// ---- Cost OCI Configs ----
+#[derive(Subcommand)]
+enum CostOciConfigsActions {
+    /// List OCI cost configs
+    List,
+}
+
+// ---- Cost Anomalies ----
+#[derive(Subcommand)]
+enum CostAnomaliesActions {
+    /// List detected cost anomalies
+    List,
 }
 
 // ---- Misc ----
@@ -8708,6 +8798,33 @@ enum LlmObsDatasetsActions {
         #[arg(long, help = "Project ID (required)")]
         project_id: String,
     },
+    /// Batch insert, update, and delete records in a dataset
+    BatchUpdate {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(long, help = "JSON file with batch update body (required)")]
+        file: String,
+    },
+    /// Clone a dataset into a new dataset
+    Clone {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID to clone (required)")]
+        dataset_id: String,
+        #[arg(long, help = "JSON file with clone body (required)")]
+        file: String,
+    },
+    /// Restore a dataset to a previous version
+    Restore {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(long, help = "JSON file with restore version body (required)")]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -9172,6 +9289,75 @@ enum AliasActions {
         /// Path to YAML file containing aliases
         file: String,
     },
+}
+
+// ---- Annotations ----
+#[derive(Subcommand)]
+enum AnnotationsActions {
+    /// List annotations for a page within a time window
+    List {
+        #[arg(long, help = "Page ID (dashboard or notebook page)")]
+        page_id: String,
+        #[arg(long, help = "Start of time window (Unix epoch seconds)")]
+        start: i64,
+        #[arg(long, help = "End of time window (Unix epoch seconds)")]
+        end: i64,
+        #[arg(long, help = "Optional widget ID to filter results")]
+        widget_id: Option<String>,
+    },
+    /// Get all annotations on a page grouped by widget
+    GetPage {
+        #[arg(long, help = "Page ID (dashboard or notebook page)")]
+        page_id: String,
+        #[arg(long, help = "Start of time window (Unix epoch seconds)")]
+        start: i64,
+        #[arg(long, help = "End of time window (Unix epoch seconds)")]
+        end: i64,
+    },
+    /// Create a new annotation from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with AnnotationCreateRequest body (required)")]
+        file: String,
+    },
+    /// Update an existing annotation
+    Update {
+        /// Annotation UUID
+        annotation_id: uuid::Uuid,
+        #[arg(long, help = "JSON file with AnnotationUpdateRequest body (required)")]
+        file: String,
+    },
+    /// Delete an annotation by ID
+    Delete {
+        /// Annotation UUID
+        annotation_id: uuid::Uuid,
+    },
+}
+
+/// Shared dispatch for annotation subcommands. Annotations attach to a page
+/// (`dashboard:<id>` or `notebook:<id>`), so the same actions are exposed under
+/// both `pup dashboards annotations` and `pup notebooks annotations`.
+async fn run_annotations(cfg: &config::Config, action: AnnotationsActions) -> anyhow::Result<()> {
+    match action {
+        AnnotationsActions::List {
+            page_id,
+            start,
+            end,
+            widget_id,
+        } => commands::annotations::list(cfg, &page_id, start, end, widget_id).await,
+        AnnotationsActions::GetPage {
+            page_id,
+            start,
+            end,
+        } => commands::annotations::get_page(cfg, &page_id, start, end).await,
+        AnnotationsActions::Create { file } => commands::annotations::create(cfg, &file).await,
+        AnnotationsActions::Update {
+            annotation_id,
+            file,
+        } => commands::annotations::update(cfg, annotation_id, &file).await,
+        AnnotationsActions::Delete { annotation_id } => {
+            commands::annotations::delete(cfg, annotation_id).await
+        }
+    }
 }
 
 // ---- Skills ----
@@ -10990,23 +11176,6 @@ async fn main_inner() -> anyhow::Result<()> {
                             .await?;
                     }
                 },
-                IncidentActions::Teams { action } => match action {
-                    IncidentTeamActions::List => {
-                        commands::incidents::teams_list(&cfg).await?;
-                    }
-                    IncidentTeamActions::Get { team_id } => {
-                        commands::incidents::teams_get(&cfg, &team_id).await?;
-                    }
-                    IncidentTeamActions::Create { file } => {
-                        commands::incidents::teams_create(&cfg, &file).await?;
-                    }
-                    IncidentTeamActions::Update { team_id, file } => {
-                        commands::incidents::teams_update(&cfg, &team_id, &file).await?;
-                    }
-                    IncidentTeamActions::Delete { team_id } => {
-                        commands::incidents::teams_delete(&cfg, &team_id).await?;
-                    }
-                },
                 IncidentActions::Services { action } => match action {
                     IncidentServiceActions::List => {
                         commands::incidents::services_list(&cfg).await?;
@@ -11033,6 +11202,7 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Dashboards { action } => {
             cfg.validate_auth()?;
             match action {
+                DashboardActions::Annotations { action } => run_annotations(&cfg, action).await?,
                 DashboardActions::List => commands::dashboards::list(&cfg).await?,
                 DashboardActions::Get { id } => commands::dashboards::get(&cfg, &id).await?,
                 DashboardActions::Url {
@@ -11232,10 +11402,17 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                 },
                 MetricActions::Tags { action } => match action {
-                    MetricTagActions::List { metric_name, .. } => {
-                        commands::metrics::tags_list(&cfg, &metric_name).await?;
+                    MetricTagActions::List {
+                        metric_name,
+                        window_seconds,
+                        ..
+                    } => {
+                        commands::metrics::tags_list(&cfg, &metric_name, window_seconds).await?;
                     }
                 },
+                MetricActions::Timeseries { file } => {
+                    commands::metrics::query_timeseries(&cfg, &file).await?;
+                }
             }
         }
         // --- SLOs ---
@@ -11439,6 +11616,21 @@ async fn main_inner() -> anyhow::Result<()> {
                     SyntheticsMultistepActions::GetSubtestParents { public_id } => {
                         commands::synthetics::multistep_get_subtest_parents(&cfg, &public_id)
                             .await?;
+                    }
+                },
+                SyntheticsActions::Downtime { action } => match action {
+                    SyntheticsDowntimeActions::List {
+                        filter_test_ids,
+                        filter_active,
+                    } => {
+                        commands::synthetics::downtime_list(&cfg, filter_test_ids, filter_active)
+                            .await?;
+                    }
+                    SyntheticsDowntimeActions::Create { file } => {
+                        commands::synthetics::downtime_create(&cfg, &file).await?;
+                    }
+                    SyntheticsDowntimeActions::Delete { downtime_id } => {
+                        commands::synthetics::downtime_delete(&cfg, &downtime_id).await?;
                     }
                 },
             }
@@ -11717,6 +11909,9 @@ async fn main_inner() -> anyhow::Result<()> {
                     SecurityRuleActions::ToTerraform { file } => {
                         commands::security::rules_to_terraform(&cfg, &file).await?;
                     }
+                    SecurityRuleActions::BulkConvert { file } => {
+                        commands::security::rules_bulk_convert(&cfg, &file).await?;
+                    }
                 },
                 SecurityActions::Signals { action } => match action {
                     SecuritySignalActions::List {
@@ -11751,6 +11946,9 @@ async fn main_inner() -> anyhow::Result<()> {
                     } => {
                         commands::security::findings_analyze(&cfg, &query, &from, &to, limit)
                             .await?;
+                    }
+                    SecurityFindingActions::Mute { file } => {
+                        commands::security::findings_mute(&cfg, &file).await?;
                     }
                 },
                 SecurityActions::ContentPacks { action } => match action {
@@ -12430,6 +12628,7 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Notebooks { action } => {
             cfg.validate_auth()?;
             match action {
+                NotebookActions::Annotations { action } => run_annotations(&cfg, action).await?,
                 NotebookActions::List => commands::notebooks::list(&cfg).await?,
                 NotebookActions::Get { notebook_id } => {
                     commands::notebooks::get(&cfg, notebook_id).await?;
@@ -13088,9 +13287,13 @@ async fn main_inner() -> anyhow::Result<()> {
                         order_by,
                         track,
                         persona,
+                        state,
+                        team,
+                        assignee,
                     } => {
                         commands::error_tracking::issues_search(
-                            &cfg, query, limit, from, to, order_by, track, persona,
+                            &cfg, query, limit, from, to, order_by, track, persona, state, team,
+                            assignee,
                         )
                         .await?;
                     }
@@ -13946,6 +14149,12 @@ async fn main_inner() -> anyhow::Result<()> {
                         }
                     },
                 },
+                CostActions::OciConfigs { action } => match action {
+                    CostOciConfigsActions::List => commands::cost::oci_configs_list(&cfg).await?,
+                },
+                CostActions::Anomalies { action } => match action {
+                    CostAnomaliesActions::List => commands::cost::anomalies_list(&cfg).await?,
+                },
             }
         }
         // --- Misc ---
@@ -14703,6 +14912,35 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     LlmObsDatasetsActions::List { project_id } => {
                         commands::llm_obs::datasets_list(&cfg, &project_id).await?;
+                    }
+                    LlmObsDatasetsActions::BatchUpdate {
+                        project_id,
+                        dataset_id,
+                        file,
+                    } => {
+                        commands::llm_obs::datasets_batch_update(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            &file,
+                        )
+                        .await?;
+                    }
+                    LlmObsDatasetsActions::Clone {
+                        project_id,
+                        dataset_id,
+                        file,
+                    } => {
+                        commands::llm_obs::datasets_clone(&cfg, &project_id, &dataset_id, &file)
+                            .await?;
+                    }
+                    LlmObsDatasetsActions::Restore {
+                        project_id,
+                        dataset_id,
+                        file,
+                    } => {
+                        commands::llm_obs::datasets_restore(&cfg, &project_id, &dataset_id, &file)
+                            .await?;
                     }
                 },
                 LlmObsActions::Spans { action } => match action {

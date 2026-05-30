@@ -160,33 +160,6 @@ enum Commands {
         #[command(subcommand)]
         action: AgentlessScanningActions,
     },
-    /// Manage Datadog annotations
-    ///
-    /// Create, list, update, and delete annotations on dashboards and notebook pages.
-    /// Annotations mark events such as deployments, incidents, or other notable moments in time.
-    ///
-    /// COMMANDS:
-    ///   list         List annotations for a page within a time window
-    ///   get-page     Get all annotations on a page grouped by widget
-    ///   create       Create a new annotation from JSON
-    ///   update       Update an existing annotation
-    ///   delete       Delete an annotation by ID
-    ///
-    /// EXAMPLES:
-    ///   pup annotations list --page-id my-page --start 0 --end 3600
-    ///   pup annotations get-page --page-id my-page --start 0 --end 3600
-    ///   pup annotations create --file annotation.json
-    ///   pup annotations update <uuid> --file updated.json
-    ///   pup annotations delete <uuid>
-    ///
-    /// AUTHENTICATION:
-    ///   Requires OAuth2 (via 'pup auth login') or DD_API_KEY + DD_APP_KEY.
-    ///   Note: Annotations API is currently in unstable/preview status.
-    #[command(verbatim_doc_comment)]
-    Annotations {
-        #[command(subcommand)]
-        action: AnnotationsActions,
-    },
     /// Create shortcuts for pup commands
     ///
     /// Aliases can be used to make shortcuts for pup commands or to compose multiple commands.
@@ -3252,6 +3225,11 @@ enum DashboardActions {
         #[command(subcommand)]
         action: WidgetActions,
     },
+    /// Manage annotations on dashboard pages
+    Annotations {
+        #[command(subcommand)]
+        action: AnnotationsActions,
+    },
 }
 
 // ---- Debugger ----
@@ -5740,6 +5718,11 @@ enum NotebookActions {
     },
     /// Delete a notebook
     Delete { notebook_id: i64 },
+    /// Manage annotations on notebook pages
+    Annotations {
+        #[command(subcommand)]
+        action: AnnotationsActions,
+    },
 }
 
 // ---- RUM ----
@@ -9217,6 +9200,33 @@ enum AnnotationsActions {
     },
 }
 
+/// Shared dispatch for annotation subcommands. Annotations attach to a page
+/// (`dashboard:<id>` or `notebook:<id>`), so the same actions are exposed under
+/// both `pup dashboards annotations` and `pup notebooks annotations`.
+async fn run_annotations(cfg: &config::Config, action: AnnotationsActions) -> anyhow::Result<()> {
+    match action {
+        AnnotationsActions::List {
+            page_id,
+            start,
+            end,
+            widget_id,
+        } => commands::annotations::list(cfg, &page_id, start, end, widget_id).await,
+        AnnotationsActions::GetPage {
+            page_id,
+            start,
+            end,
+        } => commands::annotations::get_page(cfg, &page_id, start, end).await,
+        AnnotationsActions::Create { file } => commands::annotations::create(cfg, &file).await,
+        AnnotationsActions::Update {
+            annotation_id,
+            file,
+        } => commands::annotations::update(cfg, annotation_id, &file).await,
+        AnnotationsActions::Delete { annotation_id } => {
+            commands::annotations::delete(cfg, annotation_id).await
+        }
+    }
+}
+
 // ---- Skills ----
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Subcommand)]
@@ -11059,6 +11069,7 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Dashboards { action } => {
             cfg.validate_auth()?;
             match action {
+                DashboardActions::Annotations { action } => run_annotations(&cfg, action).await?,
                 DashboardActions::List => commands::dashboards::list(&cfg).await?,
                 DashboardActions::Get { id } => commands::dashboards::get(&cfg, &id).await?,
                 DashboardActions::Url {
@@ -12456,6 +12467,7 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Notebooks { action } => {
             cfg.validate_auth()?;
             match action {
+                NotebookActions::Annotations { action } => run_annotations(&cfg, action).await?,
                 NotebookActions::List => commands::notebooks::list(&cfg).await?,
                 NotebookActions::Get { notebook_id } => {
                     commands::notebooks::get(&cfg, notebook_id).await?;
@@ -14375,39 +14387,6 @@ async fn main_inner() -> anyhow::Result<()> {
             AliasActions::Delete { names } => commands::alias::delete(names)?,
             AliasActions::Import { file } => commands::alias::import(&file)?,
         },
-        // --- Annotations ---
-        Commands::Annotations { action } => {
-            cfg.validate_auth()?;
-            match action {
-                AnnotationsActions::List {
-                    page_id,
-                    start,
-                    end,
-                    widget_id,
-                } => {
-                    commands::annotations::list(&cfg, &page_id, start, end, widget_id).await?;
-                }
-                AnnotationsActions::GetPage {
-                    page_id,
-                    start,
-                    end,
-                } => {
-                    commands::annotations::get_page(&cfg, &page_id, start, end).await?;
-                }
-                AnnotationsActions::Create { file } => {
-                    commands::annotations::create(&cfg, &file).await?;
-                }
-                AnnotationsActions::Update {
-                    annotation_id,
-                    file,
-                } => {
-                    commands::annotations::update(&cfg, annotation_id, &file).await?;
-                }
-                AnnotationsActions::Delete { annotation_id } => {
-                    commands::annotations::delete(&cfg, annotation_id).await?;
-                }
-            }
-        }
         // --- Api ---
         Commands::Api {
             endpoint,

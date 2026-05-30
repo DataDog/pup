@@ -22,13 +22,12 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | Domain | Subcommands | File | Status |
 |--------|-------------|------|--------|
 | acp | serve | src/commands/acp.rs | ✅ |
-| annotations | list, get-page, create, update, delete | src/commands/annotations.rs | ✅ (unstable) |
 | auth | login, logout, status, refresh | src/commands/auth.rs | ✅ |
 | metrics | query, list, get, search | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, delete, search | src/commands/monitors.rs | ✅ |
-| dashboards | list, get, delete, url | src/commands/dashboards.rs | ✅ |
+| dashboards | list, get, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
 | ddsql | table, time-series, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |
 | debugger | probes (list, get, create, delete, watch) | src/commands/debugger.rs | ✅ |
@@ -50,7 +49,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | logs-restriction | list, get, create, update, delete, roles (list, add) | src/commands/logs_restriction.rs | ✅ |
 | processes | list | src/commands/processes.rs | ✅ |
 | users | list, get, roles, service-accounts (create, app-keys CRUD) | src/commands/users.rs | ✅ |
-| notebooks | list, get, delete | src/commands/notebooks.rs | ✅ |
+| notebooks | list, get, delete, annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |

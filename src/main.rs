@@ -7501,6 +7501,17 @@ enum CostActions {
         #[command(subcommand)]
         action: CostCcmActions,
     },
+    /// Manage OCI (Oracle Cloud Infrastructure) cost configs
+    #[command(name = "oci-configs")]
+    OciConfigs {
+        #[command(subcommand)]
+        action: CostOciConfigsActions,
+    },
+    /// Manage Cloud Cost Management anomalies
+    Anomalies {
+        #[command(subcommand)]
+        action: CostAnomaliesActions,
+    },
 }
 
 #[derive(Subcommand)]
@@ -7926,6 +7937,20 @@ enum CostCcmCommitmentsActions {
         #[arg(long, help = "Tag filter (key:value syntax)")]
         filter_by: Option<String>,
     },
+}
+
+// ---- Cost OCI Configs ----
+#[derive(Subcommand)]
+enum CostOciConfigsActions {
+    /// List OCI cost configs
+    List,
+}
+
+// ---- Cost Anomalies ----
+#[derive(Subcommand)]
+enum CostAnomaliesActions {
+    /// List detected cost anomalies
+    List,
 }
 
 // ---- Misc ----
@@ -13942,6 +13967,12 @@ async fn main_inner() -> anyhow::Result<()> {
                             .await?;
                         }
                     },
+                },
+                CostActions::OciConfigs { action } => match action {
+                    CostOciConfigsActions::List => commands::cost::oci_configs_list(&cfg).await?,
+                },
+                CostActions::Anomalies { action } => match action {
+                    CostAnomaliesActions::List => commands::cost::anomalies_list(&cfg).await?,
                 },
             }
         }

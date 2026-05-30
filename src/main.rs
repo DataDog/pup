@@ -3547,6 +3547,34 @@ enum SyntheticsActions {
         #[command(subcommand)]
         action: SyntheticsMultistepActions,
     },
+    /// Manage Synthetics downtimes
+    Downtime {
+        #[command(subcommand)]
+        action: SyntheticsDowntimeActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum SyntheticsDowntimeActions {
+    /// List all Synthetics downtimes
+    List {
+        /// Comma-separated list of Synthetics test public IDs to filter by
+        #[arg(long = "filter-test-ids")]
+        filter_test_ids: Option<String>,
+        /// If set to true, return only currently active downtimes
+        #[arg(long = "filter-active")]
+        filter_active: Option<String>,
+    },
+    /// Create a new Synthetics downtime (body from JSON file)
+    Create {
+        #[arg(long, help = "JSON file with downtime definition (required)")]
+        file: String,
+    },
+    /// Delete a Synthetics downtime by ID
+    Delete {
+        /// Downtime ID to delete
+        downtime_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -11471,6 +11499,21 @@ async fn main_inner() -> anyhow::Result<()> {
                     SyntheticsMultistepActions::GetSubtestParents { public_id } => {
                         commands::synthetics::multistep_get_subtest_parents(&cfg, &public_id)
                             .await?;
+                    }
+                },
+                SyntheticsActions::Downtime { action } => match action {
+                    SyntheticsDowntimeActions::List {
+                        filter_test_ids,
+                        filter_active,
+                    } => {
+                        commands::synthetics::downtime_list(&cfg, filter_test_ids, filter_active)
+                            .await?;
+                    }
+                    SyntheticsDowntimeActions::Create { file } => {
+                        commands::synthetics::downtime_create(&cfg, &file).await?;
+                    }
+                    SyntheticsDowntimeActions::Delete { downtime_id } => {
+                        commands::synthetics::downtime_delete(&cfg, &downtime_id).await?;
                     }
                 },
             }

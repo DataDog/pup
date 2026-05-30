@@ -414,6 +414,8 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.get_investigation",
     "v2.list_investigations",
     "v2.trigger_investigation",
+    // Cloud Cost Management — Anomalies (1)
+    "v2.list_cost_anomalies",
 ];
 
 // ---------------------------------------------------------------------------
@@ -636,7 +638,7 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
         path: "/api/v2/obs-pipelines/pipelines/validate",
         method: "POST",
     },
-    // Cost / Billing (9) — API key only, no OAuth support
+    // Cost / Billing (11) — API key only, no OAuth support
     EndpointRequirement {
         path: "/api/v2/usage/projected_cost",
         method: "GET",
@@ -697,6 +699,14 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
     EndpointRequirement {
         path: "/api/v2/cost/gcp_uc_config/",
         method: "DELETE",
+    },
+    EndpointRequirement {
+        path: "/api/v2/cost/oci_config",
+        method: "GET",
+    },
+    EndpointRequirement {
+        path: "/api/v2/cost/anomalies",
+        method: "GET",
     },
     // Profiling (4)
     // No OAuth scope is declared for Continuous Profiler endpoints; force API-key auth.
@@ -1273,12 +1283,12 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 162);
+        assert_eq!(UNSTABLE_OPS.len(), 163);
     }
 
     #[test]
     fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 52);
+        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 54);
     }
 
     #[test]

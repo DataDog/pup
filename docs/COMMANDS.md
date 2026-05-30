@@ -197,7 +197,7 @@ pup infrastructure hosts list
 
 ### Cost & Usage
 - **usage** - Usage and billing (summary, hourly)
-- **costs** - Cost management: `datadog` subgroup (projected, attribution, by-org, aws-config, azure-config, gcp-config) and `ccm` subgroup (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments)
+- **costs** - Cost management: `datadog` subgroup (projected, attribution, by-org, aws-config, azure-config, gcp-config), `ccm` subgroup (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments), `oci-configs` subgroup (list), and `anomalies` subgroup (list)
 
 ### Configuration & Data Management
 - **obs-pipelines** - Observability pipelines (list, get, create, update, delete, validate)

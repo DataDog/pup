@@ -350,7 +350,7 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.delete_aws_cloud_auth_persona_mapping",
     "v2.get_aws_cloud_auth_persona_mapping",
     "v2.list_aws_cloud_auth_persona_mappings",
-    // LLM Observability (18)
+    // LLM Observability (21)
     "v2.create_llm_obs_project",
     "v2.list_llm_obs_projects",
     "v2.create_llm_obs_experiment",
@@ -359,6 +359,9 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.delete_llm_obs_experiments",
     "v2.create_llm_obs_dataset",
     "v2.list_llm_obs_datasets",
+    "v2.batch_update_llm_obs_dataset",
+    "v2.clone_llm_obs_dataset",
+    "v2.restore_llm_obs_dataset_version",
     "v2.create_llm_obs_annotation_queue",
     "v2.list_llm_obs_annotation_queues",
     "v2.update_llm_obs_annotation_queue",
@@ -1273,7 +1276,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 162);
+        assert_eq!(UNSTABLE_OPS.len(), 165);
     }
 
     #[test]

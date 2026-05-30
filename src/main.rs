@@ -8682,6 +8682,33 @@ enum LlmObsDatasetsActions {
         #[arg(long, help = "Project ID (required)")]
         project_id: String,
     },
+    /// Batch insert, update, and delete records in a dataset
+    BatchUpdate {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(long, help = "JSON file with batch update body (required)")]
+        file: String,
+    },
+    /// Clone a dataset into a new dataset
+    Clone {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID to clone (required)")]
+        dataset_id: String,
+        #[arg(long, help = "JSON file with clone body (required)")]
+        file: String,
+    },
+    /// Restore a dataset to a previous version
+    Restore {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(long, help = "JSON file with restore version body (required)")]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -14660,6 +14687,35 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     LlmObsDatasetsActions::List { project_id } => {
                         commands::llm_obs::datasets_list(&cfg, &project_id).await?;
+                    }
+                    LlmObsDatasetsActions::BatchUpdate {
+                        project_id,
+                        dataset_id,
+                        file,
+                    } => {
+                        commands::llm_obs::datasets_batch_update(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            &file,
+                        )
+                        .await?;
+                    }
+                    LlmObsDatasetsActions::Clone {
+                        project_id,
+                        dataset_id,
+                        file,
+                    } => {
+                        commands::llm_obs::datasets_clone(&cfg, &project_id, &dataset_id, &file)
+                            .await?;
+                    }
+                    LlmObsDatasetsActions::Restore {
+                        project_id,
+                        dataset_id,
+                        file,
+                    } => {
+                        commands::llm_obs::datasets_restore(&cfg, &project_id, &dataset_id, &file)
+                            .await?;
                     }
                 },
                 LlmObsActions::Spans { action } => match action {

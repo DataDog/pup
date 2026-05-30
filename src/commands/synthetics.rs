@@ -5,8 +5,8 @@ use datadog_api_client::datadogV1::api_synthetics::{
 use datadog_api_client::datadogV2::api_synthetics::{
     GetSyntheticsBrowserTestResultOptionalParams, GetSyntheticsTestResultOptionalParams,
     GetSyntheticsTestVersionOptionalParams, ListSyntheticsBrowserTestLatestResultsOptionalParams,
-    ListSyntheticsTestLatestResultsOptionalParams, ListSyntheticsTestVersionsOptionalParams,
-    ListSyntheticsDowntimesOptionalParams, SearchSuitesOptionalParams,
+    ListSyntheticsDowntimesOptionalParams, ListSyntheticsTestLatestResultsOptionalParams,
+    ListSyntheticsTestVersionsOptionalParams, SearchSuitesOptionalParams,
     SyntheticsAPI as SyntheticsV2API,
 };
 use datadog_api_client::datadogV2::model::{
@@ -870,11 +870,7 @@ mod tests {
         let cfg = test_config(&s.url());
         let _mock = mock_any(&mut s, "GET", r#"{"data":[]}"#).await;
         let result = super::downtime_list(&cfg, None, None).await;
-        assert!(
-            result.is_ok(),
-            "downtime_list failed: {:?}",
-            result.err()
-        );
+        assert!(result.is_ok(), "downtime_list failed: {:?}", result.err());
         cleanup_env();
     }
 
@@ -931,11 +927,7 @@ mod tests {
             r#"{"data":{"type":"downtime","attributes":{"name":"test","isEnabled":true,"testIds":[],"timeSlots":[]}}}"#,
         );
         let result = super::downtime_create(&cfg, tmp.to_str().unwrap()).await;
-        assert!(
-            result.is_ok(),
-            "downtime_create failed: {:?}",
-            result.err()
-        );
+        assert!(result.is_ok(), "downtime_create failed: {:?}", result.err());
         cleanup_env();
     }
 
@@ -946,11 +938,7 @@ mod tests {
         let cfg = test_config(&s.url());
         let _mock = server_mock_delete(&mut s).await;
         let result = super::downtime_delete(&cfg, "dt-abc-123").await;
-        assert!(
-            result.is_ok(),
-            "downtime_delete failed: {:?}",
-            result.err()
-        );
+        assert!(result.is_ok(), "downtime_delete failed: {:?}", result.err());
         cleanup_env();
     }
 

@@ -7629,6 +7629,40 @@ enum CostCcmActions {
         #[command(subcommand)]
         action: CostCcmCommitmentsActions,
     },
+    /// Search cost optimization recommendations (rightsize, terminate, idle resources)
+    Recommendations {
+        #[command(subcommand)]
+        action: CostCcmRecommendationsActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum CostCcmRecommendationsActions {
+    /// List cost recommendations matching a filter, with pagination and sorting
+    Search {
+        #[arg(
+            long,
+            default_value = "active",
+            help = "View: active, dismissed, open, in-progress, completed, all"
+        )]
+        view: String,
+        #[arg(
+            long,
+            help = "Filter expression applied to the recommendations (server-side facet syntax)"
+        )]
+        filter: Option<String>,
+        #[arg(long, help = "Sort field (e.g. potential_daily_savings)")]
+        sort_by: Option<String>,
+        #[arg(
+            long,
+            help = "Sort order: asc or desc (default: desc when --sort-by is set)"
+        )]
+        order: Option<String>,
+        #[arg(long, help = "Page size (1-10000)")]
+        page_size: Option<String>,
+        #[arg(long, help = "Pagination token from a prior response")]
+        page_token: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -13941,6 +13975,21 @@ async fn main_inner() -> anyhow::Result<()> {
                                 &to,
                                 commitment_type,
                                 filter_by,
+                            )
+                            .await?;
+                        }
+                    },
+                    CostCcmActions::Recommendations { action } => match action {
+                        CostCcmRecommendationsActions::Search {
+                            view,
+                            filter,
+                            sort_by,
+                            order,
+                            page_size,
+                            page_token,
+                        } => {
+                            commands::cost_ccm::recommendations_search(
+                                &cfg, view, filter, sort_by, order, page_size, page_token,
                             )
                             .await?;
                         }

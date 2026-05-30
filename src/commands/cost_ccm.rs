@@ -593,6 +593,97 @@ pub async fn commitments_list(
     commitment_call(cfg, "/api/v2/cost/commitments/commitment-list", &q).await
 }
 
+// ---- Recommendations ----
+
+const RECOMMENDATIONS_VIEWS: &[&str] = &[
+    "active",
+    "dismissed",
+    "open",
+    "in-progress",
+    "completed",
+    "all",
+];
+
+fn build_recommendations_body(
+    view: &str,
+    filter: Option<&str>,
+    sort_by: Option<&str>,
+    order: Option<&str>,
+) -> Result<serde_json::Value> {
+    if !RECOMMENDATIONS_VIEWS.contains(&view) {
+        anyhow::bail!(
+            "invalid --view '{view}'; expected one of: {}",
+            RECOMMENDATIONS_VIEWS.join(", ")
+        );
+    }
+    let mut attrs = serde_json::Map::new();
+    attrs.insert("view".into(), serde_json::Value::String(view.into()));
+    if let Some(f) = filter {
+        attrs.insert("filter".into(), serde_json::Value::String(f.into()));
+    }
+    if let Some(field) = sort_by {
+        let ord = order.unwrap_or("desc");
+        if ord != "asc" && ord != "desc" {
+            anyhow::bail!("invalid --order '{ord}'; expected 'asc' or 'desc'");
+        }
+        attrs.insert(
+            "sort".into(),
+            serde_json::json!([{ "field": field, "order": ord }]),
+        );
+    } else if order.is_some() {
+        anyhow::bail!("--order requires --sort-by");
+    }
+    Ok(serde_json::json!({
+        "data": { "type": "recommendations_filter", "attributes": attrs },
+    }))
+}
+
+pub async fn recommendations_search(
+    cfg: &Config,
+    view: String,
+    filter: Option<String>,
+    sort_by: Option<String>,
+    order: Option<String>,
+    page_size: Option<String>,
+    page_token: Option<String>,
+) -> Result<()> {
+    let body = build_recommendations_body(
+        &view,
+        filter.as_deref(),
+        sort_by.as_deref(),
+        order.as_deref(),
+    )?;
+    let body_bytes =
+        serde_json::to_vec(&body).map_err(|e| anyhow::anyhow!("failed to serialize body: {e}"))?;
+
+    let mut params: Vec<(String, String)> = Vec::new();
+    if let Some(ps) = page_size {
+        params.push(("page[size]".into(), ps));
+    }
+    if let Some(pt) = page_token {
+        params.push(("page[token]".into(), pt));
+    }
+    let q: Vec<(&str, &str)> = params
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    let resp = client::raw_request(
+        cfg,
+        "POST",
+        "/api/v2/cost/recommendations",
+        &q,
+        Some(body_bytes),
+        Some("application/vnd.api+json"),
+        "application/vnd.api+json",
+        &[],
+    )
+    .await?;
+    let value: serde_json::Value = serde_json::from_slice(&resp.bytes)
+        .map_err(|e| anyhow::anyhow!("failed to parse recommendations response: {e}"))?;
+    formatter::output(cfg, &value)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
@@ -837,6 +928,109 @@ mod tests {
             result.err()
         );
         let _ = std::fs::remove_file(&tmp);
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_build_recommendations_body_minimal() {
+        let body = super::build_recommendations_body("active", None, None, None).unwrap();
+        assert_eq!(body["data"]["type"], "recommendations_filter");
+        assert_eq!(body["data"]["attributes"]["view"], "active");
+        assert!(body["data"]["attributes"].get("filter").is_none());
+        assert!(body["data"]["attributes"].get("sort").is_none());
+    }
+
+    #[test]
+    fn test_build_recommendations_body_with_sort_default_order() {
+        let body = super::build_recommendations_body(
+            "dismissed",
+            None,
+            Some("potential_daily_savings"),
+            None,
+        )
+        .unwrap();
+        let sort = &body["data"]["attributes"]["sort"];
+        assert!(sort.is_array());
+        assert_eq!(sort[0]["field"], "potential_daily_savings");
+        assert_eq!(sort[0]["order"], "desc");
+    }
+
+    #[test]
+    fn test_build_recommendations_body_with_filter_and_sort_asc() {
+        let body = super::build_recommendations_body(
+            "open",
+            Some("resource_type:aws_s3_bucket"),
+            Some("potential_daily_savings"),
+            Some("asc"),
+        )
+        .unwrap();
+        assert_eq!(
+            body["data"]["attributes"]["filter"],
+            "resource_type:aws_s3_bucket"
+        );
+        assert_eq!(body["data"]["attributes"]["sort"][0]["order"], "asc");
+    }
+
+    #[test]
+    fn test_build_recommendations_body_invalid_view() {
+        let err = super::build_recommendations_body("bogus", None, None, None).unwrap_err();
+        assert!(err.to_string().contains("invalid --view"));
+    }
+
+    #[test]
+    fn test_build_recommendations_body_invalid_order() {
+        let err = super::build_recommendations_body(
+            "active",
+            None,
+            Some("potential_daily_savings"),
+            Some("sideways"),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("invalid --order"));
+    }
+
+    #[test]
+    fn test_build_recommendations_body_order_without_sort_by() {
+        let err = super::build_recommendations_body("active", None, None, Some("asc")).unwrap_err();
+        assert!(err.to_string().contains("--order requires --sort-by"));
+    }
+
+    #[tokio::test]
+    async fn test_recommendations_search_success() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(
+            &mut server,
+            "POST",
+            r#"{"data":[],"meta":{"page":{"page_size":1}}}"#,
+        )
+        .await;
+        let result = super::recommendations_search(
+            &cfg,
+            "active".into(),
+            None,
+            None,
+            None,
+            Some("1".into()),
+            None,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "recommendations_search failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_recommendations_search_invalid_view_errors_before_request() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://127.0.0.1:1"); // would fail if a request escaped
+        let result =
+            super::recommendations_search(&cfg, "nope".into(), None, None, None, None, None).await;
+        assert!(result.is_err());
         cleanup_env();
     }
 }

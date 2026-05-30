@@ -161,6 +161,8 @@ pup infrastructure hosts list
 
 ### Security & Compliance
 - **security** - Security monitoring (rules, signals, findings, content-packs, risk-scores)
+  - `pup security findings mute --file <body.json>` — Mute or unmute up to 100 findings (stable, SDK #1519/#1660)
+  - `pup security rules bulk-convert --file <payload.json>` — Bulk convert existing rules to Terraform ZIP archive (SDK #1675)
 - **static-analysis** - Code security (custom-rulesets, custom-rules)
 - **audit-logs** - Audit trail (list, search)
 - **data-governance** - Sensitive data scanning (scanner-rules list)

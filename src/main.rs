@@ -4689,6 +4689,15 @@ enum SecurityRuleActions {
         #[arg(long, help = "JSON file with the rule conversion payload (required)")]
         file: String,
     },
+    /// Bulk convert existing rules to Terraform (returns a ZIP archive)
+    #[command(name = "bulk-convert")]
+    BulkConvert {
+        #[arg(
+            long,
+            help = "JSON file with SecurityMonitoringRuleConvertBulkPayload body (required)"
+        )]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -4758,6 +4767,11 @@ enum SecurityFindingActions {
         /// Max rows to return
         #[arg(long, default_value_t = 100)]
         limit: i64,
+    },
+    /// Mute or unmute security findings (up to 100 per request)
+    Mute {
+        #[arg(long, help = "JSON file with MuteFindingsRequest body (required)")]
+        file: String,
     },
 }
 
@@ -11735,6 +11749,9 @@ async fn main_inner() -> anyhow::Result<()> {
                     SecurityRuleActions::ToTerraform { file } => {
                         commands::security::rules_to_terraform(&cfg, &file).await?;
                     }
+                    SecurityRuleActions::BulkConvert { file } => {
+                        commands::security::rules_bulk_convert(&cfg, &file).await?;
+                    }
                 },
                 SecurityActions::Signals { action } => match action {
                     SecuritySignalActions::List {
@@ -11769,6 +11786,9 @@ async fn main_inner() -> anyhow::Result<()> {
                     } => {
                         commands::security::findings_analyze(&cfg, &query, &from, &to, limit)
                             .await?;
+                    }
+                    SecurityFindingActions::Mute { file } => {
+                        commands::security::findings_mute(&cfg, &file).await?;
                     }
                 },
                 SecurityActions::ContentPacks { action } => match action {

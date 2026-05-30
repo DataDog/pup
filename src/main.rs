@@ -3225,6 +3225,11 @@ enum DashboardActions {
         #[command(subcommand)]
         action: WidgetActions,
     },
+    /// Manage annotations on dashboard pages
+    Annotations {
+        #[command(subcommand)]
+        action: AnnotationsActions,
+    },
 }
 
 // ---- Debugger ----
@@ -5755,6 +5760,11 @@ enum NotebookActions {
     },
     /// Delete a notebook
     Delete { notebook_id: i64 },
+    /// Manage annotations on notebook pages
+    Annotations {
+        #[command(subcommand)]
+        action: AnnotationsActions,
+    },
 }
 
 // ---- RUM ----
@@ -9251,6 +9261,75 @@ enum AliasActions {
     },
 }
 
+// ---- Annotations ----
+#[derive(Subcommand)]
+enum AnnotationsActions {
+    /// List annotations for a page within a time window
+    List {
+        #[arg(long, help = "Page ID (dashboard or notebook page)")]
+        page_id: String,
+        #[arg(long, help = "Start of time window (Unix epoch seconds)")]
+        start: i64,
+        #[arg(long, help = "End of time window (Unix epoch seconds)")]
+        end: i64,
+        #[arg(long, help = "Optional widget ID to filter results")]
+        widget_id: Option<String>,
+    },
+    /// Get all annotations on a page grouped by widget
+    GetPage {
+        #[arg(long, help = "Page ID (dashboard or notebook page)")]
+        page_id: String,
+        #[arg(long, help = "Start of time window (Unix epoch seconds)")]
+        start: i64,
+        #[arg(long, help = "End of time window (Unix epoch seconds)")]
+        end: i64,
+    },
+    /// Create a new annotation from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with AnnotationCreateRequest body (required)")]
+        file: String,
+    },
+    /// Update an existing annotation
+    Update {
+        /// Annotation UUID
+        annotation_id: uuid::Uuid,
+        #[arg(long, help = "JSON file with AnnotationUpdateRequest body (required)")]
+        file: String,
+    },
+    /// Delete an annotation by ID
+    Delete {
+        /// Annotation UUID
+        annotation_id: uuid::Uuid,
+    },
+}
+
+/// Shared dispatch for annotation subcommands. Annotations attach to a page
+/// (`dashboard:<id>` or `notebook:<id>`), so the same actions are exposed under
+/// both `pup dashboards annotations` and `pup notebooks annotations`.
+async fn run_annotations(cfg: &config::Config, action: AnnotationsActions) -> anyhow::Result<()> {
+    match action {
+        AnnotationsActions::List {
+            page_id,
+            start,
+            end,
+            widget_id,
+        } => commands::annotations::list(cfg, &page_id, start, end, widget_id).await,
+        AnnotationsActions::GetPage {
+            page_id,
+            start,
+            end,
+        } => commands::annotations::get_page(cfg, &page_id, start, end).await,
+        AnnotationsActions::Create { file } => commands::annotations::create(cfg, &file).await,
+        AnnotationsActions::Update {
+            annotation_id,
+            file,
+        } => commands::annotations::update(cfg, annotation_id, &file).await,
+        AnnotationsActions::Delete { annotation_id } => {
+            commands::annotations::delete(cfg, annotation_id).await
+        }
+    }
+}
+
 // ---- Skills ----
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Subcommand)]
@@ -11093,6 +11172,7 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Dashboards { action } => {
             cfg.validate_auth()?;
             match action {
+                DashboardActions::Annotations { action } => run_annotations(&cfg, action).await?,
                 DashboardActions::List => commands::dashboards::list(&cfg).await?,
                 DashboardActions::Get { id } => commands::dashboards::get(&cfg, &id).await?,
                 DashboardActions::Url {
@@ -12511,6 +12591,7 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Notebooks { action } => {
             cfg.validate_auth()?;
             match action {
+                NotebookActions::Annotations { action } => run_annotations(&cfg, action).await?,
                 NotebookActions::List => commands::notebooks::list(&cfg).await?,
                 NotebookActions::Get { notebook_id } => {
                     commands::notebooks::get(&cfg, notebook_id).await?;

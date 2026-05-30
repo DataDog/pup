@@ -2,6 +2,7 @@ pub mod acp;
 pub mod agent;
 pub mod agentless_scanning;
 pub mod alias;
+pub mod annotations;
 pub mod api;
 pub mod api_keys;
 pub mod apm;

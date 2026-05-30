@@ -225,6 +225,12 @@ macro_rules! make_api_no_auth {
 
 /// All unstable operations (snake_case for the Rust DD client).
 static UNSTABLE_OPS: &[&str] = &[
+    // Annotations (5)
+    "v2.create_annotation",
+    "v2.delete_annotation",
+    "v2.get_page_annotations",
+    "v2.list_annotations",
+    "v2.update_annotation",
     // Incidents (26)
     "v2.list_incidents",
     "v2.search_incidents",
@@ -1286,7 +1292,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 166);
+        assert_eq!(UNSTABLE_OPS.len(), 171);
     }
 
     #[test]

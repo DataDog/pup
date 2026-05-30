@@ -44,7 +44,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | api-keys | list, get, create, delete | src/commands/api_keys.rs | ✅ |
 | app-keys | list, get, create, update, delete | src/commands/app_keys.rs | ✅ |
 | infrastructure | hosts (list, get) | src/commands/infrastructure.rs | ✅ |
-| synthetics | tests, locations, suites | src/commands/synthetics.rs | ✅ |
+| synthetics | tests, locations, suites, downtime | src/commands/synthetics.rs | ✅ |
 | symdb | search | src/commands/symdb.rs | ✅ |
 | logs-restriction | list, get, create, update, delete, roles (list, add) | src/commands/logs_restriction.rs | ✅ |
 | processes | list | src/commands/processes.rs | ✅ |
@@ -148,7 +148,7 @@ pup infrastructure hosts list
 - **monitors** - Monitor management (list, get, delete)
 - **dashboards** - Dashboard management (list, get, delete, url)
 - **slos** - Service Level Objectives (list, get, delete, status)
-- **synthetics** - Synthetic monitoring (tests, locations, suites)
+- **synthetics** - Synthetic monitoring (tests, locations, suites, downtime)
 - **notebooks** - Investigation notebooks (list, get, delete)
 - **downtime** - Monitor downtime (list, get, cancel)
 - **status-pages** - Status pages with components and degradations
@@ -256,6 +256,7 @@ Available on all commands:
 - **integrations** — Added Jira integration (accounts, templates CRUD) and ServiceNow integration (instances, templates, users, assignment groups, business services)
 - **cloud** — Added OCI integration (tenancy configs CRUD, products)
 - **synthetics** — Added suites management (V2 API: search, get, create, update, delete)
+- **synthetics** — Added downtime management (V2 API: list, create, delete)
 - **security** — Added content packs (list, activate, deactivate), bulk rule export, and entity risk scores
 - **incidents** — Added global settings, handles, and postmortem template management
 - **cases** — Added Jira/ServiceNow issue linking, case project moves, and notification rules

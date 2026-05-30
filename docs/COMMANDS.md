@@ -22,6 +22,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | Domain | Subcommands | File | Status |
 |--------|-------------|------|--------|
 | acp | serve | src/commands/acp.rs | ✅ |
+| annotations | list, get-page, create, update, delete | src/commands/annotations.rs | ✅ (unstable) |
 | auth | login, logout, status, refresh | src/commands/auth.rs | ✅ |
 | metrics | query, list, get, search | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate | src/commands/logs.rs | ✅ |

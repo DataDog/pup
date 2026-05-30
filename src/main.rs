@@ -160,6 +160,33 @@ enum Commands {
         #[command(subcommand)]
         action: AgentlessScanningActions,
     },
+    /// Manage Datadog annotations
+    ///
+    /// Create, list, update, and delete annotations on dashboards and notebook pages.
+    /// Annotations mark events such as deployments, incidents, or other notable moments in time.
+    ///
+    /// COMMANDS:
+    ///   list         List annotations for a page within a time window
+    ///   get-page     Get all annotations on a page grouped by widget
+    ///   create       Create a new annotation from JSON
+    ///   update       Update an existing annotation
+    ///   delete       Delete an annotation by ID
+    ///
+    /// EXAMPLES:
+    ///   pup annotations list --page-id my-page --start 0 --end 3600
+    ///   pup annotations get-page --page-id my-page --start 0 --end 3600
+    ///   pup annotations create --file annotation.json
+    ///   pup annotations update <uuid> --file updated.json
+    ///   pup annotations delete <uuid>
+    ///
+    /// AUTHENTICATION:
+    ///   Requires OAuth2 (via 'pup auth login') or DD_API_KEY + DD_APP_KEY.
+    ///   Note: Annotations API is currently in unstable/preview status.
+    #[command(verbatim_doc_comment)]
+    Annotations {
+        #[command(subcommand)]
+        action: AnnotationsActions,
+    },
     /// Create shortcuts for pup commands
     ///
     /// Aliases can be used to make shortcuts for pup commands or to compose multiple commands.
@@ -9148,6 +9175,48 @@ enum AliasActions {
     },
 }
 
+// ---- Annotations ----
+#[derive(Subcommand)]
+enum AnnotationsActions {
+    /// List annotations for a page within a time window
+    List {
+        #[arg(long, help = "Page ID (dashboard or notebook page)")]
+        page_id: String,
+        #[arg(long, help = "Start of time window (Unix epoch seconds)")]
+        start: i64,
+        #[arg(long, help = "End of time window (Unix epoch seconds)")]
+        end: i64,
+        #[arg(long, help = "Optional widget ID to filter results")]
+        widget_id: Option<String>,
+    },
+    /// Get all annotations on a page grouped by widget
+    GetPage {
+        #[arg(long, help = "Page ID (dashboard or notebook page)")]
+        page_id: String,
+        #[arg(long, help = "Start of time window (Unix epoch seconds)")]
+        start: i64,
+        #[arg(long, help = "End of time window (Unix epoch seconds)")]
+        end: i64,
+    },
+    /// Create a new annotation from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with AnnotationCreateRequest body (required)")]
+        file: String,
+    },
+    /// Update an existing annotation
+    Update {
+        /// Annotation UUID
+        annotation_id: uuid::Uuid,
+        #[arg(long, help = "JSON file with AnnotationUpdateRequest body (required)")]
+        file: String,
+    },
+    /// Delete an annotation by ID
+    Delete {
+        /// Annotation UUID
+        annotation_id: uuid::Uuid,
+    },
+}
+
 // ---- Skills ----
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Subcommand)]
@@ -14306,6 +14375,39 @@ async fn main_inner() -> anyhow::Result<()> {
             AliasActions::Delete { names } => commands::alias::delete(names)?,
             AliasActions::Import { file } => commands::alias::import(&file)?,
         },
+        // --- Annotations ---
+        Commands::Annotations { action } => {
+            cfg.validate_auth()?;
+            match action {
+                AnnotationsActions::List {
+                    page_id,
+                    start,
+                    end,
+                    widget_id,
+                } => {
+                    commands::annotations::list(&cfg, &page_id, start, end, widget_id).await?;
+                }
+                AnnotationsActions::GetPage {
+                    page_id,
+                    start,
+                    end,
+                } => {
+                    commands::annotations::get_page(&cfg, &page_id, start, end).await?;
+                }
+                AnnotationsActions::Create { file } => {
+                    commands::annotations::create(&cfg, &file).await?;
+                }
+                AnnotationsActions::Update {
+                    annotation_id,
+                    file,
+                } => {
+                    commands::annotations::update(&cfg, annotation_id, &file).await?;
+                }
+                AnnotationsActions::Delete { annotation_id } => {
+                    commands::annotations::delete(&cfg, annotation_id).await?;
+                }
+            }
+        }
         // --- Api ---
         Commands::Api {
             endpoint,

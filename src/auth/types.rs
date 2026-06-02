@@ -49,6 +49,7 @@ pub fn all_known_scopes() -> Vec<&'static str> {
 pub fn read_only_scopes() -> Vec<&'static str> {
     vec![
         "apm_read",
+        "apm_remote_configuration_read",
         "apm_service_catalog_read",
         "audit_logs_read",
         "aws_configuration_read",
@@ -106,6 +107,8 @@ pub fn default_scopes() -> Vec<&'static str> {
     vec![
         // APM
         "apm_read",
+        "apm_remote_configuration_read",
+        "apm_remote_configuration_write",
         "apm_service_catalog_read",
         "apm_service_renaming_write",
         // Audit

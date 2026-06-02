@@ -161,6 +161,110 @@ pub async fn service_remapping_delete(cfg: &Config, id: String, version: i64) ->
     client::raw_delete(cfg, &format!("/api/v2/service-naming-rules/{id}/{version}")).await
 }
 
+// =============================================================================
+// APM sampling rules — customer per-(service, env) resource sampling rules.
+// Backed by RC product APM_TRACING (provenance:customer). These rules surface
+// on traces with `_dd.p.dm:-11` and `ingestion_reason:remote_rule`.
+// =============================================================================
+
+const SAMPLING_RULES_BASE: &str = "/api/unstable/remote_config/products/apm_tracing/configs";
+
+pub async fn sampling_rules_list(
+    cfg: &Config,
+    service: Option<String>,
+    env: Option<String>,
+) -> Result<()> {
+    // If service + env are both given, prefer the narrowed by_target endpoint.
+    if let (Some(svc), Some(e)) = (service.as_deref(), env.as_deref()) {
+        let path = format!("{SAMPLING_RULES_BASE}/by_target");
+        let data = client::raw_get(cfg, &path, &[("service", svc), ("env", e)]).await?;
+        return formatter::output(cfg, &data);
+    }
+    let data = client::raw_get(cfg, SAMPLING_RULES_BASE, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn sampling_rules_get(cfg: &Config, id: String) -> Result<()> {
+    let data = client::raw_get(cfg, &format!("{SAMPLING_RULES_BASE}/{id}"), &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn sampling_rules_create(
+    cfg: &Config,
+    service: String,
+    env: String,
+    resource: String,
+    sample_rate: f64,
+) -> Result<()> {
+    let body = serde_json::json!({
+        "data": {
+            "type": "apm_tracing_config",
+            "attributes": {
+                "action": "enable",
+                "lib_config": {
+                    "library_language": "all",
+                    "library_version": "latest",
+                    "service_name": service,
+                    "env": env,
+                    "tracing_sampling_rules": [{
+                        "service": service,
+                        "provenance": "customer",
+                        "resource": resource,
+                        "sample_rate": sample_rate,
+                    }],
+                },
+                "service_target": {
+                    "service": service,
+                    "env": env,
+                },
+            }
+        }
+    });
+    let data = client::raw_post(cfg, SAMPLING_RULES_BASE, body).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn sampling_rules_update(
+    cfg: &Config,
+    id: String,
+    service: String,
+    env: String,
+    resource: String,
+    sample_rate: f64,
+) -> Result<()> {
+    let body = serde_json::json!({
+        "data": {
+            "id": id,
+            "type": "apm_tracing_config",
+            "attributes": {
+                "action": "enable",
+                "lib_config": {
+                    "library_language": "all",
+                    "library_version": "latest",
+                    "service_name": service,
+                    "env": env,
+                    "tracing_sampling_rules": [{
+                        "service": service,
+                        "provenance": "customer",
+                        "resource": resource,
+                        "sample_rate": sample_rate,
+                    }],
+                },
+                "service_target": {
+                    "service": service,
+                    "env": env,
+                },
+            }
+        }
+    });
+    let data = client::raw_put(cfg, &format!("{SAMPLING_RULES_BASE}/{id}"), body).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn sampling_rules_delete(cfg: &Config, id: String) -> Result<()> {
+    client::raw_delete(cfg, &format!("{SAMPLING_RULES_BASE}/{id}")).await
+}
+
 pub async fn service_config_get(
     cfg: &Config,
     service_name: String,
@@ -716,6 +820,235 @@ mod tests {
         assert!(
             result.is_ok(),
             "204 No Content should not be an error: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    // ===== sampling rules =====
+
+    #[tokio::test]
+    async fn test_sampling_rules_list() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock(
+                "GET",
+                "/api/unstable/remote_config/products/apm_tracing/configs",
+            )
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::sampling_rules_list(&cfg, None, None).await;
+        assert!(
+            result.is_ok(),
+            "sampling_rules_list failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_sampling_rules_list_by_target() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock(
+                "GET",
+                "/api/unstable/remote_config/products/apm_tracing/configs/by_target?service=api&env=prod",
+            )
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+
+        let result =
+            super::sampling_rules_list(&cfg, Some("api".into()), Some("prod".into())).await;
+        assert!(
+            result.is_ok(),
+            "sampling_rules_list by_target failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_sampling_rules_get() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock(
+                "GET",
+                "/api/unstable/remote_config/products/apm_tracing/configs/abc123",
+            )
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"id": "abc123"}}"#)
+            .create_async()
+            .await;
+
+        let result = super::sampling_rules_get(&cfg, "abc123".into()).await;
+        assert!(
+            result.is_ok(),
+            "sampling_rules_get failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_sampling_rules_get_not_found() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        server
+            .mock(
+                "GET",
+                "/api/unstable/remote_config/products/apm_tracing/configs/missing",
+            )
+            .with_status(404)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors": ["Not Found"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::sampling_rules_get(&cfg, "missing".into()).await;
+        assert!(result.is_err(), "expected error on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_sampling_rules_create() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock(
+                "POST",
+                "/api/unstable/remote_config/products/apm_tracing/configs",
+            )
+            .with_status(201)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"id": "new-config-id"}}"#)
+            .create_async()
+            .await;
+
+        let result = super::sampling_rules_create(
+            &cfg,
+            "api".into(),
+            "prod".into(),
+            "*".into(),
+            0.1,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "sampling_rules_create failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_sampling_rules_create_api_error() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        server
+            .mock(
+                "POST",
+                "/api/unstable/remote_config/products/apm_tracing/configs",
+            )
+            .with_status(422)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors": ["Invalid sample_rate"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::sampling_rules_create(
+            &cfg,
+            "api".into(),
+            "prod".into(),
+            "*".into(),
+            -1.0,
+        )
+        .await;
+        assert!(result.is_err(), "expected error on 422");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_sampling_rules_update() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock(
+                "PUT",
+                "/api/unstable/remote_config/products/apm_tracing/configs/abc123",
+            )
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"id": "abc123"}}"#)
+            .create_async()
+            .await;
+
+        let result = super::sampling_rules_update(
+            &cfg,
+            "abc123".into(),
+            "api".into(),
+            "prod".into(),
+            "*".into(),
+            0.5,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "sampling_rules_update failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_sampling_rules_delete() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock(
+                "DELETE",
+                "/api/unstable/remote_config/products/apm_tracing/configs/abc123",
+            )
+            .with_status(204)
+            .create_async()
+            .await;
+
+        let result = super::sampling_rules_delete(&cfg, "abc123".into()).await;
+        assert!(
+            result.is_ok(),
+            "sampling_rules_delete failed: {:?}",
             result.err()
         );
         mock.assert_async().await;

@@ -171,9 +171,12 @@ pub async fn login(
         bail!("OAuth state mismatch (possible CSRF attack)");
     }
 
-    // 7. Exchange code for tokens
+    // 7. Exchange code for tokens.
+    // Use the actual site from the callback (e.g. "us3.datadoghq.com") when
+    // available, so the token exchange targets the correct region.
+    let effective_site = result.domain.as_deref().unwrap_or(site);
     eprintln!("🔄 Exchanging authorization code for tokens...");
-    let tokens = dcr_client
+    let tokens = dcr::DcrClient::new(effective_site)
         .exchange_code(&result.code, &redirect_uri, &challenge.verifier, &creds)
         .await?;
 
@@ -221,7 +224,7 @@ pub async fn login(
     let saved_org_label = org_suffix(saved_org);
 
     let location = with_storage(|store| {
-        store.save_tokens(site, saved_org, &tokens)?;
+        store.save_tokens(effective_site, saved_org, &tokens)?;
         Ok(store.storage_location())
     })?;
 
@@ -235,7 +238,7 @@ pub async fn login(
         .map(String::from)
         .or_else(|| org_uuid.map(String::from));
     storage::save_session(&storage::SessionEntry {
-        site: site.clone(),
+        site: effective_site.to_string(),
         org: saved_org.map(String::from),
         org_uuid: saved_org_uuid,
     })?;

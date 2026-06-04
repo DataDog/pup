@@ -490,7 +490,10 @@ mod tests {
                     .map(|f| f.unwrap().path())
             })
             .count();
-        assert_eq!(file_count, 4, "expected 4 unique files (1 skill + 3 extension)");
+        assert_eq!(
+            file_count, 4,
+            "expected 4 unique files (1 skill + 3 extension)"
+        );
     }
 
     #[test]

@@ -54,6 +54,8 @@ pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<(
                 "description": e.description,
             });
             if e.entry_type == "extension" {
+                // serde_json::json!({}) always produces Value::Object, so as_object_mut()
+                // is always Some here; the if-let is a safe defensive pattern.
                 if let Some(obj) = v.as_object_mut() {
                     obj.insert("platform".to_string(), serde_json::json!(e.platform));
                     obj.insert(
@@ -82,7 +84,7 @@ pub fn install(
     let user_scope = !project;
     let platforms = resolve_or_bail(platform.as_deref())?;
 
-    let entries: Vec<_> = skills::SKILLS
+    let mut entries: Vec<_> = skills::SKILLS
         .iter()
         .filter(|e| match &name {
             Some(n) => e.name == n.as_str(),
@@ -100,9 +102,38 @@ pub fn install(
         }
     }
 
+    // When all platforms are selected, always include extension bundles for
+    // extension-only platforms (e.g. dd-pup-pi for pi), even when a --name or
+    // --type filter would otherwise exclude them. `all` means "full experience
+    // on every platform", and pi-style platforms can only receive content via
+    // their extension bundle, not individual skills. The --type filter is
+    // intentionally bypassed for these entries; it applies to skill-capable
+    // platforms only.
+    let all_selected = platform
+        .as_deref()
+        .is_some_and(|p| p.trim().eq_ignore_ascii_case("all"));
+    if all_selected {
+        let already_included: std::collections::BTreeSet<&str> =
+            entries.iter().map(|e| e.name).collect();
+        for e in skills::SKILLS.iter() {
+            if e.entry_type == "extension" && !already_included.contains(e.name) {
+                entries.push(e);
+            }
+        }
+        // No platform guard here: install_paths returns empty when entry.platform
+        // doesn't match the current platform (unless --dir is set), so non-matching
+        // extensions are naturally skipped. This also handles future extensions for
+        // non-extension-only platforms without needing to update this loop.
+    }
+
     let mut installed_files = 0usize;
     let mut dirs_used = std::collections::BTreeSet::new();
     let mut entry_hits = std::collections::BTreeSet::new();
+    let mut platforms_hit = std::collections::BTreeSet::new();
+    // Deduplicate write targets by path so that `--dir` installs across multiple
+    // platforms don't write and count the same file more than once.
+    let mut pending_writes: std::collections::BTreeMap<std::path::PathBuf, String> =
+        std::collections::BTreeMap::new();
     for plat in &platforms {
         for entry in &entries {
             let targets =
@@ -110,16 +141,46 @@ pub fn install(
             if targets.is_empty() {
                 continue;
             }
-            entry_hits.insert(entry.name);
             for (path, content) in targets {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                    dirs_used.insert(parent.display().to_string());
+                use std::collections::btree_map::Entry;
+                match pending_writes.entry(path) {
+                    Entry::Vacant(v) => {
+                        v.insert(content);
+                    }
+                    Entry::Occupied(o) if *o.get() != content => {
+                        // Defensive guard: with install_paths enforcing the
+                        // platform match for extensions before the --dir
+                        // override, and with format_as_skill_md /
+                        // format_as_agent_md currently producing identical
+                        // output, this branch is unreachable today. It will
+                        // fire if a future format diverges between platforms.
+                        bail!(
+                            "conflicting content for '{}': multiple platforms produced \
+                             different output for the same --dir destination; use \
+                             separate --dir values per platform",
+                            o.key().display()
+                        );
+                    }
+                    Entry::Occupied(_) => {} // identical content: dedup is correct
                 }
-                std::fs::write(&path, &content)?;
-                installed_files += 1;
             }
+            // Record success only after all files for this entry are accepted
+            // without conflict, so entry_hits/platforms_hit reflect what was
+            // actually committed to pending_writes.
+            entry_hits.insert(entry.name);
+            platforms_hit.insert(plat.as_str());
         }
+    }
+    for (path, content) in &pending_writes {
+        // install_paths always produces paths with at least one directory
+        // component, so parent() is Some in practice. The if-let guards
+        // against any future degenerate path without panicking.
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+            dirs_used.insert(parent.display().to_string());
+        }
+        std::fs::write(path, content)?;
+        installed_files += 1;
     }
 
     // If the user filtered with --name or --type but nothing actually
@@ -132,6 +193,44 @@ pub fn install(
             (None, Some(t)) => format!("type={t}"),
             (None, None) => unreachable!(),
         };
+
+        // If the filter targets a skill/agent but all selected platforms are
+        // extension-only (no skills dir), give an actionable hint.
+        let ext_only: Vec<&str> = platforms
+            .iter()
+            .filter(|p| {
+                // resolve_or_bail already validated every platform in `platforms`.
+                skills::lookup_platform(p)
+                    .expect("platform already validated by resolve_or_bail")
+                    .is_extension_only()
+            })
+            .map(String::as_str)
+            .collect();
+        // Derive from the already-filtered `entries` list rather than rescanning
+        // SKILLS — avoids contradictory messages when --name names an extension
+        // while --type names a non-extension type simultaneously.
+        let filter_is_skill_or_agent =
+            !entries.is_empty() && entries.iter().all(|e| e.entry_type != "extension");
+        if !ext_only.is_empty() && filter_is_skill_or_agent && ext_only.len() == platforms.len() {
+            let available: Vec<&str> = skills::SKILLS
+                .iter()
+                .filter(|e| e.entry_type == "extension" && ext_only.contains(&e.platform))
+                .map(|e| e.name)
+                .collect();
+            bail!(
+                "no install target matched {filter} on the selected platform(s): {}. \
+                 {} only support extensions, not skills or agents. \
+                 Available extension(s): {}",
+                platforms.join(", "),
+                ext_only.join(", "),
+                if available.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    available.join(", ")
+                }
+            );
+        }
+
         bail!(
             "no install target matched {filter} on the selected platform(s): {}",
             platforms.join(", "),
@@ -145,7 +244,7 @@ pub fn install(
             "installed": installed_entries,
             "files": installed_files,
             "directories": directories,
-            "platforms": platforms,
+            "platforms": platforms_hit.iter().collect::<Vec<_>>(),
         });
         crate::formatter::format_and_print(&result, &cfg.output_format, cfg.agent_mode, None)?;
     } else {
@@ -156,7 +255,7 @@ pub fn install(
             "Installed {} entry(ies), {} file(s) across {} platform(s)",
             installed_entries,
             installed_files,
-            platforms.len(),
+            platforms_hit.len(),
         );
     }
 
@@ -281,7 +380,7 @@ mod tests {
     #[test]
     fn install_bails_when_type_filter_matches_nothing_on_platform() {
         let cfg = base_cfg();
-        // Skills don't apply to pi.
+        // Skills don't apply to pi — should get the richer extension-only hint.
         let err = install(
             &cfg,
             Some("pi".to_string()),
@@ -294,6 +393,127 @@ mod tests {
         .to_string();
         assert!(err.contains("no install target"), "got: {err}");
         assert!(err.contains("type=skill"), "got: {err}");
+        assert!(err.contains("only support extensions"), "got: {err}");
+        assert!(err.contains("dd-pup-pi"), "got: {err}");
+    }
+
+    #[test]
+    fn install_pi_named_skill_gives_extension_only_hint() {
+        let cfg = base_cfg();
+        // dd-apm is a skill; pi only supports extensions — this is the exact
+        // scenario from the bug report (pup skills install --name dd-apm pi).
+        let err = install(
+            &cfg,
+            Some("pi".to_string()),
+            Some("dd-apm".to_string()),
+            None,
+            None,
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("no install target"), "got: {err}");
+        assert!(err.contains("name=dd-apm"), "got: {err}");
+        assert!(err.contains("only support extensions"), "got: {err}");
+        assert!(err.contains("dd-pup-pi"), "got: {err}");
+    }
+
+    #[test]
+    fn install_pi_type_agent_gives_extension_only_hint() {
+        let cfg = base_cfg();
+        let err = install(
+            &cfg,
+            Some("pi".to_string()),
+            None,
+            None,
+            Some("agent".to_string()),
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("only support extensions"), "got: {err}");
+        assert!(err.contains("dd-pup-pi"), "got: {err}");
+    }
+
+    #[test]
+    fn install_extension_on_wrong_platform_gives_generic_error_not_hint() {
+        let cfg = base_cfg();
+        // dd-pup-pi is a pi extension; installing it on claude must give the
+        // generic error (not the extension-only hint, since claude is not
+        // extension-only).
+        let err = install(
+            &cfg,
+            Some("claude".to_string()),
+            Some("dd-pup-pi".to_string()),
+            None,
+            None,
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("no install target"), "got: {err}");
+        assert!(!err.contains("only support extensions"), "got: {err}");
+    }
+
+    #[test]
+    fn install_all_with_named_skill_also_installs_pi_extension() {
+        let tmp = TempDir::new("install_all_pi");
+        let cfg = base_cfg();
+        // --name dd-apm would normally skip pi (it's a skill, not an extension),
+        // but `all` means "full experience everywhere", so dd-pup-pi must also
+        // be installed for pi.
+        install(
+            &cfg,
+            Some("all".to_string()),
+            Some("dd-apm".to_string()),
+            Some(tmp.path().to_str().unwrap().to_string()),
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(
+            tmp.path().join("dd-apm/SKILL.md").exists(),
+            "dd-apm skill should be installed"
+        );
+        assert!(
+            tmp.path().join("dd-pup-pi/index.ts").exists(),
+            "dd-pup-pi extension should be installed when `all` is selected"
+        );
+        assert!(tmp.path().join("dd-pup-pi/package.json").exists());
+        // With path dedup, --dir writes each unique destination exactly once:
+        // dd-apm/SKILL.md + dd-pup-pi/index.ts + dd-pup-pi/package.json + dd-pup-pi/README.md
+        let file_count = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .flat_map(|d| {
+                std::fs::read_dir(d.unwrap().path())
+                    .unwrap()
+                    .map(|f| f.unwrap().path())
+            })
+            .count();
+        assert_eq!(
+            file_count, 4,
+            "expected 4 unique files (1 skill + 3 extension)"
+        );
+    }
+
+    #[test]
+    fn install_all_with_type_filter_also_installs_pi_extension() {
+        let tmp = TempDir::new("install_all_type_pi");
+        let cfg = base_cfg();
+        // --type skill would normally skip pi, but `all` forces dd-pup-pi.
+        install(
+            &cfg,
+            Some("all".to_string()),
+            None,
+            Some(tmp.path().to_str().unwrap().to_string()),
+            Some("skill".to_string()),
+            false,
+        )
+        .unwrap();
+        assert!(
+            tmp.path().join("dd-pup-pi/index.ts").exists(),
+            "dd-pup-pi extension should be installed even with --type skill when `all` is used"
+        );
     }
 
     #[test]

@@ -548,6 +548,21 @@ pub struct PlatformSpec {
     pub uses_agent_md: bool,
 }
 
+impl PlatformSpec {
+    /// Returns true when this platform supports only extensions (no skills or
+    /// agents directory in any scope).
+    ///
+    /// An empty agents path means agents share the skills dir; if skills is
+    /// also empty the platform has no text-content support and can only receive
+    /// extension bundles (e.g. pi).
+    pub fn is_extension_only(&self) -> bool {
+        self.user_skills.is_empty()
+            && self.project_skills.is_empty()
+            && self.user_agents.is_empty()
+            && self.project_agents.is_empty()
+    }
+}
+
 /// Registry of supported platforms.
 pub static PLATFORMS: &[PlatformSpec] = &[
     PlatformSpec {
@@ -840,6 +855,13 @@ pub fn install_path(
         "install_path() does not handle extensions; use install_paths()"
     );
 
+    // Extension-only platforms (e.g. pi) have no skills or agents directory;
+    // skills and agents cannot install there even when --dir overrides the path.
+    let spec = lookup_platform(platform)?;
+    if spec.is_extension_only() {
+        return None;
+    }
+
     if let Some(d) = dir_override {
         // Explicit --dir: everything as SKILL.md
         return Some((
@@ -847,8 +869,6 @@ pub fn install_path(
             InstallFormat::SkillMd,
         ));
     }
-
-    let spec = lookup_platform(platform)?;
     if entry.entry_type == "agent" && spec.uses_agent_md {
         let dir = agents_dir(platform, project_root, user_scope)?;
         Some((
@@ -881,14 +901,17 @@ pub fn install_paths(
     user_scope: bool,
 ) -> anyhow::Result<Vec<(PathBuf, String)>> {
     if entry.entry_type == "extension" {
+        // Extensions are tied to a specific platform; only install when the
+        // platform matches, even when --dir overrides the destination path.
+        // Without this guard a `--dir all` install would produce files for a
+        // pi-only extension on every platform in the loop, inflating the
+        // reported platform count with platforms that received no real content.
+        if entry.platform != platform {
+            return Ok(vec![]);
+        }
         let base = if let Some(d) = dir_override {
             PathBuf::from(d).join(entry.name)
         } else {
-            // Extensions are tied to a specific platform; only install when
-            // that platform matches the current target.
-            if entry.platform != platform {
-                return Ok(vec![]);
-            }
             let Some(root) = extensions_dir(platform, project_root, user_scope) else {
                 return Ok(vec![]);
             };
@@ -938,26 +961,10 @@ pub fn format_as_skill_md(entry: &SkillEntry) -> String {
 }
 
 /// Format content for Claude Code agent .md install (adds name: to frontmatter).
+/// Currently identical to [`format_as_skill_md`]; the two will diverge when
+/// agent `.md` files require Claude-Code-specific frontmatter fields.
 pub fn format_as_agent_md(entry: &SkillEntry) -> String {
-    if entry.content.starts_with("---") {
-        let end = entry.content[3..].find("---");
-        if let Some(pos) = end {
-            let frontmatter = &entry.content[3..3 + pos];
-            if frontmatter.contains("name:") {
-                return entry.content.to_string();
-            }
-            return format!(
-                "---\nname: {}\n{}---{}",
-                entry.name,
-                frontmatter,
-                &entry.content[3 + pos + 3..]
-            );
-        }
-    }
-    format!(
-        "---\nname: {}\ndescription: {}\n---\n\n{}",
-        entry.name, entry.description, entry.content
-    )
+    format_as_skill_md(entry)
 }
 
 /// Format content for the given install format.
@@ -1049,6 +1056,11 @@ mod tests {
                 assert!(
                     !entry.platform.is_empty(),
                     "extension {} has empty platform",
+                    entry.name
+                );
+                assert!(
+                    entry.content.is_empty(),
+                    "extension {} must not have content (content is for skills/agents only)",
                     entry.name
                 );
                 for (rel, body) in entry.files {
@@ -1249,6 +1261,15 @@ mod tests {
         let root = PathBuf::from("/tmp/test-project");
         let e = entry("dd-pup", "skill", "");
         assert!(install_path(&e, "pi", &root, None, false).is_none());
+    }
+
+    #[test]
+    fn test_install_path_skill_on_pi_with_dir_override_returns_none() {
+        // --dir does not grant an extension-only platform the ability to install
+        // skills; the platform capability check runs before the dir override.
+        let root = PathBuf::from("/tmp/test-project");
+        let e = entry("dd-pup", "skill", "");
+        assert!(install_path(&e, "pi", &root, Some("/tmp/out"), false).is_none());
     }
 
     #[test]
@@ -1541,5 +1562,63 @@ mod tests {
         assert!(names.contains(&"index.ts"));
         assert!(names.contains(&"package.json"));
         assert!(names.contains(&"README.md"));
+    }
+
+    #[test]
+    fn test_platform_extension_only_structural_invariant() {
+        // Every platform must be consistently classified: extension-only
+        // platforms must have at least one extensions dir, and non-extension-only
+        // platforms must have at least one skills dir.
+        for spec in PLATFORMS {
+            if spec.is_extension_only() {
+                assert!(
+                    !spec.user_extensions.is_empty() || !spec.project_extensions.is_empty(),
+                    "extension-only platform '{}' must have at least one extensions directory",
+                    spec.name
+                );
+            } else {
+                assert!(
+                    !spec.user_skills.is_empty() || !spec.project_skills.is_empty(),
+                    "non-extension-only platform '{}' must have at least one skills directory",
+                    spec.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_is_extension_only_pi() {
+        assert!(lookup_platform("pi").unwrap().is_extension_only());
+    }
+
+    #[test]
+    fn test_is_extension_only_false_for_skill_platforms() {
+        for name in &[
+            "claude-code",
+            "cursor",
+            "codex",
+            "opencode",
+            "windsurf",
+            "gemini-code",
+        ] {
+            assert!(
+                !lookup_platform(name).unwrap().is_extension_only(),
+                "{name} should not be extension-only"
+            );
+        }
+    }
+
+    #[test]
+    fn extension_platform_fields_are_recognized() {
+        for e in SKILLS {
+            if e.entry_type == "extension" {
+                assert!(
+                    lookup_platform(e.platform).is_some(),
+                    "extension '{}' has unrecognized platform slug '{}'",
+                    e.name,
+                    e.platform
+                );
+            }
+        }
     }
 }

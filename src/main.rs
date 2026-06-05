@@ -1551,6 +1551,37 @@ enum Commands {
         #[command(subcommand)]
         action: InfraActions,
     },
+    /// Install Datadog components on a target (host, cluster, …)
+    ///
+    /// Install Datadog observability components on a target — the unified entry
+    /// point for the install flows historically delivered by curl-bash one-liners
+    /// (`install_script_agent7.sh`, `install-ssi.sh`, etc.).
+    ///
+    /// COMMAND SHAPE:
+    ///   pup install <component> <platform> [args]
+    ///
+    ///   <component>  what to install: ssi, agent, dbm, llm-obs, …
+    ///   <platform>   where to install: linux, k8s, …
+    ///
+    /// EXAMPLES (today):
+    ///   # Install Datadog Agent + Single Step Instrumentation on a remote Linux host
+    ///   pup install ssi linux --host bastion.example.com --user ec2-user --key ~/.ssh/id_ed25519
+    ///
+    /// EXAMPLES (planned, follow-up PRs):
+    ///   pup install agent  linux  --host <X>           # just the agent
+    ///   pup install ssi    k8s    --context <CTX>      # SSI via helm + DatadogAgent CR
+    ///   pup install dbm    linux  --host <X> --db pg   # Database Monitoring
+    ///   pup install llm-obs local --runtime python     # LLM Obs SDK
+    ///
+    /// STATUS: scaffolding. Command surface and module structure land in this PR;
+    /// the russh client + OCI registry client + installer-binary invocation are
+    /// follow-up work. See docs/INSTALL.md for the full plan.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[command(verbatim_doc_comment)]
+    Install {
+        #[command(subcommand)]
+        action: InstallActions,
+    },
     /// Manage third-party integrations
     ///
     /// Manage third-party integrations with external services.
@@ -4429,6 +4460,48 @@ enum InfraHostActions {
     },
     /// Get host details
     Get { hostname: String },
+}
+
+// ---- Install: Datadog component install on a target (host, cluster, …) ----
+//
+// Shape: `pup install <component> <platform> [args]`. Scaffolding only in this
+// PR — the working install flows ship in follow-up PRs. See docs/INSTALL.md.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Subcommand)]
+enum InstallActions {
+    /// Install Single Step Instrumentation (Datadog Agent + APM auto-injection)
+    Ssi {
+        #[command(subcommand)]
+        action: InstallSsiActions,
+    },
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Subcommand)]
+enum InstallSsiActions {
+    /// Install SSI on a remote Linux host over SSH
+    ///
+    /// Replaces the historical `bash -c "$(curl install_script_agent7.sh)"` flow
+    /// with a native Rust install: SSH client, signed package install (apt/yum),
+    /// SHA-256-verified OCI binary download for `datadog-installer`, then
+    /// `installer setup` to enable SSI. No remote shell scripts are executed.
+    Linux {
+        /// SSH host or `user@host` of the target machine
+        #[arg(long)]
+        host: String,
+        /// SSH user (default: root)
+        #[arg(long, default_value = "root")]
+        user: String,
+        /// Path to SSH private key
+        #[arg(long)]
+        key: Option<String>,
+        /// SSH port (default: 22)
+        #[arg(long, default_value_t = 22)]
+        port: u16,
+        /// Print the install plan without connecting or making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 // ---- IDP (Internal Developer Portal) ----
@@ -11914,6 +11987,21 @@ async fn main_inner() -> anyhow::Result<()> {
                 },
             }
         }
+        // --- Install (Datadog component install on a target) ---
+        #[cfg(not(target_arch = "wasm32"))]
+        Commands::Install { action } => match action {
+            InstallActions::Ssi { action } => match action {
+                InstallSsiActions::Linux {
+                    host,
+                    user,
+                    key,
+                    port,
+                    dry_run,
+                } => {
+                    commands::install::ssi_linux(&cfg, host, user, key, port, dry_run).await?;
+                }
+            },
+        },
         // --- IDP (Internal Developer Portal) ---
         Commands::Idp { action } => {
             cfg.validate_auth()?;

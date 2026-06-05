@@ -47,6 +47,8 @@ pub mod hamr;
 pub mod idp;
 pub mod incidents;
 pub mod infrastructure;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod install;
 pub mod integrations;
 pub mod investigations;
 pub mod kafka;

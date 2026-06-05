@@ -958,7 +958,14 @@ async fn raw_post_impl(
     parse_response_json(resp).await
 }
 
-fn apply_auth(
+/// Apply Datadog authentication headers to a request builder.
+///
+/// Chooses between OAuth bearer and API-key/App-key auth based on `cfg` and the
+/// per-endpoint requirements in [`requires_api_key_fallback`]: endpoints that do
+/// not accept OAuth (see `OAUTH_EXCLUDED_ENDPOINTS`) force API-key auth even when
+/// a bearer token is present. Exposed so the generic `pup api` passthrough reuses
+/// the same auth routing as the typed clients.
+pub fn apply_auth(
     mut req: reqwest::RequestBuilder,
     cfg: &Config,
     method: &str,

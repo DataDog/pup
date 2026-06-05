@@ -41,9 +41,9 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
 pub(crate) struct Cli {
-    /// Output format (json, table, yaml, csv)
-    #[arg(short, long, global = true, default_value = "json")]
-    output: String,
+    /// Output format (json, table, yaml, csv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
+    #[arg(short, long, global = true)]
+    output: Option<String>,
     /// Auto-approve destructive operations
     #[arg(short = 'y', long = "yes", global = true)]
     yes: bool,
@@ -1371,6 +1371,32 @@ enum Commands {
     Fleet {
         #[command(subcommand)]
         action: FleetActions,
+    },
+    /// Render JSON through pup's formatter
+    ///
+    /// Reads a JSON document from stdin (or --input FILE) and prints it using the
+    /// configured output format (--output, or $DD_OUTPUT / $PUP_OUTPUT) and agent
+    /// mode. Lets an extension in any language reuse pup's table/yaml/csv/tsv
+    /// rendering and agent envelope instead of reimplementing them.
+    ///
+    /// EXAMPLES:
+    ///   pup api v2/monitors --silent | pup format --output table
+    ///   echo '[{"id":1}]' | pup format --output csv
+    #[cfg(not(target_arch = "wasm32"))]
+    #[command(visible_alias = "fmt", verbatim_doc_comment)]
+    Format {
+        /// Read JSON from file, or use "-" (default) for stdin
+        #[arg(long, value_name = "FILE")]
+        input: Option<String>,
+        /// Set metadata.count in the agent-mode envelope
+        #[arg(long, value_name = "N")]
+        count: Option<usize>,
+        /// Set metadata.command in the agent-mode envelope
+        #[arg(long, value_name = "STR")]
+        command: Option<String>,
+        /// Set metadata.next_action in the agent-mode envelope
+        #[arg(long, value_name = "STR")]
+        next_action: Option<String>,
     },
     /// Manage High Availability Multi-Region (HAMR)
     ///
@@ -10829,6 +10855,52 @@ mod resolve_callback_port_tests {
     }
 }
 
+/// Resolve the effective output format. An explicit `--output` flag wins and is
+/// validated — a malformed value is a hard error rather than being silently
+/// ignored. When the flag is absent, the format already resolved from env/config
+/// in `Config::from_env` is kept, so `DD_OUTPUT` / `PUP_OUTPUT` (and the format an
+/// extension inherits from its parent) survive.
+fn resolve_output_format(
+    flag: Option<&str>,
+    resolved: config::OutputFormat,
+) -> anyhow::Result<config::OutputFormat> {
+    match flag {
+        Some(s) => s
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid --output value: {e}")),
+        None => Ok(resolved),
+    }
+}
+
+#[cfg(test)]
+mod resolve_output_format_tests {
+    use super::resolve_output_format;
+    use crate::config::OutputFormat;
+
+    #[test]
+    fn explicit_flag_overrides_resolved() {
+        let got = resolve_output_format(Some("table"), OutputFormat::Json).unwrap();
+        assert_eq!(got, OutputFormat::Table);
+    }
+
+    #[test]
+    fn absent_flag_keeps_resolved() {
+        // No --output: the env/config-resolved format (e.g. an inherited
+        // PUP_OUTPUT) must survive instead of being clobbered by a default.
+        let got = resolve_output_format(None, OutputFormat::Yaml).unwrap();
+        assert_eq!(got, OutputFormat::Yaml);
+    }
+
+    #[test]
+    fn invalid_explicit_flag_errors() {
+        let got = resolve_output_format(Some("tabel"), OutputFormat::Json);
+        assert!(
+            got.is_err(),
+            "a malformed --output value must be a hard error"
+        );
+    }
+}
+
 async fn main_inner() -> anyhow::Result<()> {
     // In agent mode, intercept --help to return a JSON schema instead of plain text.
     let args: Vec<String> = std::env::args().collect();
@@ -10929,10 +11001,10 @@ async fn main_inner() -> anyhow::Result<()> {
 
     let mut cfg = config::Config::from_env()?;
 
-    // Apply flag overrides
-    if let Ok(fmt) = cli.output.parse() {
-        cfg.output_format = fmt;
-    }
+    // Apply flag overrides. `--output` is only applied when explicitly set so the
+    // format resolved from DD_OUTPUT / PUP_OUTPUT in `from_env` survives when no
+    // flag is passed (extensions rely on inheriting the parent's format).
+    cfg.output_format = resolve_output_format(cli.output.as_deref(), cfg.output_format)?;
     if cli.yes {
         cfg.auto_approve = true;
     }
@@ -14584,6 +14656,17 @@ async fn main_inner() -> anyhow::Result<()> {
                 verbose,
             )
             .await?;
+        }
+        // --- Format ---
+        // No auth required: this only renders JSON the caller already has.
+        #[cfg(not(target_arch = "wasm32"))]
+        Commands::Format {
+            input,
+            count,
+            command,
+            next_action,
+        } => {
+            commands::format::run(&cfg, input.as_deref(), count, command, next_action)?;
         }
         // --- Skills ---
         #[cfg(not(target_arch = "wasm32"))]

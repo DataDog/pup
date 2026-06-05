@@ -125,15 +125,29 @@ impl Config {
             site,
             site_explicit,
             org,
-            output_format: env_or("DD_OUTPUT", file_cfg.output)
+            // `PUP_OUTPUT` is the variable pup injects into extension subprocesses,
+            // so a child `pup` call inherits the parent's format. `DD_OUTPUT` (the
+            // user-facing variable) still wins when both are set.
+            //
+            // Ambient config (env vars, config file) degrades to JSON on an
+            // unparseable value rather than erroring — this is deliberate: a bad
+            // value here should not make every command fail. The explicit
+            // `--output` flag, by contrast, is validated and errors loudly
+            // (see `resolve_output_format` in main.rs).
+            output_format: env_or("DD_OUTPUT", None)
+                .or_else(|| env_or("PUP_OUTPUT", file_cfg.output))
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(OutputFormat::Json),
+            // `PUP_AUTO_APPROVE` / `PUP_READ_ONLY` are injected into extension
+            // subprocesses so a child `pup` call inherits the parent's mode flags.
             auto_approve: env_bool("DD_AUTO_APPROVE")
                 || env_bool("DD_CLI_AUTO_APPROVE")
+                || env_bool("PUP_AUTO_APPROVE")
                 || file_cfg.auto_approve.unwrap_or(false),
             agent_mode: false, // set by caller from --agent flag or useragent detection
             read_only: env_bool("DD_READ_ONLY")
                 || env_bool("DD_CLI_READ_ONLY")
+                || env_bool("PUP_READ_ONLY")
                 || file_cfg.read_only.unwrap_or(false),
         };
 
@@ -1016,6 +1030,51 @@ mod tests {
         assert!(cfg.read_only);
         std::env::remove_var("DD_CLI_READ_ONLY");
 
+        std::env::remove_var("DD_ACCESS_TOKEN");
+        std::env::remove_var("PUP_CONFIG_DIR");
+    }
+
+    /// PUP_* variables are what pup injects into extension subprocesses, so a
+    /// child `pup` invocation must inherit the parent's output format and mode.
+    #[test]
+    fn test_pup_env_inherited_by_child() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::set_var("PUP_CONFIG_DIR", "/tmp/pup_test_nonexistent");
+        std::env::set_var("DD_ACCESS_TOKEN", "test");
+        for var in [
+            "DD_OUTPUT",
+            "PUP_OUTPUT",
+            "DD_READ_ONLY",
+            "DD_CLI_READ_ONLY",
+            "PUP_READ_ONLY",
+            "DD_AUTO_APPROVE",
+            "DD_CLI_AUTO_APPROVE",
+            "PUP_AUTO_APPROVE",
+        ] {
+            std::env::remove_var(var);
+        }
+
+        // PUP_OUTPUT drives the format when DD_OUTPUT is unset.
+        std::env::set_var("PUP_OUTPUT", "table");
+        let cfg = Config::from_env().unwrap();
+        assert_eq!(cfg.output_format, OutputFormat::Table);
+
+        // DD_OUTPUT wins over PUP_OUTPUT when both are set.
+        std::env::set_var("DD_OUTPUT", "yaml");
+        let cfg = Config::from_env().unwrap();
+        assert_eq!(cfg.output_format, OutputFormat::Yaml);
+        std::env::remove_var("DD_OUTPUT");
+        std::env::remove_var("PUP_OUTPUT");
+
+        // PUP_READ_ONLY / PUP_AUTO_APPROVE flip the mode flags.
+        std::env::set_var("PUP_READ_ONLY", "true");
+        std::env::set_var("PUP_AUTO_APPROVE", "true");
+        let cfg = Config::from_env().unwrap();
+        assert!(cfg.read_only);
+        assert!(cfg.auto_approve);
+
+        std::env::remove_var("PUP_READ_ONLY");
+        std::env::remove_var("PUP_AUTO_APPROVE");
         std::env::remove_var("DD_ACCESS_TOKEN");
         std::env::remove_var("PUP_CONFIG_DIR");
     }

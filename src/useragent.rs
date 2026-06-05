@@ -92,7 +92,11 @@ pub fn detect_agent_info() -> AgentInfo {
 }
 
 pub fn is_agent_mode() -> bool {
-    is_env_truthy("FORCE_AGENT_MODE") || detect_agent_info().detected
+    // `PUP_AGENT_MODE` is injected into extension subprocesses so a child `pup`
+    // call inherits the parent's agent mode.
+    is_env_truthy("FORCE_AGENT_MODE")
+        || is_env_truthy("PUP_AGENT_MODE")
+        || detect_agent_info().detected
 }
 
 #[allow(dead_code)]
@@ -164,6 +168,7 @@ mod tests {
             }
         }
         std::env::remove_var("FORCE_AGENT_MODE");
+        std::env::remove_var("PUP_AGENT_MODE");
     }
 
     #[test]
@@ -294,6 +299,17 @@ mod tests {
         std::env::set_var("FORCE_AGENT_MODE", "1");
         assert!(is_agent_mode());
         std::env::remove_var("FORCE_AGENT_MODE");
+    }
+
+    #[test]
+    fn test_is_agent_mode_via_pup_env() {
+        // PUP_AGENT_MODE is injected into extension subprocesses so a child `pup`
+        // call inherits the parent's agent mode.
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("PUP_AGENT_MODE", "true");
+        assert!(is_agent_mode());
+        std::env::remove_var("PUP_AGENT_MODE");
     }
 
     #[test]

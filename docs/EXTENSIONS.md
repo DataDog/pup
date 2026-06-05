@@ -109,7 +109,11 @@ Pup refreshes the OAuth2 token if needed before passing it to the extension, so 
 
 Variables not active in the current session are explicitly removed from the child environment to prevent stale credentials from leaking through the parent shell.
 
+The `PUP_OUTPUT`, `PUP_AGENT_MODE`, `PUP_READ_ONLY`, and `PUP_AUTO_APPROVE` variables are read back by a child `pup` process. So if your extension shells out to `pup` (see below), those nested calls automatically inherit the format and mode the user selected on the parent command.
+
 ### Example: using auth in a Python extension
+
+The example below hand-rolls the HTTP call. If pup is on `PATH` (it is, when pup dispatched your extension), prefer shelling out to `pup api` and `pup format` instead — see [Reusing pup's client and formatter](#reusing-pups-client-and-formatter) below.
 
 ```python
 #!/usr/bin/env python3
@@ -130,6 +134,50 @@ print(resp.json())
 ### Example: using auth in a Rust extension
 
 Extensions written in Rust can use the `datadog-api-client` crate. The standard Datadog SDK env vars (`DD_API_KEY`, `DD_APP_KEY`, `DD_SITE`) are forwarded automatically, so most SDKs will work without any extra configuration.
+
+## Reusing pup's client and formatter
+
+The examples above hand-roll HTTP and auth. You usually don't need to. Because pup is on `PATH` when it dispatched your extension, an extension in **any language** can shell out to the parent `pup` binary and reuse pup's request handling and output formatting directly — no auth, refresh, site-resolution, or table/CSV code of your own.
+
+### Make authenticated API calls with `pup api`
+
+`pup api <ENDPOINT>` reuses pup's full auth handler: it chooses OAuth bearer vs. API-key auth, applies the per-endpoint fallback for endpoints that don't accept OAuth (e.g. `/api/v2/api_keys`, fleet, cost), sets the branded User-Agent, and resolves the site. The extension already has a fresh `DD_ACCESS_TOKEN` (or the `DD_API_KEY`/`DD_APP_KEY` pair) in its environment, so these calls are authenticated automatically.
+
+```bash
+#!/bin/bash
+# GET as JSON, then extract fields. --silent suppresses pup's own rendering.
+pup api v2/monitors --silent | jq -r '.[].name'
+
+# POST a typed body (-F coerces ints/bools/null; -f keeps raw strings).
+pup api v2/tags/hosts/myhost -X POST -F source=web
+```
+
+### Render output with `pup format`
+
+`pup format` (alias `fmt`) reads a JSON document from stdin (or `--input FILE`) and prints it using the caller's output format and agent mode — the same JSON / YAML / table / CSV / TSV rendering and agent envelope every built-in command uses. Because pup forwards `PUP_OUTPUT` and a child `pup` reads it back, your extension inherits the format the user originally requested.
+
+```bash
+#!/bin/bash
+results='[{"id":1,"name":"alpha"},{"id":2,"name":"beta"}]'
+
+# Honor whatever -o the user passed to `pup my-tool`.
+echo "$results" | pup format
+
+# Or force a specific format.
+echo "$results" | pup format --output table
+
+# Populate the agent-mode envelope metadata.
+echo "$results" | pup format --count 2 --command "my-tool list"
+```
+
+### Combine them
+
+A fully consistent extension that adds zero auth or formatting code:
+
+```bash
+#!/bin/bash
+pup api v2/monitors --silent | pup format
+```
 
 ## Global Flags
 

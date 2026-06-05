@@ -85,10 +85,22 @@ pub async fn run(
     let method_upper = method.to_uppercase();
 
     // Full URLs pass through; relative paths get the API base prepended.
-    let url = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+    let is_absolute = endpoint.starts_with("http://") || endpoint.starts_with("https://");
+    let url = if is_absolute {
         endpoint.to_string()
     } else {
         format!("{}{}", cfg.api_base_url(), normalize_path(endpoint))
+    };
+
+    // Path used for per-endpoint auth routing. For relative endpoints this is the
+    // normalized API path; for absolute URLs we use the URL's path component so the
+    // OAuth-exclusion table (client::requires_api_key_fallback) still applies.
+    let auth_path = if is_absolute {
+        reqwest::Url::parse(&url)
+            .map(|u| u.path().to_string())
+            .unwrap_or_else(|_| normalize_path(endpoint))
+    } else {
+        normalize_path(endpoint)
     };
 
     // POST, PUT, PATCH carry a body; GET/HEAD/DELETE use query params.
@@ -134,15 +146,10 @@ pub async fn run(
         .map_err(|_| anyhow::anyhow!("unsupported HTTP method: {method}"))?;
     let mut req = client.request(method_val, &url);
 
-    if let Some(token) = &cfg.access_token {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-        req = req
-            .header("DD-API-KEY", api_key.as_str())
-            .header("DD-APPLICATION-KEY", app_key.as_str());
-    } else {
-        bail!("authentication required: run 'pup auth login' or set DD_API_KEY and DD_APP_KEY");
-    }
+    // Reuse the shared auth handler so `pup api` (and extensions that shell out to
+    // it) get the same OAuth-vs-API-key routing as the typed clients, including the
+    // per-endpoint OAuth-exclusion fallback.
+    req = crate::client::apply_auth(req, cfg, &method_upper, &auth_path)?;
 
     req = req
         .header("User-Agent", useragent::get())
@@ -198,7 +205,9 @@ pub async fn run(
 
     if !silent && !body_bytes.is_empty() {
         if let Ok(json) = serde_json::from_slice::<Value>(&body_bytes) {
-            println!("{}", serde_json::to_string_pretty(&json)?);
+            // Render through the shared formatter so `--output`/agent mode are
+            // honored, matching every other pup command.
+            crate::formatter::format_and_print(&json, &cfg.output_format, cfg.agent_mode, None)?;
         } else {
             print!("{}", String::from_utf8_lossy(&body_bytes));
         }
@@ -520,6 +529,126 @@ mod tests {
         )
         .await;
         assert!(result.is_err(), "expected error for malformed field");
+        cleanup_env();
+    }
+
+    /// `pup api -o table` must render through the shared formatter without error,
+    /// proving the output now honors cfg.output_format instead of always JSON.
+    #[tokio::test]
+    async fn test_api_table_output() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.output_format = crate::config::OutputFormat::Table;
+        let _mock = server
+            .mock("GET", "/api/v2/monitors")
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"[{"id":1,"name":"Test"}]"#)
+            .create_async()
+            .await;
+
+        let result = super::run(
+            &cfg,
+            "v2/monitors",
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            false,
+            false,
+        )
+        .await;
+        assert!(result.is_ok(), "api GET table failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    /// OAuth-excluded endpoints (e.g. GET /api/v2/api_keys) must use API-key auth
+    /// even when a bearer token is present. This exercises the reuse of
+    /// client::apply_auth's per-endpoint fallback table.
+    #[tokio::test]
+    async fn test_api_oauth_excluded_uses_api_keys() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        // Both a bearer token AND API keys are configured; the excluded endpoint
+        // must prefer the API keys.
+        cfg.access_token = Some("bearer-token".into());
+        let _mock = server
+            .mock("GET", "/api/v2/api_keys")
+            .match_query(mockito::Matcher::Any)
+            .match_header("DD-API-KEY", "test-api-key")
+            .match_header("DD-APPLICATION-KEY", "test-app-key")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::run(
+            &cfg,
+            "v2/api_keys",
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "expected API-key auth on OAuth-excluded endpoint: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    /// An absolute http(s):// endpoint must still consult the OAuth-exclusion
+    /// table via its URL path — exercising the `is_absolute` auth_path branch.
+    #[tokio::test]
+    async fn test_api_absolute_url_oauth_excluded_uses_api_keys() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.access_token = Some("bearer-token".into());
+        let _mock = server
+            .mock("GET", "/api/v2/api_keys")
+            .match_query(mockito::Matcher::Any)
+            .match_header("DD-API-KEY", "test-api-key")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        // Pass the fully-qualified URL, not a relative path.
+        let absolute = format!("{}/api/v2/api_keys", server.url());
+        let result = super::run(
+            &cfg,
+            &absolute,
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "expected API-key auth on absolute OAuth-excluded URL: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 }

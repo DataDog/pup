@@ -40,6 +40,8 @@ pub mod events;
 pub mod extension;
 pub mod feature_flags;
 pub mod fleet;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod format;
 pub mod google_chat;
 pub mod hamr;
 pub mod idp;

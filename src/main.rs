@@ -1404,6 +1404,7 @@ enum Commands {
     ///   • Resolve ownership and on-call (owner)
     ///   • Show upstream/downstream dependencies (deps)
     ///   • Register a service definition from YAML (register)
+    ///   • Migrate service catalog YAML to v3 schema (migrate-schema)
     ///
     /// EXAMPLES:
     ///   # Get full context for a service
@@ -1420,6 +1421,9 @@ enum Commands {
     ///
     ///   # Register a service definition
     ///   pup idp register service.datadog.yaml
+    ///
+    ///   # Migrate a catalog file to v3
+    ///   pup idp migrate-schema service.datadog.yaml
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication (pup auth login) or API keys
@@ -4491,6 +4495,24 @@ enum IdpActions {
     Register {
         /// Path to the service.datadog.yaml file
         file: String,
+    },
+    /// Migrate a service catalog YAML file to v3 schema
+    ///
+    /// Detects the current schema version (v1, v2, v2.1, v2.2) and converts
+    /// it to v3 format. Tries the Datadog convert API first; falls back to
+    /// local migration if the API fails or rejects the input.
+    ///
+    /// After migration, validates the output against the official v3 JSON schemas
+    /// fetched from GitHub, then prompts where to write the result.
+    ///
+    /// EXAMPLES:
+    ///   pup idp migrate-schema service.datadog.yaml
+    ///   pup idp migrate-schema ./catalog/checkout-api.yaml
+    ///   pup idp migrate-schema
+    #[command(verbatim_doc_comment)]
+    MigrateSchema {
+        /// Path to the YAML file (optional — auto-discovers *.datadog.yaml if omitted)
+        file: Option<String>,
     },
 }
 
@@ -11843,26 +11865,31 @@ async fn main_inner() -> anyhow::Result<()> {
             }
         }
         // --- IDP (Internal Developer Portal) ---
-        Commands::Idp { action } => {
-            cfg.validate_auth()?;
-            match action {
-                IdpActions::Assist { entity } => {
-                    commands::idp::assist(&cfg, &entity).await?;
-                }
-                IdpActions::Find { query } => {
-                    commands::idp::find(&cfg, &query).await?;
-                }
-                IdpActions::Owner { entity } => {
-                    commands::idp::owner(&cfg, &entity).await?;
-                }
-                IdpActions::Deps { entity } => {
-                    commands::idp::deps(&cfg, &entity).await?;
-                }
-                IdpActions::Register { file } => {
-                    commands::idp::register(&cfg, &file).await?;
-                }
+        Commands::Idp { action } => match action {
+            IdpActions::Assist { entity } => {
+                cfg.validate_auth()?;
+                commands::idp::assist(&cfg, &entity).await?;
             }
-        }
+            IdpActions::Find { query } => {
+                cfg.validate_auth()?;
+                commands::idp::find(&cfg, &query).await?;
+            }
+            IdpActions::Owner { entity } => {
+                cfg.validate_auth()?;
+                commands::idp::owner(&cfg, &entity).await?;
+            }
+            IdpActions::Deps { entity } => {
+                cfg.validate_auth()?;
+                commands::idp::deps(&cfg, &entity).await?;
+            }
+            IdpActions::Register { file } => {
+                cfg.validate_auth()?;
+                commands::idp::register(&cfg, &file).await?;
+            }
+            IdpActions::MigrateSchema { file } => {
+                commands::idp::migrate_schema(&cfg, file).await?;
+            }
+        },
         // --- Audit Logs ---
         Commands::AuditLogs { action } => {
             cfg.validate_auth()?;

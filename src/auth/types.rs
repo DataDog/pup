@@ -50,6 +50,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
     vec![
         "apm_read",
         "apm_service_catalog_read",
+        "apps_run",
         "audit_logs_read",
         "aws_configuration_read",
         "azure_configuration_read",
@@ -108,6 +109,11 @@ pub fn default_scopes() -> Vec<&'static str> {
         "apm_read",
         "apm_service_catalog_read",
         "apm_service_renaming_write",
+        // App Builder
+        "apps_run",
+        "apps_write",
+        // Connections (required by App Builder GetApp)
+        "connections_read",
         // Audit
         "audit_logs_read",
         // AWS
@@ -308,6 +314,10 @@ mod tests {
         assert!(scopes.contains(&"observability_pipelines_read"));
         assert!(scopes.contains(&"observability_pipelines_deploy"));
         assert!(scopes.contains(&"observability_pipelines_delete"));
+        // App Builder
+        assert!(scopes.contains(&"apps_run"));
+        assert!(scopes.contains(&"apps_write"));
+        assert!(scopes.contains(&"connections_read"));
     }
 
     #[test]
@@ -323,6 +333,7 @@ mod tests {
         }
         assert!(ro.contains(&"dashboards_read"));
         assert!(ro.contains(&"monitors_read"));
+        assert!(ro.contains(&"apps_run"));
         assert!(!ro.contains(&"org_management"));
         assert!(!ro.contains(&"teams_manage"));
         assert!(!ro.contains(&"monitors_write"));

@@ -378,61 +378,44 @@ mod tests {
     }
 
     #[test]
-    fn install_bails_when_type_filter_matches_nothing_on_platform() {
+    fn install_pi_named_skill_succeeds() {
+        // Regression test for https://github.com/DataDog/pup/issues/562 — pi
+        // supports skills; installing dd-apm on pi must succeed.
+        let tmp = TempDir::new("install_pi_skill");
         let cfg = base_cfg();
-        // Skills don't apply to pi — should get the richer extension-only hint.
-        let err = install(
-            &cfg,
-            Some("pi".to_string()),
-            None,
-            None,
-            Some("skill".to_string()),
-            false,
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("no install target"), "got: {err}");
-        assert!(err.contains("type=skill"), "got: {err}");
-        assert!(err.contains("only support extensions"), "got: {err}");
-        assert!(err.contains("dd-pup-pi"), "got: {err}");
-    }
-
-    #[test]
-    fn install_pi_named_skill_gives_extension_only_hint() {
-        let cfg = base_cfg();
-        // dd-apm is a skill; pi only supports extensions — this is the exact
-        // scenario from the bug report (pup skills install --name dd-apm pi).
-        let err = install(
+        install(
             &cfg,
             Some("pi".to_string()),
             Some("dd-apm".to_string()),
-            None,
+            Some(tmp.path().to_str().unwrap().to_string()),
             None,
             false,
         )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("no install target"), "got: {err}");
-        assert!(err.contains("name=dd-apm"), "got: {err}");
-        assert!(err.contains("only support extensions"), "got: {err}");
-        assert!(err.contains("dd-pup-pi"), "got: {err}");
+        .unwrap();
+        assert!(
+            tmp.path().join("dd-apm/SKILL.md").exists(),
+            "dd-apm skill should be installed for pi"
+        );
     }
 
     #[test]
-    fn install_pi_type_agent_gives_extension_only_hint() {
+    fn install_pi_type_skill_succeeds() {
+        let tmp = TempDir::new("install_pi_type_skill");
         let cfg = base_cfg();
-        let err = install(
+        install(
             &cfg,
             Some("pi".to_string()),
             None,
-            None,
-            Some("agent".to_string()),
+            Some(tmp.path().to_str().unwrap().to_string()),
+            Some("skill".to_string()),
             false,
         )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("only support extensions"), "got: {err}");
-        assert!(err.contains("dd-pup-pi"), "got: {err}");
+        .unwrap();
+        // At least one skill should have been written.
+        let any_skill = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .any(|e| e.unwrap().path().join("SKILL.md").exists());
+        assert!(any_skill, "expected at least one SKILL.md installed for pi");
     }
 
     #[test]

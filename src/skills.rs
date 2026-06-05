@@ -524,8 +524,8 @@ pub static SKILLS: &[SkillEntry] = &[
 ///
 /// Each platform tells us where skills, agents, and extension bundles live for
 /// both project-local and user-global scopes. Empty path strings mean "not
-/// supported" — e.g. `pi` has no skills/agents dirs, and most platforms have
-/// no extensions dir.
+/// supported" — e.g. a hypothetical future platform with no skills/agents dirs,
+/// and most platforms have no extensions dir.
 pub struct PlatformSpec {
     /// Canonical platform name as users type it on the CLI.
     pub name: &'static str,
@@ -554,7 +554,7 @@ impl PlatformSpec {
     ///
     /// An empty agents path means agents share the skills dir; if skills is
     /// also empty the platform has no text-content support and can only receive
-    /// extension bundles (e.g. pi).
+    /// extension bundles.
     pub fn is_extension_only(&self) -> bool {
         self.user_skills.is_empty()
             && self.project_skills.is_empty()
@@ -634,8 +634,8 @@ pub static PLATFORMS: &[PlatformSpec] = &[
     PlatformSpec {
         name: "pi",
         aliases: &["pi-dev"],
-        project_skills: "",
-        user_skills: "",
+        project_skills: ".pi/skills",
+        user_skills: ".pi/agent/skills",
         project_agents: "",
         user_agents: "",
         project_extensions: ".pi/extensions",
@@ -841,7 +841,7 @@ fn resolve_relative(
 /// `<agents_dir>/<name>.md` for platforms with [`PlatformSpec::uses_agent_md`]
 /// (Claude Code subagent format), and `<skills_dir>/<name>/SKILL.md` elsewhere.
 ///
-/// Returns `None` when the platform has no skills/agents dir (e.g. `pi`).
+/// Returns `None` when the platform has no skills/agents dir.
 /// Panics if called for an `extension` entry; use [`install_paths`] for those.
 pub fn install_path(
     entry: &SkillEntry,
@@ -855,7 +855,7 @@ pub fn install_path(
         "install_path() does not handle extensions; use install_paths()"
     );
 
-    // Extension-only platforms (e.g. pi) have no skills or agents directory;
+    // Extension-only platforms have no skills or agents directory;
     // skills and agents cannot install there even when --dir overrides the path.
     let spec = lookup_platform(platform)?;
     if spec.is_extension_only() {
@@ -891,8 +891,8 @@ pub fn install_path(
 /// per bundled file.
 ///
 /// Returns `Ok(vec![])` (no-op) when the entry isn't applicable to the
-/// platform (e.g. asking for a `pi` extension on `claude-code`, or asking for
-/// a skill on `pi`). The caller can treat an empty result as "skip".
+/// platform (e.g. asking for a `pi` extension on `claude-code`).
+/// The caller can treat an empty result as "skip".
 pub fn install_paths(
     entry: &SkillEntry,
     platform: &str,
@@ -1162,9 +1162,21 @@ mod tests {
     }
 
     #[test]
-    fn test_skills_dir_pi_returns_none() {
+    fn test_skills_dir_pi_project_scope() {
         let root = PathBuf::from("/tmp/test-project");
-        assert_eq!(skills_dir_with_home("pi", None, &root, false), None);
+        assert_eq!(
+            skills_dir_with_home("pi", None, &root, false),
+            Some(root.join(".pi/skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_pi_user_scope() {
+        let home = PathBuf::from("/tmp/fake-home");
+        assert_eq!(
+            skills_dir_with_home("pi", Some(&home), &PathBuf::from("/unused"), true),
+            Some(home.join(".pi/agent/skills"))
+        );
     }
 
     #[test]
@@ -1257,19 +1269,21 @@ mod tests {
     }
 
     #[test]
-    fn test_install_path_skill_on_pi_returns_none() {
+    fn test_install_path_skill_on_pi() {
         let root = PathBuf::from("/tmp/test-project");
         let e = entry("dd-pup", "skill", "");
-        assert!(install_path(&e, "pi", &root, None, false).is_none());
+        let (path, fmt) = install_path(&e, "pi", &root, None, false).unwrap();
+        assert_eq!(path, root.join(".pi/skills/dd-pup/SKILL.md"));
+        assert_eq!(fmt, InstallFormat::SkillMd);
     }
 
     #[test]
-    fn test_install_path_skill_on_pi_with_dir_override_returns_none() {
-        // --dir does not grant an extension-only platform the ability to install
-        // skills; the platform capability check runs before the dir override.
+    fn test_install_path_skill_on_pi_with_dir_override() {
         let root = PathBuf::from("/tmp/test-project");
         let e = entry("dd-pup", "skill", "");
-        assert!(install_path(&e, "pi", &root, Some("/tmp/out"), false).is_none());
+        let (path, fmt) = install_path(&e, "pi", &root, Some("/tmp/out"), false).unwrap();
+        assert_eq!(path, PathBuf::from("/tmp/out/dd-pup/SKILL.md"));
+        assert_eq!(fmt, InstallFormat::SkillMd);
     }
 
     #[test]
@@ -1497,11 +1511,12 @@ mod tests {
     }
 
     #[test]
-    fn test_install_paths_skill_on_pi_is_empty() {
+    fn test_install_paths_skill_on_pi() {
         let root = PathBuf::from("/tmp/proj");
         let e = entry("dd-pup", "skill", "body");
         let paths = install_paths(&e, "pi", &root, None, false).unwrap();
-        assert!(paths.is_empty());
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].0, root.join(".pi/skills/dd-pup/SKILL.md"));
     }
 
     #[test]
@@ -1587,8 +1602,8 @@ mod tests {
     }
 
     #[test]
-    fn test_is_extension_only_pi() {
-        assert!(lookup_platform("pi").unwrap().is_extension_only());
+    fn test_pi_is_not_extension_only() {
+        assert!(!lookup_platform("pi").unwrap().is_extension_only());
     }
 
     #[test]

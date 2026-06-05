@@ -69,6 +69,25 @@ fn normalize_path(endpoint: &str) -> String {
     }
 }
 
+/// Returns true when `url`'s scheme, host, and effective port all match the
+/// configured Datadog API base (`cfg.api_base_url()`). Used as a credential-
+/// exfiltration guard: an absolute URL pointing anywhere other than the configured
+/// Datadog host must not receive Datadog credentials. Scheme is compared so a
+/// cleartext `http://host:443` cannot ride the credentials of an `https` config,
+/// and the host comparison is ASCII-case-insensitive (the `url` crate lowercases
+/// hosts at parse time). Any parse failure fails closed (no credentials).
+fn targets_configured_host(url: &str, cfg: &Config) -> bool {
+    let base = cfg.api_base_url();
+    match (reqwest::Url::parse(url), reqwest::Url::parse(&base)) {
+        (Ok(u), Ok(b)) => {
+            u.scheme() == b.scheme()
+                && u.host_str() == b.host_str()
+                && u.port_or_known_default() == b.port_or_known_default()
+        }
+        _ => false,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     cfg: &Config,
@@ -92,9 +111,17 @@ pub async fn run(
         format!("{}{}", cfg.api_base_url(), normalize_path(endpoint))
     };
 
+    // Only relative paths and absolute URLs that point at the configured Datadog
+    // host may carry Datadog credentials. An absolute URL to any other host is an
+    // SSRF / credential-exfiltration vector: without this guard, a path like
+    // `https://evil.example/api/v2/api_keys` would match the OAuth-exclusion table
+    // and leak the long-lived API keys to an arbitrary host.
+    let credentials_allowed = !is_absolute || targets_configured_host(&url, cfg);
+
     // Path used for per-endpoint auth routing. For relative endpoints this is the
-    // normalized API path; for absolute URLs we use the URL's path component so the
-    // OAuth-exclusion table (client::requires_api_key_fallback) still applies.
+    // normalized API path; for absolute URLs on the Datadog host we use the URL's
+    // path component so the OAuth-exclusion table (client::requires_api_key_fallback)
+    // still applies.
     let auth_path = if is_absolute {
         reqwest::Url::parse(&url)
             .map(|u| u.path().to_string())
@@ -148,8 +175,21 @@ pub async fn run(
 
     // Reuse the shared auth handler so `pup api` (and extensions that shell out to
     // it) get the same OAuth-vs-API-key routing as the typed clients, including the
-    // per-endpoint OAuth-exclusion fallback.
-    req = crate::client::apply_auth(req, cfg, &method_upper, &auth_path)?;
+    // per-endpoint OAuth-exclusion fallback. Skipped for off-host absolute URLs so
+    // Datadog credentials are never sent to an arbitrary host (see above); the
+    // request is sent unauthenticated and the caller may add headers via -H.
+    if credentials_allowed {
+        req = crate::client::apply_auth(req, cfg, &method_upper, &auth_path)?;
+    } else if cfg.access_token.is_some() || cfg.api_key.is_some() {
+        eprintln!(
+            "warning: not sending Datadog credentials to non-Datadog host {:?}; \
+             use -H to add headers explicitly",
+            reqwest::Url::parse(&url)
+                .ok()
+                .and_then(|u| u.host_str().map(str::to_string))
+                .unwrap_or_else(|| url.clone())
+        );
+    }
 
     req = req
         .header("User-Agent", useragent::get())
@@ -650,5 +690,177 @@ mod tests {
             result.err()
         );
         cleanup_env();
+    }
+
+    /// `targets_configured_host` is the credential-exfiltration guard: only the
+    /// configured Datadog host (same host + effective port) is a match.
+    #[test]
+    fn test_targets_configured_host() {
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_MOCK_SERVER");
+        let cfg = Config {
+            api_key: Some("k".into()),
+            app_key: Some("a".into()),
+            access_token: None,
+            site: "datadoghq.com".into(),
+            site_explicit: true,
+            org: None,
+            output_format: crate::config::OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+        assert!(targets_configured_host(
+            "https://api.datadoghq.com/api/v2/monitors",
+            &cfg
+        ));
+        // Host comparison is ASCII-case-insensitive (url crate lowercases hosts).
+        assert!(targets_configured_host(
+            "https://API.DATADOGHQ.COM/api/v2/monitors",
+            &cfg
+        ));
+        // Different host: not a match.
+        assert!(!targets_configured_host(
+            "https://evil.example/api/v2/api_keys",
+            &cfg
+        ));
+        // userinfo `@` trick — real host is evil.example: not a match.
+        assert!(!targets_configured_host(
+            "https://api.datadoghq.com@evil.example/api/v2/api_keys",
+            &cfg
+        ));
+        // Same host, plain http (default port 80): not a match (no downgrade).
+        assert!(!targets_configured_host(
+            "http://api.datadoghq.com/api/v2/monitors",
+            &cfg
+        ));
+        // Same host, http but port 443: scheme still differs, so not a match —
+        // credentials must never travel cleartext.
+        assert!(!targets_configured_host(
+            "http://api.datadoghq.com:443/api/v2/monitors",
+            &cfg
+        ));
+
+        // Custom site: the configured host changes accordingly.
+        let eu = Config {
+            site: "datadoghq.eu".into(),
+            ..cfg
+        };
+        assert!(targets_configured_host(
+            "https://api.datadoghq.eu/api/v2/monitors",
+            &eu
+        ));
+        // Cross-region: US host is off-host for an EU config (region exfil guard).
+        assert!(!targets_configured_host(
+            "https://api.datadoghq.com/api/v2/monitors",
+            &eu
+        ));
+    }
+
+    /// An absolute URL pointing at a non-Datadog host must receive NO Datadog
+    /// credentials, even on an OAuth-excluded path and even with creds configured.
+    #[tokio::test]
+    async fn test_api_offhost_absolute_url_omits_credentials() {
+        let _lock = lock_env().await;
+        // Configure for the real Datadog host, not the mock, so the mock URL is
+        // treated as a different (off-Datadog) host.
+        std::env::remove_var("PUP_MOCK_SERVER");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = Config {
+            api_key: Some("test-api-key".into()),
+            app_key: Some("test-app-key".into()),
+            access_token: Some("bearer-token".into()),
+            site: "datadoghq.com".into(),
+            site_explicit: true,
+            org: None,
+            output_format: crate::config::OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+        let _mock = server
+            .mock("GET", "/api/v2/api_keys")
+            .match_query(mockito::Matcher::Any)
+            .match_header("authorization", mockito::Matcher::Missing)
+            .match_header("DD-API-KEY", mockito::Matcher::Missing)
+            .match_header("DD-APPLICATION-KEY", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        // OAuth-excluded path on a non-Datadog host: must NOT leak the API keys.
+        let absolute = format!("{}/api/v2/api_keys", server.url());
+        let result = super::run(
+            &cfg,
+            &absolute,
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "off-host request should succeed unauthenticated: {:?}",
+            result.err()
+        );
+        std::env::remove_var("PUP_MOCK_SERVER");
+    }
+
+    /// OAuth-only users (bearer token, no API keys) must not leak the bearer token
+    /// to an off-Datadog host either.
+    #[tokio::test]
+    async fn test_api_offhost_bearer_only_omits_token() {
+        let _lock = lock_env().await;
+        std::env::remove_var("PUP_MOCK_SERVER");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: Some("bearer-token".into()),
+            site: "datadoghq.com".into(),
+            site_explicit: true,
+            org: None,
+            output_format: crate::config::OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+        let _mock = server
+            .mock("GET", "/api/v2/monitors")
+            .match_query(mockito::Matcher::Any)
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"[]"#)
+            .create_async()
+            .await;
+
+        let absolute = format!("{}/api/v2/monitors", server.url());
+        let result = super::run(
+            &cfg,
+            &absolute,
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "off-host bearer-only request should omit the token: {:?}",
+            result.err()
+        );
+        std::env::remove_var("PUP_MOCK_SERVER");
     }
 }

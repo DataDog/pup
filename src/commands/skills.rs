@@ -293,6 +293,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::test_support::TempDir;
+    use agent_skills;
 
     fn count_files_recursive(dir: &std::path::Path) -> usize {
         std::fs::read_dir(dir)

@@ -81,7 +81,7 @@ dependencies = [
 [[package]]
 name = "agent-skills"
 version = "0.1.0"
-source = "git+https://github.com/datadog-labs/agent-skills?rev=05c76987e0e249740355b4157b3f63b3cde79235#05c76987e0e249740355b4157b3f63b3cde79235"
+source = "git+https://github.com/datadog-labs/agent-skills?rev=6d3e516b7072bd1470563a5d10e941e2cad58ebe#6d3e516b7072bd1470563a5d10e941e2cad58ebe"
 
 [[package]]
 name = "aho-corasick"

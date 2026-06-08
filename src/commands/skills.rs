@@ -296,9 +296,21 @@ mod tests {
 
     fn count_files_recursive(dir: &std::path::Path) -> usize {
         std::fs::read_dir(dir)
-            .unwrap()
+            .unwrap_or_else(|e| {
+                panic!(
+                    "count_files_recursive: failed to read '{}': {e}",
+                    dir.display()
+                )
+            })
             .map(|e| {
-                let p = e.unwrap().path();
+                let p = e
+                    .unwrap_or_else(|err| {
+                        panic!(
+                            "count_files_recursive: entry error in '{}': {err}",
+                            dir.display()
+                        )
+                    })
+                    .path();
                 if p.is_dir() {
                     count_files_recursive(&p)
                 } else {
@@ -477,6 +489,12 @@ mod tests {
             "dd-pup-pi extension should be installed when `all` is selected"
         );
         assert!(tmp.path().join("dd-pup-pi/package.json").exists());
+        assert!(
+            tmp.path()
+                .join("dd-apm/k8s-ssi/agent-install/SKILL.md")
+                .exists(),
+            "sub-skill nested path must be preserved"
+        );
         // With path dedup, --dir writes each unique destination exactly once.
         // dd-apm has 12 files (root SKILL.md + 11 sub-skills) and dd-pup-pi has 3.
         let file_count = count_files_recursive(tmp.path());

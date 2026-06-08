@@ -72,7 +72,7 @@ browser = [
 # Pinned to a specific rev so updates are explicit and auditable, matching
 # the same pattern used for datadog-api-client below.
 # Requires agent-skills to carry a Cargo.toml + src/lib.rs (see companion PR).
-agent-skills = { git = "https://github.com/datadog-labs/agent-skills", rev = "c447f4d42f05fa8497c6fa0d1ee3889b7020dce3" }
+agent-skills = { git = "https://github.com/datadog-labs/agent-skills", rev = "05c76987e0e249740355b4157b3f63b3cde79235" }
 
 # CLI (optional — not needed for browser WASM library)
 clap = { version = "4", features = ["derive"], optional = true }

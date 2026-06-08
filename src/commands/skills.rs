@@ -294,6 +294,20 @@ mod tests {
     use crate::config::Config;
     use crate::test_support::TempDir;
 
+    fn count_files_recursive(dir: &std::path::Path) -> usize {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    count_files_recursive(&p)
+                } else {
+                    1
+                }
+            })
+            .sum()
+    }
+
     fn base_cfg() -> Config {
         Config {
             api_key: None,
@@ -463,19 +477,12 @@ mod tests {
             "dd-pup-pi extension should be installed when `all` is selected"
         );
         assert!(tmp.path().join("dd-pup-pi/package.json").exists());
-        // With path dedup, --dir writes each unique destination exactly once:
-        // dd-apm/SKILL.md + dd-pup-pi/index.ts + dd-pup-pi/package.json + dd-pup-pi/README.md
-        let file_count = std::fs::read_dir(tmp.path())
-            .unwrap()
-            .flat_map(|d| {
-                std::fs::read_dir(d.unwrap().path())
-                    .unwrap()
-                    .map(|f| f.unwrap().path())
-            })
-            .count();
+        // With path dedup, --dir writes each unique destination exactly once.
+        // dd-apm has 12 files (root SKILL.md + 11 sub-skills) and dd-pup-pi has 3.
+        let file_count = count_files_recursive(tmp.path());
         assert_eq!(
-            file_count, 4,
-            "expected 4 unique files (1 skill + 3 extension)"
+            file_count, 15,
+            "expected 15 unique files (12 dd-apm + 3 extension)"
         );
     }
 

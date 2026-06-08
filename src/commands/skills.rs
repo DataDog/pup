@@ -489,16 +489,31 @@ mod tests {
             "dd-pup-pi extension should be installed when `all` is selected"
         );
         assert!(tmp.path().join("dd-pup-pi/package.json").exists());
+        assert!(tmp.path().join("dd-pup-pi/README.md").exists());
         assert!(
             tmp.path()
                 .join("dd-apm/k8s-ssi/agent-install/SKILL.md")
                 .exists(),
-            "sub-skill nested path must be preserved"
+            "k8s-ssi sub-skill nested path must be preserved"
         );
-        // Sanity-check that dedup is working: there must be at least the files
-        // we already asserted above, and no zeroes from a silent install failure.
+        assert!(
+            tmp.path()
+                .join("dd-apm/linux-ssi/agent-install/SKILL.md")
+                .exists(),
+            "linux-ssi sub-skill nested path must be preserved"
+        );
+        // Guard against silent mass-install failure: floor is derived from the
+        // crate's own constants so it grows automatically as sub-skills are added.
+        let ext_files = 3usize; // dd-pup-pi: index.ts + package.json + README.md
+        let apm_min = 1 + agent_skills::DD_APM_SUB_SKILLS.len(); // root + sub-skills
         let file_count = count_files_recursive(tmp.path());
-        assert!(file_count >= 1, "expected at least 1 file to be installed");
+        assert!(
+            file_count >= ext_files + apm_min,
+            "expected at least {exp} files (1+{subs} apm + {ext} ext), got {file_count}",
+            exp = ext_files + apm_min,
+            subs = agent_skills::DD_APM_SUB_SKILLS.len(),
+            ext = ext_files,
+        );
     }
 
     #[test]

@@ -1553,7 +1553,11 @@ mod tests {
             ..entry("dd-apm", "agent", "body")
         };
         let paths = install_paths(&e, "claude-code", &root, None, false).unwrap();
-        assert_eq!(paths.len(), 1, "sub-skills must not be written for agent-md format");
+        assert_eq!(
+            paths.len(),
+            1,
+            "sub-skills must not be written for agent-md format"
+        );
     }
 
     #[test]

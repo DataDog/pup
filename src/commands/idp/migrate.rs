@@ -1275,13 +1275,13 @@ pub async fn migrate_schema(_cfg: &Config, file: Option<String>) -> Result<()> {
         Some(f) => {
             let p = std::path::PathBuf::from(&f);
             if p.is_dir() {
-                eprintln!("{ANSI_DIM}Searching for *.datadog.yaml files in '{}'{ANSI_RESET}", p.display());
+                eprintln!(
+                    "{ANSI_DIM}Searching for *.datadog.yaml files in '{}'{ANSI_RESET}",
+                    p.display()
+                );
                 let found = discover_catalog_files(&p);
                 match found.len() {
-                    0 => anyhow::bail!(
-                        "No *.datadog.yaml files found in '{}'",
-                        p.display()
-                    ),
+                    0 => anyhow::bail!("No *.datadog.yaml files found in '{}'", p.display()),
                     1 => {
                         println!("{ANSI_DIM}Using {}{ANSI_RESET}", found[0].display());
                         found
@@ -1316,7 +1316,10 @@ pub async fn migrate_schema(_cfg: &Config, file: Option<String>) -> Result<()> {
         }
         None => {
             let cwd = std::env::current_dir()?;
-            eprintln!("{ANSI_DIM}Searching for *.datadog.yaml files in '{}'{ANSI_RESET}", cwd.display());
+            eprintln!(
+                "{ANSI_DIM}Searching for *.datadog.yaml files in '{}'{ANSI_RESET}",
+                cwd.display()
+            );
             let found = discover_catalog_files(&cwd);
             match found.len() {
                 0 => anyhow::bail!(
@@ -1408,7 +1411,9 @@ fn print_summary(outcomes: &[MigrateOutcome], elapsed: std::time::Duration) {
         .count();
     let invalid: Vec<_> = outcomes
         .iter()
-        .filter(|o| matches!(&o.status, MigrateStatus::Migrated { warnings } if !warnings.is_empty()))
+        .filter(
+            |o| matches!(&o.status, MigrateStatus::Migrated { warnings } if !warnings.is_empty()),
+        )
         .collect();
     let failed: Vec<_> = outcomes
         .iter()
@@ -1450,7 +1455,10 @@ fn print_summary(outcomes: &[MigrateOutcome], elapsed: std::time::Duration) {
         }
     }
     if !skipped.is_empty() {
-        println!("  {ANSI_DIM}\u{2500}  {} skipped{ANSI_RESET}", skipped.len());
+        println!(
+            "  {ANSI_DIM}\u{2500}  {} skipped{ANSI_RESET}",
+            skipped.len()
+        );
     }
     println!(
         "  {ANSI_DIM}\u{21b3}  {total_services} service{}, {total_systems} system{} total{ANSI_RESET}",

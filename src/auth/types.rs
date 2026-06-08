@@ -51,6 +51,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "apm_read",
         "apm_service_catalog_read",
         "apps_run",
+        "apps_datastore_read",
         "audit_logs_read",
         "aws_configuration_read",
         "azure_configuration_read",
@@ -99,6 +100,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "usage_read",
         "user_access_read",
         "workflows_read",
+        "connections_read",
     ]
 }
 
@@ -112,8 +114,13 @@ pub fn default_scopes() -> Vec<&'static str> {
         // App Builder
         "apps_run",
         "apps_write",
-        // Connections (required by App Builder GetApp)
+        // Datastores
+        "apps_datastore_read",
+        "apps_datastore_write",
+        "apps_datastore_manage",
+        // Connections (required by App Builder and Workflow Automation)
         "connections_read",
+        "connections_write",
         // Audit
         "audit_logs_read",
         // AWS
@@ -317,7 +324,13 @@ mod tests {
         // App Builder
         assert!(scopes.contains(&"apps_run"));
         assert!(scopes.contains(&"apps_write"));
+        // Datastores
+        assert!(scopes.contains(&"apps_datastore_read"));
+        assert!(scopes.contains(&"apps_datastore_write"));
+        assert!(scopes.contains(&"apps_datastore_manage"));
+        // Connections
         assert!(scopes.contains(&"connections_read"));
+        assert!(scopes.contains(&"connections_write"));
     }
 
     #[test]
@@ -334,6 +347,11 @@ mod tests {
         assert!(ro.contains(&"dashboards_read"));
         assert!(ro.contains(&"monitors_read"));
         assert!(ro.contains(&"apps_run"));
+        assert!(ro.contains(&"apps_datastore_read"));
+        assert!(ro.contains(&"connections_read"));
+        assert!(!ro.contains(&"apps_datastore_write"));
+        assert!(!ro.contains(&"apps_datastore_manage"));
+        assert!(!ro.contains(&"connections_write"));
         assert!(!ro.contains(&"org_management"));
         assert!(!ro.contains(&"teams_manage"));
         assert!(!ro.contains(&"monitors_write"));

@@ -2757,9 +2757,8 @@ enum Commands {
     ///   Workflow CRUD (`workflows get/create/update/delete`),
     ///   `workflows run`, and `workflows instances *` accept OAuth2
     ///   (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
-    ///   `workflows connections *` requires DD_API_KEY + DD_APP_KEY
-    ///   pending server-side OAuth enablement on the action-connections
-    ///   API.
+    ///   `workflows connections *` accepts OAuth2 with connections_read /
+    ///   connections_write scopes, or DD_API_KEY + DD_APP_KEY.
     #[command(verbatim_doc_comment)]
     Workflows {
         #[command(subcommand)]

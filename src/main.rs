@@ -1054,8 +1054,7 @@ enum Commands {
     ///   pup dbm samples search --query "dbm_type:activity service:orders env:prod" --from 1h --limit 10
     ///
     /// AUTHENTICATION:
-    ///   Accepts OAuth2 (`pup auth login`, requires `dbm_read` scope) or
-    ///   DD_API_KEY + DD_APP_KEY.
+    ///   Accepts OAuth2 (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
     #[command(verbatim_doc_comment)]
     Dbm {
         #[command(subcommand)]

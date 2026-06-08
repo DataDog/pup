@@ -6,6 +6,9 @@ use crate::config::Config;
 use crate::formatter;
 use crate::util;
 
+mod migrate;
+pub use migrate::migrate_schema;
+
 // ---------------------------------------------------------------------------
 // Response types
 // ---------------------------------------------------------------------------

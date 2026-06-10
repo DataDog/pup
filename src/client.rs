@@ -137,6 +137,11 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
         // verbatim without prepending "api.". Both app. and api. hosts share the
         // same Datadog infrastructure; the correct Accept header (already set by
         // all pup request helpers) ensures JSON error semantics regardless.
+        //
+        // Remove "site" from server_variables: Configuration::new() populates it
+        // from the DD_SITE env var, but the index-2 template `https://api.{site}`
+        // must not bleed into the index-1 `{protocol}://{name}` path.
+        dd_cfg.server_variables.remove("site");
         dd_cfg.server_index = 1;
         dd_cfg
             .server_variables
@@ -1231,6 +1236,13 @@ mod tests {
             dd_cfg.server_variables.get("name").map(String::as_str),
             Some("mygateway.example.com")
         );
+        // "site" must be absent: the index-2 template expands `https://api.{site}`,
+        // so a stale "site" variable would misroute if the SDK ever blends variables
+        // across server indices.
+        assert!(
+            dd_cfg.server_variables.get("site").is_none(),
+            "site variable must not be set for literal-host path"
+        );
     }
 
     #[test]
@@ -1248,6 +1260,13 @@ mod tests {
         assert_eq!(
             dd_cfg.server_variables.get("name").map(String::as_str),
             Some("mycompany.datadoghq.com")
+        );
+        // "site" must be absent: the index-2 template expands `https://api.{site}`,
+        // so a stale "site" variable would misroute if the SDK ever blends variables
+        // across server indices.
+        assert!(
+            dd_cfg.server_variables.get("site").is_none(),
+            "site variable must not be set for literal-host path"
         );
     }
 

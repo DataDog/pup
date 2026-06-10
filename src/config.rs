@@ -96,13 +96,6 @@ impl Config {
         let site_explicit = explicit_site.is_some();
         let org = env_or("DD_ORG", file_cfg.org); // flag override applied in main_inner
 
-        // Validate explicit site (DD_SITE or config file) to catch URL-smuggling values
-        // early — before they reach URL construction.
-        if let Some(ref raw) = explicit_site {
-            let normalized = normalize_site(raw);
-            validate_site(&normalized)?;
-        }
-
         // Resolve site: explicit env/file > saved session for this org > default.
         // Custom-site logins record their site in the session registry, so a
         // bare `--org foo` (or DD_ORG=foo) should pick up that site automatically.
@@ -120,6 +113,12 @@ impl Config {
             })
             .unwrap_or_else(|| "datadoghq.com".into());
         let site = normalize_site(&raw_site);
+        // Validate all sources — explicit DD_SITE/config-file and session-derived —
+        // to catch URL-smuggling values before they reach URL construction.
+        // Session data is pup-written and should always be valid, but we validate
+        // unconditionally so a tampered sessions file is rejected loudly rather than
+        // silently routing to an attacker-controlled host.
+        validate_site(&site)?;
 
         // If no token from env/file, try loading from keychain/storage (where `pup auth login` saves)
         #[cfg(not(target_arch = "wasm32"))]
@@ -163,6 +162,11 @@ impl Config {
 
     /// Create configuration from explicit parameters (no env vars or filesystem).
     /// Used by the browser WASM build where `std::env` is unavailable.
+    ///
+    /// Callers are the pup browser extension (trusted internal code). The `site`
+    /// value originates from pup's own stored session data or from an in-extension
+    /// UI — it is never passed directly from untrusted browser content. Validation
+    /// at this layer is therefore omitted; the value is normalized and used as-is.
     #[cfg(feature = "browser")]
     pub fn from_params(
         site: String,
@@ -415,7 +419,14 @@ pub fn apply_org_override(cfg: &mut Config, org: String) {
             .as_deref()
             .and_then(crate::auth::storage::find_session_site)
         {
-            cfg.site = normalize_site(&saved_site);
+            let normalized = normalize_site(&saved_site);
+            // Session data is pup-written and should always be valid, but
+            // validate defensively so a tampered sessions file is rejected
+            // loudly rather than silently routing to an attacker-controlled host.
+            match validate_site(&normalized) {
+                Ok(()) => cfg.site = normalized,
+                Err(e) => eprintln!("warning: ignoring invalid session site {saved_site:?}: {e}"),
+            }
         }
     }
     if std::env::var("DD_ACCESS_TOKEN")
@@ -531,6 +542,13 @@ pub const KNOWN_SITES: &[&str] = &[
 
 /// Returns `true` when `site` is a known canonical Datadog site (applies `api.`/`app.`
 /// prefixes at request time) or an oncall passthrough. Everything else is a literal host.
+///
+/// Note: oncall hosts match by substring (`contains("oncall")`), which is a pre-existing
+/// convention. Both `api_host_for` and `auth_host_for` treat them as verbatim regardless
+/// (the `!site.contains("oncall")` guard cancels the canonical prefix), so any
+/// hostname that happens to contain "oncall" routes verbatim — the same outcome as a
+/// literal host. The practical difference is only in `normalize_site`, which skips
+/// prefix stripping for oncall hosts so the full subdomain is preserved.
 pub fn is_canonical_site(site: &str) -> bool {
     site.contains("oncall") || KNOWN_SITES.contains(&site)
 }
@@ -1696,6 +1714,25 @@ mod tests {
 
         assert_eq!(cfg.site, "datadoghq.com");
         assert!(!cfg.site_explicit);
+    }
+
+    /// Whitespace-only DD_SITE passes env_or (not filtered like ""), so normalize_site
+    /// trims it to empty and falls back to "datadoghq.com". site_explicit is still true
+    /// because the variable was set. Document this behavior so a future change doesn't
+    /// silently alter it.
+    #[test]
+    fn test_from_env_whitespace_dd_site_falls_back_to_default() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::set_var("DD_SITE", "   ");
+        std::env::set_var("PUP_CONFIG_DIR", "/tmp/pup_test_nonexistent");
+        let result = Config::from_env();
+        std::env::remove_var("DD_SITE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        // Whitespace-only normalizes to "datadoghq.com" which passes validate_site;
+        // the resulting Config has site_explicit=true because DD_SITE was non-empty.
+        let cfg = result.expect("whitespace DD_SITE should not error");
+        assert_eq!(cfg.site, "datadoghq.com");
+        assert!(cfg.site_explicit);
     }
 
     #[test]

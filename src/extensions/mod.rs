@@ -107,7 +107,7 @@ pub(crate) fn is_builtin_command(name: &str) -> bool {
 }
 
 impl PreParsedGlobals {
-    pub fn apply_to(&self, cfg: &mut config::Config) {
+    pub fn apply_to(&self, cfg: &mut config::Config) -> anyhow::Result<()> {
         if let Some(ref fmt) = self.output {
             if let Ok(f) = fmt.parse() {
                 cfg.output_format = f;
@@ -125,12 +125,13 @@ impl PreParsedGlobals {
         }
         if let Some(ref org) = self.org {
             #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-            config::apply_org_override(cfg, org.clone());
+            config::apply_org_override(cfg, org.clone())?;
             #[cfg(any(feature = "browser", target_arch = "wasm32"))]
             {
                 cfg.org = Some(org.clone());
             }
         }
+        Ok(())
     }
 }
 

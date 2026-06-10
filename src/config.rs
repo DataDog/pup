@@ -96,6 +96,17 @@ impl Config {
         let site_explicit = explicit_site.is_some();
         let org = env_or("DD_ORG", file_cfg.org); // flag override applied in main_inner
 
+        // Reject a whitespace-only explicit site before normalize_site can silently
+        // convert it to "datadoghq.com". `env_or` filters empty strings but not
+        // whitespace-only ones; without this check, DD_SITE="  " would result in
+        // site="datadoghq.com" with site_explicit=true, blocking --org from correcting
+        // the site and silently routing to the wrong endpoint.
+        if let Some(ref raw) = explicit_site {
+            if raw.trim().is_empty() {
+                bail!("DD_SITE must not be empty or whitespace-only");
+            }
+        }
+
         // Resolve site: explicit env/file > saved session for this org > default.
         // Custom-site logins record their site in the session registry, so a
         // bare `--org foo` (or DD_ORG=foo) should pick up that site automatically.
@@ -408,10 +419,14 @@ pub fn parse_scopes(s: &str) -> Vec<String> {
 /// the environment. May leave `cfg.access_token` at `None` if no token is
 /// stored for the new pair.
 ///
+/// Returns an error if the stored session site fails validation (tampered
+/// session file). Consistent with `from_env`, which bails on an invalid site
+/// rather than routing silently to the wrong endpoint.
+///
 /// Centralized so the binary entry point and the extension dispatcher share
 /// one resolution path.
 #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-pub fn apply_org_override(cfg: &mut Config, org: String) {
+pub fn apply_org_override(cfg: &mut Config, org: String) -> Result<()> {
     cfg.org = Some(org);
     if !cfg.site_explicit {
         if let Some(saved_site) = cfg
@@ -420,13 +435,11 @@ pub fn apply_org_override(cfg: &mut Config, org: String) {
             .and_then(crate::auth::storage::find_session_site)
         {
             let normalized = normalize_site(&saved_site);
-            // Session data is pup-written and should always be valid, but
-            // validate defensively so a tampered sessions file is rejected
-            // loudly rather than silently routing to an attacker-controlled host.
-            match validate_site(&normalized) {
-                Ok(()) => cfg.site = normalized,
-                Err(e) => eprintln!("warning: ignoring invalid session site {saved_site:?}: {e}"),
-            }
+            // Session data is pup-written and should always be valid, but bail
+            // on an invalid value so a tampered sessions file is rejected loudly
+            // rather than silently routing to the wrong (or attacker-controlled) host.
+            validate_site(&normalized)?;
+            cfg.site = normalized;
         }
     }
     if std::env::var("DD_ACCESS_TOKEN")
@@ -436,6 +449,7 @@ pub fn apply_org_override(cfg: &mut Config, org: String) {
     {
         cfg.access_token = load_token_from_storage(&cfg.site, cfg.org.as_deref());
     }
+    Ok(())
 }
 
 /// Try to load a valid (non-expired) access token from keychain/file storage.
@@ -1505,7 +1519,7 @@ mod tests {
             read_only: false,
         };
 
-        super::apply_org_override(&mut cfg, "org-b".into());
+        super::apply_org_override(&mut cfg, "org-b".into()).unwrap();
 
         std::env::remove_var("PUP_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1549,7 +1563,7 @@ mod tests {
             read_only: false,
         };
 
-        super::apply_org_override(&mut cfg, "org-a".into());
+        super::apply_org_override(&mut cfg, "org-a".into()).unwrap();
 
         std::env::remove_var("PUP_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1586,7 +1600,7 @@ mod tests {
             read_only: false,
         };
 
-        super::apply_org_override(&mut cfg, "unknown-org".into());
+        super::apply_org_override(&mut cfg, "unknown-org".into()).unwrap();
 
         std::env::remove_var("PUP_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1623,13 +1637,63 @@ mod tests {
             read_only: false,
         };
 
-        super::apply_org_override(&mut cfg, "any-org".into());
+        super::apply_org_override(&mut cfg, "any-org".into()).unwrap();
 
         std::env::remove_var("DD_ACCESS_TOKEN");
         std::env::remove_var("PUP_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
 
         assert_eq!(cfg.access_token.as_deref(), Some("env-supplied-token"));
+    }
+
+    /// An invalid session site must cause `apply_org_override` to bail rather
+    /// than silently leaving `cfg.site` at its pre-override value and routing
+    /// to the wrong endpoint. Consistent with `from_env` which also bails.
+    #[test]
+    fn test_apply_org_override_rejects_invalid_session_site() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_ACCESS_TOKEN");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_invalid_site_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+
+        crate::auth::storage::save_session(&SessionEntry {
+            // Deliberately malformed — simulate a tampered sessions file.
+            site: "evil.com/path".into(),
+            org: Some("bad-org".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+
+        let mut cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        let result = super::apply_org_override(&mut cfg, "bad-org".into());
+
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert!(
+            result.is_err(),
+            "apply_org_override must bail on an invalid session site"
+        );
+        // cfg.site must not have been updated to the invalid value.
+        assert_eq!(cfg.site, "datadoghq.com");
     }
 
     /// `set_site_explicit` keeps `site` and `site_explicit` in lockstep so a
@@ -1716,23 +1780,25 @@ mod tests {
         assert!(!cfg.site_explicit);
     }
 
-    /// Whitespace-only DD_SITE passes env_or (not filtered like ""), so normalize_site
-    /// trims it to empty and falls back to "datadoghq.com". site_explicit is still true
-    /// because the variable was set. Document this behavior so a future change doesn't
-    /// silently alter it.
+    /// Whitespace-only DD_SITE passes env_or's `!is_empty()` filter but must be
+    /// rejected with an error. Without this check, normalize_site would silently
+    /// reduce it to "datadoghq.com" and set site_explicit=true, blocking --org from
+    /// correcting the site and routing commands to the wrong endpoint.
     #[test]
-    fn test_from_env_whitespace_dd_site_falls_back_to_default() {
+    fn test_from_env_rejects_whitespace_only_dd_site() {
         let _guard = ENV_LOCK.blocking_lock();
         std::env::set_var("DD_SITE", "   ");
         std::env::set_var("PUP_CONFIG_DIR", "/tmp/pup_test_nonexistent");
         let result = Config::from_env();
         std::env::remove_var("DD_SITE");
         std::env::remove_var("PUP_CONFIG_DIR");
-        // Whitespace-only normalizes to "datadoghq.com" which passes validate_site;
-        // the resulting Config has site_explicit=true because DD_SITE was non-empty.
-        let cfg = result.expect("whitespace DD_SITE should not error");
-        assert_eq!(cfg.site, "datadoghq.com");
-        assert!(cfg.site_explicit);
+        let err_msg = result.err().map(|e| e.to_string());
+        assert!(
+            err_msg
+                .as_deref()
+                .is_some_and(|m| m.contains("empty") || m.contains("whitespace")),
+            "expected error for whitespace-only DD_SITE, got: {err_msg:?}"
+        );
     }
 
     #[test]

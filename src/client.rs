@@ -141,7 +141,14 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
         // Remove "site" from server_variables: Configuration::new() populates it
         // from the DD_SITE env var, but the index-2 template `https://api.{site}`
         // must not bleed into the index-1 `{protocol}://{name}` path.
-        dd_cfg.server_variables.remove("site");
+        // The debug_assert confirms the SDK still pre-populates this key; if a
+        // version bump changes that, the comment and removal become stale.
+        let removed = dd_cfg.server_variables.remove("site");
+        debug_assert!(
+            removed.is_some() || std::env::var("DD_SITE").is_err(),
+            "expected SDK Configuration::new() to populate server_variables[\"site\"] \
+             when DD_SITE is set; check if the SDK version changed this behavior"
+        );
         dd_cfg.server_index = 1;
         dd_cfg
             .server_variables
@@ -1267,6 +1274,38 @@ mod tests {
         assert!(
             dd_cfg.server_variables.get("site").is_none(),
             "site variable must not be set for literal-host path"
+        );
+    }
+
+    /// When DD_SITE is set in the user's environment, the SDK's
+    /// `Configuration::new()` pre-populates `server_variables["site"]`. The
+    /// literal-host branch must remove it so the `{protocol}://{name}` template
+    /// at server_index=1 is not contaminated by the index-2 `https://api.{site}`
+    /// expansion. This test exercises the actual bleed scenario.
+    #[test]
+    fn test_make_dd_config_literal_host_dd_site_env_does_not_bleed() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_MOCK_SERVER");
+        // Simulate the user having DD_SITE set in their shell environment.
+        std::env::set_var("DD_SITE", "datadoghq.com");
+
+        let mut cfg = test_cfg();
+        cfg.site = "mygateway.example.com".into(); // literal, not in KNOWN_SITES
+
+        let dd_cfg = make_dd_config(&cfg);
+
+        std::env::remove_var("DD_SITE");
+
+        assert_eq!(dd_cfg.server_index, 1);
+        assert!(
+            dd_cfg.server_variables.get("site").is_none(),
+            "DD_SITE env var must not bleed into the literal-host server_variables; \
+             got: {:?}",
+            dd_cfg.server_variables.get("site")
+        );
+        assert_eq!(
+            dd_cfg.server_variables.get("name").map(String::as_str),
+            Some("mygateway.example.com")
         );
     }
 

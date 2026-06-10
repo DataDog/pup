@@ -10945,7 +10945,7 @@ async fn main_inner() -> anyhow::Result<()> {
             if !extensions::is_builtin_command(candidate) {
                 if let Some(ext_path) = extensions::extension_path(candidate) {
                     let mut cfg = config::Config::from_env()?;
-                    parsed.globals.apply_to(&mut cfg);
+                    parsed.globals.apply_to(&mut cfg)?;
                     let exit_code = extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
                     std::process::exit(exit_code);
                 }
@@ -11022,7 +11022,7 @@ async fn main_inner() -> anyhow::Result<()> {
     // Site for this org and access token are also resolved here.
     if let Some(org) = cli.org {
         #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-        config::apply_org_override(&mut cfg, org);
+        config::apply_org_override(&mut cfg, org)?;
         #[cfg(any(feature = "browser", target_arch = "wasm32"))]
         {
             cfg.org = Some(org);

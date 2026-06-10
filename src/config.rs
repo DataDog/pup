@@ -185,12 +185,18 @@ impl Config {
     }
 
     /// Override the site as if the user passed it via DD_SITE / `--site` /
-    /// config file. Validates the normalized value to prevent URL smuggling,
-    /// then keeps `site` and `site_explicit` in lockstep so a later
+    /// config file. Validates the raw input *before* normalization so that an
+    /// empty `--site ""` is rejected rather than silently converted to
+    /// `"datadoghq.com"` by `normalize_site`'s empty-string fallback.
+    /// Keeps `site` and `site_explicit` in lockstep so a later
     /// `apply_org_override` does not silently swap a user-pinned site for a
     /// session-derived one.
     pub fn set_site_explicit(&mut self, site: String) -> Result<()> {
-        let normalized = normalize_site(&site);
+        let raw = site.trim();
+        if raw.is_empty() {
+            bail!("--site / DD_SITE must not be empty");
+        }
+        let normalized = normalize_site(raw);
         validate_site(&normalized)?;
         self.site = normalized;
         self.site_explicit = true;
@@ -270,6 +276,14 @@ impl Config {
 
     /// Returns the full API base URL (e.g., `https://api.datadoghq.com`).
     /// Respects `PUP_MOCK_SERVER` for testing (native/WASI only).
+    ///
+    /// Note: `api_base_url` and `api_host` handle `PUP_MOCK_SERVER` with
+    /// intentionally different semantics. `api_host` strips the scheme and
+    /// returns a bare host (e.g. `127.0.0.1:9999`), while `api_base_url`
+    /// returns the raw value including `http://` so the mock server can use
+    /// plain HTTP. Callers that need a full URL should use `api_base_url`;
+    /// callers that need only the host (e.g. for SDK `server_variables["name"]`)
+    /// should use `api_host`.
     pub fn api_base_url(&self) -> String {
         #[cfg(not(feature = "browser"))]
         {
@@ -1623,6 +1637,47 @@ mod tests {
         assert!(cfg.site_explicit);
     }
 
+    #[test]
+    fn test_set_site_explicit_rejects_smuggling_value() {
+        let mut cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+        // site and site_explicit must remain unchanged on failure.
+        assert!(cfg.set_site_explicit("evil.com/path".into()).is_err());
+        assert_eq!(cfg.site, "datadoghq.com");
+        assert!(!cfg.site_explicit);
+    }
+
+    #[test]
+    fn test_set_site_explicit_rejects_empty_string() {
+        let mut cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+        // An empty --site must not silently route to datadoghq.com via
+        // normalize_site's empty-string fallback.
+        assert!(cfg.set_site_explicit("".into()).is_err());
+        assert_eq!(cfg.site, "datadoghq.com");
+        assert!(!cfg.site_explicit);
+    }
+
     /// With no org, no env site, and no session, we fall back to the default
     /// site and report site_explicit=false.
     #[test]
@@ -1641,6 +1696,23 @@ mod tests {
 
         assert_eq!(cfg.site, "datadoghq.com");
         assert!(!cfg.site_explicit);
+    }
+
+    #[test]
+    fn test_from_env_rejects_invalid_dd_site() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::set_var("DD_SITE", "evil.com/path");
+        std::env::set_var("PUP_CONFIG_DIR", "/tmp/pup_test_nonexistent");
+        let result = Config::from_env();
+        std::env::remove_var("DD_SITE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let err_msg = result.err().map(|e| e.to_string());
+        assert!(
+            err_msg
+                .as_deref()
+                .is_some_and(|m| m.contains("invalid characters")),
+            "expected 'invalid characters' error from from_env with bad DD_SITE, got: {err_msg:?}"
+        );
     }
 
     #[test]

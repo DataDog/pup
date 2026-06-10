@@ -9668,16 +9668,13 @@ enum AuthActions {
         /// Shorthand: --ro
         #[arg(long, alias = "ro", visible_alias = "ro")]
         read_only: bool,
-        /// Datadog site to authenticate against (e.g. datadoghq.eu, us3.datadoghq.com).
+        /// Datadog site or literal host to authenticate against.
+        /// Standard sites: datadoghq.eu, us3.datadoghq.com, etc.
+        /// Vanity/SAML SSO host: mycompany.datadoghq.com (replaces the old --subdomain flag).
+        /// Custom gateway: mygateway.example.com or mygateway.example.com:8443.
         /// Overrides DD_SITE env var and config file. Defaults to datadoghq.com.
         #[arg(long, value_name = "SITE")]
         site: Option<String>,
-        /// Organization subdomain for SAML/SSO login (e.g. mycompany for mycompany.datadoghq.com).
-        /// Composed against --site, so `--site datad0g.com --subdomain dd` routes to dd.datad0g.com.
-        /// Whether the consent page narrows to a single org depends on per-tenant SAML routing on
-        /// the Datadog side; some subdomains still show the org switcher.
-        #[arg(long, value_name = "SUBDOMAIN")]
-        subdomain: Option<String>,
         /// Pin the OAuth callback to one specific port from the DCR redirect allowlist
         /// [8000, 8080, 8888, 9000] instead of scanning. Useful when forwarding a single port
         /// over SSH. If the chosen port is busy login fails — no fallback. Other values are
@@ -10706,24 +10703,6 @@ fn validate_callback_port(port: u16, source: &str) -> anyhow::Result<u16> {
     Ok(port)
 }
 
-/// Validate a SAML/SSO subdomain string before it's composed into the auth URL.
-/// Non-empty input must be alphanumeric plus `-` so that a value like `evil.com#`
-/// can't smuggle a different host into the URL via fragment/path tricks. The
-/// empty case is accepted because `build_authorization_url` already coerces it
-/// to "fall back to app.{site}".
-fn validate_subdomain(s: &str) -> anyhow::Result<()> {
-    if s.is_empty() {
-        return Ok(());
-    }
-    if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        anyhow::bail!(
-            "--subdomain {s:?} contains invalid characters; \
-             expected ASCII letters, digits, and `-` only"
-        );
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod resolve_callback_port_tests {
     use super::resolve_callback_port;
@@ -10823,34 +10802,39 @@ mod resolve_callback_port_tests {
     }
 
     #[test]
-    fn subdomain_accepts_alphanumeric_and_hyphen() {
-        use super::validate_subdomain;
-        assert!(validate_subdomain("").is_ok());
-        assert!(validate_subdomain("acme").is_ok());
-        assert!(validate_subdomain("dd-staging").is_ok());
-        assert!(validate_subdomain("ab123").is_ok());
+    fn site_flag_accepts_valid_hosts() {
+        use crate::config::validate_site;
+        for good in [
+            "datadoghq.com",
+            "us3.datadoghq.com",
+            "mycompany.datadoghq.com",
+            "mygateway.example.com",
+            "gw.example.com:8443",
+            "host-1.example.com",
+        ] {
+            assert!(validate_site(good).is_ok(), "{good:?} should be accepted");
+        }
     }
 
     #[test]
-    fn subdomain_rejects_url_smuggling_attempts() {
-        use super::validate_subdomain;
-        // The hash/dot/slash/at/space cases would each let a hand-crafted
-        // value redirect the OAuth flow to an attacker-controlled host. Pin
-        // them all as rejections rather than relying on the URL builder.
+    fn site_flag_rejects_url_smuggling_attempts() {
+        use crate::config::validate_site;
+        // These values would redirect API or OAuth calls to an attacker-controlled
+        // host if allowed through URL construction unchecked.
         for bad in [
-            "evil.com#",
-            "evil.com",
-            "evil/path",
-            "user@evil",
+            "evil.com/path",
+            "a#b",
+            "user@host",
             "dd staging",
             "dd_staging", // underscore not in DNS label charset
             "../../etc",
+            "",
         ] {
-            let err = validate_subdomain(bad).unwrap_err();
+            let err = validate_site(bad).unwrap_err();
             let msg = format!("{err}");
             assert!(
-                msg.contains("invalid characters"),
-                "{bad:?} should be rejected with invalid-characters error, got: {msg}"
+                msg.contains("invalid characters") || msg.contains("empty") || msg.contains("dot"),
+                "{bad:?} should be rejected, got: {msg}"
             );
         }
     }
@@ -14812,15 +14796,11 @@ async fn main_inner() -> anyhow::Result<()> {
                 scopes,
                 read_only,
                 site,
-                subdomain,
                 callback_port,
                 org_uuid,
             } => {
                 if let Some(s) = site {
-                    cfg.set_site_explicit(s);
-                }
-                if let Some(sub) = subdomain.as_deref() {
-                    validate_subdomain(sub)?;
+                    cfg.set_site_explicit(s)?;
                 }
                 let is_read_only = read_only || cfg.read_only;
                 let resolved =
@@ -14829,19 +14809,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 // Coerce empty `--org-uuid ""` to no-hint so callees treat
                 // it the same as omitting the flag, not as `dd_oid=`.
                 let org_uuid_hint = org_uuid.as_deref().filter(|s| !s.is_empty());
-                commands::auth::login(
-                    &cfg,
-                    resolved,
-                    subdomain.as_deref(),
-                    resolved_port,
-                    org_uuid_hint,
-                )
-                .await?
+                commands::auth::login(&cfg, resolved, resolved_port, org_uuid_hint).await?
             }
             AuthActions::Logout => commands::auth::logout(&cfg).await?,
             AuthActions::Status { site } => {
                 if let Some(s) = site {
-                    cfg.set_site_explicit(s);
+                    cfg.set_site_explicit(s)?;
                 }
                 commands::auth::status(&cfg)?
             }

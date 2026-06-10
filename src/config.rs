@@ -96,6 +96,13 @@ impl Config {
         let site_explicit = explicit_site.is_some();
         let org = env_or("DD_ORG", file_cfg.org); // flag override applied in main_inner
 
+        // Validate explicit site (DD_SITE or config file) to catch URL-smuggling values
+        // early — before they reach URL construction.
+        if let Some(ref raw) = explicit_site {
+            let normalized = normalize_site(raw);
+            validate_site(&normalized)?;
+        }
+
         // Resolve site: explicit env/file > saved session for this org > default.
         // Custom-site logins record their site in the session registry, so a
         // bare `--org foo` (or DD_ORG=foo) should pick up that site automatically.
@@ -178,12 +185,16 @@ impl Config {
     }
 
     /// Override the site as if the user passed it via DD_SITE / `--site` /
-    /// config file. Keeps `site` and `site_explicit` in lockstep so a later
+    /// config file. Validates the normalized value to prevent URL smuggling,
+    /// then keeps `site` and `site_explicit` in lockstep so a later
     /// `apply_org_override` does not silently swap a user-pinned site for a
     /// session-derived one.
-    pub fn set_site_explicit(&mut self, site: String) {
-        self.site = normalize_site(&site);
+    pub fn set_site_explicit(&mut self, site: String) -> Result<()> {
+        let normalized = normalize_site(&site);
+        validate_site(&normalized)?;
+        self.site = normalized;
         self.site_explicit = true;
+        Ok(())
     }
 
     /// Validate that sufficient auth credentials are configured.
@@ -225,7 +236,18 @@ impl Config {
         self.access_token.is_some()
     }
 
-    /// Returns the API host (e.g., "api.datadoghq.com").
+    /// Returns `true` when `site` is a literal host (not a canonical Datadog site).
+    ///
+    /// Literal hosts are used verbatim in API requests and OAuth flows, enabling
+    /// vanity-domain SSO (`--site mycompany.datadoghq.com`) and custom gateway
+    /// routing (`DD_SITE=mygateway.example.com`).
+    pub fn is_literal_host(&self) -> bool {
+        !is_canonical_site(&self.site)
+    }
+
+    /// Returns the API host (e.g., `api.datadoghq.com`).
+    ///
+    /// Delegates to [`api_host_for`] after handling the `PUP_MOCK_SERVER` override.
     pub fn api_host(&self) -> String {
         #[cfg(not(feature = "browser"))]
         {
@@ -236,15 +258,18 @@ impl Config {
                 return host.to_string();
             }
         }
-        if self.site.contains("oncall") {
-            self.site.clone()
-        } else {
-            format!("api.{}", self.site)
-        }
+        api_host_for(&self.site)
     }
 
-    /// Returns the full API base URL (e.g., "https://api.datadoghq.com").
-    /// Respects PUP_MOCK_SERVER for testing (native/WASI only).
+    /// Returns the OAuth authorization host (e.g., `app.datadoghq.com`).
+    ///
+    /// Canonical sites get an `app.` prefix; literal hosts are used verbatim.
+    pub fn auth_host(&self) -> String {
+        auth_host_for(&self.site)
+    }
+
+    /// Returns the full API base URL (e.g., `https://api.datadoghq.com`).
+    /// Respects `PUP_MOCK_SERVER` for testing (native/WASI only).
     pub fn api_base_url(&self) -> String {
         #[cfg(not(feature = "browser"))]
         {
@@ -476,33 +501,131 @@ where
     }
 }
 
-/// Normalize a raw site value from user input into a canonical form.
+/// Canonical Datadog sites that use `api.{site}` for API calls and `app.{site}` for
+/// OAuth. Any other site value is treated as a **literal host** and used verbatim for
+/// both API requests and OAuth flows (enables vanity-domain and gateway use cases).
+pub const KNOWN_SITES: &[&str] = &[
+    "datadoghq.com",
+    "us3.datadoghq.com",
+    "us5.datadoghq.com",
+    "ap1.datadoghq.com",
+    "ap2.datadoghq.com",
+    "datadoghq.eu",
+    "ddog-gov.com",
+    "datad0g.com", // staging
+];
+
+/// Returns `true` when `site` is a known canonical Datadog site (applies `api.`/`app.`
+/// prefixes at request time) or an oncall passthrough. Everything else is a literal host.
+pub fn is_canonical_site(site: &str) -> bool {
+    site.contains("oncall") || KNOWN_SITES.contains(&site)
+}
+
+/// Derive the API request host from a normalized site value.
 ///
-/// Strips leading UI prefixes (`www`, `api`, `app`) and passes everything else
-/// through unchanged — including custom subdomains and regional prefixes like
-/// `us3`, `ap1`, etc.
+/// - Canonical sites → `api.{site}` (e.g. `api.datadoghq.com`).
+/// - Oncall passthroughs and literal hosts → verbatim (e.g. `mygateway.example.com`).
+pub fn api_host_for(site: &str) -> String {
+    if is_canonical_site(site) && !site.contains("oncall") {
+        format!("api.{site}")
+    } else {
+        site.to_string()
+    }
+}
+
+/// Derive the OAuth authorization host from a normalized site value.
 ///
-/// Oncall sites (containing `oncall`) are always passed through unchanged.
+/// - Canonical sites → `app.{site}` (e.g. `app.datadoghq.com`).
+/// - Oncall passthroughs and literal hosts → verbatim (e.g. `mycompany.datadoghq.com`).
+pub fn auth_host_for(site: &str) -> String {
+    if is_canonical_site(site) && !site.contains("oncall") {
+        format!("app.{site}")
+    } else {
+        site.to_string()
+    }
+}
+
+/// Validate a site or host string to prevent URL smuggling.
+///
+/// Allows ASCII alphanumeric, `.`, `-`, and an optional single `:port` suffix (1–65535).
+/// Rejects `/`, `#`, `?`, `@`, whitespace, `_`, embedded schemes, consecutive dots,
+/// and leading/trailing dots. An empty string is also rejected.
+pub fn validate_site(s: &str) -> Result<()> {
+    if s.is_empty() {
+        bail!("--site / DD_SITE must not be empty");
+    }
+    // Split off an optional trailing :port.
+    let (host_part, port_part) = match s.rfind(':') {
+        Some(idx) => {
+            let port = &s[idx + 1..];
+            if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
+                (&s[..idx], Some(port))
+            } else {
+                (s, None)
+            }
+        }
+        None => (s, None),
+    };
+    if let Some(p) = port_part {
+        let n: u32 = p.parse().unwrap_or(0);
+        if n == 0 || n > 65535 {
+            bail!("--site / DD_SITE port {p} is out of range (1–65535)");
+        }
+    }
+    // Host part: DNS label chars only (alphanumeric, hyphen, dot).
+    if !host_part
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+    {
+        bail!(
+            "--site / DD_SITE {s:?} contains invalid characters; \
+             expected a DNS hostname (letters, digits, `.`, `-`) with an optional `:port`"
+        );
+    }
+    if host_part.starts_with('.') || host_part.ends_with('.') || host_part.contains("..") {
+        bail!(
+            "--site / DD_SITE {s:?} has invalid dot structure \
+             (leading, trailing, or consecutive dots)"
+        );
+    }
+    Ok(())
+}
+
+/// Normalize a raw site value from user input into a canonical storage form.
+///
+/// Strips any `https://` / `http://` scheme and trailing `/`, then removes a single
+/// leading `www.`, `app.`, or `api.` label. Oncall sites are passed through unchanged.
+///
+/// The stored value is then interpreted at request time via [`is_canonical_site`]:
+/// known sites get `api.`/`app.` prefixed; everything else is used verbatim as a
+/// literal host, which enables both vanity-domain SSO and custom gateway routing.
 ///
 /// Examples:
-///   `app.datadoghq.com`        → `datadoghq.com`
-///   `www.datadoghq.com`        → `datadoghq.com`
-///   `api.datadoghq.com`        → `datadoghq.com`
-///   `app.us3.datadoghq.com`    → `us3.datadoghq.com`
-///   `us3.datadoghq.com`        → `us3.datadoghq.com`
-///   `custom.datadoghq.com`     → `custom.datadoghq.com`
-///   `datadoghq.com`            → `datadoghq.com`
+///   `app.datadoghq.com`           → `datadoghq.com`   (canonical)
+///   `www.datadoghq.com`           → `datadoghq.com`   (canonical)
+///   `api.datadoghq.com`           → `datadoghq.com`   (canonical)
+///   `app.us3.datadoghq.com`       → `us3.datadoghq.com` (canonical)
+///   `us3.datadoghq.com`           → `us3.datadoghq.com` (canonical)
+///   `mycompany.datadoghq.com`     → `mycompany.datadoghq.com` (literal)
+///   `mygateway.example.com:8443`  → `mygateway.example.com:8443` (literal)
 pub fn normalize_site(site: &str) -> String {
-    if site.contains("oncall") {
-        return site.to_string();
+    let trimmed = site
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
+    if trimmed.is_empty() {
+        return "datadoghq.com".into();
     }
+    if trimmed.contains("oncall") {
+        return trimmed.to_string();
+    }
+    // Strip a single leading www./app./api. label.
     const STRIP_PREFIXES: &[&str] = &["www", "api", "app"];
-    let parts: Vec<&str> = site.split('.').collect();
-    let start = parts
-        .iter()
-        .position(|p| !STRIP_PREFIXES.contains(p))
-        .unwrap_or(0);
-    parts[start..].join(".")
+    match trimmed.split_once('.') {
+        Some((first, rest)) if STRIP_PREFIXES.contains(&first) => rest.to_string(),
+        _ => trimmed.to_string(),
+    }
 }
 
 #[cfg(not(feature = "browser"))]
@@ -728,10 +851,11 @@ mod tests {
         );
     }
 
-    // --- normalize_site custom subdomain passthrough tests ---
+    // --- normalize_site literal-host passthrough tests ---
 
     #[test]
     fn test_normalize_site_custom_subdomain_preserved() {
+        // Non-canonical host: stored verbatim as a literal.
         assert_eq!(
             normalize_site("customname.datadoghq.com"),
             "customname.datadoghq.com"
@@ -740,10 +864,162 @@ mod tests {
 
     #[test]
     fn test_normalize_site_app_then_custom_subdomain() {
+        // Strip leading app. to get the literal host.
         assert_eq!(
             normalize_site("app.customname.datadoghq.com"),
             "customname.datadoghq.com"
         );
+    }
+
+    #[test]
+    fn test_normalize_site_gateway_host_preserved() {
+        assert_eq!(
+            normalize_site("mygateway.example.com"),
+            "mygateway.example.com"
+        );
+    }
+
+    #[test]
+    fn test_normalize_site_gateway_host_with_port() {
+        assert_eq!(
+            normalize_site("mygateway.example.com:8443"),
+            "mygateway.example.com:8443"
+        );
+    }
+
+    #[test]
+    fn test_normalize_site_strips_https_scheme() {
+        assert_eq!(
+            normalize_site("https://mygateway.example.com/"),
+            "mygateway.example.com"
+        );
+    }
+
+    // --- is_canonical_site tests ---
+
+    #[test]
+    fn test_is_canonical_site_known_sites() {
+        for site in crate::config::KNOWN_SITES {
+            assert!(is_canonical_site(site), "{site} should be canonical");
+        }
+    }
+
+    #[test]
+    fn test_is_canonical_site_oncall() {
+        assert!(is_canonical_site("navy.oncall.datadoghq.com"));
+    }
+
+    #[test]
+    fn test_is_canonical_site_vanity_is_not_canonical() {
+        assert!(!is_canonical_site("mycompany.datadoghq.com"));
+    }
+
+    #[test]
+    fn test_is_canonical_site_gateway_is_not_canonical() {
+        assert!(!is_canonical_site("mygateway.example.com"));
+    }
+
+    // --- auth_host tests ---
+
+    #[test]
+    fn test_auth_host_canonical() {
+        let cfg = make_cfg(None, None, Some("t"));
+        assert_eq!(cfg.auth_host(), "app.datadoghq.com");
+    }
+
+    #[test]
+    fn test_auth_host_eu() {
+        let mut cfg = make_cfg(None, None, Some("t"));
+        cfg.site = "datadoghq.eu".into();
+        assert_eq!(cfg.auth_host(), "app.datadoghq.eu");
+    }
+
+    #[test]
+    fn test_auth_host_literal() {
+        let mut cfg = make_cfg(None, None, Some("t"));
+        cfg.site = "mycompany.datadoghq.com".into();
+        assert_eq!(cfg.auth_host(), "mycompany.datadoghq.com");
+    }
+
+    #[test]
+    fn test_auth_host_gateway() {
+        let mut cfg = make_cfg(None, None, Some("t"));
+        cfg.site = "mygateway.example.com".into();
+        assert_eq!(cfg.auth_host(), "mygateway.example.com");
+    }
+
+    #[test]
+    fn test_auth_host_oncall_verbatim() {
+        let mut cfg = make_cfg(None, None, Some("t"));
+        cfg.site = "navy.oncall.datadoghq.com".into();
+        assert_eq!(cfg.auth_host(), "navy.oncall.datadoghq.com");
+    }
+
+    // --- api_host literal-host tests ---
+
+    #[test]
+    fn test_api_host_literal_vanity() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_MOCK_SERVER");
+        let mut cfg = make_cfg(None, None, Some("t"));
+        cfg.site = "mycompany.datadoghq.com".into();
+        assert_eq!(cfg.api_host(), "mycompany.datadoghq.com");
+    }
+
+    #[test]
+    fn test_api_host_literal_gateway() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_MOCK_SERVER");
+        let mut cfg = make_cfg(None, None, Some("t"));
+        cfg.site = "mygateway.example.com:8443".into();
+        assert_eq!(cfg.api_host(), "mygateway.example.com:8443");
+    }
+
+    // --- validate_site tests ---
+
+    #[test]
+    fn test_validate_site_accepts_known_sites() {
+        for site in crate::config::KNOWN_SITES {
+            validate_site(site).unwrap_or_else(|e| panic!("{site} should be valid: {e}"));
+        }
+    }
+
+    #[test]
+    fn test_validate_site_accepts_regional_and_custom() {
+        for s in [
+            "mygateway.example.com",
+            "mycompany.datadoghq.com",
+            "gw.example.com:8443",
+            "host-1.example.com",
+        ] {
+            validate_site(s).unwrap_or_else(|e| panic!("{s:?} should be valid: {e}"));
+        }
+    }
+
+    #[test]
+    fn test_validate_site_rejects_smuggling() {
+        for bad in [
+            "evil.com/path",
+            "a#b",
+            "user@host",
+            "a b",
+            "../../etc",
+            "dd_staging",
+            "",
+        ] {
+            let err = validate_site(bad).unwrap_err();
+            let msg = format!("{err}");
+            assert!(
+                msg.contains("invalid characters") || msg.contains("empty") || msg.contains("dot"),
+                "{bad:?} should be rejected, got: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_site_rejects_bad_port() {
+        assert!(validate_site("host.example.com:0").is_err());
+        assert!(validate_site("host.example.com:99999").is_err());
     }
 
     #[test]
@@ -1341,7 +1617,7 @@ mod tests {
             read_only: false,
         };
 
-        cfg.set_site_explicit("app.datadoghq.eu".into());
+        cfg.set_site_explicit("app.datadoghq.eu".into()).unwrap();
 
         assert_eq!(cfg.site, "datadoghq.eu");
         assert!(cfg.site_explicit);

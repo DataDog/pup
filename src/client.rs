@@ -131,29 +131,30 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
             .server_variables
             .insert("protocol".into(), protocol.into());
         dd_cfg.server_variables.insert("name".into(), url.into());
+    } else if cfg.is_literal_host() {
+        // Literal host (vanity domain or custom gateway): route via the
+        // "{protocol}://{name}" template at index 1 so the SDK targets the host
+        // verbatim without prepending "api.". Both app. and api. hosts share the
+        // same Datadog infrastructure; the correct Accept header (already set by
+        // all pup request helpers) ensures JSON error semantics regardless.
+        dd_cfg.server_index = 1;
+        dd_cfg
+            .server_variables
+            .insert("protocol".into(), "https".into());
+        dd_cfg
+            .server_variables
+            .insert("name".into(), cfg.api_host());
     } else {
-        // Server index 0 only accepts production sites (datadoghq.com, us3, us5,
-        // ap1, ap2, eu, gov). Server index 2 uses the same URL template but with
-        // no enum restriction, so it works for any site including staging
-        // (datad0g.com). Use index 2 for non-standard sites.
+        // Canonical Datadog sites: use server index 2 (same `https://api.{site}`
+        // template as index 0 but with no enum restriction, so it works for all
+        // canonical sites including staging datad0g.com).
         //
         // The SDK populates `server_variables["site"]` from the DD_SITE env var
         // at Configuration::default() time. We override it with `cfg.site` so
         // programmatic site resolution (e.g. `--org` picking up a saved site
         // from the session registry) reaches the SDK without requiring the
         // user to also set DD_SITE.
-        static STANDARD_SITES: &[&str] = &[
-            "datadoghq.com",
-            "us3.datadoghq.com",
-            "us5.datadoghq.com",
-            "ap1.datadoghq.com",
-            "ap2.datadoghq.com",
-            "datadoghq.eu",
-            "ddog-gov.com",
-        ];
-        if !STANDARD_SITES.contains(&cfg.site.as_str()) {
-            dd_cfg.server_index = 2;
-        }
+        dd_cfg.server_index = 2;
         dd_cfg
             .server_variables
             .insert("site".into(), cfg.site.clone());
@@ -1201,10 +1202,52 @@ mod tests {
 
         let dd_cfg = make_dd_config(&cfg);
 
-        assert_eq!(dd_cfg.server_index, 0);
+        // All canonical sites now use index 2 (same https://api.{site} template,
+        // no enum restriction) so staging and non-standard canonicals work too.
+        assert_eq!(dd_cfg.server_index, 2);
         assert_eq!(
             dd_cfg.server_variables.get("site").map(String::as_str),
             Some("datadoghq.eu")
+        );
+    }
+
+    #[test]
+    fn test_make_dd_config_literal_host_uses_server_index_1() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_MOCK_SERVER");
+        std::env::remove_var("DD_SITE");
+
+        let mut cfg = test_cfg();
+        cfg.site = "mygateway.example.com".into(); // literal, not in KNOWN_SITES
+
+        let dd_cfg = make_dd_config(&cfg);
+
+        assert_eq!(dd_cfg.server_index, 1);
+        assert_eq!(
+            dd_cfg.server_variables.get("protocol").map(String::as_str),
+            Some("https")
+        );
+        assert_eq!(
+            dd_cfg.server_variables.get("name").map(String::as_str),
+            Some("mygateway.example.com")
+        );
+    }
+
+    #[test]
+    fn test_make_dd_config_vanity_subdomain_uses_literal() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_MOCK_SERVER");
+        std::env::remove_var("DD_SITE");
+
+        let mut cfg = test_cfg();
+        cfg.site = "mycompany.datadoghq.com".into(); // vanity, not in KNOWN_SITES
+
+        let dd_cfg = make_dd_config(&cfg);
+
+        assert_eq!(dd_cfg.server_index, 1);
+        assert_eq!(
+            dd_cfg.server_variables.get("name").map(String::as_str),
+            Some("mycompany.datadoghq.com")
         );
     }
 
@@ -1351,8 +1394,9 @@ mod tests {
         std::env::set_var("DD_APP_KEY", "test-app-key");
         std::env::remove_var("PUP_MOCK_SERVER");
         let dd_cfg = make_dd_config(&cfg);
-        // Verify unstable ops are enabled (server_index should be default 0)
-        assert_eq!(dd_cfg.server_index, 0);
+        // Canonical sites use server_index 2 (no enum restriction, same https://api.{site}
+        // template as index 0 but works for all sites including staging).
+        assert_eq!(dd_cfg.server_index, 2);
         std::env::remove_var("DD_API_KEY");
         std::env::remove_var("DD_APP_KEY");
     }

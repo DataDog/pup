@@ -395,4 +395,32 @@ mod tests {
         );
         assert!(!url.contains("dd_oid"), "got: {url}");
     }
+
+    /// Verify that DCR registration and token exchange target the literal host
+    /// verbatim for non-canonical sites (vanity domains, custom gateways).
+    /// These URLs are constructed at call time so there is no HTTP call here;
+    /// the test inspects `api_host` indirectly by verifying the fields set at
+    /// construction, which `register`/`request_tokens` use directly.
+    #[test]
+    fn dcr_client_api_host_for_literal_site() {
+        // Canonical site: register/token should hit api.datadoghq.com.
+        let canonical = DcrClient::new("datadoghq.com");
+        assert_eq!(canonical.api_host, "api.datadoghq.com");
+        assert_eq!(canonical.auth_host, "app.datadoghq.com");
+
+        // Vanity/SAML site (literal): must use the host verbatim without prepending api.
+        let vanity = DcrClient::new("mycompany.datadoghq.com");
+        assert_eq!(vanity.api_host, "mycompany.datadoghq.com");
+        assert_eq!(vanity.auth_host, "mycompany.datadoghq.com");
+
+        // Custom gateway (literal): same — no api. prefix.
+        let gateway = DcrClient::new("mygateway.example.com");
+        assert_eq!(gateway.api_host, "mygateway.example.com");
+        assert_eq!(gateway.auth_host, "mygateway.example.com");
+
+        // Staging canonical: api./app. prefixes apply.
+        let staging = DcrClient::new("datad0g.com");
+        assert_eq!(staging.api_host, "api.datad0g.com");
+        assert_eq!(staging.auth_host, "app.datad0g.com");
+    }
 }

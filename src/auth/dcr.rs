@@ -28,7 +28,14 @@ pub fn get_redirect_uris() -> Vec<String> {
 #[cfg(not(target_arch = "wasm32"))]
 /// DCR + token exchange client.
 pub struct DcrClient {
+    /// Normalized site used as the token-storage key.
     site: String,
+    /// Host for API calls (register, token). Canonical sites → `api.{site}`;
+    /// literal hosts (vanity/gateway) → verbatim.
+    api_host: String,
+    /// Host for the OAuth authorize redirect. Canonical sites → `app.{site}`;
+    /// literal hosts → verbatim.
+    auth_host: String,
     http: reqwest::Client,
 }
 
@@ -64,6 +71,8 @@ struct TokenResponse {
 impl DcrClient {
     pub fn new(site: &str) -> Self {
         Self {
+            api_host: crate::config::api_host_for(site),
+            auth_host: crate::config::auth_host_for(site),
             site: site.to_string(),
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
@@ -78,7 +87,7 @@ impl DcrClient {
         redirect_uri: &str,
         _scopes: &[&str],
     ) -> Result<ClientCredentials> {
-        let url = format!("https://api.{}/api/v2/oauth2/register", self.site);
+        let url = format!("https://{}/api/v2/oauth2/register", self.api_host);
 
         let body = RegistrationRequest {
             client_name: DCR_CLIENT_NAME.to_string(),
@@ -150,7 +159,7 @@ impl DcrClient {
     }
 
     async fn request_tokens(&self, params: &[(&str, &str)], client_id: &str) -> Result<TokenSet> {
-        let url = format!("https://api.{}/oauth2/v1/token", self.site);
+        let url = format!("https://{}/oauth2/v1/token", self.api_host);
 
         // Filter out empty params
         let form_params: Vec<(&str, &str)> = params
@@ -192,7 +201,10 @@ impl DcrClient {
     /// Build the authorization URL for the browser. `org_uuid` is appended as
     /// `dd_oid` when set; callers should coerce empty strings to `None`
     /// upstream so this function doesn't have to second-guess them.
-    #[allow(clippy::too_many_arguments)]
+    ///
+    /// The OAuth host is derived from `auth_host`: canonical sites use `app.{site}`;
+    /// literal hosts (vanity domain or gateway) are used verbatim. Pass the full
+    /// desired host via `--site` / `DD_SITE` — `--subdomain` has been removed.
     pub fn build_authorization_url(
         &self,
         client_id: &str,
@@ -200,7 +212,6 @@ impl DcrClient {
         state: &str,
         challenge: &super::pkce::PkceChallenge,
         scopes: &[&str],
-        subdomain: Option<&str>,
         org_uuid: Option<&str>,
     ) -> String {
         // Sort scopes so the printed authorize URL has a deterministic
@@ -224,18 +235,7 @@ impl DcrClient {
         }
         let params = serializer.finish();
 
-        // Use custom subdomain for SAML/SSO auth, otherwise use standard app.{site}.
-        // The subdomain replaces the `app` prefix on whichever site is in play, so a
-        // staging login (--site datad0g.com --subdomain dd) routes to dd.datad0g.com
-        // rather than collapsing to dd.datadoghq.com (prod).
-        // An empty subdomain string (`Some("")`) is coerced to `None` rather than
-        // composing `https://.{site}/...` and producing a malformed URL the browser
-        // would surface as an opaque DNS error.
-        let auth_host = match subdomain.filter(|s| !s.is_empty()) {
-            Some(sub) => format!("{sub}.{}", self.site),
-            None => format!("app.{}", self.site),
-        };
-        format!("https://{auth_host}/oauth2/v1/authorize?{params}")
+        format!("https://{}/oauth2/v1/authorize?{params}", self.auth_host)
     }
 }
 
@@ -253,7 +253,8 @@ mod tests {
     }
 
     #[test]
-    fn build_authorization_url_defaults_to_app_subdomain() {
+    fn build_authorization_url_uses_app_for_canonical_site() {
+        // Canonical sites → app.{site} as OAuth host.
         let client = DcrClient::new("datadoghq.com");
         let url = client.build_authorization_url(
             "client123",
@@ -262,19 +263,34 @@ mod tests {
             &challenge(),
             &["dashboards_read"],
             None,
-            None,
         );
         assert!(
             url.starts_with("https://app.datadoghq.com/oauth2/v1/authorize?"),
-            "expected app.{{site}} prefix, got: {url}"
+            "expected app.datadoghq.com host, got: {url}"
         );
     }
 
     #[test]
-    fn build_authorization_url_uses_subdomain_on_provided_site() {
-        // The bug: --subdomain used to hardcode .datadoghq.com regardless of --site,
-        // so a staging login (datad0g.com) silently redirected to prod. The fix
-        // composes the subdomain against the actual site.
+    fn build_authorization_url_uses_app_for_eu_canonical_site() {
+        let client = DcrClient::new("datadoghq.eu");
+        let url = client.build_authorization_url(
+            "client123",
+            "http://127.0.0.1:8000/oauth/callback",
+            "state",
+            &challenge(),
+            &["dashboards_read"],
+            None,
+        );
+        assert!(
+            url.starts_with("https://app.datadoghq.eu/oauth2/v1/authorize?"),
+            "expected app.datadoghq.eu host, got: {url}"
+        );
+    }
+
+    #[test]
+    fn build_authorization_url_uses_app_for_staging_site() {
+        // datad0g.com is canonical (staging); pass --site dd.datad0g.com for
+        // a vanity-style staging login instead of using the removed --subdomain.
         let client = DcrClient::new("datad0g.com");
         let url = client.build_authorization_url(
             "client123",
@@ -282,12 +298,11 @@ mod tests {
             "state",
             &challenge(),
             &["dashboards_read"],
-            Some("dd"),
             None,
         );
         assert!(
-            url.starts_with("https://dd.datad0g.com/oauth2/v1/authorize?"),
-            "expected dd.datad0g.com host, got: {url}"
+            url.starts_with("https://app.datad0g.com/oauth2/v1/authorize?"),
+            "expected app.datad0g.com host, got: {url}"
         );
         assert!(
             !url.contains("datadoghq.com"),
@@ -296,42 +311,37 @@ mod tests {
     }
 
     #[test]
-    fn build_authorization_url_uses_subdomain_on_eu_site() {
-        let client = DcrClient::new("datadoghq.eu");
+    fn build_authorization_url_uses_literal_host_verbatim() {
+        // Vanity/SAML host passed directly as --site: used verbatim (replaces --subdomain).
+        let client = DcrClient::new("mycompany.datadoghq.com");
         let url = client.build_authorization_url(
             "client123",
             "http://127.0.0.1:8000/oauth/callback",
             "state",
             &challenge(),
             &["dashboards_read"],
-            Some("acme"),
             None,
         );
         assert!(
-            url.starts_with("https://acme.datadoghq.eu/oauth2/v1/authorize?"),
-            "expected acme.datadoghq.eu host, got: {url}"
+            url.starts_with("https://mycompany.datadoghq.com/oauth2/v1/authorize?"),
+            "expected literal host, got: {url}"
         );
     }
 
     #[test]
-    fn build_authorization_url_treats_empty_subdomain_as_unset() {
-        // An empty `--subdomain ""` previously composed to `https://.datadoghq.com/...`,
-        // a malformed URL whose browser-side failure was an opaque DNS error.
-        // The fix coerces empty to None so we fall back to app.{site} — same shape
-        // as omitting the flag.
-        let client = DcrClient::new("datadoghq.com");
+    fn build_authorization_url_uses_gateway_host_verbatim() {
+        let client = DcrClient::new("mygateway.example.com");
         let url = client.build_authorization_url(
             "client123",
             "http://127.0.0.1:8000/oauth/callback",
             "state",
             &challenge(),
             &["dashboards_read"],
-            Some(""),
             None,
         );
         assert!(
-            url.starts_with("https://app.datadoghq.com/oauth2/v1/authorize?"),
-            "empty subdomain should fall back to app.{{site}}, got: {url}"
+            url.starts_with("https://mygateway.example.com/oauth2/v1/authorize?"),
+            "expected gateway host, got: {url}"
         );
     }
 
@@ -344,7 +354,6 @@ mod tests {
             "the-state",
             &challenge(),
             &["dashboards_read", "metrics_read"],
-            None,
             None,
         );
         assert!(url.contains("response_type=code"));
@@ -365,7 +374,6 @@ mod tests {
             "state",
             &challenge(),
             &["dashboards_read"],
-            None,
             Some("00000000-1111-2222-3333-444444444444"),
         );
         assert!(
@@ -383,7 +391,6 @@ mod tests {
             "state",
             &challenge(),
             &["dashboards_read"],
-            None,
             None,
         );
         assert!(!url.contains("dd_oid"), "got: {url}");

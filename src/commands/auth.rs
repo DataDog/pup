@@ -35,7 +35,6 @@ fn org_suffix(org: Option<&str>) -> String {
 pub async fn login(
     cfg: &Config,
     scopes: Vec<String>,
-    subdomain: Option<&str>,
     callback_port: Option<u16>,
     org_uuid: Option<&str>,
 ) -> Result<()> {
@@ -58,13 +57,8 @@ pub async fn login(
     let mut server = crate::auth::callback::CallbackServer::new(callback_port).await?;
     let redirect_uri = server.redirect_uri();
     let org_label = org_suffix(org);
-    eprintln!("\n🔐 Starting OAuth2 login for site: {site}{org_label}\n");
-    if let Some(sub) = subdomain {
-        // Compose against the actual site, not a hardcoded prod host. Mirrors
-        // the URL-construction fix in dcr::build_authorization_url so the log
-        // line and the URL the browser opens stay in agreement on staging.
-        eprintln!("🏢 Using SAML/SSO subdomain: {sub}.{site}");
-    }
+    let auth_host = cfg.auth_host();
+    eprintln!("\n🔐 Starting OAuth2 login for site: {site} (auth host: {auth_host}){org_label}\n");
     eprintln!("📡 Callback server started on: {redirect_uri}");
 
     let scope_strs: Vec<&str> = scopes.iter().map(String::as_str).collect();
@@ -119,7 +113,6 @@ pub async fn login(
         &state,
         &challenge,
         &scope_strs,
-        subdomain,
         effective_org_uuid.as_deref(),
     );
     if let Some(uuid) = effective_org_uuid.as_deref() {
@@ -325,7 +318,6 @@ fn resolve_save_target(
 pub async fn login(
     _cfg: &Config,
     _scopes: Vec<String>,
-    _subdomain: Option<&str>,
     _callback_port: Option<u16>,
     _org_uuid: Option<&str>,
 ) -> Result<()> {

@@ -141,8 +141,14 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
         // Remove "site" from server_variables: Configuration::new() populates it
         // from the DD_SITE env var, but the index-2 template `https://api.{site}`
         // must not bleed into the index-1 `{protocol}://{name}` path.
-        // The debug_assert confirms the SDK still pre-populates this key; if a
-        // version bump changes that, the comment and removal become stale.
+        //
+        // If the SDK ever stops pre-populating this key, the routing here is still
+        // correct (`name` and `protocol` are set below), so there is no user-visible
+        // regression — the remove becomes a harmless no-op. The debug_assert is a
+        // maintenance canary: it fires in debug/CI builds when DD_SITE is set yet
+        // the key was absent, alerting maintainers that the comment has become stale.
+        // `test_make_dd_config_literal_host_dd_site_env_does_not_bleed` provides
+        // equivalent coverage in CI release builds via behavioral assertion.
         let removed = dd_cfg.server_variables.remove("site");
         debug_assert!(
             removed.is_some() || std::env::var("DD_SITE").is_err(),

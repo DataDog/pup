@@ -109,9 +109,12 @@ pub(crate) fn is_builtin_command(name: &str) -> bool {
 impl PreParsedGlobals {
     pub fn apply_to(&self, cfg: &mut config::Config) -> anyhow::Result<()> {
         if let Some(ref fmt) = self.output {
-            if let Ok(f) = fmt.parse() {
-                cfg.output_format = f;
-            }
+            // Mirror the main-path behaviour: reject unrecognised format strings loudly
+            // rather than silently falling back to JSON (which is the deliberate
+            // degradation for *ambient* config, not for an explicit --output flag).
+            cfg.output_format = fmt
+                .parse()
+                .map_err(|e| anyhow::anyhow!("invalid --output value {:?}: {}", fmt, e))?;
         }
         if self.yes {
             cfg.auto_approve = true;

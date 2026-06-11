@@ -1253,7 +1253,7 @@ mod tests {
         // so a stale "site" variable would misroute if the SDK ever blends variables
         // across server indices.
         assert!(
-            dd_cfg.server_variables.get("site").is_none(),
+            !dd_cfg.server_variables.contains_key("site"),
             "site variable must not be set for literal-host path"
         );
     }
@@ -1278,7 +1278,7 @@ mod tests {
         // so a stale "site" variable would misroute if the SDK ever blends variables
         // across server indices.
         assert!(
-            dd_cfg.server_variables.get("site").is_none(),
+            !dd_cfg.server_variables.contains_key("site"),
             "site variable must not be set for literal-host path"
         );
     }
@@ -1304,7 +1304,7 @@ mod tests {
 
         assert_eq!(dd_cfg.server_index, 1);
         assert!(
-            dd_cfg.server_variables.get("site").is_none(),
+            !dd_cfg.server_variables.contains_key("site"),
             "DD_SITE env var must not bleed into the literal-host server_variables; \
              got: {:?}",
             dd_cfg.server_variables.get("site")

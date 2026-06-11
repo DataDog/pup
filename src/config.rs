@@ -103,7 +103,7 @@ impl Config {
         // the site and silently routing to the wrong endpoint.
         if let Some(ref raw) = explicit_site {
             if raw.trim().is_empty() {
-                bail!("DD_SITE must not be empty or whitespace-only");
+                bail!("--site / DD_SITE must not be empty or whitespace-only");
             }
         }
 
@@ -438,7 +438,17 @@ pub fn apply_org_override(cfg: &mut Config, org: String) -> Result<()> {
             // Session data is pup-written and should always be valid, but bail
             // on an invalid value so a tampered sessions file is rejected loudly
             // rather than silently routing to the wrong (or attacker-controlled) host.
-            validate_site(&normalized)?;
+            // Wrap with context so the user knows how to recover.
+            validate_site(&normalized).map_err(|e| {
+                anyhow::anyhow!(
+                    "session for org {:?} contains an invalid site {:?}: {}. \
+                     Run 'pup auth login --org {}' to replace the corrupted session.",
+                    cfg.org.as_deref().unwrap_or("(unknown)"),
+                    saved_site,
+                    e,
+                    cfg.org.as_deref().unwrap_or("")
+                )
+            })?;
             cfg.site = normalized;
         }
     }

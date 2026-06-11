@@ -107,14 +107,11 @@ pub(crate) fn is_builtin_command(name: &str) -> bool {
 }
 
 impl PreParsedGlobals {
-    pub fn apply_to(&self, cfg: &mut config::Config) -> anyhow::Result<()> {
+    pub fn apply_to(&self, cfg: &mut config::Config) {
         if let Some(ref fmt) = self.output {
-            // Mirror the main-path behaviour: reject unrecognised format strings loudly
-            // rather than silently falling back to JSON (which is the deliberate
-            // degradation for *ambient* config, not for an explicit --output flag).
-            cfg.output_format = fmt
-                .parse()
-                .map_err(|e| anyhow::anyhow!("invalid --output value {:?}: {}", fmt, e))?;
+            if let Ok(f) = fmt.parse() {
+                cfg.output_format = f;
+            }
         }
         if self.yes {
             cfg.auto_approve = true;
@@ -128,13 +125,12 @@ impl PreParsedGlobals {
         }
         if let Some(ref org) = self.org {
             #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-            config::apply_org_override(cfg, org.clone())?;
+            config::apply_org_override(cfg, org.clone());
             #[cfg(any(feature = "browser", target_arch = "wasm32"))]
             {
                 cfg.org = Some(org.clone());
             }
         }
-        Ok(())
     }
 }
 

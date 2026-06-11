@@ -96,17 +96,6 @@ impl Config {
         let site_explicit = explicit_site.is_some();
         let org = env_or("DD_ORG", file_cfg.org); // flag override applied in main_inner
 
-        // Reject a whitespace-only explicit site before normalize_site can silently
-        // convert it to "datadoghq.com". `env_or` filters empty strings but not
-        // whitespace-only ones; without this check, DD_SITE="  " would result in
-        // site="datadoghq.com" with site_explicit=true, blocking --org from correcting
-        // the site and silently routing to the wrong endpoint.
-        if let Some(ref raw) = explicit_site {
-            if raw.trim().is_empty() {
-                bail!("--site / DD_SITE must not be empty or whitespace-only");
-            }
-        }
-
         // Resolve site: explicit env/file > saved session for this org > default.
         // Custom-site logins record their site in the session registry, so a
         // bare `--org foo` (or DD_ORG=foo) should pick up that site automatically.
@@ -124,12 +113,6 @@ impl Config {
             })
             .unwrap_or_else(|| "datadoghq.com".into());
         let site = normalize_site(&raw_site);
-        // Validate all sources — explicit DD_SITE/config-file and session-derived —
-        // to catch URL-smuggling values before they reach URL construction.
-        // Session data is pup-written and should always be valid, but we validate
-        // unconditionally so a tampered sessions file is rejected loudly rather than
-        // silently routing to an attacker-controlled host.
-        validate_site(&site)?;
 
         // If no token from env/file, try loading from keychain/storage (where `pup auth login` saves)
         #[cfg(not(target_arch = "wasm32"))]
@@ -173,11 +156,6 @@ impl Config {
 
     /// Create configuration from explicit parameters (no env vars or filesystem).
     /// Used by the browser WASM build where `std::env` is unavailable.
-    ///
-    /// Callers are the pup browser extension (trusted internal code). The `site`
-    /// value originates from pup's own stored session data or from an in-extension
-    /// UI — it is never passed directly from untrusted browser content. Validation
-    /// at this layer is therefore omitted; the value is normalized and used as-is.
     #[cfg(feature = "browser")]
     pub fn from_params(
         site: String,
@@ -200,22 +178,12 @@ impl Config {
     }
 
     /// Override the site as if the user passed it via DD_SITE / `--site` /
-    /// config file. Validates the raw input *before* normalization so that an
-    /// empty `--site ""` is rejected rather than silently converted to
-    /// `"datadoghq.com"` by `normalize_site`'s empty-string fallback.
-    /// Keeps `site` and `site_explicit` in lockstep so a later
+    /// config file. Keeps `site` and `site_explicit` in lockstep so a later
     /// `apply_org_override` does not silently swap a user-pinned site for a
     /// session-derived one.
-    pub fn set_site_explicit(&mut self, site: String) -> Result<()> {
-        let raw = site.trim();
-        if raw.is_empty() {
-            bail!("--site / DD_SITE must not be empty");
-        }
-        let normalized = normalize_site(raw);
-        validate_site(&normalized)?;
-        self.site = normalized;
+    pub fn set_site_explicit(&mut self, site: String) {
+        self.site = normalize_site(&site);
         self.site_explicit = true;
-        Ok(())
     }
 
     /// Validate that sufficient auth credentials are configured.
@@ -257,18 +225,7 @@ impl Config {
         self.access_token.is_some()
     }
 
-    /// Returns `true` when `site` is a literal host (not a canonical Datadog site).
-    ///
-    /// Literal hosts are used verbatim in API requests and OAuth flows, enabling
-    /// vanity-domain SSO (`--site mycompany.datadoghq.com`) and custom gateway
-    /// routing (`DD_SITE=mygateway.example.com`).
-    pub fn is_literal_host(&self) -> bool {
-        !is_canonical_site(&self.site)
-    }
-
-    /// Returns the API host (e.g., `api.datadoghq.com`).
-    ///
-    /// Delegates to [`api_host_for`] after handling the `PUP_MOCK_SERVER` override.
+    /// Returns the API host (e.g., "api.datadoghq.com").
     pub fn api_host(&self) -> String {
         #[cfg(not(feature = "browser"))]
         {
@@ -279,26 +236,15 @@ impl Config {
                 return host.to_string();
             }
         }
-        api_host_for(&self.site)
+        if self.site.contains("oncall") {
+            self.site.clone()
+        } else {
+            format!("api.{}", self.site)
+        }
     }
 
-    /// Returns the OAuth authorization host (e.g., `app.datadoghq.com`).
-    ///
-    /// Canonical sites get an `app.` prefix; literal hosts are used verbatim.
-    pub fn auth_host(&self) -> String {
-        auth_host_for(&self.site)
-    }
-
-    /// Returns the full API base URL (e.g., `https://api.datadoghq.com`).
-    /// Respects `PUP_MOCK_SERVER` for testing (native/WASI only).
-    ///
-    /// Note: `api_base_url` and `api_host` handle `PUP_MOCK_SERVER` with
-    /// intentionally different semantics. `api_host` strips the scheme and
-    /// returns a bare host (e.g. `127.0.0.1:9999`), while `api_base_url`
-    /// returns the raw value including `http://` so the mock server can use
-    /// plain HTTP. Callers that need a full URL should use `api_base_url`;
-    /// callers that need only the host (e.g. for SDK `server_variables["name"]`)
-    /// should use `api_host`.
+    /// Returns the full API base URL (e.g., "https://api.datadoghq.com").
+    /// Respects PUP_MOCK_SERVER for testing (native/WASI only).
     pub fn api_base_url(&self) -> String {
         #[cfg(not(feature = "browser"))]
         {
@@ -419,14 +365,10 @@ pub fn parse_scopes(s: &str) -> Vec<String> {
 /// the environment. May leave `cfg.access_token` at `None` if no token is
 /// stored for the new pair.
 ///
-/// Returns an error if the stored session site fails validation (tampered
-/// session file). Consistent with `from_env`, which bails on an invalid site
-/// rather than routing silently to the wrong endpoint.
-///
 /// Centralized so the binary entry point and the extension dispatcher share
 /// one resolution path.
 #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-pub fn apply_org_override(cfg: &mut Config, org: String) -> Result<()> {
+pub fn apply_org_override(cfg: &mut Config, org: String) {
     cfg.org = Some(org);
     if !cfg.site_explicit {
         if let Some(saved_site) = cfg
@@ -434,22 +376,7 @@ pub fn apply_org_override(cfg: &mut Config, org: String) -> Result<()> {
             .as_deref()
             .and_then(crate::auth::storage::find_session_site)
         {
-            let normalized = normalize_site(&saved_site);
-            // Session data is pup-written and should always be valid, but bail
-            // on an invalid value so a tampered sessions file is rejected loudly
-            // rather than silently routing to the wrong (or attacker-controlled) host.
-            // Wrap with context so the user knows how to recover.
-            validate_site(&normalized).map_err(|e| {
-                anyhow::anyhow!(
-                    "session for org {:?} contains an invalid site {:?}: {}. \
-                     Run 'pup auth login --org {}' to replace the corrupted session.",
-                    cfg.org.as_deref().unwrap_or("(unknown)"),
-                    saved_site,
-                    e,
-                    cfg.org.as_deref().unwrap_or("")
-                )
-            })?;
-            cfg.site = normalized;
+            cfg.site = normalize_site(&saved_site);
         }
     }
     if std::env::var("DD_ACCESS_TOKEN")
@@ -459,7 +386,6 @@ pub fn apply_org_override(cfg: &mut Config, org: String) -> Result<()> {
     {
         cfg.access_token = load_token_from_storage(&cfg.site, cfg.org.as_deref());
     }
-    Ok(())
 }
 
 /// Try to load a valid (non-expired) access token from keychain/file storage.
@@ -550,138 +476,33 @@ where
     }
 }
 
-/// Canonical Datadog sites that use `api.{site}` for API calls and `app.{site}` for
-/// OAuth. Any other site value is treated as a **literal host** and used verbatim for
-/// both API requests and OAuth flows (enables vanity-domain and gateway use cases).
-pub const KNOWN_SITES: &[&str] = &[
-    "datadoghq.com",
-    "us3.datadoghq.com",
-    "us5.datadoghq.com",
-    "ap1.datadoghq.com",
-    "ap2.datadoghq.com",
-    "datadoghq.eu",
-    "ddog-gov.com",
-    "datad0g.com", // staging
-];
-
-/// Returns `true` when `site` is a known canonical Datadog site (applies `api.`/`app.`
-/// prefixes at request time) or an oncall passthrough. Everything else is a literal host.
+/// Normalize a raw site value from user input into a canonical form.
 ///
-/// Note: oncall hosts match by substring (`contains("oncall")`), which is a pre-existing
-/// convention. Both `api_host_for` and `auth_host_for` treat them as verbatim regardless
-/// (the `!site.contains("oncall")` guard cancels the canonical prefix), so any
-/// hostname that happens to contain "oncall" routes verbatim — the same outcome as a
-/// literal host. The practical difference is only in `normalize_site`, which skips
-/// prefix stripping for oncall hosts so the full subdomain is preserved.
-pub fn is_canonical_site(site: &str) -> bool {
-    site.contains("oncall") || KNOWN_SITES.contains(&site)
-}
-
-/// Derive the API request host from a normalized site value.
+/// Strips leading UI prefixes (`www`, `api`, `app`) and passes everything else
+/// through unchanged — including custom subdomains and regional prefixes like
+/// `us3`, `ap1`, etc.
 ///
-/// - Canonical sites → `api.{site}` (e.g. `api.datadoghq.com`).
-/// - Oncall passthroughs and literal hosts → verbatim (e.g. `mygateway.example.com`).
-pub fn api_host_for(site: &str) -> String {
-    if is_canonical_site(site) && !site.contains("oncall") {
-        format!("api.{site}")
-    } else {
-        site.to_string()
-    }
-}
-
-/// Derive the OAuth authorization host from a normalized site value.
-///
-/// - Canonical sites → `app.{site}` (e.g. `app.datadoghq.com`).
-/// - Oncall passthroughs and literal hosts → verbatim (e.g. `mycompany.datadoghq.com`).
-pub fn auth_host_for(site: &str) -> String {
-    if is_canonical_site(site) && !site.contains("oncall") {
-        format!("app.{site}")
-    } else {
-        site.to_string()
-    }
-}
-
-/// Validate a site or host string to prevent URL smuggling.
-///
-/// Allows ASCII alphanumeric, `.`, `-`, and an optional single `:port` suffix (1–65535).
-/// Rejects `/`, `#`, `?`, `@`, whitespace, `_`, embedded schemes, consecutive dots,
-/// and leading/trailing dots. An empty string is also rejected.
-pub fn validate_site(s: &str) -> Result<()> {
-    if s.is_empty() {
-        bail!("--site / DD_SITE must not be empty");
-    }
-    // Split off an optional trailing :port.
-    let (host_part, port_part) = match s.rfind(':') {
-        Some(idx) => {
-            let port = &s[idx + 1..];
-            if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
-                (&s[..idx], Some(port))
-            } else {
-                (s, None)
-            }
-        }
-        None => (s, None),
-    };
-    if let Some(p) = port_part {
-        let n: u32 = p.parse().unwrap_or(0);
-        if n == 0 || n > 65535 {
-            bail!("--site / DD_SITE port {p} is out of range (1–65535)");
-        }
-    }
-    // Host part: DNS label chars only (alphanumeric, hyphen, dot).
-    if !host_part
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
-    {
-        bail!(
-            "--site / DD_SITE {s:?} contains invalid characters; \
-             expected a DNS hostname (letters, digits, `.`, `-`) with an optional `:port`"
-        );
-    }
-    if host_part.starts_with('.') || host_part.ends_with('.') || host_part.contains("..") {
-        bail!(
-            "--site / DD_SITE {s:?} has invalid dot structure \
-             (leading, trailing, or consecutive dots)"
-        );
-    }
-    Ok(())
-}
-
-/// Normalize a raw site value from user input into a canonical storage form.
-///
-/// Strips any `https://` / `http://` scheme and trailing `/`, then removes a single
-/// leading `www.`, `app.`, or `api.` label. Oncall sites are passed through unchanged.
-///
-/// The stored value is then interpreted at request time via [`is_canonical_site`]:
-/// known sites get `api.`/`app.` prefixed; everything else is used verbatim as a
-/// literal host, which enables both vanity-domain SSO and custom gateway routing.
+/// Oncall sites (containing `oncall`) are always passed through unchanged.
 ///
 /// Examples:
-///   `app.datadoghq.com`           → `datadoghq.com`   (canonical)
-///   `www.datadoghq.com`           → `datadoghq.com`   (canonical)
-///   `api.datadoghq.com`           → `datadoghq.com`   (canonical)
-///   `app.us3.datadoghq.com`       → `us3.datadoghq.com` (canonical)
-///   `us3.datadoghq.com`           → `us3.datadoghq.com` (canonical)
-///   `mycompany.datadoghq.com`     → `mycompany.datadoghq.com` (literal)
-///   `mygateway.example.com:8443`  → `mygateway.example.com:8443` (literal)
+///   `app.datadoghq.com`        → `datadoghq.com`
+///   `www.datadoghq.com`        → `datadoghq.com`
+///   `api.datadoghq.com`        → `datadoghq.com`
+///   `app.us3.datadoghq.com`    → `us3.datadoghq.com`
+///   `us3.datadoghq.com`        → `us3.datadoghq.com`
+///   `custom.datadoghq.com`     → `custom.datadoghq.com`
+///   `datadoghq.com`            → `datadoghq.com`
 pub fn normalize_site(site: &str) -> String {
-    let trimmed = site
-        .trim()
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .trim_end_matches('/');
-    if trimmed.is_empty() {
-        return "datadoghq.com".into();
+    if site.contains("oncall") {
+        return site.to_string();
     }
-    if trimmed.contains("oncall") {
-        return trimmed.to_string();
-    }
-    // Strip a single leading www./app./api. label.
     const STRIP_PREFIXES: &[&str] = &["www", "api", "app"];
-    match trimmed.split_once('.') {
-        Some((first, rest)) if STRIP_PREFIXES.contains(&first) => rest.to_string(),
-        _ => trimmed.to_string(),
-    }
+    let parts: Vec<&str> = site.split('.').collect();
+    let start = parts
+        .iter()
+        .position(|p| !STRIP_PREFIXES.contains(p))
+        .unwrap_or(0);
+    parts[start..].join(".")
 }
 
 #[cfg(not(feature = "browser"))]
@@ -907,11 +728,10 @@ mod tests {
         );
     }
 
-    // --- normalize_site literal-host passthrough tests ---
+    // --- normalize_site custom subdomain passthrough tests ---
 
     #[test]
     fn test_normalize_site_custom_subdomain_preserved() {
-        // Non-canonical host: stored verbatim as a literal.
         assert_eq!(
             normalize_site("customname.datadoghq.com"),
             "customname.datadoghq.com"
@@ -920,162 +740,10 @@ mod tests {
 
     #[test]
     fn test_normalize_site_app_then_custom_subdomain() {
-        // Strip leading app. to get the literal host.
         assert_eq!(
             normalize_site("app.customname.datadoghq.com"),
             "customname.datadoghq.com"
         );
-    }
-
-    #[test]
-    fn test_normalize_site_gateway_host_preserved() {
-        assert_eq!(
-            normalize_site("mygateway.example.com"),
-            "mygateway.example.com"
-        );
-    }
-
-    #[test]
-    fn test_normalize_site_gateway_host_with_port() {
-        assert_eq!(
-            normalize_site("mygateway.example.com:8443"),
-            "mygateway.example.com:8443"
-        );
-    }
-
-    #[test]
-    fn test_normalize_site_strips_https_scheme() {
-        assert_eq!(
-            normalize_site("https://mygateway.example.com/"),
-            "mygateway.example.com"
-        );
-    }
-
-    // --- is_canonical_site tests ---
-
-    #[test]
-    fn test_is_canonical_site_known_sites() {
-        for site in crate::config::KNOWN_SITES {
-            assert!(is_canonical_site(site), "{site} should be canonical");
-        }
-    }
-
-    #[test]
-    fn test_is_canonical_site_oncall() {
-        assert!(is_canonical_site("navy.oncall.datadoghq.com"));
-    }
-
-    #[test]
-    fn test_is_canonical_site_vanity_is_not_canonical() {
-        assert!(!is_canonical_site("mycompany.datadoghq.com"));
-    }
-
-    #[test]
-    fn test_is_canonical_site_gateway_is_not_canonical() {
-        assert!(!is_canonical_site("mygateway.example.com"));
-    }
-
-    // --- auth_host tests ---
-
-    #[test]
-    fn test_auth_host_canonical() {
-        let cfg = make_cfg(None, None, Some("t"));
-        assert_eq!(cfg.auth_host(), "app.datadoghq.com");
-    }
-
-    #[test]
-    fn test_auth_host_eu() {
-        let mut cfg = make_cfg(None, None, Some("t"));
-        cfg.site = "datadoghq.eu".into();
-        assert_eq!(cfg.auth_host(), "app.datadoghq.eu");
-    }
-
-    #[test]
-    fn test_auth_host_literal() {
-        let mut cfg = make_cfg(None, None, Some("t"));
-        cfg.site = "mycompany.datadoghq.com".into();
-        assert_eq!(cfg.auth_host(), "mycompany.datadoghq.com");
-    }
-
-    #[test]
-    fn test_auth_host_gateway() {
-        let mut cfg = make_cfg(None, None, Some("t"));
-        cfg.site = "mygateway.example.com".into();
-        assert_eq!(cfg.auth_host(), "mygateway.example.com");
-    }
-
-    #[test]
-    fn test_auth_host_oncall_verbatim() {
-        let mut cfg = make_cfg(None, None, Some("t"));
-        cfg.site = "navy.oncall.datadoghq.com".into();
-        assert_eq!(cfg.auth_host(), "navy.oncall.datadoghq.com");
-    }
-
-    // --- api_host literal-host tests ---
-
-    #[test]
-    fn test_api_host_literal_vanity() {
-        let _guard = ENV_LOCK.blocking_lock();
-        std::env::remove_var("PUP_MOCK_SERVER");
-        let mut cfg = make_cfg(None, None, Some("t"));
-        cfg.site = "mycompany.datadoghq.com".into();
-        assert_eq!(cfg.api_host(), "mycompany.datadoghq.com");
-    }
-
-    #[test]
-    fn test_api_host_literal_gateway() {
-        let _guard = ENV_LOCK.blocking_lock();
-        std::env::remove_var("PUP_MOCK_SERVER");
-        let mut cfg = make_cfg(None, None, Some("t"));
-        cfg.site = "mygateway.example.com:8443".into();
-        assert_eq!(cfg.api_host(), "mygateway.example.com:8443");
-    }
-
-    // --- validate_site tests ---
-
-    #[test]
-    fn test_validate_site_accepts_known_sites() {
-        for site in crate::config::KNOWN_SITES {
-            validate_site(site).unwrap_or_else(|e| panic!("{site} should be valid: {e}"));
-        }
-    }
-
-    #[test]
-    fn test_validate_site_accepts_regional_and_custom() {
-        for s in [
-            "mygateway.example.com",
-            "mycompany.datadoghq.com",
-            "gw.example.com:8443",
-            "host-1.example.com",
-        ] {
-            validate_site(s).unwrap_or_else(|e| panic!("{s:?} should be valid: {e}"));
-        }
-    }
-
-    #[test]
-    fn test_validate_site_rejects_smuggling() {
-        for bad in [
-            "evil.com/path",
-            "a#b",
-            "user@host",
-            "a b",
-            "../../etc",
-            "dd_staging",
-            "",
-        ] {
-            let err = validate_site(bad).unwrap_err();
-            let msg = format!("{err}");
-            assert!(
-                msg.contains("invalid characters") || msg.contains("empty") || msg.contains("dot"),
-                "{bad:?} should be rejected, got: {msg}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_validate_site_rejects_bad_port() {
-        assert!(validate_site("host.example.com:0").is_err());
-        assert!(validate_site("host.example.com:99999").is_err());
     }
 
     #[test]
@@ -1529,7 +1197,7 @@ mod tests {
             read_only: false,
         };
 
-        super::apply_org_override(&mut cfg, "org-b".into()).unwrap();
+        super::apply_org_override(&mut cfg, "org-b".into());
 
         std::env::remove_var("PUP_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1573,7 +1241,7 @@ mod tests {
             read_only: false,
         };
 
-        super::apply_org_override(&mut cfg, "org-a".into()).unwrap();
+        super::apply_org_override(&mut cfg, "org-a".into());
 
         std::env::remove_var("PUP_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1610,7 +1278,7 @@ mod tests {
             read_only: false,
         };
 
-        super::apply_org_override(&mut cfg, "unknown-org".into()).unwrap();
+        super::apply_org_override(&mut cfg, "unknown-org".into());
 
         std::env::remove_var("PUP_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1647,63 +1315,13 @@ mod tests {
             read_only: false,
         };
 
-        super::apply_org_override(&mut cfg, "any-org".into()).unwrap();
+        super::apply_org_override(&mut cfg, "any-org".into());
 
         std::env::remove_var("DD_ACCESS_TOKEN");
         std::env::remove_var("PUP_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
 
         assert_eq!(cfg.access_token.as_deref(), Some("env-supplied-token"));
-    }
-
-    /// An invalid session site must cause `apply_org_override` to bail rather
-    /// than silently leaving `cfg.site` at its pre-override value and routing
-    /// to the wrong endpoint. Consistent with `from_env` which also bails.
-    #[test]
-    fn test_apply_org_override_rejects_invalid_session_site() {
-        let _guard = ENV_LOCK.blocking_lock();
-        std::env::remove_var("DD_ACCESS_TOKEN");
-
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0);
-        let tmp = std::env::temp_dir().join(format!("pup_cfg_invalid_site_{nanos}"));
-        std::fs::create_dir_all(&tmp).unwrap();
-        std::env::set_var("PUP_CONFIG_DIR", &tmp);
-
-        crate::auth::storage::save_session(&SessionEntry {
-            // Deliberately malformed — simulate a tampered sessions file.
-            site: "evil.com/path".into(),
-            org: Some("bad-org".into()),
-            org_uuid: None,
-        })
-        .unwrap();
-
-        let mut cfg = Config {
-            api_key: None,
-            app_key: None,
-            access_token: None,
-            site: "datadoghq.com".into(),
-            site_explicit: false,
-            org: None,
-            output_format: OutputFormat::Json,
-            auto_approve: false,
-            agent_mode: false,
-            read_only: false,
-        };
-
-        let result = super::apply_org_override(&mut cfg, "bad-org".into());
-
-        std::env::remove_var("PUP_CONFIG_DIR");
-        let _ = std::fs::remove_dir_all(&tmp);
-
-        assert!(
-            result.is_err(),
-            "apply_org_override must bail on an invalid session site"
-        );
-        // cfg.site must not have been updated to the invalid value.
-        assert_eq!(cfg.site, "datadoghq.com");
     }
 
     /// `set_site_explicit` keeps `site` and `site_explicit` in lockstep so a
@@ -1723,51 +1341,10 @@ mod tests {
             read_only: false,
         };
 
-        cfg.set_site_explicit("app.datadoghq.eu".into()).unwrap();
+        cfg.set_site_explicit("app.datadoghq.eu".into());
 
         assert_eq!(cfg.site, "datadoghq.eu");
         assert!(cfg.site_explicit);
-    }
-
-    #[test]
-    fn test_set_site_explicit_rejects_smuggling_value() {
-        let mut cfg = Config {
-            api_key: None,
-            app_key: None,
-            access_token: None,
-            site: "datadoghq.com".into(),
-            site_explicit: false,
-            org: None,
-            output_format: OutputFormat::Json,
-            auto_approve: false,
-            agent_mode: false,
-            read_only: false,
-        };
-        // site and site_explicit must remain unchanged on failure.
-        assert!(cfg.set_site_explicit("evil.com/path".into()).is_err());
-        assert_eq!(cfg.site, "datadoghq.com");
-        assert!(!cfg.site_explicit);
-    }
-
-    #[test]
-    fn test_set_site_explicit_rejects_empty_string() {
-        let mut cfg = Config {
-            api_key: None,
-            app_key: None,
-            access_token: None,
-            site: "datadoghq.com".into(),
-            site_explicit: false,
-            org: None,
-            output_format: OutputFormat::Json,
-            auto_approve: false,
-            agent_mode: false,
-            read_only: false,
-        };
-        // An empty --site must not silently route to datadoghq.com via
-        // normalize_site's empty-string fallback.
-        assert!(cfg.set_site_explicit("".into()).is_err());
-        assert_eq!(cfg.site, "datadoghq.com");
-        assert!(!cfg.site_explicit);
     }
 
     /// With no org, no env site, and no session, we fall back to the default
@@ -1788,44 +1365,6 @@ mod tests {
 
         assert_eq!(cfg.site, "datadoghq.com");
         assert!(!cfg.site_explicit);
-    }
-
-    /// Whitespace-only DD_SITE passes env_or's `!is_empty()` filter but must be
-    /// rejected with an error. Without this check, normalize_site would silently
-    /// reduce it to "datadoghq.com" and set site_explicit=true, blocking --org from
-    /// correcting the site and routing commands to the wrong endpoint.
-    #[test]
-    fn test_from_env_rejects_whitespace_only_dd_site() {
-        let _guard = ENV_LOCK.blocking_lock();
-        std::env::set_var("DD_SITE", "   ");
-        std::env::set_var("PUP_CONFIG_DIR", "/tmp/pup_test_nonexistent");
-        let result = Config::from_env();
-        std::env::remove_var("DD_SITE");
-        std::env::remove_var("PUP_CONFIG_DIR");
-        let err_msg = result.err().map(|e| e.to_string());
-        assert!(
-            err_msg
-                .as_deref()
-                .is_some_and(|m| m.contains("empty") || m.contains("whitespace")),
-            "expected error for whitespace-only DD_SITE, got: {err_msg:?}"
-        );
-    }
-
-    #[test]
-    fn test_from_env_rejects_invalid_dd_site() {
-        let _guard = ENV_LOCK.blocking_lock();
-        std::env::set_var("DD_SITE", "evil.com/path");
-        std::env::set_var("PUP_CONFIG_DIR", "/tmp/pup_test_nonexistent");
-        let result = Config::from_env();
-        std::env::remove_var("DD_SITE");
-        std::env::remove_var("PUP_CONFIG_DIR");
-        let err_msg = result.err().map(|e| e.to_string());
-        assert!(
-            err_msg
-                .as_deref()
-                .is_some_and(|m| m.contains("invalid characters")),
-            "expected 'invalid characters' error from from_env with bad DD_SITE, got: {err_msg:?}"
-        );
     }
 
     #[test]

@@ -23,7 +23,7 @@ pub async fn ask(
         anyhow::bail!("a query is required (or use --interactive for a conversation)");
     }
 
-    let app_base = format!("https://{}", cfg.auth_host());
+    let app_base = format!("https://app.{}", cfg.site);
 
     let agent_id = match agent_id {
         Some(id) if !id.is_empty() => id,

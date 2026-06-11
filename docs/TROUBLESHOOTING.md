@@ -559,25 +559,8 @@ pup <command>
 
 ### Override API Endpoint
 
-Set `DD_SITE` (or pass `--site`) to a literal hostname to route all API and OAuth traffic
-to a custom host — for example, an API gateway, proxy, or internal service:
-
+For testing or custom deployments:
 ```bash
-# Route all traffic through a custom gateway (HTTPS required)
-export DD_SITE=mygateway.example.com
-pup <command>
-
-# With a non-standard port
-export DD_SITE=mygateway.example.com:8443
+export DD_HOST=https://custom-api.example.com
 pup <command>
 ```
-
-For SAML/SSO vanity domain logins (replaces the removed `--subdomain` flag):
-
-```bash
-# Login via mycompany.datadoghq.com instead of app.datadoghq.com
-pup auth login --site mycompany.datadoghq.com
-```
-
-**Note:** `DD_HOST` is not recognized by pup. Use `DD_SITE` instead.
-For local test servers, use `PUP_MOCK_SERVER=http://127.0.0.1:PORT` (supports `http://`).

@@ -10923,6 +10923,26 @@ mod resolve_output_format_tests {
     }
 }
 
+fn api_run_order<'a>(fields: &'a [String], headers: &'a [String]) -> (&'a [String], &'a [String]) {
+    (headers, fields)
+}
+
+#[cfg(test)]
+mod api_command_tests {
+    use super::*;
+
+    #[test]
+    fn api_run_order_puts_headers_before_fields() {
+        let fields = [String::from("tag=env:prod")];
+        let headers = [String::from("x-test:yes")];
+
+        assert_eq!(
+            api_run_order(&fields, &headers),
+            (headers.as_slice(), fields.as_slice())
+        );
+    }
+}
+
 async fn main_inner() -> anyhow::Result<()> {
     // In agent mode, intercept --help to return a JSON schema instead of plain text.
     let args: Vec<String> = std::env::args().collect();
@@ -14669,13 +14689,14 @@ async fn main_inner() -> anyhow::Result<()> {
             silent,
             verbose,
         } => {
+            let (headers, fields) = api_run_order(&field, &header);
             cfg.validate_auth()?;
             commands::api::run(
                 &cfg,
                 &endpoint,
                 &method,
-                &header,
-                &field,
+                headers,
+                fields,
                 &raw_field,
                 input.as_deref(),
                 include,

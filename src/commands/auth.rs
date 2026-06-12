@@ -1015,6 +1015,9 @@ mod tests {
             "datadoghq.com.evil.com",
             "evil.com/path",
             "attacker@evil.com",
+            // Smuggling payload ending in a real base — resolves to evil.com as
+            // a URL host with the rest as path; must still be rejected.
+            "evil.com/x.datadoghq.com",
         ] {
             assert_eq!(
                 resolve_effective_site("datadoghq.com", Some(bad)),

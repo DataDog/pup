@@ -601,13 +601,23 @@ const DATADOG_BASE_DOMAINS: &[&str] = &[
 /// token-exchange host: a tampered callback (the stdin-paste login fallback can
 /// carry an attacker-chosen `domain`) must not redirect the code exchange — and
 /// the PKCE verifier / DCR client credentials sent with it — to a foreign host.
-/// A plain syntactic check (`validate_site`) is insufficient here because a
-/// well-formed hostname like `evil.com` would pass it; this restricts to
-/// Datadog's own DNS.
+///
+/// Two gates, both required:
+/// 1. [`validate_site`] — rejects anything that isn't a bare DNS hostname. This
+///    is essential, not redundant: without it a payload like
+///    `evil.com/x.datadoghq.com` would pass the suffix check below
+///    (`strip_suffix` leaves `"evil.com/x."`, which ends with `.`) yet parse as
+///    the host `evil.com` with the rest as a URL path.
+/// 2. The registrable-domain suffix allowlist — the host must equal a Datadog
+///    base domain or be a subdomain of one. A well-formed but foreign hostname
+///    (`evil.com`) passes gate 1 but fails here.
 ///
 /// Suffix-based rather than a [`KNOWN_SITES`] exact match so a future Datadog
 /// region (e.g. `us6.datadoghq.com`) keeps working without a code change.
 pub fn is_datadog_owned_host(host: &str) -> bool {
+    if validate_site(host).is_err() {
+        return false;
+    }
     DATADOG_BASE_DOMAINS
         .iter()
         .any(|base| host == *base || host.strip_suffix(base).is_some_and(|p| p.ends_with('.')))
@@ -1048,6 +1058,10 @@ mod tests {
             );
         }
         // Foreign hosts, look-alikes, and smuggling values are not owned.
+        // The */#/@ cases ending in a real base are the critical ones: a bare
+        // suffix check would accept them (strip_suffix leaves "...."), but the
+        // host actually resolves to the attacker domain — validate_site rejects
+        // them before the suffix check can.
         for host in [
             "evil.com",
             "datadoghq.com.evil.com",
@@ -1055,6 +1069,9 @@ mod tests {
             "evil-datadoghq.com",
             "evil.com/path",
             "attacker@evil.com",
+            "evil.com/x.datadoghq.com",
+            "foo@evil.com/.datadoghq.com",
+            "evil.com#x.datadoghq.com",
             "mygateway.example.com",
         ] {
             assert!(

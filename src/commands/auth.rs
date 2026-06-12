@@ -256,10 +256,21 @@ pub async fn login(
 /// must stay keyed to that single host — so the user's site wins and the
 /// callback domain is ignored. Gated on the same predicate as `api_host_for`/
 /// `auth_host_for` so the exchange host can't diverge from the request host.
+///
+/// The callback `domain` is attacker-influenceable (a tampered URL pasted into
+/// the stdin fallback path), so even on the canonical branch it is adopted only
+/// when it is a Datadog-owned host (see [`is_datadog_owned_host`]). A foreign or
+/// malformed value is dropped in favor of the user's already-validated pinned
+/// site rather than becoming the token-exchange host — which would leak the
+/// PKCE verifier and DCR client credentials to that host. A plain syntactic
+/// check is not enough here: a well-formed `evil.com` would pass it, so the gate
+/// is an ownership allowlist, mirroring the shape check applied to `dd_oid`.
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_effective_site<'a>(site: &'a str, callback_domain: Option<&'a str>) -> &'a str {
     if crate::config::uses_datadog_subdomains(site) {
-        callback_domain.unwrap_or(site)
+        callback_domain
+            .filter(|d| crate::config::is_datadog_owned_host(d))
+            .unwrap_or(site)
     } else {
         site
     }
@@ -991,6 +1002,26 @@ mod tests {
             resolve_effective_site("mycompany.datadoghq.com", Some("datadoghq.com")),
             "mycompany.datadoghq.com"
         );
+    }
+
+    #[test]
+    fn resolve_effective_site_canonical_rejects_non_datadog_callback_domain() {
+        // A tampered callback domain must not become the exchange host / storage
+        // key. This includes a *well-formed* foreign host (evil.com passes a
+        // syntactic check), not just URL-smuggling values — drop it and keep the
+        // user's pinned site.
+        for bad in [
+            "evil.com",
+            "datadoghq.com.evil.com",
+            "evil.com/path",
+            "attacker@evil.com",
+        ] {
+            assert_eq!(
+                resolve_effective_site("datadoghq.com", Some(bad)),
+                "datadoghq.com",
+                "{bad:?} must not be adopted as the effective site"
+            );
+        }
     }
 
     #[test]

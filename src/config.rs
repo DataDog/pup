@@ -584,6 +584,35 @@ pub fn uses_datadog_subdomains(site: &str) -> bool {
     is_canonical_site(site) && !site.contains("oncall")
 }
 
+/// Datadog-owned parent domains. Any host equal to one of these or a subdomain
+/// of one is Datadog-controlled DNS. Distinct from [`KNOWN_SITES`] (which also
+/// enumerates regional subdomains): this is the registrable-domain allowlist.
+const DATADOG_BASE_DOMAINS: &[&str] = &[
+    "datadoghq.com",
+    "datadoghq.eu",
+    "ddog-gov.com",
+    "datad0g.com", // staging
+];
+
+/// Returns `true` when `host` is a Datadog-owned host — one of the canonical
+/// parent domains or a subdomain of one (e.g. `us3.datadoghq.com`).
+///
+/// Used to bound which OAuth-callback `domain` values may be adopted as the
+/// token-exchange host: a tampered callback (the stdin-paste login fallback can
+/// carry an attacker-chosen `domain`) must not redirect the code exchange — and
+/// the PKCE verifier / DCR client credentials sent with it — to a foreign host.
+/// A plain syntactic check (`validate_site`) is insufficient here because a
+/// well-formed hostname like `evil.com` would pass it; this restricts to
+/// Datadog's own DNS.
+///
+/// Suffix-based rather than a [`KNOWN_SITES`] exact match so a future Datadog
+/// region (e.g. `us6.datadoghq.com`) keeps working without a code change.
+pub fn is_datadog_owned_host(host: &str) -> bool {
+    DATADOG_BASE_DOMAINS
+        .iter()
+        .any(|base| host == *base || host.strip_suffix(base).is_some_and(|p| p.ends_with('.')))
+}
+
 /// Derive the API request host from a normalized site value.
 ///
 /// - Canonical sites → `api.{site}` (e.g. `api.datadoghq.com`).
@@ -998,6 +1027,43 @@ mod tests {
         assert!(!uses_datadog_subdomains("mygateway.example.com"));
     }
 
+    #[test]
+    fn test_is_datadog_owned_host() {
+        // Each parent domain and a subdomain of it (incl. vanity SSO subdomains
+        // and regional hosts) is owned.
+        for host in [
+            "datadoghq.com",
+            "us3.datadoghq.com",
+            "mycompany.datadoghq.com",
+            "datadoghq.eu",
+            "app.datadoghq.eu",
+            "ddog-gov.com",
+            "us1.ddog-gov.com",
+            "datad0g.com",
+            "staging.datad0g.com",
+        ] {
+            assert!(
+                is_datadog_owned_host(host),
+                "{host} should be Datadog-owned"
+            );
+        }
+        // Foreign hosts, look-alikes, and smuggling values are not owned.
+        for host in [
+            "evil.com",
+            "datadoghq.com.evil.com",
+            "notdatadoghq.com",
+            "evil-datadoghq.com",
+            "evil.com/path",
+            "attacker@evil.com",
+            "mygateway.example.com",
+        ] {
+            assert!(
+                !is_datadog_owned_host(host),
+                "{host} should NOT be Datadog-owned"
+            );
+        }
+    }
+
     // --- auth_host tests ---
 
     #[test]
@@ -1091,6 +1157,20 @@ mod tests {
             assert!(
                 msg.contains("invalid characters") || msg.contains("empty") || msg.contains("dot"),
                 "{bad:?} should be rejected, got: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_site_rejects_bad_dot_structure() {
+        // Character-valid hosts that fail only the dot-structure check (leading,
+        // trailing, or consecutive dots) — exercises that branch specifically.
+        for bad in ["evil..com", ".datadoghq.com", "datadoghq.com."] {
+            let err = validate_site(bad).unwrap_err();
+            let msg = format!("{err}");
+            assert!(
+                msg.contains("dot"),
+                "{bad:?} should be rejected for dot structure, got: {msg}"
             );
         }
     }

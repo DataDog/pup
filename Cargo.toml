@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 default = ["native"]
 native = [
     "dep:datadog-api-client",
-    "datadog-api-client/native-tls",
+    "datadog-api-client/rustls-tls",
     "datadog-api-client/zstd",
     "datadog-api-client/retry",
     "dep:keyring",
@@ -120,9 +120,9 @@ aes-gcm = { version = "0.10", optional = true }
 # ---- Native-only dependencies ----
 
 # Synthetics tunnel
-tokio-tungstenite = { version = "0.29", features = ["native-tls"], optional = true }
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"], optional = true }
 yamux = { version = "0.13", optional = true }
-russh = { version = "0.60", optional = true }
+russh = { version = "0.61", optional = true }
 ssh-key = { version = "0.6", features = ["p256", "std"], optional = true }
 futures = { version = "0.3", optional = true }
 tokio-util = { version = "0.7", features = ["compat", "io"], optional = true }

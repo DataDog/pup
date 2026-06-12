@@ -541,6 +541,42 @@ When opening a GitHub issue, include:
 
 ## Common Workarounds
 
+### Enterprise TLS Inspection / Custom CA Certificates
+
+Corporate environments often use TLS-inspecting proxies (MITM proxies, security
+appliances) that re-sign traffic with a custom CA certificate. pup uses
+`rustls-platform-verifier`, which delegates certificate trust to the OS:
+
+**macOS / Windows** — pup reads from the system trust store (macOS Keychain,
+Windows Certificate Store) automatically. Install your corporate CA certificate
+into the system store and pup will trust it without any additional configuration.
+
+```bash
+# macOS: add the corporate CA to the login keychain
+security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db /path/to/corporate-ca.pem
+```
+
+> **Note:** `SSL_CERT_FILE` is not honored on macOS or Windows. Use the system
+> trust store instead.
+
+**Linux / other Unix** — Set the standard `SSL_CERT_FILE` or `SSL_CERT_DIR`
+environment variable pointing to your CA bundle. pup's TLS stack reads these
+automatically on startup.
+
+```bash
+# Single CA bundle
+SSL_CERT_FILE=/path/to/corporate-ca.pem pup logs search --query='service:api' --from=1h
+
+# Or export it for the session
+export SSL_CERT_FILE=/etc/ssl/certs/corporate-ca.pem
+pup <command>
+```
+
+> **Note:** If pup still fails after configuring the CA, the proxy certificate
+> may lack a Subject Alternative Name (SAN) extension. rustls enforces stricter
+> certificate validation than some older TLS stacks. Contact your network team
+> to re-issue the proxy cert with a SAN.
+
 ### Bypass SSL Verification (Not Recommended)
 
 Only for testing with self-signed certs:

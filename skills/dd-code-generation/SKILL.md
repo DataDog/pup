@@ -20,7 +20,7 @@ Use this skill when the user:
 
 ## Pup CLI Tool
 
-The `pup` CLI is a Go-based command-line wrapper for Datadog APIs. It provides:
+The `pup` CLI is a command-line wrapper for Datadog APIs written in Rust. It provides:
 - OAuth2 authentication (preferred) or API key authentication
 - 28 command groups covering 33+ API domains
 - JSON, YAML, and table output formats

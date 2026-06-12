@@ -257,15 +257,6 @@ impl Config {
         self.access_token.is_some()
     }
 
-    /// Returns `true` when `site` is a literal host (not a canonical Datadog site).
-    ///
-    /// Literal hosts are used verbatim in API requests and OAuth flows, enabling
-    /// vanity-domain SSO (`--site mycompany.datadoghq.com`) and custom gateway
-    /// routing (`DD_SITE=mygateway.example.com`).
-    pub fn is_literal_host(&self) -> bool {
-        !is_canonical_site(&self.site)
-    }
-
     /// Returns the API host (e.g., `api.datadoghq.com`).
     ///
     /// Delegates to [`api_host_for`] after handling the `PUP_MOCK_SERVER` override.
@@ -577,12 +568,28 @@ pub fn is_canonical_site(site: &str) -> bool {
     site.contains("oncall") || KNOWN_SITES.contains(&site)
 }
 
+/// Returns `true` for the canonical Datadog sites that take `api.`/`app.`
+/// subdomain derivation — and whose backend region the OAuth callback may
+/// refine (e.g. `datadoghq.com` → `us3.datadoghq.com`).
+///
+/// This is the single predicate that separates "Datadog-managed site, derive
+/// subdomains and trust the callback region" from "use this host verbatim".
+/// Oncall hosts are canonical for token-storage purposes (see
+/// [`is_canonical_site`]) but are addressed verbatim, so they are excluded
+/// here — same outcome as a literal vanity/gateway host. Keeping `api_host_for`,
+/// `auth_host_for`, and the login flow's site resolution on one predicate stops
+/// the three from drifting (an earlier version open-coded the guard three times
+/// and one copy dropped the oncall exclusion).
+pub fn uses_datadog_subdomains(site: &str) -> bool {
+    is_canonical_site(site) && !site.contains("oncall")
+}
+
 /// Derive the API request host from a normalized site value.
 ///
 /// - Canonical sites → `api.{site}` (e.g. `api.datadoghq.com`).
 /// - Oncall passthroughs and literal hosts → verbatim (e.g. `mygateway.example.com`).
 pub fn api_host_for(site: &str) -> String {
-    if is_canonical_site(site) && !site.contains("oncall") {
+    if uses_datadog_subdomains(site) {
         format!("api.{site}")
     } else {
         site.to_string()
@@ -594,7 +601,7 @@ pub fn api_host_for(site: &str) -> String {
 /// - Canonical sites → `app.{site}` (e.g. `app.datadoghq.com`).
 /// - Oncall passthroughs and literal hosts → verbatim (e.g. `mycompany.datadoghq.com`).
 pub fn auth_host_for(site: &str) -> String {
-    if is_canonical_site(site) && !site.contains("oncall") {
+    if uses_datadog_subdomains(site) {
         format!("app.{site}")
     } else {
         site.to_string()
@@ -973,6 +980,22 @@ mod tests {
     #[test]
     fn test_is_canonical_site_gateway_is_not_canonical() {
         assert!(!is_canonical_site("mygateway.example.com"));
+    }
+
+    #[test]
+    fn test_uses_datadog_subdomains() {
+        // Known canonical sites get api./app. derivation and callback-region trust.
+        for site in crate::config::KNOWN_SITES {
+            assert!(
+                uses_datadog_subdomains(site),
+                "{site} should use subdomains"
+            );
+        }
+        // Oncall is canonical for storage but addressed verbatim — excluded here.
+        assert!(!uses_datadog_subdomains("navy.oncall.datadoghq.com"));
+        // Vanity and gateway hosts are used verbatim.
+        assert!(!uses_datadog_subdomains("mycompany.datadoghq.com"));
+        assert!(!uses_datadog_subdomains("mygateway.example.com"));
     }
 
     // --- auth_host tests ---

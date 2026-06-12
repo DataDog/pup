@@ -115,68 +115,22 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
         );
     }
 
-    // If PUP_MOCK_SERVER is set, redirect all requests to the mock server.
-    // The DD client uses server templates like "{protocol}://{name}" at index 1.
-    if let Ok(mock_url) = std::env::var("PUP_MOCK_SERVER") {
-        dd_cfg.server_index = 1;
-        let url = mock_url
-            .trim_start_matches("http://")
-            .trim_start_matches("https://");
-        let protocol = if mock_url.starts_with("https") {
-            "https"
-        } else {
-            "http"
-        };
-        dd_cfg
-            .server_variables
-            .insert("protocol".into(), protocol.into());
-        dd_cfg.server_variables.insert("name".into(), url.into());
-    } else if cfg.is_literal_host() {
-        // Literal host (vanity domain or custom gateway): route via the
-        // "{protocol}://{name}" template at index 1 so the SDK targets the host
-        // verbatim without prepending "api.". Both app. and api. hosts share the
-        // same Datadog infrastructure; the correct Accept header (already set by
-        // all pup request helpers) ensures JSON error semantics regardless.
-        //
-        // Remove "site" from server_variables: Configuration::new() populates it
-        // from the DD_SITE env var, but the index-2 template `https://api.{site}`
-        // must not bleed into the index-1 `{protocol}://{name}` path.
-        //
-        // If the SDK ever stops pre-populating this key, the routing here is still
-        // correct (`name` and `protocol` are set below), so there is no user-visible
-        // regression — the remove becomes a harmless no-op. The debug_assert is a
-        // maintenance canary: it fires in debug/CI builds when DD_SITE is set yet
-        // the key was absent, alerting maintainers that the comment has become stale.
-        // `test_make_dd_config_literal_host_dd_site_env_does_not_bleed` provides
-        // equivalent coverage in CI release builds via behavioral assertion.
-        let removed = dd_cfg.server_variables.remove("site");
-        debug_assert!(
-            removed.is_some() || std::env::var("DD_SITE").is_err(),
-            "expected SDK Configuration::new() to populate server_variables[\"site\"] \
-             when DD_SITE is set; check if the SDK version changed this behavior"
-        );
-        dd_cfg.server_index = 1;
-        dd_cfg
-            .server_variables
-            .insert("protocol".into(), "https".into());
-        dd_cfg
-            .server_variables
-            .insert("name".into(), cfg.api_host());
-    } else {
-        // Canonical Datadog sites: use server index 2 (same `https://api.{site}`
-        // template as index 0 but with no enum restriction, so it works for all
-        // canonical sites including staging datad0g.com).
-        //
-        // The SDK populates `server_variables["site"]` from the DD_SITE env var
-        // at Configuration::default() time. We override it with `cfg.site` so
-        // programmatic site resolution (e.g. `--org` picking up a saved site
-        // from the session registry) reaches the SDK without requiring the
-        // user to also set DD_SITE.
-        dd_cfg.server_index = 2;
-        dd_cfg
-            .server_variables
-            .insert("site".into(), cfg.site.clone());
-    }
+    // Route the SDK at the single resolved API host. `api_base_url()` already
+    // encapsulates every case: the PUP_MOCK_SERVER override, the `api.{site}`
+    // derivation for canonical Datadog sites, and the verbatim host for
+    // vanity/gateway hosts. We feed it through the SDK's `{protocol}://{name}`
+    // template (server index 1) so the host is targeted exactly as resolved —
+    // the SDK never re-derives or prepends anything from `site`.
+    let base = cfg.api_base_url();
+    // A scheme-less value only occurs for a PUP_MOCK_SERVER set without
+    // `http(s)://`; default it to plain http (mock servers run HTTP locally).
+    // The non-mock path always yields `https://...`, so it never hits the fallback.
+    let (protocol, name) = base.split_once("://").unwrap_or(("http", base.as_str()));
+    dd_cfg.server_index = 1;
+    dd_cfg
+        .server_variables
+        .insert("protocol".into(), protocol.into());
+    dd_cfg.server_variables.insert("name".into(), name.into());
 
     dd_cfg
 }
@@ -1187,132 +1141,79 @@ mod tests {
         assert_eq!(get_auth_type(&cfg), AuthType::None);
     }
 
-    /// `make_dd_config` must propagate `cfg.site` into the SDK's `site`
-    /// server variable, otherwise programmatic site resolution (e.g.
-    /// `--org` picking up a saved staging site) silently routes API calls
-    /// to api.datadoghq.com.
+    /// Asserts the SDK is routed at the host produced by `name`/`protocol`,
+    /// the single `{protocol}://{name}` template at server index 1.
+    fn assert_dd_host(
+        dd_cfg: &datadog_api_client::datadog::Configuration,
+        protocol: &str,
+        host: &str,
+    ) {
+        assert_eq!(dd_cfg.server_index, 1);
+        assert_eq!(
+            dd_cfg.server_variables.get("protocol").map(String::as_str),
+            Some(protocol)
+        );
+        assert_eq!(
+            dd_cfg.server_variables.get("name").map(String::as_str),
+            Some(host)
+        );
+    }
+
+    /// Canonical Datadog sites derive `api.{site}` — including non-default ones
+    /// (staging datad0g.com, datadoghq.eu) resolved programmatically via `--org`
+    /// rather than DD_SITE.
     #[test]
-    fn test_make_dd_config_uses_cfg_site_for_non_standard() {
+    fn test_make_dd_config_canonical_site_derives_api_host() {
         let _guard = ENV_LOCK.blocking_lock();
         std::env::remove_var("PUP_MOCK_SERVER");
         std::env::remove_var("DD_SITE");
 
         let mut cfg = test_cfg();
         cfg.site = "datad0g.com".into();
+        assert_dd_host(&make_dd_config(&cfg), "https", "api.datad0g.com");
 
-        let dd_cfg = make_dd_config(&cfg);
-
-        assert_eq!(dd_cfg.server_index, 2);
-        assert_eq!(
-            dd_cfg.server_variables.get("site").map(String::as_str),
-            Some("datad0g.com")
-        );
-    }
-
-    #[test]
-    fn test_make_dd_config_uses_cfg_site_for_standard() {
-        let _guard = ENV_LOCK.blocking_lock();
-        std::env::remove_var("PUP_MOCK_SERVER");
-        std::env::remove_var("DD_SITE");
-
-        let mut cfg = test_cfg();
         cfg.site = "datadoghq.eu".into();
-
-        let dd_cfg = make_dd_config(&cfg);
-
-        // All canonical sites now use index 2 (same https://api.{site} template,
-        // no enum restriction) so staging and non-standard canonicals work too.
-        assert_eq!(dd_cfg.server_index, 2);
-        assert_eq!(
-            dd_cfg.server_variables.get("site").map(String::as_str),
-            Some("datadoghq.eu")
-        );
+        assert_dd_host(&make_dd_config(&cfg), "https", "api.datadoghq.eu");
     }
 
     #[test]
-    fn test_make_dd_config_literal_host_uses_server_index_1() {
+    fn test_make_dd_config_literal_host_used_verbatim() {
         let _guard = ENV_LOCK.blocking_lock();
         std::env::remove_var("PUP_MOCK_SERVER");
         std::env::remove_var("DD_SITE");
 
         let mut cfg = test_cfg();
         cfg.site = "mygateway.example.com".into(); // literal, not in KNOWN_SITES
-
-        let dd_cfg = make_dd_config(&cfg);
-
-        assert_eq!(dd_cfg.server_index, 1);
-        assert_eq!(
-            dd_cfg.server_variables.get("protocol").map(String::as_str),
-            Some("https")
-        );
-        assert_eq!(
-            dd_cfg.server_variables.get("name").map(String::as_str),
-            Some("mygateway.example.com")
-        );
-        // "site" must be absent: the index-2 template expands `https://api.{site}`,
-        // so a stale "site" variable would misroute if the SDK ever blends variables
-        // across server indices.
-        assert!(
-            !dd_cfg.server_variables.contains_key("site"),
-            "site variable must not be set for literal-host path"
-        );
+        assert_dd_host(&make_dd_config(&cfg), "https", "mygateway.example.com");
     }
 
     #[test]
-    fn test_make_dd_config_vanity_subdomain_uses_literal() {
+    fn test_make_dd_config_vanity_subdomain_used_verbatim() {
         let _guard = ENV_LOCK.blocking_lock();
         std::env::remove_var("PUP_MOCK_SERVER");
         std::env::remove_var("DD_SITE");
 
         let mut cfg = test_cfg();
         cfg.site = "mycompany.datadoghq.com".into(); // vanity, not in KNOWN_SITES
-
-        let dd_cfg = make_dd_config(&cfg);
-
-        assert_eq!(dd_cfg.server_index, 1);
-        assert_eq!(
-            dd_cfg.server_variables.get("name").map(String::as_str),
-            Some("mycompany.datadoghq.com")
-        );
-        // "site" must be absent: the index-2 template expands `https://api.{site}`,
-        // so a stale "site" variable would misroute if the SDK ever blends variables
-        // across server indices.
-        assert!(
-            !dd_cfg.server_variables.contains_key("site"),
-            "site variable must not be set for literal-host path"
-        );
+        assert_dd_host(&make_dd_config(&cfg), "https", "mycompany.datadoghq.com");
     }
 
-    /// When DD_SITE is set in the user's environment, the SDK's
-    /// `Configuration::new()` pre-populates `server_variables["site"]`. The
-    /// literal-host branch must remove it so the `{protocol}://{name}` template
-    /// at server_index=1 is not contaminated by the index-2 `https://api.{site}`
-    /// expansion. This test exercises the actual bleed scenario.
+    /// A literal host must be targeted verbatim even when the user has DD_SITE
+    /// set in their shell — `cfg.site` is the single source of truth and the SDK
+    /// never re-derives the host from the `DD_SITE`-populated `site` variable.
     #[test]
-    fn test_make_dd_config_literal_host_dd_site_env_does_not_bleed() {
+    fn test_make_dd_config_literal_host_ignores_env_dd_site() {
         let _guard = ENV_LOCK.blocking_lock();
         std::env::remove_var("PUP_MOCK_SERVER");
-        // Simulate the user having DD_SITE set in their shell environment.
         std::env::set_var("DD_SITE", "datadoghq.com");
 
         let mut cfg = test_cfg();
         cfg.site = "mygateway.example.com".into(); // literal, not in KNOWN_SITES
 
         let dd_cfg = make_dd_config(&cfg);
-
         std::env::remove_var("DD_SITE");
 
-        assert_eq!(dd_cfg.server_index, 1);
-        assert!(
-            !dd_cfg.server_variables.contains_key("site"),
-            "DD_SITE env var must not bleed into the literal-host server_variables; \
-             got: {:?}",
-            dd_cfg.server_variables.get("site")
-        );
-        assert_eq!(
-            dd_cfg.server_variables.get("name").map(String::as_str),
-            Some("mygateway.example.com")
-        );
+        assert_dd_host(&dd_cfg, "https", "mygateway.example.com");
     }
 
     /// `cfg.site` (e.g. resolved from a saved org session) must override any
@@ -1329,14 +1230,9 @@ mod tests {
         cfg.site = "datad0g.com".into();
 
         let dd_cfg = make_dd_config(&cfg);
-
         std::env::remove_var("DD_SITE");
 
-        assert_eq!(dd_cfg.server_index, 2);
-        assert_eq!(
-            dd_cfg.server_variables.get("site").map(String::as_str),
-            Some("datad0g.com")
-        );
+        assert_dd_host(&dd_cfg, "https", "api.datad0g.com");
     }
 
     #[test]
@@ -1457,10 +1353,10 @@ mod tests {
         std::env::set_var("DD_API_KEY", "test-key");
         std::env::set_var("DD_APP_KEY", "test-app-key");
         std::env::remove_var("PUP_MOCK_SERVER");
+        std::env::remove_var("DD_SITE");
         let dd_cfg = make_dd_config(&cfg);
-        // Canonical sites use server_index 2 (no enum restriction, same https://api.{site}
-        // template as index 0 but works for all sites including staging).
-        assert_eq!(dd_cfg.server_index, 2);
+        // Default canonical site datadoghq.com derives api.datadoghq.com.
+        assert_dd_host(&dd_cfg, "https", "api.datadoghq.com");
         std::env::remove_var("DD_API_KEY");
         std::env::remove_var("DD_APP_KEY");
     }
@@ -1497,6 +1393,22 @@ mod tests {
             dd_cfg.server_variables.get("name").unwrap(),
             "mock.example.com"
         );
+        std::env::remove_var("PUP_MOCK_SERVER");
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+    }
+
+    /// A scheme-less PUP_MOCK_SERVER (no `http(s)://`) defaults to plain http —
+    /// mock servers run HTTP locally. Exercises the `split_once` fallback branch.
+    #[test]
+    fn test_make_dd_config_scheme_less_mock_defaults_to_http() {
+        let _guard = ENV_LOCK.blocking_lock();
+        let cfg = test_cfg();
+        std::env::set_var("DD_API_KEY", "test-key");
+        std::env::set_var("DD_APP_KEY", "test-app-key");
+        std::env::set_var("PUP_MOCK_SERVER", "127.0.0.1:9999");
+        let dd_cfg = make_dd_config(&cfg);
+        assert_dd_host(&dd_cfg, "http", "127.0.0.1:9999");
         std::env::remove_var("PUP_MOCK_SERVER");
         std::env::remove_var("DD_API_KEY");
         std::env::remove_var("DD_APP_KEY");

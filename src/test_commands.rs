@@ -634,25 +634,25 @@ fn test_dashboards_widgets_schema_parses() {
 }
 
 // -------------------------------------------------------------------------
-// Top-level saved widgets (pup widgets *)
+// Top-level saved widgets (pup saved-widgets *)
 // -------------------------------------------------------------------------
 
 #[test]
-fn test_widgets_list_parses() {
+fn test_saved_widgets_list_parses() {
     use clap::Parser;
 
     let cli = crate::Cli::try_parse_from([
         "pup",
-        "widgets",
+        "saved-widgets",
         "list",
         "logs_reports",
         "--page-size",
         "10",
     ])
-    .expect("pup widgets list should parse");
+    .expect("pup saved-widgets list should parse");
 
     match cli.command {
-        crate::Commands::Widgets { action } => match action {
+        crate::Commands::SavedWidgets { action } => match action {
             crate::WidgetActions::List {
                 experience_type,
                 page_size,
@@ -663,25 +663,25 @@ fn test_widgets_list_parses() {
             }
             _ => panic!("expected WidgetActions::List"),
         },
-        _ => panic!("expected Commands::Widgets"),
+        _ => panic!("expected Commands::SavedWidgets"),
     }
 }
 
 #[test]
-fn test_widgets_get_parses() {
+fn test_saved_widgets_get_parses() {
     use clap::Parser;
 
     let cli = crate::Cli::try_parse_from([
         "pup",
-        "widgets",
+        "saved-widgets",
         "get",
         "ccm_reports",
         "uuid-here-123",
     ])
-    .expect("pup widgets get should parse");
+    .expect("pup saved-widgets get should parse");
 
     match cli.command {
-        crate::Commands::Widgets { action } => match action {
+        crate::Commands::SavedWidgets { action } => match action {
             crate::WidgetActions::Get {
                 experience_type,
                 widget_id,
@@ -691,6 +691,6 @@ fn test_widgets_get_parses() {
             }
             _ => panic!("expected WidgetActions::Get"),
         },
-        _ => panic!("expected Commands::Widgets"),
+        _ => panic!("expected Commands::SavedWidgets"),
     }
 }

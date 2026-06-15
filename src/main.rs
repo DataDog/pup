@@ -2242,6 +2242,37 @@ enum Commands {
         #[command(subcommand)]
         action: RunbookActions,
     },
+    /// Manage saved widgets (CCM, logs, CSV, and product analytics reports)
+    ///
+    /// List, get, create, update, and delete saved reporting widgets scoped
+    /// to an experience type.
+    ///
+    /// EXPERIENCE TYPES:
+    ///   ccm_reports            Cloud Cost Management report widgets
+    ///   logs_reports           Log Management report widgets
+    ///   csv_reports            CSV export widgets
+    ///   product_analytics      Product analytics widgets
+    ///
+    /// COMMANDS:
+    ///   list    <experience-type>                  Search and list widgets
+    ///   get     <experience-type> <widget-uuid>    Get widget details
+    ///   create  <experience-type> --file w.json    Create a widget
+    ///   update  <experience-type> <widget-uuid> --file w.json  Update a widget
+    ///   delete  <experience-type> <widget-uuid>    Delete a widget
+    ///
+    /// EXAMPLES:
+    ///   pup saved-widgets list logs_reports
+    ///   pup saved-widgets get ccm_reports <uuid>
+    ///   pup saved-widgets create logs_reports --file widget.json
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication (pup auth login) or API keys
+    ///   (DD_API_KEY and DD_APP_KEY environment variables).
+    #[command(verbatim_doc_comment, name = "saved-widgets")]
+    SavedWidgets {
+        #[command(subcommand)]
+        action: WidgetActions,
+    },
     /// Manage service scorecards
     ///
     /// Manage service quality scorecards and rules.
@@ -2731,37 +2762,6 @@ enum Commands {
     },
     /// Print version information
     Version,
-    /// Manage saved widgets (CCM, logs, CSV, and product analytics reports)
-    ///
-    /// List, get, create, update, and delete saved reporting widgets scoped
-    /// to an experience type.
-    ///
-    /// EXPERIENCE TYPES:
-    ///   ccm_reports            Cloud Cost Management report widgets
-    ///   logs_reports           Log Management report widgets
-    ///   csv_reports            CSV export widgets
-    ///   product_analytics      Product analytics widgets
-    ///
-    /// COMMANDS:
-    ///   list    <experience-type>                  Search and list widgets
-    ///   get     <experience-type> <widget-uuid>    Get widget details
-    ///   create  <experience-type> --file w.json    Create a widget
-    ///   update  <experience-type> <widget-uuid> --file w.json  Update a widget
-    ///   delete  <experience-type> <widget-uuid>    Delete a widget
-    ///
-    /// EXAMPLES:
-    ///   pup widgets list logs_reports
-    ///   pup widgets get ccm_reports <uuid>
-    ///   pup widgets create logs_reports --file widget.json
-    ///
-    /// AUTHENTICATION:
-    ///   Requires either OAuth2 authentication (pup auth login) or API keys
-    ///   (DD_API_KEY and DD_APP_KEY environment variables).
-    #[command(verbatim_doc_comment)]
-    Widgets {
-        #[command(subcommand)]
-        action: WidgetActions,
-    },
     /// Manage Datadog workflows
     ///
     /// Create, update, delete, and execute Datadog Workflow Automation workflows.
@@ -14936,8 +14936,8 @@ async fn main_inner() -> anyhow::Result<()> {
             AuthActions::List => commands::auth::list(&cfg)?,
             AuthActions::Test => commands::test::run(&cfg)?,
         },
-        // --- Widgets (top-level saved/reporting widgets) ---
-        Commands::Widgets { action } => {
+        // --- SavedWidgets (top-level saved/reporting widgets) ---
+        Commands::SavedWidgets { action } => {
             cfg.validate_auth()?;
             match action {
                 WidgetActions::List {

@@ -2731,6 +2731,37 @@ enum Commands {
     },
     /// Print version information
     Version,
+    /// Manage saved widgets (CCM, logs, CSV, and product analytics reports)
+    ///
+    /// List, get, create, update, and delete saved reporting widgets scoped
+    /// to an experience type.
+    ///
+    /// EXPERIENCE TYPES:
+    ///   ccm_reports            Cloud Cost Management report widgets
+    ///   logs_reports           Log Management report widgets
+    ///   csv_reports            CSV export widgets
+    ///   product_analytics      Product analytics widgets
+    ///
+    /// COMMANDS:
+    ///   list    <experience-type>                  Search and list widgets
+    ///   get     <experience-type> <widget-uuid>    Get widget details
+    ///   create  <experience-type> --file w.json    Create a widget
+    ///   update  <experience-type> <widget-uuid> --file w.json  Update a widget
+    ///   delete  <experience-type> <widget-uuid>    Delete a widget
+    ///
+    /// EXAMPLES:
+    ///   pup widgets list logs_reports
+    ///   pup widgets get ccm_reports <uuid>
+    ///   pup widgets create logs_reports --file widget.json
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication (pup auth login) or API keys
+    ///   (DD_API_KEY and DD_APP_KEY environment variables).
+    #[command(verbatim_doc_comment)]
+    Widgets {
+        #[command(subcommand)]
+        action: WidgetActions,
+    },
     /// Manage Datadog workflows
     ///
     /// Create, update, delete, and execute Datadog Workflow Automation workflows.
@@ -3250,15 +3281,82 @@ enum DashboardActions {
     },
     /// Delete a dashboard
     Delete { id: String },
-    /// Manage saved widgets
+    /// Edit widgets embedded in a dashboard, and discover widget schemas
     Widgets {
         #[command(subcommand)]
-        action: WidgetActions,
+        action: DashboardWidgetActions,
     },
     /// Manage annotations on dashboard pages
     Annotations {
         #[command(subcommand)]
         action: AnnotationsActions,
+    },
+}
+
+// ---- Dashboard widget subcommands (embedded widgets in a dashboard) ----
+
+#[derive(Subcommand)]
+enum DashboardWidgetActions {
+    /// List all widgets in a dashboard (index, id, type, title, layout)
+    List {
+        /// Dashboard ID
+        dash_id: String,
+    },
+    /// Show one widget's full JSON
+    Get {
+        /// Dashboard ID
+        dash_id: String,
+        /// Widget id (Widget.id from the dashboard JSON)
+        #[arg(long, conflicts_with = "index", required_unless_present = "index")]
+        widget_id: Option<i64>,
+        /// 0-based position of the widget in the dashboard widgets array
+        #[arg(long)]
+        index: Option<usize>,
+    },
+    /// Append a widget from a JSON file ('-' for stdin)
+    Add {
+        /// Dashboard ID
+        dash_id: String,
+        /// Path to widget JSON file, or '-' to read from stdin
+        #[arg(long)]
+        file: String,
+    },
+    /// Replace one widget from a JSON file ('-' for stdin)
+    Update {
+        /// Dashboard ID
+        dash_id: String,
+        /// Widget id (Widget.id from the dashboard JSON)
+        #[arg(long, conflicts_with = "index", required_unless_present = "index")]
+        widget_id: Option<i64>,
+        /// 0-based position of the widget in the dashboard widgets array
+        #[arg(long)]
+        index: Option<usize>,
+        /// Path to widget JSON file, or '-' to read from stdin
+        #[arg(long)]
+        file: String,
+    },
+    /// Delete one widget from a dashboard
+    Remove {
+        /// Dashboard ID
+        dash_id: String,
+        /// Widget id (Widget.id from the dashboard JSON)
+        #[arg(long, conflicts_with = "index", required_unless_present = "index")]
+        widget_id: Option<i64>,
+        /// 0-based position of the widget in the dashboard widgets array
+        #[arg(long)]
+        index: Option<usize>,
+    },
+    /// List all supported widget type strings
+    Types,
+    /// Emit a ready-to-edit skeleton JSON for a widget type
+    ///
+    /// Pass the type string (e.g. timeseries) to get a skeleton you can
+    /// fill in and pass to `pup dashboards widgets add --file`.
+    /// Run `pup dashboards widgets types` for the full list of types.
+    Schema {
+        /// Widget type string, e.g. timeseries, note, query_value
+        #[arg(help = "Widget type string (see `pup dashboards widgets types`)")]
+        r#type: String,
     },
 }
 
@@ -11313,56 +11411,43 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 DashboardActions::Delete { id } => commands::dashboards::delete(&cfg, &id).await?,
                 DashboardActions::Widgets { action } => match action {
-                    WidgetActions::List {
-                        experience_type,
-                        filter_widget_type,
-                        filter_creator_handle,
-                        filter_is_favorited,
-                        filter_title,
-                        filter_tags,
-                        sort,
-                        page_number,
-                        page_size,
+                    DashboardWidgetActions::List { dash_id } => {
+                        commands::dashboards::widget_list(&cfg, &dash_id).await?;
+                    }
+                    DashboardWidgetActions::Get {
+                        dash_id,
+                        widget_id,
+                        index,
                     } => {
-                        commands::widgets::list(
-                            &cfg,
-                            &experience_type,
-                            filter_widget_type,
-                            filter_creator_handle,
-                            filter_is_favorited,
-                            filter_title,
-                            filter_tags,
-                            sort,
-                            page_number,
-                            page_size,
+                        commands::dashboards::widget_get(&cfg, &dash_id, widget_id, index).await?;
+                    }
+                    DashboardWidgetActions::Add { dash_id, file } => {
+                        commands::dashboards::widget_add(&cfg, &dash_id, &file).await?;
+                    }
+                    DashboardWidgetActions::Update {
+                        dash_id,
+                        widget_id,
+                        index,
+                        file,
+                    } => {
+                        commands::dashboards::widget_update(
+                            &cfg, &dash_id, widget_id, index, &file,
                         )
                         .await?;
                     }
-                    WidgetActions::Get {
-                        experience_type,
+                    DashboardWidgetActions::Remove {
+                        dash_id,
                         widget_id,
+                        index,
                     } => {
-                        commands::widgets::get(&cfg, &experience_type, &widget_id).await?;
-                    }
-                    WidgetActions::Create {
-                        experience_type,
-                        file,
-                    } => {
-                        commands::widgets::create(&cfg, &experience_type, &file).await?;
-                    }
-                    WidgetActions::Update {
-                        experience_type,
-                        widget_id,
-                        file,
-                    } => {
-                        commands::widgets::update(&cfg, &experience_type, &widget_id, &file)
+                        commands::dashboards::widget_remove(&cfg, &dash_id, widget_id, index)
                             .await?;
                     }
-                    WidgetActions::Delete {
-                        experience_type,
-                        widget_id,
-                    } => {
-                        commands::widgets::delete(&cfg, &experience_type, &widget_id).await?;
+                    DashboardWidgetActions::Types => {
+                        commands::dashboards::widget_types(&cfg)?;
+                    }
+                    DashboardWidgetActions::Schema { r#type } => {
+                        commands::dashboards::widget_schema(&cfg, &r#type)?;
                     }
                 },
             }
@@ -14851,6 +14936,62 @@ async fn main_inner() -> anyhow::Result<()> {
             AuthActions::List => commands::auth::list(&cfg)?,
             AuthActions::Test => commands::test::run(&cfg)?,
         },
+        // --- Widgets (top-level saved/reporting widgets) ---
+        Commands::Widgets { action } => {
+            cfg.validate_auth()?;
+            match action {
+                WidgetActions::List {
+                    experience_type,
+                    filter_widget_type,
+                    filter_creator_handle,
+                    filter_is_favorited,
+                    filter_title,
+                    filter_tags,
+                    sort,
+                    page_number,
+                    page_size,
+                } => {
+                    commands::widgets::list(
+                        &cfg,
+                        &experience_type,
+                        filter_widget_type,
+                        filter_creator_handle,
+                        filter_is_favorited,
+                        filter_title,
+                        filter_tags,
+                        sort,
+                        page_number,
+                        page_size,
+                    )
+                    .await?;
+                }
+                WidgetActions::Get {
+                    experience_type,
+                    widget_id,
+                } => {
+                    commands::widgets::get(&cfg, &experience_type, &widget_id).await?;
+                }
+                WidgetActions::Create {
+                    experience_type,
+                    file,
+                } => {
+                    commands::widgets::create(&cfg, &experience_type, &file).await?;
+                }
+                WidgetActions::Update {
+                    experience_type,
+                    widget_id,
+                    file,
+                } => {
+                    commands::widgets::update(&cfg, &experience_type, &widget_id, &file).await?;
+                }
+                WidgetActions::Delete {
+                    experience_type,
+                    widget_id,
+                } => {
+                    commands::widgets::delete(&cfg, &experience_type, &widget_id).await?;
+                }
+            }
+        }
         // --- Workflows ---
         Commands::Workflows { action } => match action {
             WorkflowActions::Get { workflow_id } => {

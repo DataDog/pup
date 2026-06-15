@@ -440,3 +440,257 @@ fn test_audit_alias_is_visible() {
         "`audit` alias should resolve to the audit-logs command"
     );
 }
+
+// -------------------------------------------------------------------------
+// Dashboard embedded widgets (pup dashboards widgets *)
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_dashboards_widgets_add_parses_as_write() {
+    let matches = crate::Cli::command()
+        .try_get_matches_from([
+            "pup",
+            "dashboards",
+            "widgets",
+            "add",
+            "abc-123",
+            "--file",
+            "w.json",
+        ])
+        .unwrap();
+    let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
+    assert!(
+        crate::is_write_command_name(&leaf),
+        "dashboards widgets add must be classified as a write command, got leaf={leaf:?}"
+    );
+}
+
+#[test]
+fn test_dashboards_widgets_remove_parses_as_write() {
+    let matches = crate::Cli::command()
+        .try_get_matches_from([
+            "pup",
+            "dashboards",
+            "widgets",
+            "remove",
+            "abc-123",
+            "--index",
+            "0",
+        ])
+        .unwrap();
+    let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
+    assert!(
+        crate::is_write_command_name(&leaf),
+        "dashboards widgets remove must be classified as a write command, got leaf={leaf:?}"
+    );
+}
+
+#[test]
+fn test_dashboards_widgets_types_parses_as_read() {
+    let matches = crate::Cli::command()
+        .try_get_matches_from(["pup", "dashboards", "widgets", "types"])
+        .unwrap();
+    let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
+    assert!(
+        !crate::is_write_command_name(&leaf),
+        "dashboards widgets types must be classified as a read command, got leaf={leaf:?}"
+    );
+}
+
+#[test]
+fn test_dashboards_widgets_schema_parses_as_read() {
+    let matches = crate::Cli::command()
+        .try_get_matches_from(["pup", "dashboards", "widgets", "schema", "timeseries"])
+        .unwrap();
+    let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
+    assert!(
+        !crate::is_write_command_name(&leaf),
+        "dashboards widgets schema must be classified as a read command, got leaf={leaf:?}"
+    );
+}
+
+#[test]
+fn test_dashboards_widgets_add_parses_args() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "dashboards",
+        "widgets",
+        "add",
+        "abc-123",
+        "--file",
+        "widget.json",
+    ])
+    .expect("dashboards widgets add should parse");
+
+    match cli.command {
+        crate::Commands::Dashboards { action } => {
+            let crate::DashboardActions::Widgets { action } = action else {
+                panic!("expected DashboardActions::Widgets");
+            };
+            let crate::DashboardWidgetActions::Add { dash_id, file } = action else {
+                panic!("expected DashboardWidgetActions::Add");
+            };
+            assert_eq!(dash_id, "abc-123");
+            assert_eq!(file, "widget.json");
+        }
+        _ => panic!("expected Commands::Dashboards"),
+    }
+}
+
+#[test]
+fn test_dashboards_widgets_get_by_index_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "dashboards",
+        "widgets",
+        "get",
+        "abc-123",
+        "--index",
+        "2",
+    ])
+    .expect("dashboards widgets get --index should parse");
+
+    match cli.command {
+        crate::Commands::Dashboards { action } => {
+            let crate::DashboardActions::Widgets { action } = action else {
+                panic!("expected DashboardActions::Widgets");
+            };
+            let crate::DashboardWidgetActions::Get {
+                dash_id,
+                widget_id,
+                index,
+            } = action
+            else {
+                panic!("expected DashboardWidgetActions::Get");
+            };
+            assert_eq!(dash_id, "abc-123");
+            assert_eq!(widget_id, None);
+            assert_eq!(index, Some(2));
+        }
+        _ => panic!("expected Commands::Dashboards"),
+    }
+}
+
+#[test]
+fn test_dashboards_widgets_get_requires_selector() {
+    // Neither --widget-id nor --index provided — should fail clap validation.
+    let result = crate::Cli::command().try_get_matches_from([
+        "pup",
+        "dashboards",
+        "widgets",
+        "get",
+        "abc-123",
+    ]);
+    assert!(
+        result.is_err(),
+        "dashboards widgets get must require --widget-id or --index"
+    );
+}
+
+#[test]
+fn test_dashboards_widgets_get_rejects_both_selectors() {
+    // Both --widget-id and --index provided — should fail clap's conflicts_with.
+    let result = crate::Cli::command().try_get_matches_from([
+        "pup",
+        "dashboards",
+        "widgets",
+        "get",
+        "abc-123",
+        "--widget-id",
+        "1",
+        "--index",
+        "0",
+    ]);
+    assert!(
+        result.is_err(),
+        "dashboards widgets get must reject --widget-id and --index together"
+    );
+}
+
+#[test]
+fn test_dashboards_widgets_schema_parses() {
+    use clap::Parser;
+
+    let cli =
+        crate::Cli::try_parse_from(["pup", "dashboards", "widgets", "schema", "timeseries"])
+            .expect("dashboards widgets schema should parse");
+
+    match cli.command {
+        crate::Commands::Dashboards { action } => {
+            let crate::DashboardActions::Widgets { action } = action else {
+                panic!("expected DashboardActions::Widgets");
+            };
+            let crate::DashboardWidgetActions::Schema { r#type } = action else {
+                panic!("expected DashboardWidgetActions::Schema");
+            };
+            assert_eq!(r#type, "timeseries");
+        }
+        _ => panic!("expected Commands::Dashboards"),
+    }
+}
+
+// -------------------------------------------------------------------------
+// Top-level saved widgets (pup widgets *)
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_widgets_list_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "widgets",
+        "list",
+        "logs_reports",
+        "--page-size",
+        "10",
+    ])
+    .expect("pup widgets list should parse");
+
+    match cli.command {
+        crate::Commands::Widgets { action } => match action {
+            crate::WidgetActions::List {
+                experience_type,
+                page_size,
+                ..
+            } => {
+                assert_eq!(experience_type, "logs_reports");
+                assert_eq!(page_size, Some(10));
+            }
+            _ => panic!("expected WidgetActions::List"),
+        },
+        _ => panic!("expected Commands::Widgets"),
+    }
+}
+
+#[test]
+fn test_widgets_get_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "widgets",
+        "get",
+        "ccm_reports",
+        "uuid-here-123",
+    ])
+    .expect("pup widgets get should parse");
+
+    match cli.command {
+        crate::Commands::Widgets { action } => match action {
+            crate::WidgetActions::Get {
+                experience_type,
+                widget_id,
+            } => {
+                assert_eq!(experience_type, "ccm_reports");
+                assert_eq!(widget_id, "uuid-here-123");
+            }
+            _ => panic!("expected WidgetActions::Get"),
+        },
+        _ => panic!("expected Commands::Widgets"),
+    }
+}

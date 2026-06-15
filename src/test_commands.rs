@@ -615,9 +615,8 @@ fn test_dashboards_widgets_get_rejects_both_selectors() {
 fn test_dashboards_widgets_schema_parses() {
     use clap::Parser;
 
-    let cli =
-        crate::Cli::try_parse_from(["pup", "dashboards", "widgets", "schema", "timeseries"])
-            .expect("dashboards widgets schema should parse");
+    let cli = crate::Cli::try_parse_from(["pup", "dashboards", "widgets", "schema", "timeseries"])
+        .expect("dashboards widgets schema should parse");
 
     match cli.command {
         crate::Commands::Dashboards { action } => {

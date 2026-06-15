@@ -79,8 +79,7 @@ fn read_widget_input(file: &str) -> Result<Widget> {
             .map_err(|e| anyhow::anyhow!("failed to read widget JSON from stdin: {e}"))?;
         buf
     } else {
-        std::fs::read(file)
-            .map_err(|e| anyhow::anyhow!("failed to read --file {file:?}: {e}"))?
+        std::fs::read(file).map_err(|e| anyhow::anyhow!("failed to read --file {file:?}: {e}"))?
     };
     let widget: Widget = serde_json::from_slice(&bytes)
         .map_err(|e| anyhow::anyhow!("failed to parse widget JSON: {e}"))?;
@@ -154,8 +153,7 @@ pub async fn widget_list(cfg: &Config, dash_id: &str) -> Result<()> {
         .iter()
         .enumerate()
         .map(|(idx, w)| {
-            let def_val =
-                serde_json::to_value(&w.definition).unwrap_or(serde_json::Value::Null);
+            let def_val = serde_json::to_value(&w.definition).unwrap_or(serde_json::Value::Null);
             let widget_type = def_val
                 .get("type")
                 .and_then(|v| v.as_str())
@@ -1281,7 +1279,10 @@ mod tests {
     #[test]
     fn test_locate_by_index_ok() {
         let widgets = vec![make_widget(None), make_widget(None)];
-        assert_eq!(super::locate_widget_index(&widgets, None, Some(1)).unwrap(), 1);
+        assert_eq!(
+            super::locate_widget_index(&widgets, None, Some(1)).unwrap(),
+            1
+        );
     }
 
     #[test]
@@ -1349,7 +1350,11 @@ mod tests {
         let _mock = mock_any(&mut server, "GET", DASHBOARD_WITH_WIDGETS).await;
 
         let result = super::widget_get(&cfg, "abc-123", None, Some(0)).await;
-        assert!(result.is_ok(), "widget_get by index failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "widget_get by index failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 
@@ -1361,7 +1366,11 @@ mod tests {
         let _mock = mock_any(&mut server, "GET", DASHBOARD_WITH_WIDGETS).await;
 
         let result = super::widget_get(&cfg, "abc-123", Some(2), None).await;
-        assert!(result.is_ok(), "widget_get by id failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "widget_get by id failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 
@@ -1375,7 +1384,8 @@ mod tests {
         let _mock_get = mock_any(&mut server, "GET", DASHBOARD_WITH_WIDGETS).await;
         let _mock_put = mock_any(&mut server, "PUT", DASHBOARD_WITH_WIDGETS).await;
 
-        let widget_json = r#"{"definition":{"type":"timeseries","requests":[{"q":"avg:system.cpu.user{*}"}]}}"#;
+        let widget_json =
+            r#"{"definition":{"type":"timeseries","requests":[{"q":"avg:system.cpu.user{*}"}]}}"#;
         let path = write_temp_json("test_widget_add.json", widget_json);
         let result = super::widget_add(&cfg, "abc-123", path.to_str().unwrap()).await;
         assert!(result.is_ok(), "widget_add failed: {:?}", result.err());
@@ -1459,7 +1469,11 @@ mod tests {
         let _lock = lock_env().await;
         let cfg = test_config("http://unused.local");
         let result = super::widget_schema(&cfg, "timeseries");
-        assert!(result.is_ok(), "widget_schema(timeseries) failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "widget_schema(timeseries) failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 
@@ -1468,7 +1482,11 @@ mod tests {
         let _lock = lock_env().await;
         let cfg = test_config("http://unused.local");
         let result = super::widget_schema(&cfg, "geomap");
-        assert!(result.is_ok(), "widget_schema(geomap) failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "widget_schema(geomap) failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 
@@ -1477,7 +1495,10 @@ mod tests {
         let _lock = lock_env().await;
         let cfg = test_config("http://unused.local");
         let result = super::widget_schema(&cfg, "totally_bogus_widget_type");
-        assert!(result.is_err(), "widget_schema should fail for unknown types");
+        assert!(
+            result.is_err(),
+            "widget_schema should fail for unknown types"
+        );
         cleanup_env();
     }
 }

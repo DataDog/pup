@@ -1922,6 +1922,12 @@ enum Commands {
         #[command(subcommand)]
         action: MonitorActions,
     },
+    /// Spec-generated commands (POC). New products appear here automatically
+    /// when the generator is re-run — no changes to this file are needed.
+    Generated {
+        #[command(subcommand)]
+        action: commands::generated::GeneratedCommand,
+    },
     /// Manage network monitoring
     ///
     /// Query network monitoring data including flows and devices.
@@ -11102,6 +11108,10 @@ async fn main_inner() -> anyhow::Result<()> {
                     commands::monitors::delete(&cfg, monitor_id).await?;
                 }
             }
+        }
+        Commands::Generated { action } => {
+            cfg.validate_auth()?;
+            commands::generated::run(&cfg, action).await?;
         }
         // --- Logs ---
         Commands::Logs { action } => {

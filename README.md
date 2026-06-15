@@ -257,10 +257,10 @@ pup monitors list --org staging-child     # site recalled from the session, no D
 pup auth login --site ap2.datadoghq.com --org ap2-prod
 pup monitors list --org ap2-prod          # site recalled
 
-# SAML/SSO org. --subdomain narrows the consent page to one org for tenants
-# with subdomain-routed SSO. It is only used during the browser flow and is
-# not persisted.
-pup auth login --org acme-prod --subdomain acme
+# SAML/SSO org with a vanity login page (e.g. acme.datadoghq.com). Pass the
+# full host via --site; it routes the consent page to the right tenant and is
+# also used for subsequent API calls, not just the login/consent flow.
+pup auth login --org acme-prod --site acme.datadoghq.com
 
 # Pre-target a specific org by UUID (sent as dd_oid). Skips the org switcher
 # when the browser session already matches and pre-routes SAML/SSO. The UUID

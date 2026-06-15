@@ -282,7 +282,10 @@ pub async fn widget_remove(
 }
 
 pub fn widget_types(cfg: &Config) -> Result<()> {
-    let types: Vec<&str> = WIDGET_TYPES.to_vec();
+    let types: Vec<serde_json::Value> = WIDGET_TYPES
+        .iter()
+        .map(|(t, d)| serde_json::json!({"type": t, "description": d}))
+        .collect();
     formatter::format_and_print(
         &types,
         &cfg.output_format,
@@ -297,57 +300,70 @@ pub fn widget_types(cfg: &Config) -> Result<()> {
 }
 
 pub fn widget_schema(cfg: &Config, type_str: &str) -> Result<()> {
-    let tmpl = widget_template(type_str).ok_or_else(|| {
-        anyhow::anyhow!(
-            "unknown widget type {type_str:?}; \
-             run `pup dashboards widgets types` to see supported types"
-        )
-    })?;
-    formatter::output(cfg, &tmpl)
+    let description = WIDGET_TYPES
+        .iter()
+        .find(|(t, _)| *t == type_str)
+        .map(|(_, d)| *d)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown widget type {type_str:?}; \
+                 run `pup dashboards widgets types` to see supported types"
+            )
+        })?;
+    let tmpl = widget_template(type_str).expect("type is in WIDGET_TYPES so template exists");
+    formatter::output(
+        cfg,
+        &serde_json::json!({
+            "type": type_str,
+            "description": description,
+            "template": tmpl,
+        }),
+    )
 }
 
 // ---- Widget type registry and skeleton templates ----
 
-/// All widget `type` strings recognised by the Datadog Dashboard API (V1).
+/// All widget `type` strings recognised by the Datadog Dashboard API (V1),
+/// paired with their descriptions from the OpenAPI spec.
 ///
 /// Kept in sync with the `WidgetDefinition` enum in the
 /// `datadog-api-client` SDK.  Unknown types round-trip via
 /// `WidgetDefinition::UnparsedObject` and are rejected by `validate_widget`.
-const WIDGET_TYPES: &[&str] = &[
-    "alert_graph",
-    "alert_value",
-    "change",
-    "check_status",
-    "distribution",
-    "event_stream",
-    "event_timeline",
-    "free_text",
-    "funnel",
-    "geomap",
-    "group",
-    "heatmap",
-    "hostmap",
-    "iframe",
-    "image",
-    "list_stream",
-    "log_stream",
-    "manage_status",
-    "note",
-    "powerpack",
-    "query_value",
-    "query_table",
-    "run_workflow",
-    "scatterplot",
-    "servicemap",
-    "slo",
-    "slo_list",
-    "sunburst",
-    "timeseries",
-    "toplist",
-    "topology_map",
-    "trace_service",
-    "treemap",
-    "wildcard",
+const WIDGET_TYPES: &[(&str, &str)] = &[
+    ("alert_graph", "Alert graphs are timeseries graphs showing the current status of any monitor defined on your system."),
+    ("alert_value", "Alert values are query values showing the current value of the metric in any monitor defined on your system."),
+    ("change", "The Change graph shows you the change in a value over the time period chosen."),
+    ("check_status", "Check status shows the current status or number of results for any check performed."),
+    ("distribution", "The Distribution visualization is another way of showing metrics aggregated across one or several tags, such as hosts."),
+    ("event_stream", "The event stream is a widget version of the stream of events on the Event Stream view. Only available on FREE layout dashboards."),
+    ("event_timeline", "The event timeline is a widget version of the timeline that appears at the top of the Event Stream view. Only available on FREE layout dashboards."),
+    ("free_text", "Free text is a widget that allows you to add headings to your dashboard. Commonly used to state the overall purpose of the dashboard."),
+    ("funnel", "The funnel visualization displays a funnel of user sessions that maps a sequence of view navigation and user interaction in your application."),
+    ("geomap", "This visualization displays a series of values by country on a world map."),
+    ("group", "The group widget allows you to keep similar graphs together on your dashboard. Each group has a custom header, can hold one to many graphs, and is collapsible."),
+    ("heatmap", "The heat map visualization shows metrics aggregated across many tags, such as hosts. The more hosts that have a particular value, the darker that square is."),
+    ("hostmap", "The host map widget graphs any metric across your hosts using the same visualization available from the main Host Map page."),
+    ("iframe", "The iframe widget allows you to embed a portion of any other web page on your dashboard."),
+    ("image", "The image widget allows you to embed an image on your dashboard. An image can be a PNG, JPG, or animated GIF."),
+    ("list_stream", "The list stream visualization displays a table of recent events in your application that match a search criteria using user-defined columns."),
+    ("log_stream", "The Log Stream displays a log flow matching the defined query."),
+    ("manage_status", "The monitor summary widget displays a summary view of all your Datadog monitors, or a subset based on a query."),
+    ("note", "The notes and links widget is similar to free text widget, but allows for more formatting options."),
+    ("powerpack", "The powerpack widget allows you to keep similar graphs together on your dashboard. Each group has a custom header, can hold one to many graphs, and is collapsible."),
+    ("query_value", "Query values display the current value of a given metric, APM, or log query."),
+    ("query_table", "The table visualization is available on dashboards. It displays columns of metrics grouped by tag key."),
+    ("run_workflow", "The run workflow widget allows you to run a workflow from a dashboard."),
+    ("scatterplot", "The scatter plot visualization allows you to graph a chosen scope over two different metrics with their respective aggregation."),
+    ("servicemap", "This widget displays a map of a service to all of the services that call it, and all of the services that it calls."),
+    ("slo", "Use the SLO and uptime widget to track your SLOs (Service Level Objectives) and uptime on dashboards."),
+    ("slo_list", "Use the SLO List widget to track your SLOs (Service Level Objectives) on dashboards."),
+    ("sunburst", "Sunbursts are spot on to highlight how groups contribute to the total of a query."),
+    ("timeseries", "The timeseries visualization allows you to display the evolution of one or more metrics, log events, or Indexed Spans over time."),
+    ("toplist", "The top list visualization enables you to display a list of Tag value like hostname or service with the most or least of any metric value, such as highest consumers of CPU, hosts with the least disk space, etc."),
+    ("topology_map", "This widget displays a topology of nodes and edges for different data sources. It replaces the service map widget."),
+    ("trace_service", "The service summary displays the graphs of a chosen service in your dashboard."),
+    ("treemap", "The treemap visualization enables you to display hierarchical and nested data. It is well suited for queries that describe part-whole relationships, such as resource usage by availability zone, data center, or team."),
+    ("wildcard", "Custom visualization widget using Vega or Vega-Lite specifications. Combines standard Datadog data requests with a Vega or Vega-Lite JSON specification for flexible, custom visualizations."),
 ];
 
 /// Return a ready-to-edit skeleton JSON for the given widget type.
@@ -413,7 +429,7 @@ fn widget_template(t: &str) -> Option<serde_json::Value> {
                 "time_windows": ["7d"]
             }
         }),
-        other if WIDGET_TYPES.contains(&other) => serde_json::json!({
+        other if WIDGET_TYPES.iter().any(|(t, _)| *t == other) => serde_json::json!({
             "definition": {"type": other}
         }),
         _ => return None,
@@ -533,9 +549,9 @@ mod tests {
             "expected at least 20 widget types, got {}",
             super::WIDGET_TYPES.len()
         );
-        assert!(super::WIDGET_TYPES.contains(&"timeseries"));
-        assert!(super::WIDGET_TYPES.contains(&"query_value"));
-        assert!(super::WIDGET_TYPES.contains(&"note"));
+        assert!(super::WIDGET_TYPES.iter().any(|(t, _)| *t == "timeseries"));
+        assert!(super::WIDGET_TYPES.iter().any(|(t, _)| *t == "query_value"));
+        assert!(super::WIDGET_TYPES.iter().any(|(t, _)| *t == "note"));
     }
 
     #[test]

@@ -37,6 +37,8 @@ pub(crate) mod test_utils {
 }
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::IsTerminal;
 
 #[derive(Parser)]
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
@@ -59,6 +61,10 @@ pub(crate) struct Cli {
     /// Named org session (see 'pup auth login --org')
     #[arg(long, global = true)]
     org: Option<String>,
+    /// Trust a non-Datadog `--site`/`DD_SITE` host for this invocation (skip the
+    /// trust prompt). For durable trust, use `trusted_sites` in config instead.
+    #[arg(long, global = true)]
+    trust_site: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -11052,6 +11058,24 @@ async fn main_inner() -> anyhow::Result<()> {
         }
     }
 
+    // Compute once, after agent_mode is resolved (agent mode is always non-interactive).
+    #[cfg(not(target_arch = "wasm32"))]
+    let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+    #[cfg(target_arch = "wasm32")]
+    let interactive = false;
+
+    // Durable trust allowlist from the config file, sourced once for all gate calls.
+    #[cfg(not(feature = "browser"))]
+    let trusted_sites = config::configured_trusted_sites();
+
+    // Gate credential dispatch to non-Datadog hosts before any command dispatches.
+    // Auth subcommands resolve their own site late (after --site is applied in-arm),
+    // so they gate themselves; skip here to avoid a double prompt.
+    #[cfg(not(feature = "browser"))]
+    if !matches!(cli.command, Commands::Auth { .. }) {
+        cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
+    }
+
     match cli.command {
         // --- Monitors ---
         Commands::Monitors { action } => {
@@ -14802,6 +14826,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 if let Some(s) = site {
                     cfg.set_site_explicit(s)?;
                 }
+                // Gate here rather than pre-match: --site is applied above and
+                // login opens a browser carrying the real SSO cookie plus DCR
+                // client credentials to this host, so it must be checked even
+                // when --site was not passed (the from_env site is still the target).
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 let is_read_only = read_only || cfg.read_only;
                 let resolved =
                     resolve_login_scopes(scopes.as_deref(), cfg.org.as_deref(), is_read_only);
@@ -14816,12 +14846,22 @@ async fn main_inner() -> anyhow::Result<()> {
                 if let Some(s) = site {
                     cfg.set_site_explicit(s)?;
                 }
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 commands::auth::status(&cfg)?
             }
             #[cfg(debug_assertions)]
             AuthActions::Token => commands::auth::token(&cfg)?,
-            AuthActions::Refresh => commands::auth::refresh(&cfg).await?,
+            AuthActions::Refresh => {
+                // Refresh POSTs the stored refresh token to cfg.site; gate it like
+                // login/status (the pre-match gate skips all Auth subcommands).
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
+                commands::auth::refresh(&cfg).await?
+            }
             AuthActions::List => commands::auth::list(&cfg)?,
+            // `auth test` only prints local config (masked keys, no network call),
+            // so it sends nothing to the host and needs no trust gate.
             AuthActions::Test => commands::test::run(&cfg)?,
         },
         // --- Workflows ---

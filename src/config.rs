@@ -3,6 +3,8 @@ use anyhow::{bail, Result};
 use serde::Deserialize;
 #[cfg(not(feature = "browser"))]
 use std::collections::HashMap;
+#[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+use std::io::Write;
 use std::path::PathBuf;
 
 /// Runtime configuration with precedence: flag > env > file > default.
@@ -82,6 +84,11 @@ struct FileConfig {
     scopes: Option<String>,
     /// Per-org profile settings. Profile key matches the --org value used at login.
     profiles: Option<HashMap<String, ProfileConfig>>,
+    /// Non-Datadog hosts trusted to receive credentials without a per-invocation
+    /// prompt. Mirrors `--trust-site` and `PUP_TRUST_SITE` but persists across
+    /// invocations. Each entry is normalized via `normalize_site` at comparison
+    /// time, so `app.foo.com` and `foo.com` both match `foo.com`.
+    trusted_sites: Option<Vec<String>>,
 }
 
 impl Config {
@@ -216,6 +223,90 @@ impl Config {
         self.site = normalized;
         self.site_explicit = true;
         Ok(())
+    }
+
+    /// Ensure credentials may be sent to `self.site`. Datadog-owned hosts are
+    /// always trusted. A non-Datadog host (vanity typo or enterprise proxy) must
+    /// be explicitly opted in, else — when a terminal is available — the user is
+    /// prompted once for this invocation; with no terminal and no opt-in we fail
+    /// closed rather than silently leak credentials.
+    ///
+    /// Opt-in precedence mirrors pup's flag > env > config ladder:
+    ///   --trust-site flag  >  PUP_TRUST_SITE=1 env  >  trusted_sites config.
+    ///
+    /// `trusted_sites` is sourced from the config file at the call site (see
+    /// [`configured_trusted_sites`]) rather than carried on `Config`, so this
+    /// security check stays self-contained.
+    #[cfg(not(feature = "browser"))]
+    pub fn ensure_site_trusted(
+        &self,
+        trust_site_flag: bool,
+        interactive: bool,
+        trusted_sites: &[String],
+    ) -> Result<()> {
+        // Zero friction for the common case: all Datadog-owned hosts are always trusted.
+        if is_datadog_owned_host(&self.site) {
+            return Ok(());
+        }
+
+        // --trust-site on this invocation.
+        if trust_site_flag {
+            return Ok(());
+        }
+
+        // PUP_TRUST_SITE=1 in the environment: emit one informational line (so a
+        // typo'd env value still surfaces) and proceed.
+        if env_bool("PUP_TRUST_SITE") {
+            eprintln!(
+                "Using non-Datadog host '{}' (trusted via PUP_TRUST_SITE)",
+                self.site
+            );
+            return Ok(());
+        }
+
+        // trusted_sites in config: any entry that normalizes to the current site is trusted.
+        if trusted_sites
+            .iter()
+            .any(|entry| normalize_site(entry) == self.site)
+        {
+            return Ok(());
+        }
+
+        // Interactive fallback: prompt the user once for this invocation.
+        #[cfg(not(target_arch = "wasm32"))]
+        if interactive {
+            eprintln!("⚠️  WARNING: '{}' is not a Datadog-owned host.", self.site);
+            eprintln!("    pup will send your credentials there.");
+            eprint!("    Trust this host for this command? [y/N]: ");
+            std::io::stderr().flush().ok();
+
+            let mut s = String::new();
+            std::io::stdin().read_line(&mut s)?;
+
+            if matches!(s.trim().to_lowercase().as_str(), "y" | "yes") {
+                eprintln!(
+                    "    To skip this prompt next time, add '{}' to trusted_sites in your \
+                     pup config, pass --trust-site, or set PUP_TRUST_SITE=1.",
+                    self.site
+                );
+                return Ok(());
+            }
+
+            bail!(
+                "aborted: credentials will not be sent to non-Datadog host '{}'",
+                self.site
+            );
+        }
+
+        // No terminal and no opt-in: fail closed and name every remediation.
+        bail!(
+            "'{}' is not a Datadog-owned host and no terminal was available to prompt. \
+             To send credentials there, use one of: \
+             --trust-site (this invocation), \
+             PUP_TRUST_SITE=1 (env, this invocation), \
+             or add it to trusted_sites in your pup config (durable).",
+            self.site
+        )
     }
 
     /// Validate that sufficient auth credentials are configured.
@@ -391,6 +482,32 @@ pub fn load_configured_scopes(org: Option<&str>) -> Option<Vec<String>> {
     }
 }
 
+/// Load the `trusted_sites` allowlist from the config file (empty if unset).
+/// Read at gate time rather than carried on [`Config`] so the trust feature
+/// stays self-contained; see [`Config::ensure_site_trusted`].
+#[cfg(not(feature = "browser"))]
+pub fn configured_trusted_sites() -> Vec<String> {
+    load_config_file()
+        .and_then(|c| c.trusted_sites)
+        .unwrap_or_default()
+}
+
+/// Returns `true` when `site` may receive credentials without an interactive
+/// prompt: it is Datadog-owned, or opted in via `PUP_TRUST_SITE` or the
+/// `trusted_sites` config list. This is the non-interactive subset of the
+/// [`Config::ensure_site_trusted`] ladder (it omits `--trust-site` and the
+/// prompt) — keep the two in sync. Used to gate background network calls that
+/// happen with no terminal context, such as the implicit token refresh in
+/// [`load_token_from_storage`].
+#[cfg(not(feature = "browser"))]
+pub fn site_trusted_without_prompt(site: &str, trusted_sites: &[String]) -> bool {
+    is_datadog_owned_host(site)
+        || env_bool("PUP_TRUST_SITE")
+        || trusted_sites
+            .iter()
+            .any(|entry| normalize_site(entry) == site)
+}
+
 /// Parse a comma-separated scope string into a Vec of trimmed, non-empty strings.
 #[cfg(not(feature = "browser"))]
 pub fn parse_scopes(s: &str) -> Vec<String> {
@@ -467,6 +584,14 @@ pub fn load_token_from_storage(site: &str, org: Option<&str>) -> Option<String> 
     drop(lock);
 
     let result = resolve_token(tokens, creds.as_ref(), |refresh_token, creds| {
+        // The implicit refresh runs during config load, before the command-level
+        // trust gate, and would POST the refresh token to `site`. Don't contact a
+        // non-Datadog host that hasn't been trusted non-interactively; treat the
+        // token as expired instead and let `ensure_site_trusted` prompt/fail closed
+        // at the command boundary.
+        if !site_trusted_without_prompt(site, &configured_trusted_sites()) {
+            return None;
+        }
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 let dcr_client = crate::auth::dcr::DcrClient::new(site);
@@ -2110,5 +2235,131 @@ profiles:
                 |_, _| Some(make_refreshed_token_set()),
             );
         assert!(matches!(result, super::ResolvedToken::Refreshed(_)));
+    }
+
+    // --- ensure_site_trusted tests ---
+
+    /// Datadog-owned hosts are always trusted: no flag, no env, no config needed.
+    #[test]
+    fn test_ensure_site_trusted_datadog_owned_hosts_always_ok() {
+        for site in [
+            "datadoghq.com",
+            "us3.datadoghq.com",
+            "mycompany.datadoghq.com",
+            "navy.oncall.datadoghq.com",
+            "datadoghq.eu",
+            "ddog-gov.com",
+            "datad0g.com",
+        ] {
+            let mut cfg = make_cfg(None, None, None);
+            cfg.site = site.into();
+            assert!(
+                cfg.ensure_site_trusted(false, false, &[]).is_ok(),
+                "{site} should always be trusted"
+            );
+        }
+    }
+
+    /// --trust-site flag on the invocation overrides the prompt for a foreign host.
+    #[test]
+    fn test_ensure_site_trusted_trust_site_flag_ok() {
+        let mut cfg = make_cfg(None, None, None);
+        cfg.site = "datadog-proxy.weyland-yutani.internal".into();
+        assert!(cfg.ensure_site_trusted(true, false, &[]).is_ok());
+    }
+
+    /// A site listed in trusted_sites (after normalization) is trusted without a flag.
+    #[test]
+    fn test_ensure_site_trusted_trusted_sites_config_ok() {
+        let mut cfg = make_cfg(None, None, None);
+        cfg.site = normalize_site("datadog-proxy.weyland-yutani.internal");
+        let trusted = vec!["datadog-proxy.weyland-yutani.internal".into()];
+        assert!(cfg.ensure_site_trusted(false, false, &trusted).is_ok());
+    }
+
+    /// A trusted_sites entry is normalized before comparison, so an entry stored
+    /// with a scheme/prefix still matches the bare stored site.
+    #[test]
+    fn test_ensure_site_trusted_trusted_sites_normalized_entry_ok() {
+        let mut cfg = make_cfg(None, None, None);
+        cfg.site = "myproxy.example.com".into();
+        // Entry stored with https:// scheme — normalize_site strips it.
+        let trusted = vec!["https://myproxy.example.com/".into()];
+        assert!(cfg.ensure_site_trusted(false, false, &trusted).is_ok());
+    }
+
+    /// PUP_TRUST_SITE=1 in the environment trusts a foreign host non-interactively.
+    #[test]
+    fn test_ensure_site_trusted_env_var_ok() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::set_var("PUP_TRUST_SITE", "1");
+
+        let mut cfg = make_cfg(None, None, None);
+        cfg.site = "datadog-proxy.weyland-yutani.internal".into();
+        let result = cfg.ensure_site_trusted(false, false, &[]);
+
+        std::env::remove_var("PUP_TRUST_SITE");
+        assert!(result.is_ok());
+    }
+
+    /// Foreign host + no opt-in + non-interactive → fail closed, message names remediations.
+    #[test]
+    fn test_ensure_site_trusted_foreign_host_no_opt_in_fails_closed() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_TRUST_SITE");
+
+        let mut cfg = make_cfg(None, None, None);
+        cfg.site = "datadog-proxy.weyland-yutani.internal".into();
+
+        let err = cfg
+            .ensure_site_trusted(false, false, &[])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("trusted_sites"),
+            "error should mention trusted_sites: {err}"
+        );
+        assert!(
+            err.contains("--trust-site"),
+            "error should mention --trust-site: {err}"
+        );
+        assert!(
+            err.contains("PUP_TRUST_SITE"),
+            "error should mention PUP_TRUST_SITE: {err}"
+        );
+    }
+
+    /// The non-interactive predicate (used to gate the implicit token refresh in
+    /// `load_token_from_storage`) trusts owned hosts and config entries, and
+    /// rejects a foreign host with no opt-in.
+    #[test]
+    fn test_site_trusted_without_prompt() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_TRUST_SITE");
+
+        // Datadog-owned: trusted with no opt-in.
+        assert!(super::site_trusted_without_prompt("us3.datadoghq.com", &[]));
+        assert!(super::site_trusted_without_prompt(
+            "mycompany.datadoghq.com",
+            &[]
+        ));
+        // Foreign host, no opt-in: not trusted (would otherwise refresh silently).
+        assert!(!super::site_trusted_without_prompt(
+            "datadog-proxy.weyland-yutani.internal",
+            &[]
+        ));
+        // Foreign host listed in trusted_sites (normalized): trusted.
+        let trusted = vec!["https://datadog-proxy.weyland-yutani.internal/".into()];
+        assert!(super::site_trusted_without_prompt(
+            "datadog-proxy.weyland-yutani.internal",
+            &trusted
+        ));
+
+        // Foreign host trusted via env.
+        std::env::set_var("PUP_TRUST_SITE", "1");
+        let env_ok =
+            super::site_trusted_without_prompt("datadog-proxy.weyland-yutani.internal", &[]);
+        std::env::remove_var("PUP_TRUST_SITE");
+        assert!(env_ok);
     }
 }

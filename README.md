@@ -426,6 +426,7 @@ pup incidents get abc-123-def
 - `DD_API_KEY`: Datadog API key (optional if using OAuth2 or DD_ACCESS_TOKEN)
 - `DD_APP_KEY`: Datadog Application key (optional if using OAuth2 or DD_ACCESS_TOKEN)
 - `DD_SITE`: Datadog site (default: datadoghq.com)
+- `PUP_TRUST_SITE`: Trust a non-Datadog `--site`/`DD_SITE` host for this invocation without a prompt (true/1). For durable trust, add the host to `trusted_sites` in the config file. See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#override-api-endpoint).
 - `DD_AUTO_APPROVE`: Auto-approve destructive operations (true/false)
 - `DD_TOKEN_STORAGE`: Token storage backend (keychain or file, default: auto-detect)
 

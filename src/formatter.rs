@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::config::OutputFormat;
+use crate::filter;
 
 /// Agent mode metadata envelope.
 #[derive(Serialize)]
@@ -56,11 +57,11 @@ fn go_html_escape(json: &str) -> String {
 /// `data`, and `metadata` — `metadata.note` is always present so an LLM
 /// authoring a script for the user is reminded to pass `--no-agent`.
 /// Extracted from `format_and_print` for unit-testability.
-pub fn build_agent_envelope<T: Serialize>(
-    data: &T,
+pub fn build_agent_envelope(
+    data: &serde_json::Value,
     meta: Option<&Metadata>,
 ) -> Result<serde_json::Value> {
-    let sorted_data = sort_json_value(serde_json::to_value(data)?);
+    let sorted_data = sort_json_value(data.clone());
     // Hoist: when the API wraps its list/object in a nested "data" key,
     // use that inner value directly so agents see .data[*] instead of .data.data[*].
     let effective_data = match &sorted_data {
@@ -88,42 +89,60 @@ pub fn build_agent_envelope<T: Serialize>(
 }
 
 /// Format and print data to stdout.
+///
+/// The `jq` parameter, when `Some`, applies a jq expression to the serialized
+/// data **before** envelope wrapping or format rendering. The filter runs on
+/// the raw API payload regardless of `--agent`/`-o`, so the same expression
+/// works consistently across all output modes.
 pub fn format_and_print<T: Serialize>(
     data: &T,
     format: &OutputFormat,
     agent_mode: bool,
     meta: Option<&Metadata>,
+    jq: Option<&str>,
 ) -> Result<()> {
+    // Serialize once; all renderers and the filter operate on this Value.
+    let mut value = serde_json::to_value(data)?;
+    if let Some(expr) = jq {
+        value = filter::apply_jq(value, expr)?;
+    }
+
     if agent_mode && *format == OutputFormat::Json {
-        let envelope = build_agent_envelope(data, meta)?;
+        let envelope = build_agent_envelope(&value, meta)?;
         let json = go_html_escape(&serde_json::to_string_pretty(&envelope)?);
         println!("{json}");
         return Ok(());
     }
 
     match format {
-        OutputFormat::Json => print_json(data),
-        OutputFormat::Yaml => print_yaml(data),
-        OutputFormat::Table => print_table(data),
-        OutputFormat::Csv => print_csv(data),
-        OutputFormat::Tsv => print_tsv(data),
+        OutputFormat::Json => print_json(&value),
+        OutputFormat::Yaml => print_yaml(&value),
+        OutputFormat::Table => print_table(&value),
+        OutputFormat::Csv => print_csv(&value),
+        OutputFormat::Tsv => print_tsv(&value),
     }
 }
 
-/// Convenience: format and print using config settings (respects -o flag and agent mode).
+/// Convenience: format and print using config settings (respects -o flag, agent mode, and --jq).
 pub fn output<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
-    format_and_print(data, &cfg.output_format, cfg.agent_mode, None)
+    format_and_print(
+        data,
+        &cfg.output_format,
+        cfg.agent_mode,
+        None,
+        cfg.jq.as_deref(),
+    )
 }
 
-pub fn print_json<T: Serialize>(data: &T) -> Result<()> {
-    let sorted_data = sort_json_value(serde_json::to_value(data)?);
+pub fn print_json(data: &serde_json::Value) -> Result<()> {
+    let sorted_data = sort_json_value(data.clone());
     let json = go_html_escape(&serde_json::to_string_pretty(&sorted_data)?);
     println!("{json}");
     Ok(())
 }
 
-fn print_yaml<T: Serialize>(data: &T) -> Result<()> {
-    let sorted_data = sort_json_value(serde_json::to_value(data)?);
+fn print_yaml(data: &serde_json::Value) -> Result<()> {
+    let sorted_data = sort_json_value(data.clone());
     let yaml = serde_norway::to_string(&sorted_data)?;
     print!("{yaml}");
     Ok(())
@@ -156,10 +175,8 @@ fn flatten_row(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
-fn print_table<T: Serialize>(data: &T) -> Result<()> {
-    // Convert to serde_json::Value to inspect structure
-    let value = serde_json::to_value(data)?;
-    let raw_rows = extract_rows(&value);
+fn print_table(data: &serde_json::Value) -> Result<()> {
+    let raw_rows = extract_rows(data);
     let owned_rows: Vec<serde_json::Value> = raw_rows.iter().map(|r| flatten_row(r)).collect();
     let rows: Vec<&serde_json::Value> = owned_rows.iter().collect();
 
@@ -281,9 +298,8 @@ fn csv_cell(value: Option<&serde_json::Value>) -> String {
     }
 }
 
-fn print_csv<T: Serialize>(data: &T) -> Result<()> {
-    let value = serde_json::to_value(data)?;
-    let raw_rows = extract_rows(&value);
+fn print_csv(data: &serde_json::Value) -> Result<()> {
+    let raw_rows = extract_rows(data);
 
     if raw_rows.is_empty() {
         return Ok(());
@@ -340,9 +356,8 @@ fn tsv_escape(s: &str) -> String {
     s.replace('\t', "\\t")
 }
 
-fn print_tsv<T: Serialize>(data: &T) -> Result<()> {
-    let value = serde_json::to_value(data)?;
-    let raw_rows = extract_rows(&value);
+fn print_tsv(data: &serde_json::Value) -> Result<()> {
+    let raw_rows = extract_rows(data);
 
     if raw_rows.is_empty() {
         return Ok(());
@@ -814,21 +829,21 @@ mod tests {
     #[test]
     fn test_format_and_print_json() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Json, false, None);
+        let result = format_and_print(&data, &OutputFormat::Json, false, None, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_format_and_print_yaml() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Yaml, false, None);
+        let result = format_and_print(&data, &OutputFormat::Yaml, false, None, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_format_and_print_table() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Table, false, None);
+        let result = format_and_print(&data, &OutputFormat::Table, false, None, None);
         assert!(result.is_ok());
     }
 
@@ -841,7 +856,7 @@ mod tests {
             command: Some("test".into()),
             next_action: None,
         };
-        let result = format_and_print(&data, &OutputFormat::Json, true, Some(&meta));
+        let result = format_and_print(&data, &OutputFormat::Json, true, Some(&meta), None);
         assert!(result.is_ok());
     }
 
@@ -902,7 +917,7 @@ mod tests {
     #[test]
     fn test_format_and_print_agent_mode_no_meta() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Json, true, None);
+        let result = format_and_print(&data, &OutputFormat::Json, true, None, None);
         assert!(result.is_ok());
     }
 
@@ -910,7 +925,7 @@ mod tests {
     fn test_format_and_print_agent_mode_respects_yaml_flag() {
         // In agent mode, -o yaml should bypass the agent envelope and use YAML output.
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Yaml, true, None);
+        let result = format_and_print(&data, &OutputFormat::Yaml, true, None, None);
         assert!(result.is_ok());
     }
 
@@ -918,7 +933,7 @@ mod tests {
     fn test_format_and_print_agent_mode_respects_table_flag() {
         // In agent mode, -o table should bypass the agent envelope and use table output.
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Table, true, None);
+        let result = format_and_print(&data, &OutputFormat::Table, true, None, None);
         assert!(result.is_ok());
     }
 
@@ -1051,7 +1066,7 @@ mod tests {
     #[test]
     fn test_format_and_print_csv() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Csv, false, None);
+        let result = format_and_print(&data, &OutputFormat::Csv, false, None, None);
         assert!(result.is_ok());
     }
 
@@ -1068,6 +1083,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
         let data = serde_json::json!({"hello": "world"});
         assert!(output(&cfg, &data).is_ok());
@@ -1129,7 +1145,7 @@ mod tests {
     #[test]
     fn test_format_and_print_tsv() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Tsv, false, None);
+        let result = format_and_print(&data, &OutputFormat::Tsv, false, None, None);
         assert!(result.is_ok());
     }
 }

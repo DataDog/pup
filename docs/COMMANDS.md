@@ -219,10 +219,35 @@ Available on all commands:
 --config string      Config file path (default: ~/.config/pup/config.yaml)
 --site string        Datadog site (default: datadoghq.com)
 --output string      Output format: json, yaml, table (default: json)
+--jq string          Filter/transform output with a jq expression (applied before formatting)
 --verbose            Enable verbose logging
 --yes                Skip confirmation prompts
 --read-only          Block all write operations (create, update, delete)
 ```
+
+### `--jq` filtering
+
+`--jq` applies a [jq](https://jqlang.github.io/jq/) expression to the raw JSON response
+**before** output formatting, so it works with every `-o` format:
+
+```bash
+# Extract a single field across all monitors
+pup monitors list --jq '.[].name'
+
+# Select matching records and then format as a table
+pup monitors list --jq '.[] | select(.name | endswith("prod"))' -o table
+
+# Compose with other jq features
+pup logs search --query="status:error" --jq '.data | length'
+```
+
+**Cardinality:** the jq expression may produce a stream of values.
+- 0 outputs → `null`
+- 1 output → the value (unwrapped)
+- 2+ outputs → an array
+
+**Limitation:** commands that print output directly (e.g. `pup auth login`, some runbook
+steps) bypass `format_and_print` and do not honor `--jq`.
 
 ## Recent Enhancements
 

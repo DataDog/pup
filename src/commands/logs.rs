@@ -231,7 +231,13 @@ pub async fn search(
     } else {
         None
     };
-    formatter::format_and_print(&resp, &cfg.output_format, cfg.agent_mode, meta.as_ref())?;
+    formatter::format_and_print(
+        &resp,
+        &cfg.output_format,
+        cfg.agent_mode,
+        meta.as_ref(),
+        cfg.jq.as_deref(),
+    )?;
     Ok(())
 }
 
@@ -683,6 +689,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         let _mock = mock_any(&mut server, "POST", r#"{"data": []}"#).await;

@@ -2264,7 +2264,7 @@ profiles:
     #[test]
     fn test_ensure_site_trusted_trust_site_flag_ok() {
         let mut cfg = make_cfg(None, None, None);
-        cfg.site = "datadog-proxy.figma.internal".into();
+        cfg.site = "datadog-proxy.tyrell.internal".into();
         assert!(cfg.ensure_site_trusted(true, false, &[]).is_ok());
     }
 
@@ -2272,8 +2272,8 @@ profiles:
     #[test]
     fn test_ensure_site_trusted_trusted_sites_config_ok() {
         let mut cfg = make_cfg(None, None, None);
-        cfg.site = normalize_site("datadog-proxy.figma.internal");
-        let trusted = vec!["datadog-proxy.figma.internal".into()];
+        cfg.site = normalize_site("datadog-proxy.tyrell.internal");
+        let trusted = vec!["datadog-proxy.tyrell.internal".into()];
         assert!(cfg.ensure_site_trusted(false, false, &trusted).is_ok());
     }
 
@@ -2295,7 +2295,7 @@ profiles:
         std::env::set_var("PUP_TRUST_SITE", "1");
 
         let mut cfg = make_cfg(None, None, None);
-        cfg.site = "datadog-proxy.figma.internal".into();
+        cfg.site = "datadog-proxy.tyrell.internal".into();
         let result = cfg.ensure_site_trusted(false, false, &[]);
 
         std::env::remove_var("PUP_TRUST_SITE");
@@ -2309,7 +2309,7 @@ profiles:
         std::env::remove_var("PUP_TRUST_SITE");
 
         let mut cfg = make_cfg(None, None, None);
-        cfg.site = "datadog-proxy.figma.internal".into();
+        cfg.site = "datadog-proxy.tyrell.internal".into();
 
         let err = cfg
             .ensure_site_trusted(false, false, &[])
@@ -2345,19 +2345,19 @@ profiles:
         ));
         // Foreign host, no opt-in: not trusted (would otherwise refresh silently).
         assert!(!super::site_trusted_without_prompt(
-            "datadog-proxy.figma.internal",
+            "datadog-proxy.tyrell.internal",
             &[]
         ));
         // Foreign host listed in trusted_sites (normalized): trusted.
-        let trusted = vec!["https://datadog-proxy.figma.internal/".into()];
+        let trusted = vec!["https://datadog-proxy.tyrell.internal/".into()];
         assert!(super::site_trusted_without_prompt(
-            "datadog-proxy.figma.internal",
+            "datadog-proxy.tyrell.internal",
             &trusted
         ));
 
         // Foreign host trusted via env.
         std::env::set_var("PUP_TRUST_SITE", "1");
-        let env_ok = super::site_trusted_without_prompt("datadog-proxy.figma.internal", &[]);
+        let env_ok = super::site_trusted_without_prompt("datadog-proxy.tyrell.internal", &[]);
         std::env::remove_var("PUP_TRUST_SITE");
         assert!(env_ok);
     }

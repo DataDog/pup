@@ -1311,6 +1311,9 @@ pub async fn migrate_schema(_cfg: &Config, file: Option<String>) -> Result<()> {
                     }
                 }
             } else {
+                if !p.exists() {
+                    anyhow::bail!("path not found: '{}'", p.display());
+                }
                 vec![p]
             }
         }
@@ -1395,7 +1398,10 @@ pub async fn migrate_schema(_cfg: &Config, file: Option<String>) -> Result<()> {
 
         print_summary(&outcomes, start.elapsed());
     } else {
-        migrate_one(&paths[0], false, &schemas);
+        let outcome = migrate_one(&paths[0], false, &schemas);
+        if let MigrateStatus::Failed(msg) = outcome.status {
+            anyhow::bail!("{msg}");
+        }
     }
 
     Ok(())

@@ -27,6 +27,13 @@ pub const AGENT_ENVELOPE_NOTE: &str = "This envelope (status/data/metadata) \
     run outside this agent session, append --no-agent so the output format \
     matches what they will see.";
 
+/// Appended to `metadata.note` when `--jq` ran, so an agent reading the
+/// enveloped output knows to write jq expressions against the raw payload
+/// (the value under `.data`), not against the envelope itself.
+pub const JQ_FILTER_NOTE: &str = "This output was filtered by --jq, which runs on \
+    the response payload (the value shown under .data), not on this envelope. \
+    Write jq expressions against the payload (e.g. .[]), not .data[].";
+
 /// Recursively sort all JSON object keys alphabetically.
 fn sort_json_value(v: serde_json::Value) -> serde_json::Value {
     match v {
@@ -51,6 +58,31 @@ fn go_html_escape(json: &str) -> String {
     json.replace('&', "\\u0026")
         .replace('<', "\\u003c")
         .replace('>', "\\u003e")
+}
+
+/// After a `--jq` filter rewrites the payload, the caller's `count`/`truncated`
+/// describe the pre-filter data and would mislead agents. Drop them, keeping
+/// `command`/`next_action`. `None` in → `None` out (envelope behaves as for a
+/// command that supplies no metadata). `Metadata`'s `skip_serializing_if` on
+/// both fields makes them disappear from the JSON.
+fn strip_counts_after_filter(meta: Option<&Metadata>) -> Option<Metadata> {
+    let m = meta?;
+    Some(Metadata {
+        count: None,
+        truncated: false,
+        command: m.command.clone(),
+        next_action: m.next_action.clone(),
+    })
+}
+
+/// Append `JQ_FILTER_NOTE` to the `metadata.note` field of an agent envelope.
+/// Called only when `--jq` ran so agents learn the filter targets the payload,
+/// not the envelope.
+fn append_jq_note(envelope: &mut serde_json::Value) {
+    if let Some(serde_json::Value::String(note)) = envelope.pointer_mut("/metadata/note") {
+        note.push(' ');
+        note.push_str(JQ_FILTER_NOTE);
+    }
 }
 
 /// Build the agent-mode envelope as a JSON value. Always sets `status`,
@@ -108,7 +140,21 @@ pub fn format_and_print<T: Serialize>(
     }
 
     if agent_mode && *format == OutputFormat::Json {
-        let envelope = build_agent_envelope(&value, meta)?;
+        // A --jq filter rewrites the payload, so the caller's count/truncated
+        // (computed on the pre-filter data) no longer describe .data. Drop them;
+        // keep command/next_action.
+        let stripped_meta;
+        let meta = if jq.is_some() {
+            stripped_meta = strip_counts_after_filter(meta);
+            stripped_meta.as_ref()
+        } else {
+            meta
+        };
+        let mut envelope = build_agent_envelope(&value, meta)?;
+        if jq.is_some() {
+            // Extend the inline note so agents learn --jq targets the payload.
+            append_jq_note(&mut envelope);
+        }
         let json = go_html_escape(&serde_json::to_string_pretty(&envelope)?);
         println!("{json}");
         return Ok(());
@@ -1147,5 +1193,124 @@ mod tests {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
         let result = format_and_print(&data, &OutputFormat::Tsv, false, None, None);
         assert!(result.is_ok());
+    }
+
+    // --- strip_counts_after_filter -------------------------------------------
+
+    #[test]
+    fn test_strip_counts_none_meta_returns_none() {
+        assert!(strip_counts_after_filter(None).is_none());
+    }
+
+    #[test]
+    fn test_strip_counts_drops_count_and_truncated() {
+        let meta = Metadata {
+            count: Some(10),
+            truncated: true,
+            command: Some("monitors list".into()),
+            next_action: Some("next".into()),
+        };
+        let stripped = strip_counts_after_filter(Some(&meta)).unwrap();
+        assert!(stripped.count.is_none(), "count should be dropped");
+        assert!(!stripped.truncated, "truncated should be cleared");
+        assert_eq!(stripped.command.as_deref(), Some("monitors list"));
+        assert_eq!(stripped.next_action.as_deref(), Some("next"));
+    }
+
+    // --- append_jq_note ------------------------------------------------------
+
+    #[test]
+    fn test_append_jq_note_extends_note_field() {
+        let data = serde_json::json!({"id": 1});
+        let mut envelope = build_agent_envelope(&data, None).unwrap();
+        // Before: note contains only AGENT_ENVELOPE_NOTE.
+        let before = envelope["metadata"]["note"].as_str().unwrap().to_string();
+        assert!(before.contains("agent mode"), "pre-condition: {before}");
+
+        append_jq_note(&mut envelope);
+
+        let after = envelope["metadata"]["note"].as_str().unwrap();
+        assert!(
+            after.contains(AGENT_ENVELOPE_NOTE),
+            "original note must be preserved: {after}"
+        );
+        assert!(
+            after.contains(JQ_FILTER_NOTE),
+            "jq note must be appended: {after}"
+        );
+        assert!(
+            after.contains(".data"),
+            "jq note must mention .data: {after}"
+        );
+    }
+
+    // --- integration: strip + append through the real builder ----------------
+
+    #[test]
+    fn test_jq_filter_path_drops_count_and_appends_note() {
+        let filtered = serde_json::json!({"id": 1, "name": "foo"});
+        let meta = Metadata {
+            count: Some(10),
+            truncated: false,
+            command: Some("monitors list".into()),
+            next_action: None,
+        };
+
+        let stripped = strip_counts_after_filter(Some(&meta));
+        let mut env = build_agent_envelope(&filtered, stripped.as_ref()).unwrap();
+        append_jq_note(&mut env);
+
+        assert!(
+            env["metadata"]["count"].is_null(),
+            "count must be omitted after filter: {}",
+            env["metadata"]["count"]
+        );
+        assert!(
+            env["metadata"]["truncated"].is_null(),
+            "truncated must be omitted after filter"
+        );
+        assert_eq!(
+            env["metadata"]["command"],
+            serde_json::json!("monitors list"),
+            "command must be preserved"
+        );
+        let note = env["metadata"]["note"].as_str().unwrap();
+        assert!(
+            note.contains(AGENT_ENVELOPE_NOTE),
+            "original note must survive: {note}"
+        );
+        assert!(
+            note.contains(JQ_FILTER_NOTE),
+            "jq note must be appended: {note}"
+        );
+        assert_eq!(env["status"], "success");
+    }
+
+    #[test]
+    fn test_no_jq_path_keeps_count_and_note_unchanged() {
+        // Regression: when --jq is NOT used, the envelope must be byte-for-byte
+        // identical to pre-change behavior: count stays, only AGENT_ENVELOPE_NOTE.
+        let data = serde_json::json!([{"id": 1}, {"id": 2}]);
+        let meta = Metadata {
+            count: Some(2),
+            truncated: false,
+            command: Some("monitors list".into()),
+            next_action: None,
+        };
+        let env = build_agent_envelope(&data, Some(&meta)).unwrap();
+        assert_eq!(
+            env["metadata"]["count"],
+            serde_json::json!(2),
+            "count must survive without --jq"
+        );
+        let note = env["metadata"]["note"].as_str().unwrap();
+        assert!(
+            !note.contains(JQ_FILTER_NOTE),
+            "jq note must NOT appear without --jq: {note}"
+        );
+        assert!(
+            note.contains(AGENT_ENVELOPE_NOTE),
+            "original note must be present: {note}"
+        );
     }
 }

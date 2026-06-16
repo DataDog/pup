@@ -246,6 +246,22 @@ pup logs search --query="status:error" --jq '.data | length'
 - 1 output → the value (unwrapped)
 - 2+ outputs → an array
 
+**Agent mode — filter target:** `--jq` runs on the **raw response payload**, which
+is the value that appears under `.data` in agent mode. Write expressions against the
+payload (e.g. `.[]`), **not** against the envelope (`.data[]` will not work):
+
+```bash
+# correct — targets the payload array
+pup monitors list --agent --jq '.[0]'
+
+# wrong — .data does not exist in the payload --jq sees
+pup monitors list --agent --jq '.data[0]'
+```
+
+**Agent mode — metadata:** when `--jq` is active, `metadata.count` and
+`metadata.truncated` are omitted from the envelope because they describe the
+pre-filter data, not the filtered result.
+
 **Limitation:** commands that print output directly (e.g. `pup auth login`, some runbook
 steps) bypass `format_and_print` and do not honor `--jq`.
 

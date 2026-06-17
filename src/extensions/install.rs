@@ -295,10 +295,30 @@ async fn fetch_github_release(
     repo: &str,
     tag: Option<&str>,
 ) -> Result<GitHubRelease> {
-    let url = match tag {
-        Some(t) => format!("https://api.github.com/repos/{owner}/{repo}/releases/tags/{t}"),
-        None => format!("https://api.github.com/repos/{owner}/{repo}/releases/latest"),
-    };
+    if let Some(tag) = tag {
+        let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}");
+        let resp = github_api_get(client, &url)
+            .send()
+            .await
+            .with_context(|| format!("fetching release from {url}"))?;
+
+        let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            bail!("{}", release_tag_not_found_message(owner, repo, tag));
+        }
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            let guidance = github_failure_guidance(owner, repo);
+            bail!("GitHub API returned {status} for {url}: {body}\n\n{guidance}");
+        }
+
+        return resp
+            .json::<GitHubRelease>()
+            .await
+            .with_context(|| format!("parsing release JSON from {url}"));
+    }
+
+    let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
 
     let resp = github_api_get(client, &url)
         .send()
@@ -308,19 +328,12 @@ async fn fetch_github_release(
     let status = resp.status();
     if status == reqwest::StatusCode::NOT_FOUND {
         let guidance = github_failure_guidance(owner, repo);
-        match tag {
-            Some(t) => bail!(
-                "release tag '{t}' not found in {owner}/{repo}. \
-                 Check that the tag exists at https://github.com/{owner}/{repo}/releases\n\n\
-                 {guidance}"
-            ),
-            None => bail!(
-                "no releases found for {owner}/{repo}. \
-                 Check that the repository exists and has at least one release at \
-                 https://github.com/{owner}/{repo}/releases\n\n\
-                 {guidance}"
-            ),
-        }
+        bail!(
+            "no releases found for {owner}/{repo}. \
+             Check that the repository exists and has at least one release at \
+             https://github.com/{owner}/{repo}/releases\n\n\
+             {guidance}"
+        );
     }
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -672,6 +685,38 @@ fn is_valid_tag(tag: &str) -> bool {
         && tag.chars().all(|c| {
             c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' || c == '/' || c == '+'
         })
+}
+
+fn release_tag_suggestion(tag: &str) -> Option<String> {
+    if !tag.starts_with('v') && looks_like_semver_tag(tag) {
+        Some(format!("v{tag}"))
+    } else {
+        None
+    }
+}
+
+fn looks_like_semver_tag(tag: &str) -> bool {
+    let core = tag.split_once(['-', '+']).map_or(tag, |(core, _)| core);
+    let parts: Vec<&str> = core.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn release_tag_not_found_message(owner: &str, repo: &str, tag: &str) -> String {
+    let hint = if let Some(suggestion) = release_tag_suggestion(tag) {
+        format!(
+            "\n\nIf you copied a version from `pup extension list-remote`, use the tag shown in parentheses:\n  pup extension install {owner}/{repo} --extension foo --tag {}",
+            suggestion
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "release tag '{tag}' not found in {owner}/{repo}. `--tag` uses exact GitHub release tags. \
+         Check available releases at https://github.com/{owner}/{repo}/releases{hint}"
+    )
 }
 
 /// Parse an "owner/repo" string into (owner, repo).
@@ -1825,6 +1870,36 @@ mod tests {
         assert!(!is_valid_tag("v1.0.0 spaces"));
         assert!(!is_valid_tag("v1.0.0%0a"));
         assert!(!is_valid_tag("v1.0.0\nnewline"));
+    }
+
+    #[test]
+    fn test_release_tag_suggestion_adds_v_for_plain_version() {
+        assert_eq!(release_tag_suggestion("0.2.1").as_deref(), Some("v0.2.1"));
+    }
+
+    #[test]
+    fn test_release_tag_suggestion_ignores_existing_v_tag() {
+        assert_eq!(release_tag_suggestion("v0.2.1"), None);
+    }
+
+    #[test]
+    fn test_release_tag_suggestion_ignores_slash_tags() {
+        assert_eq!(release_tag_suggestion("release/v2.0"), None);
+    }
+
+    #[test]
+    fn test_release_tag_suggestion_ignores_non_semver_tags() {
+        assert_eq!(release_tag_suggestion("latest"), None);
+    }
+
+    #[test]
+    fn test_release_tag_not_found_message_suggests_listed_tag() {
+        let message = release_tag_not_found_message("owner", "repo", "0.2.1");
+
+        assert!(message.contains("release tag '0.2.1' not found"));
+        assert!(message.contains("exact GitHub release tags"));
+        assert!(message.contains("--tag v0.2.1"));
+        assert!(!message.contains("GitHub access failed"));
     }
 
     #[test]

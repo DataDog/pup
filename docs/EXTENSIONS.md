@@ -244,6 +244,8 @@ To install a specific release tag:
 pup extension install owner/repo --tag v1.0.0
 ```
 
+`--tag` expects the exact GitHub release tag. If the release is tagged `v1.0.0`, use `--tag v1.0.0`, not `--tag 1.0.0`.
+
 ### Shared GitHub release repositories
 
 A GitHub repository can also publish one platform archive containing multiple top-level extension executables:
@@ -268,10 +270,18 @@ pup extension list-remote owner/repo
 pup extension list-remote owner/repo --extension foo
 ```
 
+The table output shows both the extension version and the GitHub release tag in parentheses. Use the tag value when installing a specific release.
+
 Install one extension from the newest release archive that contains it:
 
 ```bash
 pup extension install owner/repo --extension foo
+```
+
+Install one extension from a specific release tag:
+
+```bash
+pup extension install owner/repo --extension foo --tag v1.0.0
 ```
 
 Install all extensions from the latest release archive:

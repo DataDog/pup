@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::io::{Cursor, Read};
+use std::io::{self, Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -81,6 +81,49 @@ impl ArchiveScanBudget {
         }
         self.remaining_bytes -= bytes;
         Ok(())
+    }
+}
+
+struct DecodedByteLimitReader<R> {
+    inner: R,
+    remaining_bytes: usize,
+    max_bytes: usize,
+}
+
+impl<R> DecodedByteLimitReader<R> {
+    fn new(inner: R, max_bytes: usize) -> Self {
+        Self {
+            inner,
+            remaining_bytes: max_bytes,
+            max_bytes,
+        }
+    }
+}
+
+impl<R: Read> Read for DecodedByteLimitReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        if self.remaining_bytes == 0 {
+            let mut probe = [0_u8; 1];
+            return match self.inner.read(&mut probe) {
+                Ok(0) => Ok(0),
+                Ok(_) => Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "tar.gz archive decoded stream is larger than the {} byte decoded limit",
+                        self.max_bytes
+                    ),
+                )),
+                Err(err) => Err(err),
+            };
+        }
+
+        let max_read = buf.len().min(self.remaining_bytes);
+        let read = self.inner.read(&mut buf[..max_read])?;
+        self.remaining_bytes -= read;
+        Ok(read)
     }
 }
 
@@ -585,6 +628,7 @@ fn extension_names_from_tar_gz_with_limits(
     max_decoded_bytes: usize,
 ) -> Result<Vec<String>> {
     let decoder = flate2::read::GzDecoder::new(Cursor::new(bytes));
+    let decoder = DecodedByteLimitReader::new(decoder, max_decoded_bytes);
     let mut archive = tar::Archive::new(decoder);
     let mut names = Vec::new();
     let mut decoded_bytes = 0;
@@ -605,10 +649,7 @@ fn extension_names_from_tar_gz_with_limits(
             .path()
             .context("reading tar.gz archive path")?
             .into_owned();
-        let size = entry
-            .header()
-            .size()
-            .context("reading tar.gz archive entry size")?;
+        let size = entry.size();
         account_tar_file_size(
             &mut decoded_bytes,
             &path,
@@ -747,6 +788,7 @@ fn extract_extension_from_tar_gz_with_limits(
     max_decoded_bytes: usize,
 ) -> Result<Vec<u8>> {
     let decoder = flate2::read::GzDecoder::new(Cursor::new(bytes));
+    let decoder = DecodedByteLimitReader::new(decoder, max_decoded_bytes);
     let mut archive = tar::Archive::new(decoder);
     let mut decoded_bytes = 0;
 
@@ -766,10 +808,7 @@ fn extract_extension_from_tar_gz_with_limits(
             .path()
             .context("reading tar.gz archive path")?
             .into_owned();
-        let size = entry
-            .header()
-            .size()
-            .context("reading tar.gz archive entry size")?;
+        let size = entry.size();
         account_tar_file_size(
             &mut decoded_bytes,
             &path,
@@ -2741,6 +2780,43 @@ mod tests {
         gz.finish().unwrap()
     }
 
+    fn append_raw_tar_entry(tar: &mut Vec<u8>, header: &mut tar::Header, data: &[u8]) {
+        header.set_cksum();
+        std::io::Write::write_all(tar, header.as_bytes()).unwrap();
+        std::io::Write::write_all(tar, data).unwrap();
+        let padding = (512 - data.len() % 512) % 512;
+        if padding > 0 {
+            std::io::Write::write_all(tar, &vec![0; padding]).unwrap();
+        }
+    }
+
+    fn gzip_tar_bytes(tar: &[u8]) -> Vec<u8> {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, tar).unwrap();
+        gz.finish().unwrap()
+    }
+
+    fn make_tar_gz_with_pax_size_override() -> Vec<u8> {
+        let pax = b"9 size=3\n";
+        let mut tar = Vec::new();
+
+        let mut pax_header = tar::Header::new_ustar();
+        pax_header.set_path("PaxHeaders/pup-foo").unwrap();
+        pax_header.set_entry_type(tar::EntryType::XHeader);
+        pax_header.set_size(pax.len() as u64);
+        pax_header.set_mode(0o644);
+        append_raw_tar_entry(&mut tar, &mut pax_header, pax);
+
+        let mut file_header = tar::Header::new_gnu();
+        file_header.set_path("pup-foo").unwrap();
+        file_header.set_size(1);
+        file_header.set_mode(0o755);
+        append_raw_tar_entry(&mut tar, &mut file_header, b"abc");
+
+        tar.extend_from_slice(&[0; 1024]);
+        gzip_tar_bytes(&tar)
+    }
+
     fn make_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut cursor = Cursor::new(Vec::new());
         {
@@ -2864,10 +2940,31 @@ mod tests {
     fn test_extension_names_from_archive_tar_gz_rejects_oversized_nonmatching_member() {
         let archive = make_tar_gz_with_declared_file_size("not-pup", 3);
 
-        let result = extension_names_from_tar_gz_with_limits(&archive, 2, 10);
+        let result = extension_names_from_tar_gz_with_limits(&archive, 2, 4096);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("byte limit"));
+    }
+
+    #[test]
+    fn test_extension_names_from_archive_tar_gz_uses_pax_size_override() {
+        let archive = make_tar_gz_with_pax_size_override();
+
+        let result = extension_names_from_tar_gz_with_limits(&archive, 2, 4096);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("byte limit"));
+    }
+
+    #[test]
+    fn test_extension_names_from_archive_tar_gz_caps_decoded_longname_payloads() {
+        let long_path = format!("not-pup-{}", "a".repeat(160));
+        let archive = make_tar_gz(&[(&long_path, b"x")]);
+
+        let result = extension_names_from_tar_gz_with_limits(&archive, 1024, 1024);
+
+        assert!(result.is_err());
+        assert!(format!("{:?}", result.unwrap_err()).contains("decoded limit"));
     }
 
     #[test]
@@ -2889,7 +2986,7 @@ mod tests {
     fn test_extract_extension_from_archive_tar_gz_rejects_oversized_nonmatching_member() {
         let archive = make_tar_gz_with_declared_file_size("not-pup", 3);
 
-        let result = extract_extension_from_tar_gz_with_limits(&archive, "foo", 2, 10);
+        let result = extract_extension_from_tar_gz_with_limits(&archive, "foo", 2, 4096);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("byte limit"));
@@ -2902,7 +2999,7 @@ mod tests {
         let result = extract_extension_from_tar_gz_with_limits(&archive, "foo", 10, 5);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("decoded limit"));
+        assert!(format!("{:?}", result.unwrap_err()).contains("decoded limit"));
     }
 
     #[test]

@@ -234,6 +234,13 @@ pub async fn login(
         org_uuid: saved_org_uuid,
     })?;
 
+    // Enforce the single-slot invariant: a bare login (no org) replaces any
+    // previous no-org session on a different site so that
+    // find_default_session_site() always sees at most one entry.
+    if saved_org.is_none() {
+        storage::prune_other_default_sessions(effective_site)?;
+    }
+
     let expires_at = chrono::DateTime::from_timestamp(tokens.issued_at + tokens.expires_in, 0)
         .map(|dt| dt.with_timezone(&chrono::Local).to_rfc3339())
         .unwrap_or_else(|| format!("in {} hours", tokens.expires_in / 3600));

@@ -943,6 +943,73 @@ pub fn find_session_site(org: &str) -> Option<String> {
     }
 }
 
+/// Return the site for the single no-org ("default") session, if there is
+/// exactly one. Zero → None. Multiple (legacy data before the single-slot
+/// invariant was enforced) → warns and returns None so the caller falls
+/// through to `datadoghq.com`; the next bare login self-heals to one entry.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn find_default_session_site() -> Option<String> {
+    let mut sites: Vec<String> = list_sessions()
+        .ok()?
+        .into_iter()
+        .filter(|s| s.org.is_none())
+        .map(|s| s.site)
+        .collect();
+    sites.sort();
+    sites.dedup();
+    match sites.len() {
+        1 => sites.pop(),
+        0 => None,
+        _ => {
+            // Legacy: multiple no-org rows on different sites. New logins enforce
+            // the single-slot invariant (see prune_other_default_sessions), so this
+            // path only fires for pre-existing data and self-heals on next login.
+            eprintln!(
+                "Warning: multiple default (no-org) sessions on different \
+                 sites ({}); not auto-selecting. Set DD_SITE or re-run \
+                 pup auth login.",
+                sites.join(", ")
+            );
+            None
+        }
+    }
+}
+
+/// Remove session registry rows for `(site != keep_site, org=None)` and
+/// best-effort delete their stored tokens, enforcing the single-slot
+/// invariant for the no-org ("default") session. Called after a bare login
+/// so that switching regions replaces the previous unnamed default rather
+/// than accumulating ambiguous entries that confuse `find_default_session_site`.
+///
+/// Named-org sessions on any site are never touched.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn prune_other_default_sessions(keep_site: &str) -> Result<()> {
+    let sessions = list_sessions()?;
+    let to_prune: Vec<String> = sessions
+        .into_iter()
+        .filter(|s| s.org.is_none() && s.site != keep_site)
+        .map(|s| s.site)
+        .collect();
+    if to_prune.is_empty() {
+        return Ok(());
+    }
+    // Best-effort token deletion: initialise the storage backend only now
+    // that we know there is work to do.
+    let guard = get_storage()?;
+    let mut lock = guard.lock().unwrap();
+    let store = lock.as_mut().unwrap();
+    for site in &to_prune {
+        // Ignore errors — orphan tokens are harmless; session rows are the
+        // authoritative source of truth for resolution.
+        let _ = store.delete_tokens(site, None);
+    }
+    drop(lock);
+    // Remove the session rows from the registry.
+    let mut sessions = list_sessions()?;
+    sessions.retain(|s| !(s.org.is_none() && to_prune.contains(&s.site)));
+    write_sessions(&sessions)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn write_sessions(sessions: &[SessionEntry]) -> Result<()> {
     let path = match sessions_path() {
@@ -1477,6 +1544,179 @@ mod tests {
         std::env::remove_var("PUP_CONFIG_DIR");
 
         assert!(result.is_none());
+    }
+
+    // --- find_default_session_site -----------------------------------------------
+
+    #[test]
+    fn test_find_default_session_site_no_sessions() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("fds_none");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        let result = find_default_session_site();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_find_default_session_site_one_no_org_row() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("fds_one");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        // Named-org sessions on other sites must not interfere.
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        let result = find_default_session_site();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(result.as_deref(), Some("datadoghq.eu"));
+    }
+
+    #[test]
+    fn test_find_default_session_site_multiple_no_org_rows_returns_none() {
+        // Legacy data: two no-org rows → ambiguous; warn + return None.
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("fds_multi");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        let result = find_default_session_site();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert!(result.is_none());
+    }
+
+    // --- prune_other_default_sessions -------------------------------------------
+
+    #[test]
+    fn test_prune_removes_other_no_org_sites() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_removes");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        // Old default session on .com; we are now logging into .eu.
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        // Named-org session on .com — must survive.
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        // New default session we are keeping.
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+
+        prune_other_default_sessions("datadoghq.eu").unwrap();
+
+        let sessions = list_sessions().unwrap();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        // No-org .com row is gone.
+        assert!(!sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.com" && s.org.is_none()));
+        // Keep-site no-org row survives.
+        assert!(sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.eu" && s.org.is_none()));
+        // Named-org row on .com survives.
+        assert!(sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.com" && s.org.as_deref() == Some("prod")));
+    }
+
+    #[test]
+    fn test_prune_no_op_when_only_keep_site() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_noop");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+
+        // Pruning for the same site should be a no-op.
+        prune_other_default_sessions("datadoghq.com").unwrap();
+
+        let sessions = list_sessions().unwrap();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].org.is_none());
+        assert_eq!(sessions[0].site, "datadoghq.com");
+    }
+
+    #[test]
+    fn test_prune_named_org_sessions_untouched() {
+        // prune_other_default_sessions must never remove named-org sessions
+        // on any site, including the kept site and other sites.
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_named");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: Some("staging".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+
+        prune_other_default_sessions("datadoghq.eu").unwrap();
+
+        let sessions = list_sessions().unwrap();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        // Both named-org sessions survive.
+        assert_eq!(sessions.len(), 2);
+        assert!(sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.com" && s.org.as_deref() == Some("prod")));
+        assert!(sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.eu" && s.org.as_deref() == Some("staging")));
     }
 
     // --- detect_backend ---------------------------------------------------------

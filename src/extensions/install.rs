@@ -18,6 +18,7 @@ const MAX_RAW_RELEASE_SCAN: usize = 1000;
 const MAX_ARCHIVE_SCAN_TOTAL_BYTES: usize = 512 * 1024 * 1024;
 const MAX_INSTALL_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
 const MAX_EXTENSION_BINARY_BYTES: usize = 100 * 1024 * 1024;
+const MAX_ARCHIVE_DECODED_BYTES: usize = 256 * 1024 * 1024;
 const MAX_SELECTED_ARCHIVE_EXTENSIONS: usize = 100;
 const MAX_TOTAL_EXTENSION_PAYLOAD_BYTES: usize = 256 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 4096;
@@ -571,9 +572,22 @@ fn extension_names_from_archive(asset_name: &str, bytes: &[u8]) -> Result<Vec<St
 }
 
 fn extension_names_from_tar_gz(bytes: &[u8]) -> Result<Vec<String>> {
+    extension_names_from_tar_gz_with_limits(
+        bytes,
+        MAX_EXTENSION_BINARY_BYTES,
+        MAX_ARCHIVE_DECODED_BYTES,
+    )
+}
+
+fn extension_names_from_tar_gz_with_limits(
+    bytes: &[u8],
+    max_member_bytes: usize,
+    max_decoded_bytes: usize,
+) -> Result<Vec<String>> {
     let decoder = flate2::read::GzDecoder::new(Cursor::new(bytes));
     let mut archive = tar::Archive::new(decoder);
     let mut names = Vec::new();
+    let mut decoded_bytes = 0;
 
     for (index, entry) in archive
         .entries()
@@ -587,8 +601,22 @@ fn extension_names_from_tar_gz(bytes: &[u8]) -> Result<Vec<String>> {
         if !entry.header().entry_type().is_file() {
             continue;
         }
-        let path = entry.path().context("reading tar.gz archive path")?;
-        if let Some(name) = extension_name_from_archive_path(path.as_ref()) {
+        let path = entry
+            .path()
+            .context("reading tar.gz archive path")?
+            .into_owned();
+        let size = entry
+            .header()
+            .size()
+            .context("reading tar.gz archive entry size")?;
+        account_tar_file_size(
+            &mut decoded_bytes,
+            &path,
+            size,
+            max_member_bytes,
+            max_decoded_bytes,
+        )?;
+        if let Some(name) = extension_name_from_archive_path(&path) {
             names.push(name);
         }
     }
@@ -653,6 +681,32 @@ fn ensure_archive_member_size(size: u64, name: &str, max_member_bytes: usize) ->
     Ok(())
 }
 
+fn account_tar_file_size(
+    decoded_bytes: &mut u64,
+    path: &Path,
+    size: u64,
+    max_member_bytes: usize,
+    max_decoded_bytes: usize,
+) -> Result<()> {
+    if size > max_member_bytes as u64 {
+        bail!(
+            "archive member '{}' is larger than the {} byte limit",
+            path.display(),
+            max_member_bytes
+        );
+    }
+    *decoded_bytes = decoded_bytes
+        .checked_add(size)
+        .context("tar.gz archive decoded size overflowed")?;
+    if *decoded_bytes > max_decoded_bytes as u64 {
+        bail!(
+            "tar.gz archive file contents are larger than the {} byte decoded limit",
+            max_decoded_bytes
+        );
+    }
+    Ok(())
+}
+
 fn read_limited_archive_member<R: Read>(
     reader: R,
     name: &str,
@@ -678,8 +732,23 @@ fn extract_extension_from_tar_gz(
     name: &str,
     max_member_bytes: usize,
 ) -> Result<Vec<u8>> {
+    extract_extension_from_tar_gz_with_limits(
+        bytes,
+        name,
+        max_member_bytes,
+        MAX_ARCHIVE_DECODED_BYTES,
+    )
+}
+
+fn extract_extension_from_tar_gz_with_limits(
+    bytes: &[u8],
+    name: &str,
+    max_member_bytes: usize,
+    max_decoded_bytes: usize,
+) -> Result<Vec<u8>> {
     let decoder = flate2::read::GzDecoder::new(Cursor::new(bytes));
     let mut archive = tar::Archive::new(decoder);
+    let mut decoded_bytes = 0;
 
     for (index, entry) in archive
         .entries()
@@ -693,16 +762,23 @@ fn extract_extension_from_tar_gz(
         if !entry.header().entry_type().is_file() {
             continue;
         }
-        let matches = {
-            let path = entry.path().context("reading tar.gz archive path")?;
-            extension_archive_member_matches(path.as_ref(), name)
-        };
+        let path = entry
+            .path()
+            .context("reading tar.gz archive path")?
+            .into_owned();
+        let size = entry
+            .header()
+            .size()
+            .context("reading tar.gz archive entry size")?;
+        account_tar_file_size(
+            &mut decoded_bytes,
+            &path,
+            size,
+            max_member_bytes,
+            max_decoded_bytes,
+        )?;
+        let matches = extension_archive_member_matches(&path, name);
         if matches {
-            let size = entry
-                .header()
-                .size()
-                .context("reading tar.gz archive entry size")?;
-            ensure_archive_member_size(size, name, max_member_bytes)?;
             return read_limited_archive_member(
                 &mut entry,
                 name,
@@ -2653,6 +2729,18 @@ mod tests {
         gz.finish().unwrap()
     }
 
+    fn make_tar_gz_with_declared_file_size(path: &str, size: u64) -> Vec<u8> {
+        let mut header = tar::Header::new_gnu();
+        header.set_path(path).unwrap();
+        header.set_size(size);
+        header.set_mode(0o755);
+        header.set_cksum();
+
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, header.as_bytes()).unwrap();
+        gz.finish().unwrap()
+    }
+
     fn make_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut cursor = Cursor::new(Vec::new());
         {
@@ -2773,6 +2861,16 @@ mod tests {
     }
 
     #[test]
+    fn test_extension_names_from_archive_tar_gz_rejects_oversized_nonmatching_member() {
+        let archive = make_tar_gz_with_declared_file_size("not-pup", 3);
+
+        let result = extension_names_from_tar_gz_with_limits(&archive, 2, 10);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("byte limit"));
+    }
+
+    #[test]
     fn test_extract_extension_from_archive_tar_gz() {
         let archive = make_tar_gz(&[
             ("pup-foo", b"foo"),
@@ -2785,6 +2883,26 @@ mod tests {
                 .expect("bar should be extracted");
 
         assert_eq!(extracted, b"bar");
+    }
+
+    #[test]
+    fn test_extract_extension_from_archive_tar_gz_rejects_oversized_nonmatching_member() {
+        let archive = make_tar_gz_with_declared_file_size("not-pup", 3);
+
+        let result = extract_extension_from_tar_gz_with_limits(&archive, "foo", 2, 10);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("byte limit"));
+    }
+
+    #[test]
+    fn test_extract_extension_from_archive_tar_gz_rejects_decoded_limit() {
+        let archive = make_tar_gz(&[("not-pup", b"abc"), ("pup-foo", b"foo")]);
+
+        let result = extract_extension_from_tar_gz_with_limits(&archive, "foo", 10, 5);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("decoded limit"));
     }
 
     #[test]

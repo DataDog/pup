@@ -603,6 +603,46 @@ pub fn apply_org_override(cfg: &mut Config, org: String) -> Result<()> {
     Ok(())
 }
 
+/// Apply an explicit `--site` / `DD_SITE` override (the inline flag form). Sets
+/// `site` + `site_explicit` and then re-keys the access token for the new site,
+/// the same way [`apply_org_override`] does for a new org.
+///
+/// The token reload is the whole point of routing through this function rather
+/// than calling [`Config::set_site_explicit`] directly: `set_site_explicit`
+/// only swaps `site`/`site_explicit`, but `from_env` already loaded
+/// `access_token` for the *previous* site. Without the reload, `--site` would
+/// keep the old site's token — shipping it to the new host and making
+/// `auth status --site <other>` misreport authentication using a stale token.
+///
+/// Only re-keys an OAuth-storage token, which is site-specific. An explicitly
+/// configured *static* bearer — `DD_ACCESS_TOKEN` env or a config-file
+/// `access_token` — is site-agnostic and outranks storage (the `from_env`
+/// precedence is env > file > keychain), so it must survive a `--site` switch.
+/// Otherwise `pup --site X ...` would drop a config-file bearer that
+/// `DD_SITE=X` keeps, breaking the "`--site` is the inline form of `DD_SITE`"
+/// guarantee. May leave `cfg.access_token` at `None` if there is no static
+/// bearer and no token is stored for the new site.
+///
+/// (Unlike [`apply_org_override`], which re-keys to the session's token because
+/// `--org` switches identity, `--site` only changes the host, so the static
+/// bearer is preserved.)
+///
+/// Apply this before [`apply_org_override`]: it sets `site_explicit`, which that
+/// function honors (it won't move an explicitly pinned site), and the `--org`
+/// reload then re-keys the token for the final `(site, org)` pair.
+#[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+pub fn apply_site_override(cfg: &mut Config, site: String) -> Result<()> {
+    cfg.set_site_explicit(site)?;
+    let static_bearer = env_or(
+        "DD_ACCESS_TOKEN",
+        load_config_file().and_then(|c| c.access_token),
+    );
+    if static_bearer.is_none() {
+        cfg.access_token = load_token_from_storage(&cfg.site, cfg.org.as_deref());
+    }
+    Ok(())
+}
+
 /// Try to load a valid (non-expired) access token from keychain/file storage.
 /// If the token is expired, attempts an automatic refresh using the stored refresh token.
 /// Returns None silently on any error — callers fall through to other auth methods.
@@ -1938,6 +1978,182 @@ mod tests {
         assert_eq!(cfg.org.as_deref(), Some("unknown-org"));
         // Reset to default, NOT left at the inherited datadoghq.eu.
         assert_eq!(cfg.site, "datadoghq.com");
+    }
+
+    /// Regression: `--site <site-with-no-stored-token>` must re-key the access
+    /// token, not keep the previous site's token. Before `apply_site_override`,
+    /// the in-arm `set_site_explicit` only swapped the site, so an EU session
+    /// (EU token loaded by `from_env`) followed by `auth status --site us3...`
+    /// reported "authenticated" using the stale EU token.
+    #[test]
+    fn test_apply_site_override_reloads_token_for_new_site() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_ACCESS_TOKEN");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_apply_site_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+
+        // Post-from_env state: a bare EU login left an EU token loaded.
+        let mut cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: Some("eu-token".into()),
+            site: "datadoghq.eu".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        super::apply_site_override(&mut cfg, "us3.datadoghq.com".into()).unwrap();
+
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(cfg.site, "us3.datadoghq.com");
+        assert!(cfg.site_explicit);
+        // No us3 token in storage → the stale EU token must be cleared.
+        assert_eq!(cfg.access_token, None);
+    }
+
+    /// `--site` then `--org` (main_inner ordering): the explicit site is pinned
+    /// (apply_org_override honors site_explicit), the org is applied, and the
+    /// token is re-keyed for the final (site, org) pair.
+    #[test]
+    fn test_apply_site_then_org_pins_site_and_applies_org() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_ACCESS_TOKEN");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_apply_site_org_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+
+        // org-x has a saved session on a *different* site; the explicit --site
+        // must win over it.
+        crate::auth::storage::save_session(&SessionEntry {
+            site: "session.datadoghq.com".into(),
+            org: Some("org-x".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+
+        let mut cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        super::apply_site_override(&mut cfg, "datadoghq.eu".into()).unwrap();
+        super::apply_org_override(&mut cfg, "org-x".into()).unwrap();
+
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(cfg.site, "datadoghq.eu");
+        assert!(cfg.site_explicit);
+        assert_eq!(cfg.org.as_deref(), Some("org-x"));
+        // No token stored for (datadoghq.eu, org-x).
+        assert_eq!(cfg.access_token, None);
+    }
+
+    /// A config-file `access_token` is a site-agnostic static bearer and outranks
+    /// keychain storage (from_env precedence env > file > keychain). It must
+    /// survive a `--site` switch — otherwise `pup --site X` would drop a bearer
+    /// that `DD_SITE=X` keeps, breaking the inline-form equivalence.
+    #[test]
+    fn test_apply_site_override_preserves_config_file_bearer() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_ACCESS_TOKEN");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_apply_site_filebearer_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("config.yaml"), "access_token: file-bearer-token\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+
+        // Post-from_env state for a config that carries a static bearer: from_env
+        // loads it (and never consults storage), so cfg.access_token is the file
+        // bearer and the site is the default.
+        let mut cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: Some("file-bearer-token".into()),
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        super::apply_site_override(&mut cfg, "datadoghq.eu".into()).unwrap();
+
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(cfg.site, "datadoghq.eu");
+        // The static bearer must NOT be dropped to a (missing) storage token.
+        assert_eq!(cfg.access_token.as_deref(), Some("file-bearer-token"));
+    }
+
+    /// When DD_ACCESS_TOKEN is set, `--site` must not overwrite the caller-supplied
+    /// bearer with whatever happens to be in keychain storage. Mirrors
+    /// `test_apply_org_override_respects_env_access_token`.
+    #[test]
+    fn test_apply_site_override_respects_env_access_token() {
+        let _guard = ENV_LOCK.blocking_lock();
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_apply_site_envtoken_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+        std::env::set_var("DD_ACCESS_TOKEN", "env-supplied-token");
+
+        let mut cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: Some("env-supplied-token".into()),
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        super::apply_site_override(&mut cfg, "datadoghq.eu".into()).unwrap();
+
+        std::env::remove_var("DD_ACCESS_TOKEN");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(cfg.access_token.as_deref(), Some("env-supplied-token"));
     }
 
     /// When DD_ACCESS_TOKEN is set in the env, `--org` must not overwrite the

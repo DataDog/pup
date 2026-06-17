@@ -28,6 +28,8 @@ pub(crate) struct PreParsedGlobals {
     pub agent: bool,
     pub read_only: bool,
     pub org: Option<String>,
+    pub site: Option<String>,
+    pub trust_site: bool,
 }
 
 /// Parse the CLI arguments in a single left-to-right pass.
@@ -39,6 +41,8 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
         agent: false,
         read_only: false,
         org: None,
+        site: None,
+        trust_site: false,
     };
     let mut candidate: Option<String> = None;
     let mut ext_args: Vec<String> = Vec::new();
@@ -63,16 +67,25 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
                     globals.org = Some(val.clone());
                 }
             }
+            "--site" => {
+                if let Some(val) = iter.next() {
+                    globals.site = Some(val.clone());
+                }
+            }
             // Boolean flags
             "--yes" | "-y" => globals.yes = true,
             "--agent" => globals.agent = true,
             "--read-only" => globals.read_only = true,
-            // Equals-syntax value flags: --output=table, --org=prod
+            "--trust-site" => globals.trust_site = true,
+            // Equals-syntax value flags: --output=table, --org=prod, --site=datadoghq.eu
             s if s.starts_with("--output=") => {
                 globals.output = Some(s["--output=".len()..].to_string());
             }
             s if s.starts_with("--org=") => {
                 globals.org = Some(s["--org=".len()..].to_string());
+            }
+            s if s.starts_with("--site=") => {
+                globals.site = Some(s["--site=".len()..].to_string());
             }
             // Short flag with attached value: -ojson, -otable
             s if s.starts_with("-o") && s.len() > 2 => {
@@ -125,6 +138,15 @@ impl PreParsedGlobals {
         }
         if self.read_only {
             cfg.read_only = true;
+        }
+        // Apply --site before --org so an explicit site survives apply_org_override
+        // (which honors site_explicit) and the --org reload re-keys the token for
+        // the final (site, org) pair. Mirrors main_inner.
+        if let Some(ref site) = self.site {
+            #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+            config::apply_site_override(cfg, site.clone())?;
+            #[cfg(any(feature = "browser", target_arch = "wasm32"))]
+            cfg.set_site_explicit(site.clone())?;
         }
         if let Some(ref org) = self.org {
             #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
@@ -194,6 +216,29 @@ mod tests {
         let parsed = parse_extension_args(&args("pup --org=staging terraform"));
         assert_eq!(parsed.candidate.as_deref(), Some("terraform"));
         assert_eq!(parsed.globals.org.as_deref(), Some("staging"));
+    }
+
+    #[test]
+    fn test_parse_site_space() {
+        let parsed = parse_extension_args(&args("pup --site datadoghq.eu terraform"));
+        assert_eq!(parsed.candidate.as_deref(), Some("terraform"));
+        assert_eq!(parsed.globals.site.as_deref(), Some("datadoghq.eu"));
+    }
+
+    #[test]
+    fn test_parse_site_equals() {
+        let parsed = parse_extension_args(&args("pup --site=us3.datadoghq.com terraform"));
+        assert_eq!(parsed.candidate.as_deref(), Some("terraform"));
+        assert_eq!(parsed.globals.site.as_deref(), Some("us3.datadoghq.com"));
+    }
+
+    #[test]
+    fn test_parse_trust_site_flag() {
+        let parsed =
+            parse_extension_args(&args("pup --site gw.example.com --trust-site terraform"));
+        assert_eq!(parsed.candidate.as_deref(), Some("terraform"));
+        assert_eq!(parsed.globals.site.as_deref(), Some("gw.example.com"));
+        assert!(parsed.globals.trust_site);
     }
 
     #[test]

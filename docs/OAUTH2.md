@@ -67,12 +67,12 @@ Manually refresh your access token using the refresh token. This happens automat
 
 ```bash
 pup auth logout                                # default session for the current site
-DD_SITE=datadoghq.eu pup auth logout           # default session for a non-default site
+pup auth logout --site datadoghq.eu            # default session for a non-default site
 pup auth logout --org staging-child            # one named session, leaves others intact
 ```
 
-`pup auth logout` itself doesn't accept a `--site` flag; use `DD_SITE` to
-pick which default session to clear.
+Use `--site` (the global flag, equivalent to `DD_SITE`) to pick which default
+session to clear when it isn't on `datadoghq.com`.
 
 **Side effect on sibling sessions:** logging out the default (unnamed)
 session for a site also deletes that site's shared DCR client

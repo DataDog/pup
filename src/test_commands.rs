@@ -123,23 +123,23 @@ fn test_read_only_guard_exempts_auth() {
 }
 
 // -------------------------------------------------------------------------
-// Auth status --site flag
+// Global --site flag
 // -------------------------------------------------------------------------
 
 #[test]
-fn test_auth_status_accepts_site_flag() {
+fn test_auth_status_accepts_global_site_flag() {
     use clap::Parser;
 
+    // --site is now a global flag; clap accepts it after the subcommand and
+    // stores it on the top-level Cli, not on AuthActions::Status.
     let cli = crate::Cli::try_parse_from(["pup", "auth", "status", "--site", "datadoghq.eu"])
         .expect("auth status --site should parse");
 
+    assert_eq!(cli.site.as_deref(), Some("datadoghq.eu"));
     match cli.command {
-        crate::Commands::Auth { action } => match action {
-            crate::AuthActions::Status { site } => {
-                assert_eq!(site, Some("datadoghq.eu".to_string()));
-            }
-            _ => panic!("expected AuthActions::Status"),
-        },
+        crate::Commands::Auth { action } => {
+            assert!(matches!(action, crate::AuthActions::Status));
+        }
         _ => panic!("expected Commands::Auth"),
     }
 }
@@ -151,15 +151,29 @@ fn test_auth_status_site_flag_is_optional() {
     let cli = crate::Cli::try_parse_from(["pup", "auth", "status"])
         .expect("auth status without --site should parse");
 
+    assert_eq!(cli.site, None);
     match cli.command {
-        crate::Commands::Auth { action } => match action {
-            crate::AuthActions::Status { site } => {
-                assert_eq!(site, None);
-            }
-            _ => panic!("expected AuthActions::Status"),
-        },
+        crate::Commands::Auth { action } => {
+            assert!(matches!(action, crate::AuthActions::Status));
+        }
         _ => panic!("expected Commands::Auth"),
     }
+}
+
+#[test]
+fn test_global_site_flag_on_non_auth_command() {
+    use clap::Parser;
+
+    // Regression for the original bug: `--site` on a non-auth command used to
+    // error with "unexpected argument '--site'". As a global flag it now parses
+    // both before and after the subcommand.
+    let cli = crate::Cli::try_parse_from(["pup", "--site", "datadoghq.eu", "monitors", "list"])
+        .expect("--site before a non-auth subcommand should parse");
+    assert_eq!(cli.site.as_deref(), Some("datadoghq.eu"));
+
+    let cli = crate::Cli::try_parse_from(["pup", "monitors", "list", "--site=us3.datadoghq.com"])
+        .expect("--site after a non-auth subcommand should parse");
+    assert_eq!(cli.site.as_deref(), Some("us3.datadoghq.com"));
 }
 
 #[test]

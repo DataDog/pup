@@ -61,6 +61,13 @@ pub(crate) struct Cli {
     /// Named org session (see 'pup auth login --org')
     #[arg(long, global = true)]
     org: Option<String>,
+    /// Datadog site or literal host. The inline form of $DD_SITE; overrides
+    /// DD_SITE / config file. Defaults to datadoghq.com.
+    /// Standard sites: datadoghq.eu, us3.datadoghq.com, etc.
+    /// Vanity/SAML SSO host (at login): mycompany.datadoghq.com (replaces the old --subdomain flag).
+    /// Custom gateway: mygateway.example.com or mygateway.example.com:8443.
+    #[arg(long, global = true, value_name = "SITE")]
+    site: Option<String>,
     /// Trust a non-Datadog `--site`/`DD_SITE` host for this invocation (skip the
     /// trust prompt). For durable trust, use `trusted_sites` in config instead.
     #[arg(long, global = true)]
@@ -9674,13 +9681,6 @@ enum AuthActions {
         /// Shorthand: --ro
         #[arg(long, alias = "ro", visible_alias = "ro")]
         read_only: bool,
-        /// Datadog site or literal host to authenticate against.
-        /// Standard sites: datadoghq.eu, us3.datadoghq.com, etc.
-        /// Vanity/SAML SSO host: mycompany.datadoghq.com (replaces the old --subdomain flag).
-        /// Custom gateway: mygateway.example.com or mygateway.example.com:8443.
-        /// Overrides DD_SITE env var and config file. Defaults to datadoghq.com.
-        #[arg(long, value_name = "SITE")]
-        site: Option<String>,
         /// Pin the OAuth callback to one specific port from the DCR redirect allowlist
         /// [8000, 8080, 8888, 9000] instead of scanning. Useful when forwarding a single port
         /// over SSH. If the chosen port is busy login fails — no fallback. Other values are
@@ -9700,12 +9700,7 @@ enum AuthActions {
     /// Logout and clear tokens
     Logout,
     /// Check authentication status
-    Status {
-        /// Datadog site to check status for (e.g. datadoghq.eu, us3.datadoghq.com).
-        /// Overrides DD_SITE env var and config file. Defaults to datadoghq.com.
-        #[arg(long, value_name = "SITE")]
-        site: Option<String>,
-    },
+    Status,
     /// Print access token (debug builds only)
     #[cfg(debug_assertions)]
     Token,
@@ -9797,6 +9792,12 @@ fn build_agent_schema_scoped(
                 "type": "string",
                 "default": null,
                 "description": "Named org session for multi-org support (see 'pup auth login --org')"
+            },
+            {
+                "name": "--site",
+                "type": "string",
+                "default": null,
+                "description": "Datadog site or literal host (inline form of $DD_SITE); defaults to datadoghq.com"
             },
             {
                 "name": "--output",
@@ -9926,6 +9927,12 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
                 "type": "string",
                 "default": null,
                 "description": "Named org session for multi-org support (see 'pup auth login --org')"
+            },
+            {
+                "name": "--site",
+                "type": "string",
+                "default": null,
+                "description": "Datadog site or literal host (inline form of $DD_SITE); defaults to datadoghq.com"
             },
             {
                 "name": "--output",
@@ -10952,6 +10959,20 @@ async fn main_inner() -> anyhow::Result<()> {
                 if let Some(ext_path) = extensions::extension_path(candidate) {
                     let mut cfg = config::Config::from_env()?;
                     parsed.globals.apply_to(&mut cfg)?;
+                    // This fast-path bypasses main_inner's central trust gate, so
+                    // gate here too: an extension inherits DD_API_KEY/DD_APP_KEY,
+                    // and `--site`/`DD_SITE` could otherwise ship them to a
+                    // non-Datadog host with no prompt.
+                    #[cfg(not(feature = "browser"))]
+                    {
+                        let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+                        let trusted_sites = config::configured_trusted_sites();
+                        cfg.ensure_site_trusted(
+                            parsed.globals.trust_site,
+                            interactive,
+                            &trusted_sites,
+                        )?;
+                    }
                     let exit_code = extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
                     std::process::exit(exit_code);
                 }
@@ -11024,6 +11045,15 @@ async fn main_inner() -> anyhow::Result<()> {
     if cfg.agent_mode {
         cfg.auto_approve = true;
     }
+    // Apply --site flag (the inline form of DD_SITE). Done before --org so an
+    // explicit site survives apply_org_override (which honors site_explicit) and
+    // the subsequent --org reload re-keys the token for the final (site, org) pair.
+    if let Some(site) = cli.site.clone() {
+        #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+        config::apply_site_override(&mut cfg, site)?;
+        #[cfg(any(feature = "browser", target_arch = "wasm32"))]
+        cfg.set_site_explicit(site)?;
+    }
     // Apply --org flag (higher priority than DD_ORG env var / config file).
     // Site for this org and access token are also resolved here.
     if let Some(org) = cli.org {
@@ -11069,8 +11099,9 @@ async fn main_inner() -> anyhow::Result<()> {
     let trusted_sites = config::configured_trusted_sites();
 
     // Gate credential dispatch to non-Datadog hosts before any command dispatches.
-    // Auth subcommands resolve their own site late (after --site is applied in-arm),
-    // so they gate themselves; skip here to avoid a double prompt.
+    // Auth subcommands gate themselves in-arm (login/status/refresh each call
+    // ensure_site_trusted), so skip here to avoid a double prompt. --site is
+    // already resolved globally above, before this gate.
     #[cfg(not(feature = "browser"))]
     if !matches!(cli.command, Commands::Auth { .. }) {
         cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
@@ -14819,14 +14850,12 @@ async fn main_inner() -> anyhow::Result<()> {
             AuthActions::Login {
                 scopes,
                 read_only,
-                site,
                 callback_port,
                 org_uuid,
             } => {
-                if let Some(s) = site {
-                    cfg.set_site_explicit(s)?;
-                }
-                // Gate here rather than pre-match: --site is applied above and
+                // --site is resolved globally in main_inner (see apply_site_override),
+                // so cfg.site already reflects it here.
+                // Gate here rather than pre-match: the central gate skips Auth, and
                 // login opens a browser carrying the real SSO cookie plus DCR
                 // client credentials to this host, so it must be checked even
                 // when --site was not passed (the from_env site is still the target).
@@ -14842,10 +14871,9 @@ async fn main_inner() -> anyhow::Result<()> {
                 commands::auth::login(&cfg, resolved, resolved_port, org_uuid_hint).await?
             }
             AuthActions::Logout => commands::auth::logout(&cfg).await?,
-            AuthActions::Status { site } => {
-                if let Some(s) = site {
-                    cfg.set_site_explicit(s)?;
-                }
+            AuthActions::Status => {
+                // --site is resolved globally in main_inner (see apply_site_override),
+                // so cfg.site already reflects it here.
                 #[cfg(not(feature = "browser"))]
                 cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 commands::auth::status(&cfg)?

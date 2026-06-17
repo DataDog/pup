@@ -242,18 +242,16 @@ pup auth logout
 Pup persists each login as a separate session, so you can authenticate against multiple Datadog sites and orgs and switch between them with `--org <name>` (or `DD_ORG=<name>`) on any subcommand.
 
 ```bash
-# Login to a non-default site. --site is only accepted by `pup auth login`
-# and `pup auth status`. For other commands, select the site via DD_SITE
-# (or use a named session and pass --org on every subsequent command; see
-# the Named session examples below).
+# Login to a non-default site. --site is a global flag (the inline form of
+# DD_SITE) accepted on any command, so you can also select the site per-command.
 pup auth login --site datadoghq.eu
-DD_SITE=datadoghq.eu pup monitors list
+pup monitors list --site datadoghq.eu     # or: DD_SITE=datadoghq.eu pup monitors list
 
 # Named session for a parent/child sub-org on the same site.
 pup auth login --org staging-child
-pup monitors list --org staging-child     # site recalled from the session, no DD_SITE needed
+pup monitors list --org staging-child     # site recalled from the session, no --site needed
 
-# Named session on another site. DD_SITE / --site is only needed at login.
+# Named session on another site. --site / DD_SITE is only needed at login.
 pup auth login --site ap2.datadoghq.com --org ap2-prod
 pup monitors list --org ap2-prod          # site recalled
 
@@ -278,12 +276,13 @@ pup auth logout --org staging-child       # clears only that named session
 
 Note: `pup auth logout` (default session) also deletes the shared DCR client credentials for that site. Named-org sessions on the same site keep their access tokens but will fail to refresh until the shared credentials are re-registered, which happens automatically on the next `pup auth login` on that site (any org, named or default). Logging out a named session (`--org <name>`) does not touch the shared client credentials.
 
-**Site selection rules** (when pup resolves a site for a non-auth command):
-1. `DD_SITE` env var (or `site:` in `~/.config/pup/config.yaml`), if set.
-2. The site recorded in `~/.config/pup/sessions.json` for the named `--org` / `DD_ORG`, when the lookup is unambiguous.
-3. Default: `datadoghq.com`.
+**Site selection rules** (when pup resolves a site for a command):
+1. `--site` flag (the inline form of `DD_SITE`, accepted on any command), if set.
+2. `DD_SITE` env var (or `site:` in `~/.config/pup/config.yaml`), if set.
+3. The site recorded in `~/.config/pup/sessions.json` for the named `--org` / `DD_ORG`, when the lookup is unambiguous.
+4. Default: `datadoghq.com`.
 
-`pup auth login` and `pup auth status` additionally accept `--site`, which wins over the above for those two commands.
+`--site` is the highest-priority source and applies before `--org`, so an explicit site is never moved by the session lookup an `--org` would otherwise trigger.
 
 If multiple sessions share the same org name on different sites, step 2 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to disambiguate. An unnamed (default) session can't be selected by `--org` at all -- if you have multiple unnamed sessions on different sites, set `DD_SITE` to pick one.
 
@@ -425,7 +424,7 @@ pup incidents get abc-123-def
 - `DD_ACCESS_TOKEN`: Bearer token for stateless auth (highest priority)
 - `DD_API_KEY`: Datadog API key (optional if using OAuth2 or DD_ACCESS_TOKEN)
 - `DD_APP_KEY`: Datadog Application key (optional if using OAuth2 or DD_ACCESS_TOKEN)
-- `DD_SITE`: Datadog site (default: datadoghq.com)
+- `DD_SITE`: Datadog site (default: datadoghq.com). The `--site` flag is the inline form and works on any command.
 - `PUP_TRUST_SITE`: Trust a non-Datadog `--site`/`DD_SITE` host for this invocation without a prompt (true/1). For durable trust, add the host to `trusted_sites` in the config file. See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#override-api-endpoint).
 - `DD_AUTO_APPROVE`: Auto-approve destructive operations (true/false)
 - `DD_TOKEN_STORAGE`: Token storage backend (keychain or file, default: auto-detect)

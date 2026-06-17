@@ -14,8 +14,12 @@ use crate::version;
 const MAX_REMOTE_LIST_RELEASES: usize = 100;
 const MAX_REMOTE_LIST_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
 const MAX_IMPLICIT_RELEASE_SCAN: usize = 100;
+const MAX_RAW_RELEASE_SCAN: usize = 1000;
+const MAX_ARCHIVE_SCAN_TOTAL_BYTES: usize = 512 * 1024 * 1024;
 const MAX_INSTALL_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
 const MAX_EXTENSION_BINARY_BYTES: usize = 100 * 1024 * 1024;
+const MAX_SELECTED_ARCHIVE_EXTENSIONS: usize = 100;
+const MAX_TOTAL_EXTENSION_PAYLOAD_BYTES: usize = 256 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 4096;
 const MAX_CHECKSUMS_BYTES: usize = 1024 * 1024;
 
@@ -25,6 +29,8 @@ struct GitHubAsset {
     name: String,
     #[serde(default)]
     url: Option<String>,
+    #[serde(default)]
+    size: Option<u64>,
     browser_download_url: String,
 }
 
@@ -46,6 +52,35 @@ struct ArchiveDownload {
     asset_name: String,
     bytes: Vec<u8>,
     extensions: Vec<String>,
+}
+
+struct ArchiveScanBudget {
+    remaining_bytes: usize,
+}
+
+impl ArchiveScanBudget {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            remaining_bytes: max_bytes,
+        }
+    }
+
+    fn remaining(&self) -> usize {
+        self.remaining_bytes
+    }
+
+    fn consume(&mut self, asset: &GitHubAsset, bytes: usize) -> Result<()> {
+        if bytes > self.remaining_bytes {
+            bail!(
+                "archive scan budget exceeded while downloading '{}': {} bytes remaining, {} bytes needed",
+                asset.name,
+                self.remaining_bytes,
+                bytes
+            );
+        }
+        self.remaining_bytes -= bytes;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -400,21 +435,44 @@ async fn fetch_github_release_page(
         .with_context(|| format!("parsing release JSON from {url}"))
 }
 
-fn releases_within_scan_limit<'a>(
+fn stable_releases_within_scan_limit<'a>(
     releases: &'a [GitHubRelease],
     scanned: &mut usize,
     max_releases: usize,
-) -> &'a [GitHubRelease] {
+) -> Vec<&'a GitHubRelease> {
     let remaining = max_releases.saturating_sub(*scanned);
-    let count = remaining.min(releases.len());
-    *scanned += count;
-    &releases[..count]
+    let selected = releases
+        .iter()
+        .filter(|release| is_stable_release(release))
+        .take(remaining)
+        .collect::<Vec<_>>();
+    *scanned += selected.len();
+    selected
 }
 
 fn release_scan_limit_message(owner: &str, repo: &str, max_releases: usize) -> String {
     format!(
         "searched the first {max_releases} releases in {owner}/{repo} without finding a matching \
          platform archive. Use --tag to install an exact release."
+    )
+}
+
+fn raw_release_scan_limit_message(owner: &str, repo: &str, max_releases: usize) -> String {
+    format!(
+        "searched the first {max_releases} releases in {owner}/{repo} without finding enough \
+         stable release archives. Use --tag to install an exact release."
+    )
+}
+
+fn remote_list_raw_release_scan_limit_message(
+    owner: &str,
+    repo: &str,
+    max_releases: usize,
+) -> String {
+    format!(
+        "searched the first {max_releases} releases in {owner}/{repo} without completing remote \
+         extension discovery. If you know the extension and release tag, install that exact release \
+         with --tag."
     )
 }
 
@@ -774,6 +832,13 @@ async fn download_asset_with_limit(
     }
 
     if let Some(max_bytes) = max_bytes {
+        if asset.size.is_some_and(|size| size > max_bytes as u64) {
+            bail!(
+                "asset '{}' is larger than the {} byte scan limit",
+                asset.name,
+                max_bytes
+            );
+        }
         if resp
             .content_length()
             .is_some_and(|content_length| content_length > max_bytes as u64)
@@ -1052,16 +1117,44 @@ fn archive_extension_payloads(
     archive: &ArchiveDownload,
     names: &[String],
 ) -> Result<Vec<ExtensionPayload>> {
-    names
-        .iter()
-        .map(|name| {
-            let bytes = extract_extension_from_archive(&archive.asset_name, &archive.bytes, name)?;
-            Ok(ExtensionPayload {
-                name: name.clone(),
-                bytes,
-            })
-        })
-        .collect()
+    archive_extension_payloads_with_limits(
+        archive,
+        names,
+        MAX_SELECTED_ARCHIVE_EXTENSIONS,
+        MAX_TOTAL_EXTENSION_PAYLOAD_BYTES,
+    )
+}
+
+fn archive_extension_payloads_with_limits(
+    archive: &ArchiveDownload,
+    names: &[String],
+    max_selected: usize,
+    max_total_bytes: usize,
+) -> Result<Vec<ExtensionPayload>> {
+    if names.len() > max_selected {
+        bail!("selected archive contains more than {max_selected} extensions");
+    }
+
+    let mut payloads = Vec::with_capacity(names.len());
+    let mut total_bytes = 0usize;
+    for name in names {
+        let bytes = extract_extension_from_archive(&archive.asset_name, &archive.bytes, name)?;
+        total_bytes = total_bytes
+            .checked_add(bytes.len())
+            .context("selected extension payload size overflowed")?;
+        if total_bytes > max_total_bytes {
+            bail!(
+                "selected archive extensions are larger than the {} byte aggregate limit",
+                max_total_bytes
+            );
+        }
+        payloads.push(ExtensionPayload {
+            name: name.clone(),
+            bytes,
+        });
+    }
+
+    Ok(payloads)
 }
 
 fn save_github_payloads(
@@ -1235,8 +1328,10 @@ async fn latest_archive_artifacts_for_extension(
 ) -> Result<GitHubInstallArtifacts> {
     validate_extension_name(extension)?;
 
-    let mut scanned = 0;
+    let mut stable_scanned = 0;
+    let mut raw_scanned = 0;
     let mut page = 1;
+    let mut scan_budget = ArchiveScanBudget::new(MAX_ARCHIVE_SCAN_TOTAL_BYTES);
 
     loop {
         let releases = fetch_github_release_page(client, owner, repo, page).await?;
@@ -1245,12 +1340,21 @@ async fn latest_archive_artifacts_for_extension(
         }
 
         let page_len = releases.len();
-        for release in
-            releases_within_scan_limit(&releases, &mut scanned, MAX_IMPLICIT_RELEASE_SCAN)
-                .iter()
-                .filter(|release| is_stable_release(release))
-        {
-            let Some(archive) = download_archive_from_release(client, release, repo).await? else {
+        raw_scanned += page_len;
+        for release in stable_releases_within_scan_limit(
+            &releases,
+            &mut stable_scanned,
+            MAX_IMPLICIT_RELEASE_SCAN,
+        ) {
+            let Some(archive) = download_archive_from_release_for_scan(
+                client,
+                release,
+                repo,
+                MAX_INSTALL_ARCHIVE_BYTES,
+                &mut scan_budget,
+            )
+            .await?
+            else {
                 continue;
             };
             if archive.extensions.iter().any(|name| name == extension) {
@@ -1269,10 +1373,16 @@ async fn latest_archive_artifacts_for_extension(
         if page_len < 100 {
             break;
         }
-        if scanned >= MAX_IMPLICIT_RELEASE_SCAN {
+        if stable_scanned >= MAX_IMPLICIT_RELEASE_SCAN {
             bail!(
                 "{}",
                 release_scan_limit_message(owner, repo, MAX_IMPLICIT_RELEASE_SCAN)
+            );
+        }
+        if raw_scanned >= MAX_RAW_RELEASE_SCAN {
+            bail!(
+                "{}",
+                raw_release_scan_limit_message(owner, repo, MAX_RAW_RELEASE_SCAN)
             );
         }
         page += 1;
@@ -1340,6 +1450,7 @@ pub fn install_from_github(
             match find_platform_asset(&release, &asset_name) {
                 Ok(asset) => {
                     let bytes = download_asset(&client, asset).await?;
+                    verify_release_asset_checksum(&client, &release, asset, &bytes).await?;
                     Ok::<_, anyhow::Error>(GitHubInstallArtifacts {
                         version: extract_version(&release.tag_name),
                         source_kind: None,
@@ -1492,12 +1603,14 @@ async fn archive_inventory_from_release(
     client: &reqwest::Client,
     release: &GitHubRelease,
     project_name: &str,
+    scan_budget: &mut ArchiveScanBudget,
 ) -> Result<Option<ArchiveInventory>> {
-    Ok(download_archive_from_release_with_limit(
+    Ok(download_archive_from_release_for_scan(
         client,
         release,
         project_name,
-        Some(MAX_REMOTE_LIST_ARCHIVE_BYTES),
+        MAX_REMOTE_LIST_ARCHIVE_BYTES,
+        scan_budget,
     )
     .await?
     .map(|archive| ArchiveInventory {
@@ -1520,6 +1633,39 @@ async fn download_archive_from_release(
         Some(MAX_INSTALL_ARCHIVE_BYTES),
     )
     .await
+}
+
+async fn download_archive_from_release_for_scan(
+    client: &reqwest::Client,
+    release: &GitHubRelease,
+    project_name: &str,
+    max_asset_bytes: usize,
+    scan_budget: &mut ArchiveScanBudget,
+) -> Result<Option<ArchiveDownload>> {
+    let asset = match find_platform_archive_asset(release, project_name) {
+        Ok(asset) => asset,
+        Err(_) => return Ok(None),
+    };
+
+    let max_bytes = max_asset_bytes.min(scan_budget.remaining());
+    if max_bytes == 0 {
+        bail!(
+            "archive scan budget exhausted before downloading '{}'",
+            asset.name
+        );
+    }
+    let bytes = download_asset_with_limit(client, asset, Some(max_bytes)).await?;
+    scan_budget.consume(asset, bytes.len())?;
+    verify_release_asset_checksum(client, release, asset, &bytes).await?;
+    let extensions = extension_names_from_archive(&asset.name, &bytes)?;
+
+    Ok(Some(ArchiveDownload {
+        release_tag: release.tag_name.clone(),
+        version: extract_version(&release.tag_name),
+        asset_name: asset.name.clone(),
+        bytes,
+        extensions,
+    }))
 }
 
 async fn download_archive_from_release_with_limit(
@@ -1558,8 +1704,10 @@ pub fn list_remote_extensions(
         tokio::runtime::Handle::current().block_on(async {
             let client = github_client()?;
             let mut inventories = Vec::new();
-            let mut scanned = 0;
+            let mut stable_scanned = 0;
+            let mut raw_scanned = 0;
             let mut page = 1;
+            let mut scan_budget = ArchiveScanBudget::new(MAX_ARCHIVE_SCAN_TOTAL_BYTES);
 
             loop {
                 let releases = fetch_github_release_page(&client, owner, repo, page).await?;
@@ -1568,20 +1716,32 @@ pub fn list_remote_extensions(
                 }
 
                 let page_len = releases.len();
-                for release in
-                    releases_within_scan_limit(&releases, &mut scanned, MAX_REMOTE_LIST_RELEASES)
-                        .iter()
-                        .filter(|release| is_stable_release(release))
-                {
+                raw_scanned += page_len;
+                for release in stable_releases_within_scan_limit(
+                    &releases,
+                    &mut stable_scanned,
+                    MAX_REMOTE_LIST_RELEASES,
+                ) {
                     if let Some(inventory) =
-                        archive_inventory_from_release(&client, release, repo).await?
+                        archive_inventory_from_release(&client, release, repo, &mut scan_budget)
+                            .await?
                     {
                         inventories.push(inventory);
                     }
                 }
 
-                if page_len < 100 || scanned >= MAX_REMOTE_LIST_RELEASES {
+                if page_len < 100 || stable_scanned >= MAX_REMOTE_LIST_RELEASES {
                     break;
+                }
+                if raw_scanned >= MAX_RAW_RELEASE_SCAN {
+                    bail!(
+                        "{}",
+                        remote_list_raw_release_scan_limit_message(
+                            owner,
+                            repo,
+                            MAX_RAW_RELEASE_SCAN
+                        )
+                    );
                 }
                 page += 1;
             }
@@ -1692,7 +1852,11 @@ pub fn upgrade_extension(name: &str) -> Result<String> {
     let asset = find_platform_asset(&release, &asset_name)?;
 
     let asset_bytes = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async { download_asset(&client, asset).await })
+        tokio::runtime::Handle::current().block_on(async {
+            let asset_bytes = download_asset(&client, asset).await?;
+            verify_release_asset_checksum(&client, &release, asset, &asset_bytes).await?;
+            Ok::<_, anyhow::Error>(asset_bytes)
+        })
     })?;
 
     // Prepare (recreate) the extension directory before writing, so a failed write
@@ -2138,21 +2302,25 @@ mod tests {
                 GitHubAsset {
                     name: "pup-hello-linux-x86_64".to_string(),
                     url: None,
+                    size: None,
                     browser_download_url: "https://example.com/linux-x86_64".to_string(),
                 },
                 GitHubAsset {
                     name: "pup-hello-darwin-aarch64".to_string(),
                     url: None,
+                    size: None,
                     browser_download_url: "https://example.com/darwin-aarch64".to_string(),
                 },
                 GitHubAsset {
                     name: "pup-hello-darwin-x86_64".to_string(),
                     url: None,
+                    size: None,
                     browser_download_url: "https://example.com/darwin-x86_64".to_string(),
                 },
                 GitHubAsset {
                     name: "pup-hello-windows-x86_64".to_string(),
                     url: None,
+                    size: None,
                     browser_download_url: "https://example.com/windows-x86_64".to_string(),
                 },
             ],
@@ -2170,6 +2338,7 @@ mod tests {
             assets: vec![GitHubAsset {
                 name: "pup-hello-fakeos-fakearch".to_string(),
                 url: None,
+                size: None,
                 browser_download_url: "https://example.com/fake".to_string(),
             }],
         };
@@ -2331,7 +2500,7 @@ mod tests {
     }
 
     #[test]
-    fn test_releases_within_scan_limit_returns_first_page_before_limit() {
+    fn test_stable_releases_within_scan_limit_returns_first_stable_releases_before_limit() {
         let releases: Vec<GitHubRelease> = (0..101)
             .map(|index| GitHubRelease {
                 tag_name: format!("v{index}"),
@@ -2342,12 +2511,37 @@ mod tests {
             .collect();
         let mut scanned = 0;
 
-        let scanned_releases = releases_within_scan_limit(&releases, &mut scanned, 100);
+        let scanned_releases = stable_releases_within_scan_limit(&releases, &mut scanned, 100);
 
         assert_eq!(scanned_releases.len(), 100);
         assert_eq!(scanned, 100);
         assert_eq!(scanned_releases[0].tag_name, "v0");
         assert_eq!(scanned_releases[99].tag_name, "v99");
+    }
+
+    #[test]
+    fn test_stable_releases_within_scan_limit_skips_prereleases_before_counting() {
+        let mut releases: Vec<GitHubRelease> = (0..100)
+            .map(|index| GitHubRelease {
+                tag_name: format!("v1.0.{index}-rc.1"),
+                draft: false,
+                prerelease: true,
+                assets: vec![],
+            })
+            .collect();
+        releases.push(GitHubRelease {
+            tag_name: "v1.0.0".to_string(),
+            draft: false,
+            prerelease: false,
+            assets: vec![],
+        });
+        let mut scanned = 0;
+
+        let scanned_releases = stable_releases_within_scan_limit(&releases, &mut scanned, 1);
+
+        assert_eq!(scanned_releases.len(), 1);
+        assert_eq!(scanned, 1);
+        assert_eq!(scanned_releases[0].tag_name, "v1.0.0");
     }
 
     #[test]
@@ -2363,6 +2557,7 @@ mod tests {
             assets: vec![GitHubAsset {
                 name: format!("pup-hello-{os}-{arch}"),
                 url: None,
+                size: None,
                 browser_download_url: "https://example.com/hello".to_string(),
             }],
         };
@@ -2474,6 +2669,40 @@ mod tests {
         cursor.into_inner()
     }
 
+    fn test_archive_download(
+        asset_name: &str,
+        bytes: Vec<u8>,
+        extensions: Vec<String>,
+    ) -> ArchiveDownload {
+        ArchiveDownload {
+            release_tag: "v1.2.3".to_string(),
+            version: "1.2.3".to_string(),
+            asset_name: asset_name.to_string(),
+            bytes,
+            extensions,
+        }
+    }
+
+    #[test]
+    fn test_archive_scan_budget_rejects_over_budget_consume() {
+        let asset = GitHubAsset {
+            name: "bundle.tar.gz".to_string(),
+            url: None,
+            size: None,
+            browser_download_url: "https://example.com/bundle".to_string(),
+        };
+        let mut budget = ArchiveScanBudget::new(3);
+
+        budget.consume(&asset, 2).unwrap();
+        let result = budget.consume(&asset, 2);
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("archive scan budget exceeded"));
+    }
+
     #[test]
     fn test_find_platform_archive_asset_found() {
         let version = "1.2.3";
@@ -2485,26 +2714,31 @@ mod tests {
                 GitHubAsset {
                     name: format!("bundle_{version}_Darwin_arm64.tar.gz"),
                     url: None,
+                    size: None,
                     browser_download_url: "https://example.com/darwin-arm64".to_string(),
                 },
                 GitHubAsset {
                     name: format!("bundle_{version}_Darwin_x86_64.tar.gz"),
                     url: None,
+                    size: None,
                     browser_download_url: "https://example.com/darwin-x86_64".to_string(),
                 },
                 GitHubAsset {
                     name: format!("bundle_{version}_Linux_arm64.tar.gz"),
                     url: None,
+                    size: None,
                     browser_download_url: "https://example.com/linux-arm64".to_string(),
                 },
                 GitHubAsset {
                     name: format!("bundle_{version}_Linux_x86_64.tar.gz"),
                     url: None,
+                    size: None,
                     browser_download_url: "https://example.com/linux-x86_64".to_string(),
                 },
                 GitHubAsset {
                     name: format!("bundle_{version}_Windows_x86_64.zip"),
                     url: None,
+                    size: None,
                     browser_download_url: "https://example.com/windows-x86_64".to_string(),
                 },
             ],
@@ -2566,6 +2800,46 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("byte limit"));
+    }
+
+    #[test]
+    fn test_archive_extension_payloads_rejects_too_many_selected_extensions() {
+        let archive = test_archive_download(
+            "bundle_1.2.3_Darwin_arm64.tar.gz",
+            make_tar_gz(&[("pup-foo", b"foo")]),
+            vec!["foo".to_string()],
+        );
+        let names = (0..3)
+            .map(|index| format!("foo{index}"))
+            .collect::<Vec<_>>();
+
+        let result = archive_extension_payloads_with_limits(&archive, &names, 2, 1024);
+
+        assert!(result.is_err());
+        assert!(result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("more than 2 extensions"));
+    }
+
+    #[test]
+    fn test_archive_extension_payloads_rejects_aggregate_payload_limit() {
+        let archive = test_archive_download(
+            "bundle_1.2.3_Darwin_arm64.tar.gz",
+            make_tar_gz(&[("pup-foo", b"foo"), ("pup-bar", b"bar")]),
+            vec!["foo".to_string(), "bar".to_string()],
+        );
+        let names = vec!["foo".to_string(), "bar".to_string()];
+
+        let result = archive_extension_payloads_with_limits(&archive, &names, 10, 5);
+
+        assert!(result.is_err());
+        assert!(result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("aggregate limit"));
     }
 
     #[test]

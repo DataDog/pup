@@ -1080,7 +1080,7 @@ enum Commands {
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips LIMIT 5"
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips" -o csv > results.csv
     ///   cat query.sql | pup ddsql table --query - -o table
-    ///   pup ddsql time-series --query "SELECT avg(system.cpu.user) FROM metrics GROUP BY host" --from 1h --interval 300000
+    ///   pup ddsql time-series --query "SELECT timestamp, value, tags->'host' AS host FROM dd.metrics_timeseries('avg:system.cpu.user{*} by {host}')" --from 1h
     ///   pup ddsql spec
     ///   pup ddsql schema tables --query ec2 --limit 100
     ///   pup ddsql schema columns --table-id public.aws.ec2_instance

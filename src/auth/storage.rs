@@ -961,9 +961,10 @@ pub fn find_default_session_site() -> Option<String> {
         1 => sites.pop(),
         0 => None,
         _ => {
-            // Legacy: multiple no-org rows on different sites. New logins enforce
-            // the single-slot invariant (see prune_other_default_sessions), so this
-            // path only fires for pre-existing data and self-heals on next login.
+            // Legacy: multiple no-org rows on different sites. A bare login
+            // enforces the single-slot invariant (see prune_other_default_sessions),
+            // so this path only fires for pre-existing data and self-heals on the
+            // next bare login (a named `--org` login does not prune).
             eprintln!(
                 "Warning: multiple default (no-org) sessions on different \
                  sites ({}); not auto-selecting. Set DD_SITE or re-run \
@@ -993,21 +994,25 @@ pub fn prune_other_default_sessions(keep_site: &str) -> Result<()> {
     if to_prune.is_empty() {
         return Ok(());
     }
-    // Best-effort token deletion: initialise the storage backend only now
-    // that we know there is work to do.
+    // Remove the session rows FIRST: rows are the authoritative source of truth
+    // for resolution, so the only residue a later failure can leave is an orphan
+    // token (never read — tokens are only loaded by an explicit (site, org) key).
+    // Doing token deletion first would risk the opposite: a failed write_sessions
+    // leaving a tokenless extra no-org row, which find_default_session_site treats
+    // as ambiguous and falls back to datadoghq.com — the exact #592 failure.
+    let mut sessions = list_sessions()?;
+    sessions.retain(|s| !(s.org.is_none() && to_prune.contains(&s.site)));
+    write_sessions(&sessions)?;
+    // Best-effort token cleanup: initialise the storage backend only now that the
+    // rows are gone. delete_tokens(site, None) removes only the no-org token slot
+    // for that site; named-org tokens on the same site are untouched.
     let guard = get_storage()?;
     let mut lock = guard.lock().unwrap();
     let store = lock.as_mut().unwrap();
     for site in &to_prune {
-        // Ignore errors — orphan tokens are harmless; session rows are the
-        // authoritative source of truth for resolution.
         let _ = store.delete_tokens(site, None);
     }
-    drop(lock);
-    // Remove the session rows from the registry.
-    let mut sessions = list_sessions()?;
-    sessions.retain(|s| !(s.org.is_none() && to_prune.contains(&s.site)));
-    write_sessions(&sessions)
+    Ok(())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1717,6 +1722,99 @@ mod tests {
         assert!(sessions
             .iter()
             .any(|s| s.site == "datadoghq.eu" && s.org.as_deref() == Some("staging")));
+    }
+
+    #[test]
+    fn test_prune_self_heals_legacy_multiple_no_org_rows() {
+        // The central migration promise: legacy data with two no-org rows is
+        // ambiguous (find_default_session_site warns + returns None), but a bare
+        // login's prune collapses it to one, after which resolution recovers.
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_self_heal");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+
+        // Ambiguous before: two no-org rows → None.
+        assert!(find_default_session_site().is_none());
+
+        // A bare login to .eu prunes the .com no-org row.
+        prune_other_default_sessions("datadoghq.eu").unwrap();
+
+        // Recovered: exactly one no-org row, resolution returns it.
+        let healed = find_default_session_site();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(healed.as_deref(), Some("datadoghq.eu"));
+    }
+
+    #[test]
+    fn test_prune_deletes_only_other_no_org_token() {
+        // Token hygiene + safety: prune deletes the displaced site's no-org token
+        // but leaves the kept site's no-org token and any named-org token intact.
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_tokens");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        let guard = get_storage().unwrap();
+        {
+            let lock = guard.lock().unwrap();
+            let store = lock.as_ref().unwrap();
+            store
+                .save_tokens("datadoghq.com", None, &make_token("com-default"))
+                .unwrap();
+            store
+                .save_tokens("datadoghq.com", Some("prod"), &make_token("com-prod"))
+                .unwrap();
+            store
+                .save_tokens("datadoghq.eu", None, &make_token("eu-default"))
+                .unwrap();
+        }
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+
+        prune_other_default_sessions("datadoghq.eu").unwrap();
+
+        let lock = guard.lock().unwrap();
+        let store = lock.as_ref().unwrap();
+        let com_default = store.load_tokens("datadoghq.com", None).unwrap();
+        let com_prod = store.load_tokens("datadoghq.com", Some("prod")).unwrap();
+        let eu_default = store.load_tokens("datadoghq.eu", None).unwrap();
+        drop(lock);
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        // Displaced no-org token gone; named-org token on the same site and the
+        // kept site's no-org token both survive.
+        assert!(
+            com_default.is_none(),
+            "displaced no-org .com token should be deleted"
+        );
+        assert!(com_prod.is_some(), "named-org .com token must survive");
+        assert!(eu_default.is_some(), "kept-site no-org token must survive");
     }
 
     // --- detect_backend ---------------------------------------------------------

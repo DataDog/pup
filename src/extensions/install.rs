@@ -3,9 +3,9 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::io::{self, Cursor, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::discovery::extension_dir;
 use super::manifest::Manifest;
@@ -23,6 +23,7 @@ const MAX_SELECTED_ARCHIVE_EXTENSIONS: usize = 100;
 const MAX_TOTAL_EXTENSION_PAYLOAD_BYTES: usize = 256 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 4096;
 const MAX_CHECKSUMS_BYTES: usize = 1024 * 1024;
+const GH_AUTH_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// GitHub release asset metadata (subset of the GitHub Releases API response).
 #[derive(Debug, serde::Deserialize)]
@@ -141,6 +142,7 @@ struct GitHubAuthResolution {
 }
 
 static GITHUB_AUTH: OnceLock<GitHubAuthResolution> = OnceLock::new();
+static GITHUB_GH_AUTH: OnceLock<GitHubAuthResolution> = OnceLock::new();
 
 /// Map `std::env::consts::OS` to the asset name convention.
 fn platform_os() -> &'static str {
@@ -188,13 +190,9 @@ fn github_client() -> Result<reqwest::Client> {
         .context("building HTTP client for GitHub API")
 }
 
-fn resolve_github_auth_with<EnvLookup, GhToken>(
-    env_lookup: EnvLookup,
-    gh_token: GhToken,
-) -> GitHubAuthResolution
+fn resolve_github_env_auth_with<EnvLookup>(env_lookup: EnvLookup) -> GitHubAuthResolution
 where
     EnvLookup: Fn(&str) -> Option<String>,
-    GhToken: Fn() -> Result<String>,
 {
     for name in ["GH_TOKEN", "GITHUB_TOKEN", "HOMEBREW_GITHUB_API_TOKEN"] {
         if let Some(token) = env_lookup(name)
@@ -209,6 +207,17 @@ where
         }
     }
 
+    GitHubAuthResolution {
+        token: None,
+        source: None,
+        gh_error: None,
+    }
+}
+
+fn resolve_github_gh_auth_with<GhToken>(gh_token: GhToken) -> GitHubAuthResolution
+where
+    GhToken: Fn() -> Result<String>,
+{
     match gh_token() {
         Ok(token) => {
             let token = token.trim().to_string();
@@ -234,10 +243,35 @@ where
     }
 }
 
+fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Result<Output> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("starting command")?;
+    let started = Instant::now();
+
+    loop {
+        if child
+            .try_wait()
+            .context("checking command status")?
+            .is_some()
+        {
+            return child.wait_with_output().context("reading command output");
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("command timed out after {} seconds", timeout.as_secs());
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 fn active_gh_token() -> Result<String> {
-    let output = Command::new("gh")
-        .args(["auth", "token", "--hostname", "github.com"])
-        .output()
+    let mut command = Command::new("gh");
+    command.args(["auth", "token", "--hostname", "github.com"]);
+    let output = command_output_with_timeout(&mut command, GH_AUTH_COMMAND_TIMEOUT)
         .context("running gh auth token --hostname github.com")?;
 
     if !output.status.success() {
@@ -253,29 +287,47 @@ fn active_gh_token() -> Result<String> {
 }
 
 fn resolve_github_auth() -> GitHubAuthResolution {
-    resolve_github_auth_with(|name| std::env::var(name).ok(), active_gh_token)
+    resolve_github_env_auth_with(|name| std::env::var(name).ok())
+}
+
+fn resolve_github_gh_auth() -> GitHubAuthResolution {
+    resolve_github_gh_auth_with(active_gh_token)
 }
 
 fn github_auth() -> &'static GitHubAuthResolution {
     GITHUB_AUTH.get_or_init(resolve_github_auth)
 }
 
+fn github_gh_auth() -> &'static GitHubAuthResolution {
+    GITHUB_GH_AUTH.get_or_init(resolve_github_gh_auth)
+}
+
+fn github_effective_auth() -> &'static GitHubAuthResolution {
+    if github_auth().source.is_some() {
+        github_auth()
+    } else {
+        GITHUB_GH_AUTH.get().unwrap_or_else(github_auth)
+    }
+}
+
 fn github_token() -> Option<&'static str> {
-    github_auth().token.as_deref()
+    github_auth()
+        .token
+        .as_deref()
+        .or_else(|| GITHUB_GH_AUTH.get().and_then(|auth| auth.token.as_deref()))
 }
 
 fn github_auth_status_diagnostic() -> Option<String> {
-    let output = Command::new("gh")
-        .args([
-            "auth",
-            "status",
-            "--hostname",
-            "github.com",
-            "--json",
-            "hosts",
-        ])
-        .output()
-        .ok()?;
+    let mut command = Command::new("gh");
+    command.args([
+        "auth",
+        "status",
+        "--hostname",
+        "github.com",
+        "--json",
+        "hosts",
+    ]);
+    let output = command_output_with_timeout(&mut command, GH_AUTH_COMMAND_TIMEOUT).ok()?;
 
     if !output.status.success() {
         return None;
@@ -363,7 +415,7 @@ fn github_access_guidance(
 }
 
 fn github_failure_guidance(owner: &str, repo: &str) -> String {
-    let auth = github_auth();
+    let auth = github_effective_auth();
     let gh_status = match auth.source {
         Some(GitHubAuthSource::Env(_)) => None,
         Some(GitHubAuthSource::GhActive) | None => github_auth_status_diagnostic(),
@@ -381,6 +433,37 @@ fn github_api_get(client: &reqwest::Client, url: &str) -> reqwest::RequestBuilde
     req
 }
 
+fn should_retry_github_api_with_gh(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::UNAUTHORIZED
+            | reqwest::StatusCode::FORBIDDEN
+            | reqwest::StatusCode::NOT_FOUND
+    )
+}
+
+async fn send_github_api_get(
+    client: &reqwest::Client,
+    url: &str,
+    context: &str,
+) -> Result<reqwest::Response> {
+    let resp = github_api_get(client, url)
+        .send()
+        .await
+        .with_context(|| format!("{context} from {url}"))?;
+    if github_auth().source.is_none()
+        && GITHUB_GH_AUTH.get().is_none()
+        && should_retry_github_api_with_gh(resp.status())
+        && github_gh_auth().token.is_some()
+    {
+        return github_api_get(client, url)
+            .send()
+            .await
+            .with_context(|| format!("{context} from {url} with GitHub CLI token"));
+    }
+    Ok(resp)
+}
+
 /// Fetch a GitHub release (latest or by tag).
 async fn fetch_github_release(
     client: &reqwest::Client,
@@ -391,10 +474,7 @@ async fn fetch_github_release(
 ) -> Result<GitHubRelease> {
     if let Some(tag) = tag {
         let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}");
-        let resp = github_api_get(client, &url)
-            .send()
-            .await
-            .with_context(|| format!("fetching release from {url}"))?;
+        let resp = send_github_api_get(client, &url, "fetching release").await?;
 
         let status = resp.status();
         if status == reqwest::StatusCode::NOT_FOUND {
@@ -419,10 +499,7 @@ async fn fetch_github_release(
 
     let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
 
-    let resp = github_api_get(client, &url)
-        .send()
-        .await
-        .with_context(|| format!("fetching release from {url}"))?;
+    let resp = send_github_api_get(client, &url, "fetching release").await?;
 
     let status = resp.status();
     if status == reqwest::StatusCode::NOT_FOUND {
@@ -454,10 +531,7 @@ async fn fetch_github_release_page(
 ) -> Result<Vec<GitHubRelease>> {
     let url =
         format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=100&page={page}");
-    let resp = github_api_get(client, &url)
-        .send()
-        .await
-        .with_context(|| format!("fetching releases from {url}"))?;
+    let resp = send_github_api_get(client, &url, "fetching releases").await?;
 
     let status = resp.status();
     if status == reqwest::StatusCode::NOT_FOUND {
@@ -1138,6 +1212,59 @@ fn cleanup_dir(path: &Path) {
     }
 }
 
+fn remove_dir_all_if_exists(path: &Path) -> Result<()> {
+    if path.exists() {
+        std::fs::remove_dir_all(path)
+            .with_context(|| format!("removing directory {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn rollback_staged_extensions(
+    installed_targets: &[PathBuf],
+    backups: &[(PathBuf, PathBuf)],
+) -> Result<()> {
+    let mut errors = Vec::new();
+
+    for target in installed_targets.iter().rev() {
+        if let Err(error) = remove_dir_all_if_exists(target) {
+            errors.push(error.to_string());
+        }
+    }
+
+    for (target, backup) in backups.iter().rev() {
+        if !backup.exists() {
+            continue;
+        }
+        if target.exists() {
+            errors.push(format!(
+                "could not restore backup {} to {} because target still exists",
+                backup.display(),
+                target.display()
+            ));
+            continue;
+        }
+        if let Err(error) = std::fs::rename(backup, target).with_context(|| {
+            format!(
+                "restoring backup {} to {}",
+                backup.display(),
+                target.display()
+            )
+        }) {
+            errors.push(error.to_string());
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "rollback after failed install was incomplete:\n- {}",
+            errors.join("\n- ")
+        )
+    }
+}
+
 fn commit_staged_extensions(staged: &[StagedExtension], force: bool) -> Result<()> {
     commit_staged_extensions_with_hook(staged, force, |_| Ok(()))
 }
@@ -1197,13 +1324,8 @@ where
     })();
 
     if let Err(error) = result {
-        for target in installed_targets.iter().rev() {
-            cleanup_dir(target);
-        }
-        for (target, backup) in backups.iter().rev() {
-            if backup.exists() && !target.exists() {
-                let _ = std::fs::rename(backup, target);
-            }
+        if let Err(rollback_error) = rollback_staged_extensions(&installed_targets, &backups) {
+            bail!("{error}\n\n{rollback_error}");
         }
         return Err(error);
     }
@@ -2235,13 +2357,10 @@ mod tests {
 
     #[test]
     fn test_resolve_github_auth_prefers_env_token_over_gh() {
-        let auth = resolve_github_auth_with(
-            |name| match name {
-                "GH_TOKEN" => Some(" env-token \n".to_string()),
-                _ => None,
-            },
-            || Ok("gh-token\n".to_string()),
-        );
+        let auth = resolve_github_env_auth_with(|name| match name {
+            "GH_TOKEN" => Some(" env-token \n".to_string()),
+            _ => None,
+        });
 
         assert_eq!(auth.token.as_deref(), Some("env-token"));
         assert_eq!(auth.source, Some(GitHubAuthSource::Env("GH_TOKEN")));
@@ -2249,16 +2368,22 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_github_auth_ignores_empty_env_and_uses_gh() {
-        let auth = resolve_github_auth_with(
-            |name| match name {
-                "GH_TOKEN" => Some("   ".to_string()),
-                "GITHUB_TOKEN" => None,
-                "HOMEBREW_GITHUB_API_TOKEN" => None,
-                _ => None,
-            },
-            || Ok(" gh-token \n".to_string()),
-        );
+    fn test_resolve_github_auth_ignores_empty_env_without_gh_lookup() {
+        let auth = resolve_github_env_auth_with(|name| match name {
+            "GH_TOKEN" => Some("   ".to_string()),
+            "GITHUB_TOKEN" => None,
+            "HOMEBREW_GITHUB_API_TOKEN" => None,
+            _ => None,
+        });
+
+        assert_eq!(auth.token, None);
+        assert_eq!(auth.source, None);
+        assert!(auth.gh_error.is_none());
+    }
+
+    #[test]
+    fn test_resolve_github_gh_auth_uses_gh_token_when_requested() {
+        let auth = resolve_github_gh_auth_with(|| Ok(" gh-token \n".to_string()));
 
         assert_eq!(auth.token.as_deref(), Some("gh-token"));
         assert_eq!(auth.source, Some(GitHubAuthSource::GhActive));
@@ -2267,8 +2392,7 @@ mod tests {
 
     #[test]
     fn test_resolve_github_auth_falls_back_to_anonymous_when_gh_fails() {
-        let auth =
-            resolve_github_auth_with(|_| None, || Err(anyhow::anyhow!("gh is not installed")));
+        let auth = resolve_github_gh_auth_with(|| Err(anyhow::anyhow!("gh is not installed")));
 
         assert_eq!(auth.token, None);
         assert_eq!(auth.source, None);
@@ -3220,6 +3344,37 @@ mod tests {
             std::fs::read(target_bar.join("pup-bar")).unwrap(),
             b"old-bar"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_rollback_staged_extensions_reports_unrestored_backup() {
+        let dir = std::env::temp_dir().join(format!(
+            "pup-test-rollback-report-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let target = dir.join("pup-foo");
+        let backup = dir.join("backup-foo");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::create_dir_all(&backup).unwrap();
+        write_test_file(&target.join("pup-foo"), b"new-foo");
+        write_test_file(&backup.join("pup-foo"), b"old-foo");
+
+        let result = rollback_staged_extensions(&[], &[(target.clone(), backup.clone())]);
+
+        assert!(result.is_err());
+        let message = result.unwrap_err().to_string();
+        assert!(message.contains("rollback after failed install was incomplete"));
+        assert!(message.contains("target still exists"));
+        assert_eq!(std::fs::read(target.join("pup-foo")).unwrap(), b"new-foo");
+        assert_eq!(std::fs::read(backup.join("pup-foo")).unwrap(), b"old-foo");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

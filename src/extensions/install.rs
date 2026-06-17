@@ -9,6 +9,10 @@ use super::discovery::extension_dir;
 use super::manifest::Manifest;
 use crate::version;
 
+const MAX_REMOTE_LIST_RELEASES: usize = 100;
+const MAX_REMOTE_LIST_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
+const MAX_IMPLICIT_RELEASE_SCAN: usize = 100;
+
 /// GitHub release asset metadata (subset of the GitHub Releases API response).
 #[derive(Debug, serde::Deserialize)]
 struct GitHubAsset {
@@ -22,6 +26,10 @@ struct GitHubAsset {
 #[derive(Debug, serde::Deserialize)]
 struct GitHubRelease {
     tag_name: String,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
     assets: Vec<GitHubAsset>,
 }
 
@@ -245,7 +253,7 @@ fn github_access_guidance(
              To switch accounts:\n\
                gh auth switch --hostname github.com\n\n\
              Or provide a token explicitly:\n\
-               GH_TOKEN=<token> pup extension install {owner}/{repo} --extension foo"
+               GH_TOKEN=<token> pup extension install {owner}/{repo} --extension <name>"
         ),
         None => format!(
             "GitHub access failed for {owner}/{repo}.\n\n\
@@ -294,6 +302,7 @@ async fn fetch_github_release(
     owner: &str,
     repo: &str,
     tag: Option<&str>,
+    extension_hint: Option<&str>,
 ) -> Result<GitHubRelease> {
     if let Some(tag) = tag {
         let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}");
@@ -304,7 +313,12 @@ async fn fetch_github_release(
 
         let status = resp.status();
         if status == reqwest::StatusCode::NOT_FOUND {
-            bail!("{}", release_tag_not_found_message(owner, repo, tag));
+            let guidance = github_failure_guidance(owner, repo);
+            bail!(
+                "{}\n\n{}",
+                release_tag_not_found_message(owner, repo, tag, extension_hint),
+                guidance
+            );
         }
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -347,10 +361,11 @@ async fn fetch_github_release(
 }
 
 /// Fetch GitHub releases newest-first.
-async fn fetch_github_releases(
+async fn fetch_github_releases_with_limit(
     client: &reqwest::Client,
     owner: &str,
     repo: &str,
+    max_releases: Option<usize>,
 ) -> Result<Vec<GitHubRelease>> {
     let mut releases = Vec::new();
     let mut page = 1;
@@ -384,6 +399,14 @@ async fn fetch_github_releases(
             .await
             .with_context(|| format!("parsing release JSON from {url}"))?;
         let count = page_releases.len();
+        if let Some(max_releases) = max_releases {
+            if releases.len() + count > max_releases {
+                bail!(
+                    "release scan for {owner}/{repo} is limited to {max_releases} releases. \
+                     Use --tag to install an exact release, or publish a smaller release index."
+                );
+            }
+        }
         releases.append(&mut page_releases);
         if count < 100 {
             break;
@@ -392,6 +415,10 @@ async fn fetch_github_releases(
     }
 
     Ok(releases)
+}
+
+fn is_stable_release(release: &GitHubRelease) -> bool {
+    !release.draft && !release.prerelease
 }
 
 /// Find the matching asset for the current platform in a release.
@@ -636,6 +663,14 @@ fn selected_archive_extension_names(
 /// Download a release asset. Authenticated GitHub API asset URLs are used when
 /// a GitHub token is available; public browser URLs remain the fallback.
 async fn download_asset(client: &reqwest::Client, asset: &GitHubAsset) -> Result<Vec<u8>> {
+    download_asset_with_limit(client, asset, None).await
+}
+
+async fn download_asset_with_limit(
+    client: &reqwest::Client,
+    asset: &GitHubAsset,
+    max_bytes: Option<usize>,
+) -> Result<Vec<u8>> {
     let token = github_token();
     let use_api_asset = token.is_some() && asset.url.is_some();
     let url = if use_api_asset {
@@ -660,6 +695,36 @@ async fn download_asset(client: &reqwest::Client, asset: &GitHubAsset) -> Result
     let status = resp.status();
     if !status.is_success() {
         bail!("download failed with HTTP {status} for {url}");
+    }
+
+    if let Some(max_bytes) = max_bytes {
+        if resp
+            .content_length()
+            .is_some_and(|content_length| content_length > max_bytes as u64)
+        {
+            bail!(
+                "asset '{}' is larger than the {} byte scan limit",
+                asset.name,
+                max_bytes
+            );
+        }
+
+        use futures_util::StreamExt;
+
+        let mut bytes = Vec::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.with_context(|| format!("reading asset bytes from {url}"))?;
+            if bytes.len() + chunk.len() > max_bytes {
+                bail!(
+                    "asset '{}' is larger than the {} byte scan limit",
+                    asset.name,
+                    max_bytes
+                );
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        return Ok(bytes);
     }
 
     resp.bytes()
@@ -704,17 +769,24 @@ fn looks_like_semver_tag(tag: &str) -> bool {
             .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
 }
 
-fn release_tag_not_found_message(owner: &str, repo: &str, tag: &str) -> String {
+fn release_tag_not_found_message(
+    owner: &str,
+    repo: &str,
+    tag: &str,
+    extension_hint: Option<&str>,
+) -> String {
     let hint = if let Some(suggestion) = release_tag_suggestion(tag) {
+        let extension_arg = extension_hint
+            .map(|extension| format!(" --extension {extension}"))
+            .unwrap_or_default();
         format!(
-            "\n\nIf you copied a version from `pup extension list-remote`, use the tag shown in parentheses:\n  pup extension install {owner}/{repo} --extension foo --tag {}",
-            suggestion
+            "\n\nIf you copied a version from `pup extension list-remote`, use the tag shown in parentheses:\n  pup extension install {owner}/{repo}{extension_arg} --tag {suggestion}"
         )
     } else {
         String::new()
     };
     format!(
-        "release tag '{tag}' not found in {owner}/{repo}. `--tag` uses exact GitHub release tags. \
+        "release tag '{tag}' not found or repository inaccessible in {owner}/{repo}. `--tag` uses exact GitHub release tags. \
          Check available releases at https://github.com/{owner}/{repo}/releases{hint}"
     )
 }
@@ -904,7 +976,7 @@ async fn archive_artifacts_for_request(
 
     if tag.is_none() {
         let Some(extension) = extension else {
-            let release = fetch_github_release(client, owner, repo, tag).await?;
+            let release = fetch_github_release(client, owner, repo, tag, None).await?;
             let archive = required_archive_from_release(client, owner, repo, &release).await?;
             let names = selected_archive_extension_names(&archive.extensions, None, all)?;
             let payloads = archive_extension_payloads(&archive, &names)?;
@@ -916,8 +988,10 @@ async fn archive_artifacts_for_request(
                 payloads,
             });
         };
-        let releases = fetch_github_releases(client, owner, repo).await?;
-        for release in &releases {
+        let releases =
+            fetch_github_releases_with_limit(client, owner, repo, Some(MAX_IMPLICIT_RELEASE_SCAN))
+                .await?;
+        for release in releases.iter().filter(|release| is_stable_release(release)) {
             let Some(archive) = download_archive_from_release(client, release, repo).await? else {
                 continue;
             };
@@ -940,7 +1014,7 @@ async fn archive_artifacts_for_request(
         );
     }
 
-    let release = fetch_github_release(client, owner, repo, tag).await?;
+    let release = fetch_github_release(client, owner, repo, tag, extension).await?;
     let archive = required_archive_from_release(client, owner, repo, &release).await?;
     let names = selected_archive_extension_names(&archive.extensions, extension, all)?;
     let payloads = archive_extension_payloads(&archive, &names)?;
@@ -961,8 +1035,10 @@ async fn latest_archive_artifacts_for_extension(
 ) -> Result<GitHubInstallArtifacts> {
     validate_extension_name(extension)?;
 
-    let releases = fetch_github_releases(client, owner, repo).await?;
-    for release in &releases {
+    let releases =
+        fetch_github_releases_with_limit(client, owner, repo, Some(MAX_IMPLICIT_RELEASE_SCAN))
+            .await?;
+    for release in releases.iter().filter(|release| is_stable_release(release)) {
         let Some(archive) = download_archive_from_release(client, release, repo).await? else {
             continue;
         };
@@ -1037,7 +1113,7 @@ pub fn install_from_github(
     let artifacts = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             let client = github_client()?;
-            let release = fetch_github_release(&client, owner, repo, tag).await?;
+            let release = fetch_github_release(&client, owner, repo, tag, None).await?;
             match find_platform_asset(&release, &asset_name) {
                 Ok(asset) => {
                     let bytes = download_asset(&client, asset).await?;
@@ -1123,17 +1199,29 @@ fn remote_versions_from_archive_inventory(
     versions
 }
 
-fn parse_checksums(checksums: &str, asset_name: &str) -> Option<String> {
-    checksums.lines().find_map(|line| {
-        let mut parts = line.split_whitespace();
-        let digest = parts.next()?;
-        let file = parts.next()?;
-        if file == asset_name {
-            Some(digest.to_ascii_lowercase())
-        } else {
-            None
+fn parse_checksums(checksums: &str, asset_name: &str) -> Result<Option<String>> {
+    for line in checksums.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
         }
-    })
+        let mut parts = line.split_whitespace();
+        let Some(digest) = parts.next() else {
+            continue;
+        };
+        let Some(file) = parts.next() else {
+            continue;
+        };
+        let file = file.trim_start_matches('*');
+        if file == asset_name {
+            let digest = digest.to_ascii_lowercase();
+            if digest.len() != 64 || !digest.chars().all(|c| c.is_ascii_hexdigit()) {
+                bail!("invalid SHA-256 checksum for {asset_name} in checksums.txt");
+            }
+            return Ok(Some(digest));
+        }
+    }
+    Ok(None)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1142,6 +1230,23 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+fn verify_checksum_contents(checksums: &str, asset_name: &str, bytes: &[u8]) -> Result<()> {
+    let Some(expected) = parse_checksums(checksums, asset_name)? else {
+        bail!("checksums.txt does not contain a SHA-256 checksum for {asset_name}");
+    };
+
+    let actual = sha256_hex(bytes);
+    if actual != expected {
+        bail!(
+            "checksum mismatch for {}: expected {}, got {}",
+            asset_name,
+            expected,
+            actual
+        );
+    }
+    Ok(())
 }
 
 async fn verify_release_asset_checksum(
@@ -1156,20 +1261,7 @@ async fn verify_release_asset_checksum(
 
     let checksums_bytes = download_asset(client, checksums_asset).await?;
     let checksums = String::from_utf8(checksums_bytes).context("checksums.txt is not UTF-8")?;
-    let Some(expected) = parse_checksums(&checksums, &asset.name) else {
-        return Ok(());
-    };
-
-    let actual = sha256_hex(bytes);
-    if actual != expected {
-        bail!(
-            "checksum mismatch for {}: expected {}, got {}",
-            asset.name,
-            expected,
-            actual
-        );
-    }
-    Ok(())
+    verify_checksum_contents(&checksums, &asset.name, bytes)
 }
 
 async fn archive_inventory_from_release(
@@ -1177,14 +1269,19 @@ async fn archive_inventory_from_release(
     release: &GitHubRelease,
     project_name: &str,
 ) -> Result<Option<ArchiveInventory>> {
-    Ok(download_archive_from_release(client, release, project_name)
-        .await?
-        .map(|archive| ArchiveInventory {
-            tag: archive.release_tag,
-            version: archive.version,
-            asset: archive.asset_name,
-            extensions: archive.extensions,
-        }))
+    Ok(download_archive_from_release_with_limit(
+        client,
+        release,
+        project_name,
+        Some(MAX_REMOTE_LIST_ARCHIVE_BYTES),
+    )
+    .await?
+    .map(|archive| ArchiveInventory {
+        tag: archive.release_tag,
+        version: archive.version,
+        asset: archive.asset_name,
+        extensions: archive.extensions,
+    }))
 }
 
 async fn download_archive_from_release(
@@ -1192,11 +1289,20 @@ async fn download_archive_from_release(
     release: &GitHubRelease,
     project_name: &str,
 ) -> Result<Option<ArchiveDownload>> {
+    download_archive_from_release_with_limit(client, release, project_name, None).await
+}
+
+async fn download_archive_from_release_with_limit(
+    client: &reqwest::Client,
+    release: &GitHubRelease,
+    project_name: &str,
+    max_bytes: Option<usize>,
+) -> Result<Option<ArchiveDownload>> {
     let asset = match find_platform_archive_asset(release, project_name) {
         Ok(asset) => asset,
         Err(_) => return Ok(None),
     };
-    let bytes = download_asset(client, asset).await?;
+    let bytes = download_asset_with_limit(client, asset, max_bytes).await?;
     verify_release_asset_checksum(client, release, asset, &bytes).await?;
     let extensions = extension_names_from_archive(&asset.name, &bytes)?;
 
@@ -1221,9 +1327,15 @@ pub fn list_remote_extensions(
     let inventories = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             let client = github_client()?;
-            let releases = fetch_github_releases(&client, owner, repo).await?;
+            let releases = fetch_github_releases_with_limit(
+                &client,
+                owner,
+                repo,
+                Some(MAX_REMOTE_LIST_RELEASES),
+            )
+            .await?;
             let mut inventories = Vec::new();
-            for release in &releases {
+            for release in releases.iter().filter(|release| !release.draft) {
                 if let Some(inventory) =
                     archive_inventory_from_release(&client, release, repo).await?
                 {
@@ -1321,7 +1433,7 @@ pub fn upgrade_extension(name: &str) -> Result<String> {
     // Step 1: Fetch the release metadata (small JSON) and check version BEFORE downloading.
     let release = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current()
-            .block_on(async { fetch_github_release(&client, owner, repo, None).await })
+            .block_on(async { fetch_github_release(&client, owner, repo, None, None).await })
     })?;
 
     let new_version = extract_version(&release.tag_name);
@@ -1776,6 +1888,8 @@ mod tests {
         let expected_name = format!("pup-hello-{os}-{arch}");
         let release = GitHubRelease {
             tag_name: "v1.0.0".to_string(),
+            draft: false,
+            prerelease: false,
             assets: vec![
                 GitHubAsset {
                     name: "pup-hello-linux-x86_64".to_string(),
@@ -1807,6 +1921,8 @@ mod tests {
     fn test_find_platform_asset_not_found() {
         let release = GitHubRelease {
             tag_name: "v1.0.0".to_string(),
+            draft: false,
+            prerelease: false,
             assets: vec![GitHubAsset {
                 name: "pup-hello-fakeos-fakearch".to_string(),
                 url: None,
@@ -1826,6 +1942,8 @@ mod tests {
     fn test_find_platform_asset_empty() {
         let release = GitHubRelease {
             tag_name: "v1.0.0".to_string(),
+            draft: false,
+            prerelease: false,
             assets: vec![],
         };
         let result = find_platform_asset(&release, "hello");
@@ -1894,12 +2012,46 @@ mod tests {
 
     #[test]
     fn test_release_tag_not_found_message_suggests_listed_tag() {
-        let message = release_tag_not_found_message("owner", "repo", "0.2.1");
+        let message = release_tag_not_found_message("owner", "repo", "0.2.1", Some("foo"));
 
-        assert!(message.contains("release tag '0.2.1' not found"));
+        assert!(message.contains("release tag '0.2.1' not found or repository inaccessible"));
         assert!(message.contains("exact GitHub release tags"));
-        assert!(message.contains("--tag v0.2.1"));
+        assert!(message.contains("extension install owner/repo --extension foo --tag v0.2.1"));
         assert!(!message.contains("GitHub access failed"));
+    }
+
+    #[test]
+    fn test_release_tag_not_found_message_omits_extension_when_unknown() {
+        let message = release_tag_not_found_message("owner", "repo", "0.2.1", None);
+
+        assert!(message.contains("extension install owner/repo --tag v0.2.1"));
+        assert!(!message.contains("--extension"));
+    }
+
+    #[test]
+    fn test_is_stable_release_rejects_drafts_and_prereleases() {
+        let stable = GitHubRelease {
+            tag_name: "v1.0.0".to_string(),
+            draft: false,
+            prerelease: false,
+            assets: vec![],
+        };
+        let draft = GitHubRelease {
+            tag_name: "v1.0.1".to_string(),
+            draft: true,
+            prerelease: false,
+            assets: vec![],
+        };
+        let prerelease = GitHubRelease {
+            tag_name: "v1.1.0-rc.1".to_string(),
+            draft: false,
+            prerelease: true,
+            assets: vec![],
+        };
+
+        assert!(is_stable_release(&stable));
+        assert!(!is_stable_release(&draft));
+        assert!(!is_stable_release(&prerelease));
     }
 
     #[test]
@@ -1910,6 +2062,8 @@ mod tests {
         let arch = platform_arch();
         let release = GitHubRelease {
             tag_name: "v1.0.0".to_string(),
+            draft: false,
+            prerelease: false,
             assets: vec![GitHubAsset {
                 name: format!("pup-hello-{os}-{arch}"),
                 url: None,
@@ -1929,6 +2083,67 @@ mod tests {
         assert_eq!(derive_name_from_repo("pup-hello"), "hello");
         assert_eq!(derive_name_from_repo("pup-my-extension"), "my-extension");
         assert_eq!(derive_name_from_repo("my-tool"), "my-tool");
+    }
+
+    #[test]
+    fn test_parse_checksums_accepts_sha256_entry() {
+        let digest = sha256_hex(b"payload");
+        let checksums = format!("{digest}  archive.tar.gz\n");
+
+        let parsed = parse_checksums(&checksums, "archive.tar.gz").unwrap();
+
+        assert_eq!(parsed.as_deref(), Some(digest.as_str()));
+    }
+
+    #[test]
+    fn test_parse_checksums_accepts_binary_mode_filename() {
+        let digest = sha256_hex(b"payload");
+        let checksums = format!("{digest} *archive.tar.gz\n");
+
+        let parsed = parse_checksums(&checksums, "archive.tar.gz").unwrap();
+
+        assert_eq!(parsed.as_deref(), Some(digest.as_str()));
+    }
+
+    #[test]
+    fn test_parse_checksums_rejects_invalid_matching_digest() {
+        let result = parse_checksums("not-a-sha archive.tar.gz\n", "archive.tar.gz");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid SHA-256"));
+    }
+
+    #[test]
+    fn test_verify_checksum_contents_accepts_match() {
+        let digest = sha256_hex(b"payload");
+        let checksums = format!("{digest} archive.tar.gz\n");
+
+        verify_checksum_contents(&checksums, "archive.tar.gz", b"payload").unwrap();
+    }
+
+    #[test]
+    fn test_verify_checksum_contents_rejects_missing_asset() {
+        let digest = sha256_hex(b"payload");
+        let checksums = format!("{digest} other.tar.gz\n");
+        let result = verify_checksum_contents(&checksums, "archive.tar.gz", b"payload");
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("does not contain a SHA-256 checksum"));
+    }
+
+    #[test]
+    fn test_verify_checksum_contents_rejects_mismatch() {
+        let checksums = format!("{} archive.tar.gz\n", "0".repeat(64));
+        let result = verify_checksum_contents(&checksums, "archive.tar.gz", b"payload");
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("checksum mismatch"));
     }
 
     fn make_tar_gz(entries: &[(&str, &[u8])]) -> Vec<u8> {
@@ -1968,6 +2183,8 @@ mod tests {
         let version = "1.2.3";
         let release = GitHubRelease {
             tag_name: format!("v{version}"),
+            draft: false,
+            prerelease: false,
             assets: vec![
                 GitHubAsset {
                     name: format!("bundle_{version}_Darwin_arm64.tar.gz"),

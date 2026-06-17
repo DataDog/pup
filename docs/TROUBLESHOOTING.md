@@ -595,8 +595,50 @@ pup <command>
 
 ### Override API Endpoint
 
-For testing or custom deployments:
+Set `DD_SITE` (or pass `--site`) to a literal hostname to route all API and OAuth traffic
+to a custom host — for example, an API gateway, proxy, or internal service:
+
 ```bash
-export DD_HOST=https://custom-api.example.com
+# Route all traffic through a custom gateway (HTTPS required)
+export DD_SITE=mygateway.example.com
+pup <command>
+
+# With a non-standard port
+export DD_SITE=mygateway.example.com:8443
 pup <command>
 ```
+
+Because a custom host is not a Datadog-owned domain, pup confirms before sending
+credentials there, which guards against a typo'd host silently receiving your
+tokens or API keys. On an interactive terminal you are prompted once; in
+non-interactive contexts (CI, agent mode) pup fails closed unless you opt in.
+Opt-in follows pup's flag > env > config precedence:
+
+```bash
+# This invocation only, via flag (pass it alongside --site)
+pup --site mygateway.example.com --trust-site monitors list
+
+# This invocation only, via env
+PUP_TRUST_SITE=1 DD_SITE=mygateway.example.com pup monitors list
+```
+
+For durable trust, list the host in `~/.config/pup/config.yaml` so it is never
+prompted again:
+
+```yaml
+trusted_sites:
+  - mygateway.example.com
+```
+
+Datadog-owned hosts, including the canonical sites and the vanity
+`*.datadoghq.com` domains below, are always trusted and never prompt.
+
+For SAML/SSO vanity domain logins (replaces the removed `--subdomain` flag):
+
+```bash
+# Login via mycompany.datadoghq.com instead of app.datadoghq.com
+pup auth login --site mycompany.datadoghq.com
+```
+
+**Note:** `DD_HOST` is not recognized by pup. Use `DD_SITE` instead.
+For local test servers, use `PUP_MOCK_SERVER=http://127.0.0.1:PORT` (supports `http://`).

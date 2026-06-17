@@ -986,7 +986,7 @@ fn selected_archive_extension_names(
 /// Download a release asset. Authenticated GitHub API asset URLs are used when
 /// a GitHub token is available; public browser URLs remain the fallback.
 async fn download_asset(client: &reqwest::Client, asset: &GitHubAsset) -> Result<Vec<u8>> {
-    download_asset_with_limit(client, asset, None).await
+    download_asset_with_limit(client, asset, Some(MAX_EXTENSION_BINARY_BYTES)).await
 }
 
 async fn download_asset_with_limit(
@@ -994,6 +994,16 @@ async fn download_asset_with_limit(
     asset: &GitHubAsset,
     max_bytes: Option<usize>,
 ) -> Result<Vec<u8>> {
+    if let Some(max_bytes) = max_bytes {
+        if asset.size.is_some_and(|size| size > max_bytes as u64) {
+            bail!(
+                "asset '{}' is larger than the {} byte limit",
+                asset.name,
+                max_bytes
+            );
+        }
+    }
+
     let token = github_token();
     let use_api_asset = token.is_some() && asset.url.is_some();
     let url = if use_api_asset {
@@ -1021,19 +1031,12 @@ async fn download_asset_with_limit(
     }
 
     if let Some(max_bytes) = max_bytes {
-        if asset.size.is_some_and(|size| size > max_bytes as u64) {
-            bail!(
-                "asset '{}' is larger than the {} byte scan limit",
-                asset.name,
-                max_bytes
-            );
-        }
         if resp
             .content_length()
             .is_some_and(|content_length| content_length > max_bytes as u64)
         {
             bail!(
-                "asset '{}' is larger than the {} byte scan limit",
+                "asset '{}' is larger than the {} byte limit",
                 asset.name,
                 max_bytes
             );
@@ -1047,7 +1050,7 @@ async fn download_asset_with_limit(
             let chunk = chunk.with_context(|| format!("reading asset bytes from {url}"))?;
             if bytes.len() + chunk.len() > max_bytes {
                 bail!(
-                    "asset '{}' is larger than the {} byte scan limit",
+                    "asset '{}' is larger than the {} byte limit",
                     asset.name,
                     max_bytes
                 );
@@ -1153,20 +1156,6 @@ pub fn derive_name_from_repo(repo: &str) -> String {
     repo.strip_prefix("pup-").unwrap_or(repo).to_string()
 }
 
-/// Prepare (create or recreate) an extension directory.
-fn prepare_extension_dir(ext_dir: &Path) -> Result<()> {
-    if ext_dir.exists() {
-        std::fs::remove_dir_all(ext_dir).with_context(|| {
-            format!(
-                "removing existing extension directory: {}",
-                ext_dir.display()
-            )
-        })?;
-    }
-    std::fs::create_dir_all(ext_dir).with_context(|| format!("creating {}", ext_dir.display()))?;
-    Ok(())
-}
-
 /// Write a binary to the extension directory and set executable permissions.
 /// Returns the executable filename (e.g., "pup-hello" or "pup-hello.exe").
 fn write_extension_binary(ext_dir: &Path, name: &str, bytes: &[u8]) -> Result<String> {
@@ -1197,6 +1186,40 @@ struct StagedExtension {
     stage_dir: PathBuf,
     backup_dir: PathBuf,
 }
+
+#[derive(Debug)]
+struct CommitStagedError {
+    message: String,
+    rollback_incomplete: bool,
+}
+
+impl CommitStagedError {
+    fn new(error: anyhow::Error) -> Self {
+        Self {
+            message: error.to_string(),
+            rollback_incomplete: false,
+        }
+    }
+
+    fn rollback_incomplete(error: anyhow::Error, rollback_error: anyhow::Error) -> Self {
+        Self {
+            message: format!("{error}\n\n{rollback_error}"),
+            rollback_incomplete: true,
+        }
+    }
+
+    fn into_anyhow(self) -> anyhow::Error {
+        anyhow::anyhow!(self.message)
+    }
+}
+
+impl std::fmt::Display for CommitStagedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CommitStagedError {}
 
 fn unique_work_dir(parent: &Path, prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -1265,7 +1288,10 @@ fn rollback_staged_extensions(
     }
 }
 
-fn commit_staged_extensions(staged: &[StagedExtension], force: bool) -> Result<()> {
+fn commit_staged_extensions(
+    staged: &[StagedExtension],
+    force: bool,
+) -> std::result::Result<(), CommitStagedError> {
     commit_staged_extensions_with_hook(staged, force, |_| Ok(()))
 }
 
@@ -1273,7 +1299,7 @@ fn commit_staged_extensions_with_hook<F>(
     staged: &[StagedExtension],
     force: bool,
     mut before_install: F,
-) -> Result<()>
+) -> std::result::Result<(), CommitStagedError>
 where
     F: FnMut(usize) -> Result<()>,
 {
@@ -1325,15 +1351,62 @@ where
 
     if let Err(error) = result {
         if let Err(rollback_error) = rollback_staged_extensions(&installed_targets, &backups) {
-            bail!("{error}\n\n{rollback_error}");
+            return Err(CommitStagedError::rollback_incomplete(
+                error,
+                rollback_error,
+            ));
         }
-        return Err(error);
+        return Err(CommitStagedError::new(error));
     }
 
     for (_, backup) in backups {
         cleanup_dir(&backup);
     }
 
+    Ok(())
+}
+
+fn commit_staged_extensions_and_cleanup(
+    staged: &[StagedExtension],
+    force: bool,
+    staging_base: &Path,
+    backup_base: &Path,
+) -> Result<()> {
+    commit_staged_extensions_with_cleanup(
+        staged,
+        force,
+        staging_base,
+        backup_base,
+        commit_staged_extensions,
+    )
+}
+
+fn commit_staged_extensions_with_cleanup<F>(
+    staged: &[StagedExtension],
+    force: bool,
+    staging_base: &Path,
+    backup_base: &Path,
+    commit: F,
+) -> Result<()>
+where
+    F: FnOnce(&[StagedExtension], bool) -> std::result::Result<(), CommitStagedError>,
+{
+    if let Err(error) = commit(staged, force) {
+        let rollback_incomplete = error.rollback_incomplete;
+        let error = error.into_anyhow();
+        cleanup_dir(staging_base);
+        if rollback_incomplete {
+            bail!(
+                "{error}\n\nremaining extension backups were preserved in {}",
+                backup_base.display()
+            );
+        }
+        cleanup_dir(backup_base);
+        return Err(error);
+    }
+
+    cleanup_dir(staging_base);
+    cleanup_dir(backup_base);
     Ok(())
 }
 
@@ -1400,6 +1473,25 @@ fn save_github_payloads(
     force: bool,
     description: Option<&str>,
 ) -> Result<Vec<String>> {
+    save_github_payloads_with_commit(
+        source,
+        artifacts,
+        force,
+        description,
+        commit_staged_extensions,
+    )
+}
+
+fn save_github_payloads_with_commit<F>(
+    source: &str,
+    artifacts: GitHubInstallArtifacts,
+    force: bool,
+    description: Option<&str>,
+    commit: F,
+) -> Result<Vec<String>>
+where
+    F: FnOnce(&[StagedExtension], bool) -> std::result::Result<(), CommitStagedError>,
+{
     if artifacts.payloads.is_empty() {
         bail!("no extensions selected to install");
     }
@@ -1487,14 +1579,7 @@ fn save_github_payloads(
         }
     };
 
-    if let Err(error) = commit_staged_extensions(&staged, force) {
-        cleanup_dir(&staging_base);
-        cleanup_dir(&backup_base);
-        return Err(error);
-    }
-
-    cleanup_dir(&staging_base);
-    cleanup_dir(&backup_base);
+    commit_staged_extensions_with_cleanup(&staged, force, &staging_base, &backup_base, commit)?;
     Ok(installed)
 }
 
@@ -2096,25 +2181,26 @@ pub fn upgrade_extension(name: &str) -> Result<String> {
         })
     })?;
 
-    // Prepare (recreate) the extension directory before writing, so a failed write
-    // does not leave a partially-corrupted state.
-    prepare_extension_dir(&ext_dir)?;
-
-    let exe_name = write_extension_binary(&ext_dir, name, &asset_bytes)?;
-
-    // Update the manifest
-    let updated_manifest = Manifest {
-        version: new_version.clone(),
-        source: format!("github:{gh_source}"),
-        source_kind: None,
-        source_release_tag: None,
-        source_asset: None,
-        installed_at: chrono_now_iso(),
-        binary: exe_name,
-        installed_by_pup: version::VERSION.to_string(),
-        ..manifest
+    let description = if manifest.description.is_empty() {
+        None
+    } else {
+        Some(manifest.description.as_str())
     };
-    updated_manifest.save(&ext_dir.join("manifest.json"))?;
+    save_github_payloads(
+        gh_source,
+        GitHubInstallArtifacts {
+            version: new_version.clone(),
+            source_kind: None,
+            source_release_tag: None,
+            source_asset: None,
+            payloads: vec![ExtensionPayload {
+                name: name.to_string(),
+                bytes: asset_bytes,
+            }],
+        },
+        true,
+        description,
+    )?;
 
     Ok(format!("{name}: upgraded {old_version} -> {new_version}"))
 }
@@ -2210,61 +2296,93 @@ pub fn install_from_local(
         bail!("extension '{name}' is already installed (use --force to overwrite)");
     }
 
-    prepare_extension_dir(&ext_dir)?;
+    let staging_base = unique_work_dir(&ext_base, "pup-install-staging");
+    std::fs::create_dir_all(&staging_base)
+        .with_context(|| format!("creating staging directory {}", staging_base.display()))?;
+    let backup_base = unique_work_dir(&ext_base, "pup-install-backup");
+    if let Err(error) = std::fs::create_dir_all(&backup_base)
+        .with_context(|| format!("creating backup directory {}", backup_base.display()))
+    {
+        cleanup_dir(&staging_base);
+        return Err(error);
+    }
 
-    let exe_name = if link {
-        // For symlinks, we need to create the link directly rather than writing bytes.
-        let exe_name = if cfg!(target_os = "windows") {
-            format!("pup-{name}.exe")
+    let stage_dir = staging_base.join(format!("pup-{name}"));
+    let stage_result = (|| -> Result<StagedExtension> {
+        std::fs::create_dir_all(&stage_dir)
+            .with_context(|| format!("creating {}", stage_dir.display()))?;
+
+        let exe_name = if link {
+            // For symlinks, we need to create the link directly rather than writing bytes.
+            let exe_name = if cfg!(target_os = "windows") {
+                format!("pup-{name}.exe")
+            } else {
+                format!("pup-{name}")
+            };
+            let dest = stage_dir.join(&exe_name);
+
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&source, &dest).with_context(|| {
+                format!(
+                    "creating symlink {} -> {}",
+                    dest.display(),
+                    source.display()
+                )
+            })?;
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_file(&source, &dest).with_context(|| {
+                format!(
+                    "creating symlink {} -> {}",
+                    dest.display(),
+                    source.display()
+                )
+            })?;
+
+            exe_name
         } else {
-            format!("pup-{name}")
+            let bytes = std::fs::read(&source)
+                .with_context(|| format!("reading source file: {}", source.display()))?;
+            write_extension_binary(&stage_dir, name, &bytes)?
         };
-        let dest = ext_dir.join(&exe_name);
 
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&source, &dest).with_context(|| {
-            format!(
-                "creating symlink {} -> {}",
-                dest.display(),
-                source.display()
-            )
-        })?;
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_file(&source, &dest).with_context(|| {
-            format!(
-                "creating symlink {} -> {}",
-                dest.display(),
-                source.display()
-            )
-        })?;
+        let source_str = if link {
+            format!("local-link:{}", source.display())
+        } else {
+            format!("local:{}", source.display())
+        };
 
-        exe_name
-    } else {
-        let bytes = std::fs::read(&source)
-            .with_context(|| format!("reading source file: {}", source.display()))?;
-        write_extension_binary(&ext_dir, name, &bytes)?
+        // Local installs have no version source (unlike GitHub releases which provide a tag).
+        let manifest = Manifest {
+            name: name.to_string(),
+            version: "unknown".to_string(),
+            source: source_str,
+            source_kind: None,
+            source_release_tag: None,
+            source_asset: None,
+            installed_at: chrono_now_iso(),
+            binary: exe_name,
+            description: description.unwrap_or_default().to_string(),
+            installed_by_pup: version::VERSION.to_string(),
+        };
+        manifest.save(&stage_dir.join("manifest.json"))?;
+
+        Ok(StagedExtension {
+            target_dir: ext_dir,
+            stage_dir,
+            backup_dir: backup_base.join(format!("pup-{name}")),
+        })
+    })();
+
+    let staged = match stage_result {
+        Ok(staged) => vec![staged],
+        Err(error) => {
+            cleanup_dir(&staging_base);
+            cleanup_dir(&backup_base);
+            return Err(error);
+        }
     };
 
-    let source_str = if link {
-        format!("local-link:{}", source.display())
-    } else {
-        format!("local:{}", source.display())
-    };
-
-    // Local installs have no version source (unlike GitHub releases which provide a tag).
-    let manifest = Manifest {
-        name: name.to_string(),
-        version: "unknown".to_string(),
-        source: source_str,
-        source_kind: None,
-        source_release_tag: None,
-        source_asset: None,
-        installed_at: chrono_now_iso(),
-        binary: exe_name,
-        description: description.unwrap_or_default().to_string(),
-        installed_by_pup: version::VERSION.to_string(),
-    };
-    manifest.save(&ext_dir.join("manifest.json"))?;
+    commit_staged_extensions_and_cleanup(&staged, force, &staging_base, &backup_base)?;
 
     Ok(())
 }
@@ -2446,6 +2564,26 @@ mod tests {
         assert!(diagnostic.contains("multiple accounts"));
         assert!(diagnostic.contains("alice"));
         assert!(!diagnostic.contains("bob"));
+    }
+
+    #[test]
+    fn test_download_asset_applies_default_binary_size_limit_from_metadata() {
+        let client = github_client().unwrap();
+        let asset = GitHubAsset {
+            name: "pup-foo-linux-x86_64".to_string(),
+            url: None,
+            size: Some(MAX_EXTENSION_BINARY_BYTES as u64 + 1),
+            browser_download_url: "http://127.0.0.1:1/pup-foo".to_string(),
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let result = runtime.block_on(download_asset(&client, &asset));
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("byte limit"));
     }
 
     #[test]
@@ -3376,6 +3514,66 @@ mod tests {
         assert_eq!(std::fs::read(target.join("pup-foo")).unwrap(), b"new-foo");
         assert_eq!(std::fs::read(backup.join("pup-foo")).unwrap(), b"old-foo");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_github_payloads_preserves_backups_after_incomplete_rollback() {
+        let dir = std::env::temp_dir().join(format!(
+            "pup-test-save-preserve-backup-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        std::env::set_var("PUP_CONFIG_DIR", &dir);
+
+        let artifacts = GitHubInstallArtifacts {
+            version: "1.2.3".to_string(),
+            source_kind: None,
+            source_release_tag: None,
+            source_asset: None,
+            payloads: vec![ExtensionPayload {
+                name: "foo".to_string(),
+                bytes: b"new-foo".to_vec(),
+            }],
+        };
+
+        let result =
+            save_github_payloads_with_commit("owner/repo", artifacts, true, None, |staged, _| {
+                std::fs::create_dir_all(&staged[0].backup_dir).unwrap();
+                write_test_file(&staged[0].backup_dir.join("pup-foo"), b"old-foo");
+                Err(CommitStagedError::rollback_incomplete(
+                    anyhow::anyhow!("install failed"),
+                    anyhow::anyhow!("rollback failed"),
+                ))
+            });
+
+        assert!(result.is_err());
+        let message = result.unwrap_err().to_string();
+        assert!(message.contains("rollback failed"));
+        assert!(message.contains("remaining extension backups were preserved"));
+
+        let backup_dirs = std::fs::read_dir(dir.join("extensions"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(".pup-install-backup-"))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(backup_dirs.len(), 1);
+        assert_eq!(
+            std::fs::read(backup_dirs[0].join("pup-foo").join("pup-foo")).unwrap(),
+            b"old-foo"
+        );
+
+        std::env::remove_var("PUP_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -129,6 +129,30 @@ impl Config {
                     None
                 }
             })
+            .or_else(|| {
+                // When no org is set and no explicit site was given, fall back to
+                // the single no-org ("default") session's site. This fixes bare
+                // commands after a datacenter-switched login (e.g. datadoghq.eu):
+                // the token is stored under the switched site but the resolver
+                // previously hard-coded datadoghq.com. This fires whenever the
+                // DD_ORG/file org is unset, which includes `--org <flag>`
+                // invocations (the flag is applied later, in main_inner); for
+                // those, apply_org_override re-resolves the site from the named
+                // org's session (or resets to the default when it has none), so a
+                // named org never keeps the no-org session's site.
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if org.is_none() {
+                        crate::auth::storage::find_default_session_site()
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    None
+                }
+            })
             .unwrap_or_else(|| "datadoghq.com".into());
         let site = normalize_site(&raw_site);
         // Validate all sources — explicit DD_SITE/config-file and session-derived —
@@ -558,6 +582,15 @@ pub fn apply_org_override(cfg: &mut Config, org: String) -> Result<()> {
                 )
             })?;
             cfg.site = normalized;
+        } else {
+            // The named org has no saved session. Reset to the default site so a
+            // `--org` flag behaves like `DD_ORG` and does not inherit the no-org
+            // default-session site that `from_env` may have adopted (it runs
+            // before this override and sees org.is_none()). Without this, e.g.
+            // `pup auth login --org new-org` with an existing datadoghq.eu default
+            // session would misroute the login to EU. Gated on !site_explicit, so
+            // an explicit DD_SITE/--site still wins.
+            cfg.site = normalize_site("datadoghq.com");
         }
     }
     if std::env::var("DD_ACCESS_TOKEN")
@@ -1864,6 +1897,49 @@ mod tests {
         assert_eq!(cfg.site, "datadoghq.com");
     }
 
+    /// A `--org` flag for an org with no session must reset the site to the
+    /// default rather than inherit the no-org default-session site that
+    /// `from_env` adopted. Without this, `pup --org new-org ...` (or a
+    /// first-time `auth login --org new-org`) with an existing datadoghq.eu
+    /// default session would misroute to EU. Regression guard for the Codex
+    /// review finding on the #592 fix.
+    #[test]
+    fn test_apply_org_override_resets_default_session_site_for_unknown_org() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_ACCESS_TOKEN");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_apply_reset_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+
+        // Simulate from_env having adopted the no-org default session's site.
+        let mut cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.eu".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+        };
+
+        super::apply_org_override(&mut cfg, "unknown-org".into()).unwrap();
+
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(cfg.org.as_deref(), Some("unknown-org"));
+        // Reset to default, NOT left at the inherited datadoghq.eu.
+        assert_eq!(cfg.site, "datadoghq.com");
+    }
+
     /// When DD_ACCESS_TOKEN is set in the env, `--org` must not overwrite the
     /// caller-supplied bearer with whatever happens to be in keychain storage.
     #[test]
@@ -2361,5 +2437,119 @@ profiles:
             super::site_trusted_without_prompt("datadog-proxy.weyland-yutani.internal", &[]);
         std::env::remove_var("PUP_TRUST_SITE");
         assert!(env_ok);
+    }
+
+    // --- from_env: default-session fallback (pup#592) ---------------------------
+
+    /// Bare invocation with a no-org EU session resolves to datadoghq.eu, not
+    /// datadoghq.com. This is the core #592 regression test.
+    #[test]
+    fn test_from_env_bare_uses_default_session_site() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_SITE");
+        std::env::remove_var("DD_ORG");
+        std::env::remove_var("DD_ACCESS_TOKEN");
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_bare_eu_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+
+        crate::auth::storage::save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+
+        let cfg = Config::from_env().unwrap();
+
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(cfg.site, "datadoghq.eu");
+        // site_explicit must remain false — the source was a session, not DD_SITE.
+        assert!(!cfg.site_explicit);
+    }
+
+    /// When DD_SITE is set explicitly it always wins over the default-session
+    /// fallback.
+    #[test]
+    fn test_from_env_explicit_dd_site_wins_over_default_session() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_ORG");
+        std::env::remove_var("DD_ACCESS_TOKEN");
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_ddsite_wins_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+
+        crate::auth::storage::save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        std::env::set_var("DD_SITE", "us3.datadoghq.com");
+
+        let cfg = Config::from_env().unwrap();
+
+        std::env::remove_var("DD_SITE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(cfg.site, "us3.datadoghq.com");
+        assert!(cfg.site_explicit);
+    }
+
+    /// When DD_ORG is set the no-org fallback must not fire — the org-session
+    /// resolution path handles site lookup instead.
+    #[test]
+    fn test_from_env_named_org_skips_default_session_fallback() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("DD_SITE");
+        std::env::remove_var("DD_ACCESS_TOKEN");
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pup_cfg_named_org_skip_{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", &tmp);
+
+        // Default session on EU.
+        crate::auth::storage::save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        // DD_ORG is set to a name that has no saved session; the fallback must
+        // not adopt the no-org EU session's site.
+        std::env::set_var("DD_ORG", "unknown-org");
+
+        let cfg = Config::from_env().unwrap();
+
+        std::env::remove_var("DD_ORG");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        // No session for unknown-org and the no-org fallback is blocked by
+        // org.is_some(), so we fall through to the hard-coded default.
+        assert_eq!(cfg.site, "datadoghq.com");
     }
 }

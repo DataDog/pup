@@ -71,8 +71,7 @@ pup auth logout --site datadoghq.eu            # default session for a non-defau
 pup auth logout --org staging-child            # one named session, leaves others intact
 ```
 
-Use `--site` (the global flag, equivalent to `DD_SITE`) to pick which default
-session to clear when it isn't on `datadoghq.com`.
+Use `--site` to target the default session when it lives on a non-`datadoghq.com` site.
 
 **Side effect on sibling sessions:** logging out the default (unnamed)
 session for a site also deletes that site's shared DCR client

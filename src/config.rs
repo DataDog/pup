@@ -1945,6 +1945,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         let result = super::apply_org_override(&mut cfg, "bad-org".into());
@@ -1997,6 +1998,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
         // site and site_explicit must remain unchanged on failure.
         assert!(cfg.set_site_explicit("evil.com/path".into()).is_err());
@@ -2017,6 +2019,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
         // An empty --site must not silently route to datadoghq.com via
         // normalize_site's empty-string fallback.

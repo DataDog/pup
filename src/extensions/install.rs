@@ -1571,7 +1571,7 @@ pub fn list_remote_extensions(
                 for release in
                     releases_within_scan_limit(&releases, &mut scanned, MAX_REMOTE_LIST_RELEASES)
                         .iter()
-                        .filter(|release| !release.draft)
+                        .filter(|release| is_stable_release(release))
                 {
                     if let Some(inventory) =
                         archive_inventory_from_release(&client, release, repo).await?
@@ -2296,6 +2296,38 @@ mod tests {
         assert!(is_stable_release(&stable));
         assert!(!is_stable_release(&draft));
         assert!(!is_stable_release(&prerelease));
+    }
+
+    #[test]
+    fn test_remote_listing_release_filter_matches_implicit_install() {
+        let releases = [
+            GitHubRelease {
+                tag_name: "v1.0.0".to_string(),
+                draft: false,
+                prerelease: false,
+                assets: vec![],
+            },
+            GitHubRelease {
+                tag_name: "v1.1.0-rc.1".to_string(),
+                draft: false,
+                prerelease: true,
+                assets: vec![],
+            },
+            GitHubRelease {
+                tag_name: "v1.2.0".to_string(),
+                draft: true,
+                prerelease: false,
+                assets: vec![],
+            },
+        ];
+
+        let listed_tags = releases
+            .iter()
+            .filter(|release| is_stable_release(release))
+            .map(|release| release.tag_name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(listed_tags, vec!["v1.0.0"]);
     }
 
     #[test]

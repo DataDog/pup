@@ -1,9 +1,11 @@
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::io::{Cursor, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::discovery::extension_dir;
 use super::manifest::Manifest;
@@ -12,6 +14,10 @@ use crate::version;
 const MAX_REMOTE_LIST_RELEASES: usize = 100;
 const MAX_REMOTE_LIST_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
 const MAX_IMPLICIT_RELEASE_SCAN: usize = 100;
+const MAX_INSTALL_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
+const MAX_EXTENSION_BINARY_BYTES: usize = 100 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRIES: usize = 4096;
+const MAX_CHECKSUMS_BYTES: usize = 1024 * 1024;
 
 /// GitHub release asset metadata (subset of the GitHub Releases API response).
 #[derive(Debug, serde::Deserialize)]
@@ -360,61 +366,56 @@ async fn fetch_github_release(
         .with_context(|| format!("parsing release JSON from {url}"))
 }
 
-/// Fetch GitHub releases newest-first.
-async fn fetch_github_releases_with_limit(
+/// Fetch one page of GitHub releases, newest-first.
+async fn fetch_github_release_page(
     client: &reqwest::Client,
     owner: &str,
     repo: &str,
-    max_releases: Option<usize>,
+    page: usize,
 ) -> Result<Vec<GitHubRelease>> {
-    let mut releases = Vec::new();
-    let mut page = 1;
+    let url =
+        format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=100&page={page}");
+    let resp = github_api_get(client, &url)
+        .send()
+        .await
+        .with_context(|| format!("fetching releases from {url}"))?;
 
-    loop {
-        let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/releases?per_page=100&page={page}"
-        );
-        let resp = github_api_get(client, &url)
-            .send()
-            .await
-            .with_context(|| format!("fetching releases from {url}"))?;
-
-        let status = resp.status();
-        if status == reqwest::StatusCode::NOT_FOUND {
-            let guidance = github_failure_guidance(owner, repo);
-            bail!(
-                "no releases found for {owner}/{repo}. \
+    let status = resp.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        let guidance = github_failure_guidance(owner, repo);
+        bail!(
+            "no releases found for {owner}/{repo}. \
                  Check that the repository exists and is accessible\n\n\
                  {guidance}"
-            );
-        }
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            let guidance = github_failure_guidance(owner, repo);
-            bail!("GitHub API returned {status} for {url}: {body}\n\n{guidance}");
-        }
-
-        let mut page_releases = resp
-            .json::<Vec<GitHubRelease>>()
-            .await
-            .with_context(|| format!("parsing release JSON from {url}"))?;
-        let count = page_releases.len();
-        if let Some(max_releases) = max_releases {
-            if releases.len() + count > max_releases {
-                bail!(
-                    "release scan for {owner}/{repo} is limited to {max_releases} releases. \
-                     Use --tag to install an exact release, or publish a smaller release index."
-                );
-            }
-        }
-        releases.append(&mut page_releases);
-        if count < 100 {
-            break;
-        }
-        page += 1;
+        );
+    }
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        let guidance = github_failure_guidance(owner, repo);
+        bail!("GitHub API returned {status} for {url}: {body}\n\n{guidance}");
     }
 
-    Ok(releases)
+    resp.json::<Vec<GitHubRelease>>()
+        .await
+        .with_context(|| format!("parsing release JSON from {url}"))
+}
+
+fn releases_within_scan_limit<'a>(
+    releases: &'a [GitHubRelease],
+    scanned: &mut usize,
+    max_releases: usize,
+) -> &'a [GitHubRelease] {
+    let remaining = max_releases.saturating_sub(*scanned);
+    let count = remaining.min(releases.len());
+    *scanned += count;
+    &releases[..count]
+}
+
+fn release_scan_limit_message(owner: &str, repo: &str, max_releases: usize) -> String {
+    format!(
+        "searched the first {max_releases} releases in {owner}/{repo} without finding a matching \
+         platform archive. Use --tag to install an exact release."
+    )
 }
 
 fn is_stable_release(release: &GitHubRelease) -> bool {
@@ -516,10 +517,14 @@ fn extension_names_from_tar_gz(bytes: &[u8]) -> Result<Vec<String>> {
     let mut archive = tar::Archive::new(decoder);
     let mut names = Vec::new();
 
-    for entry in archive
+    for (index, entry) in archive
         .entries()
         .context("reading tar.gz archive entries")?
+        .enumerate()
     {
+        if index >= MAX_ARCHIVE_ENTRIES {
+            bail!("archive contains more than {MAX_ARCHIVE_ENTRIES} entries");
+        }
         let entry = entry.context("reading tar.gz archive entry")?;
         if !entry.header().entry_type().is_file() {
             continue;
@@ -539,6 +544,10 @@ fn extension_names_from_zip(bytes: &[u8]) -> Result<Vec<String>> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("reading zip archive")?;
     let mut names = Vec::new();
 
+    if archive.len() > MAX_ARCHIVE_ENTRIES {
+        bail!("archive contains more than {MAX_ARCHIVE_ENTRIES} entries");
+    }
+
     for i in 0..archive.len() {
         let file = archive
             .by_index(i)
@@ -557,43 +566,107 @@ fn extension_names_from_zip(bytes: &[u8]) -> Result<Vec<String>> {
 }
 
 fn extract_extension_from_archive(asset_name: &str, bytes: &[u8], name: &str) -> Result<Vec<u8>> {
+    extract_extension_from_archive_with_limit(asset_name, bytes, name, MAX_EXTENSION_BINARY_BYTES)
+}
+
+fn extract_extension_from_archive_with_limit(
+    asset_name: &str,
+    bytes: &[u8],
+    name: &str,
+    max_member_bytes: usize,
+) -> Result<Vec<u8>> {
     validate_extension_name(name)?;
     if asset_name.ends_with(".tar.gz") {
-        extract_extension_from_tar_gz(bytes, name)
+        extract_extension_from_tar_gz(bytes, name, max_member_bytes)
     } else if asset_name.ends_with(".zip") {
-        extract_extension_from_zip(bytes, name)
+        extract_extension_from_zip(bytes, name, max_member_bytes)
     } else {
         bail!("unsupported extension archive format: {asset_name}");
     }
 }
 
-fn extract_extension_from_tar_gz(bytes: &[u8], name: &str) -> Result<Vec<u8>> {
+fn ensure_archive_member_size(size: u64, name: &str, max_member_bytes: usize) -> Result<()> {
+    if size > max_member_bytes as u64 {
+        bail!(
+            "archive member for extension '{name}' is larger than the {} byte limit",
+            max_member_bytes
+        );
+    }
+    Ok(())
+}
+
+fn read_limited_archive_member<R: Read>(
+    reader: R,
+    name: &str,
+    max_member_bytes: usize,
+    context: &str,
+) -> Result<Vec<u8>> {
+    let mut limited = reader.take(max_member_bytes as u64 + 1);
+    let mut bytes = Vec::new();
+    limited
+        .read_to_end(&mut bytes)
+        .context(context.to_string())?;
+    if bytes.len() > max_member_bytes {
+        bail!(
+            "archive member for extension '{name}' is larger than the {} byte limit",
+            max_member_bytes
+        );
+    }
+    Ok(bytes)
+}
+
+fn extract_extension_from_tar_gz(
+    bytes: &[u8],
+    name: &str,
+    max_member_bytes: usize,
+) -> Result<Vec<u8>> {
     let decoder = flate2::read::GzDecoder::new(Cursor::new(bytes));
     let mut archive = tar::Archive::new(decoder);
 
-    for entry in archive
+    for (index, entry) in archive
         .entries()
         .context("reading tar.gz archive entries")?
+        .enumerate()
     {
+        if index >= MAX_ARCHIVE_ENTRIES {
+            bail!("archive contains more than {MAX_ARCHIVE_ENTRIES} entries");
+        }
         let mut entry = entry.context("reading tar.gz archive entry")?;
         if !entry.header().entry_type().is_file() {
             continue;
         }
-        let path = entry.path().context("reading tar.gz archive path")?;
-        if extension_archive_member_matches(path.as_ref(), name) {
-            let mut bytes = Vec::new();
-            entry
-                .read_to_end(&mut bytes)
-                .context("reading extension binary from tar.gz archive")?;
-            return Ok(bytes);
+        let matches = {
+            let path = entry.path().context("reading tar.gz archive path")?;
+            extension_archive_member_matches(path.as_ref(), name)
+        };
+        if matches {
+            let size = entry
+                .header()
+                .size()
+                .context("reading tar.gz archive entry size")?;
+            ensure_archive_member_size(size, name, max_member_bytes)?;
+            return read_limited_archive_member(
+                &mut entry,
+                name,
+                max_member_bytes,
+                "reading extension binary from tar.gz archive",
+            );
         }
     }
 
     bail!("archive does not contain extension 'pup-{name}'")
 }
 
-fn extract_extension_from_zip(bytes: &[u8], name: &str) -> Result<Vec<u8>> {
+fn extract_extension_from_zip(
+    bytes: &[u8],
+    name: &str,
+    max_member_bytes: usize,
+) -> Result<Vec<u8>> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("reading zip archive")?;
+
+    if archive.len() > MAX_ARCHIVE_ENTRIES {
+        bail!("archive contains more than {MAX_ARCHIVE_ENTRIES} entries");
+    }
 
     for i in 0..archive.len() {
         let mut file = archive
@@ -603,10 +676,13 @@ fn extract_extension_from_zip(bytes: &[u8], name: &str) -> Result<Vec<u8>> {
             continue;
         }
         if extension_archive_member_matches(Path::new(file.name()), name) {
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes)
-                .context("reading extension binary from zip archive")?;
-            return Ok(bytes);
+            ensure_archive_member_size(file.size(), name, max_member_bytes)?;
+            return read_limited_archive_member(
+                &mut file,
+                name,
+                max_member_bytes,
+                "reading extension binary from zip archive",
+            );
         }
     }
 
@@ -861,6 +937,104 @@ fn write_extension_binary(ext_dir: &Path, name: &str, bytes: &[u8]) -> Result<St
     Ok(exe_name)
 }
 
+#[derive(Debug)]
+struct StagedExtension {
+    target_dir: PathBuf,
+    stage_dir: PathBuf,
+    backup_dir: PathBuf,
+}
+
+fn unique_work_dir(parent: &Path, prefix: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    parent.join(format!(".{prefix}-{}-{nanos}", std::process::id()))
+}
+
+fn cleanup_dir(path: &Path) {
+    if path.exists() {
+        let _ = std::fs::remove_dir_all(path);
+    }
+}
+
+fn commit_staged_extensions(staged: &[StagedExtension], force: bool) -> Result<()> {
+    commit_staged_extensions_with_hook(staged, force, |_| Ok(()))
+}
+
+fn commit_staged_extensions_with_hook<F>(
+    staged: &[StagedExtension],
+    force: bool,
+    mut before_install: F,
+) -> Result<()>
+where
+    F: FnMut(usize) -> Result<()>,
+{
+    let mut backups = Vec::new();
+    let mut installed_targets = Vec::new();
+
+    let result = (|| -> Result<()> {
+        for staged_extension in staged {
+            if staged_extension.target_dir.exists() {
+                if !force {
+                    bail!(
+                        "extension '{}' is already installed (use --force to overwrite)",
+                        staged_extension
+                            .target_dir
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("unknown")
+                            .trim_start_matches("pup-")
+                    );
+                }
+                std::fs::rename(&staged_extension.target_dir, &staged_extension.backup_dir)
+                    .with_context(|| {
+                        format!(
+                            "backing up existing extension directory {}",
+                            staged_extension.target_dir.display()
+                        )
+                    })?;
+                backups.push((
+                    staged_extension.target_dir.clone(),
+                    staged_extension.backup_dir.clone(),
+                ));
+            }
+        }
+
+        for (index, staged_extension) in staged.iter().enumerate() {
+            before_install(index)?;
+            std::fs::rename(&staged_extension.stage_dir, &staged_extension.target_dir)
+                .with_context(|| {
+                    format!(
+                        "installing extension directory {}",
+                        staged_extension.target_dir.display()
+                    )
+                })?;
+            installed_targets.push(staged_extension.target_dir.clone());
+        }
+
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        for target in installed_targets.iter().rev() {
+            cleanup_dir(target);
+        }
+        for (target, backup) in backups.iter().rev() {
+            if backup.exists() && !target.exists() {
+                let _ = std::fs::rename(backup, target);
+            }
+        }
+        return Err(error);
+    }
+
+    for (_, backup) in backups {
+        cleanup_dir(&backup);
+    }
+
+    Ok(())
+}
+
 struct ExtensionPayload {
     name: String,
     bytes: Vec<u8>,
@@ -906,6 +1080,12 @@ fn save_github_payloads(
     for payload in &artifacts.payloads {
         validate_extension_name(&payload.name)?;
     }
+    let mut seen_names = HashSet::new();
+    for payload in &artifacts.payloads {
+        if !seen_names.insert(payload.name.as_str()) {
+            bail!("extension '{}' was selected more than once", payload.name);
+        }
+    }
 
     let ext_base =
         extension_dir().context("could not determine config directory for extensions")?;
@@ -920,28 +1100,71 @@ fn save_github_payloads(
         }
     }
 
-    let mut installed = Vec::new();
-    for payload in artifacts.payloads {
-        let ext_dir = ext_base.join(format!("pup-{}", payload.name));
-        prepare_extension_dir(&ext_dir)?;
-        let exe_name = write_extension_binary(&ext_dir, &payload.name, &payload.bytes)?;
-
-        let manifest = Manifest {
-            name: payload.name.clone(),
-            version: artifacts.version.clone(),
-            source: format!("github:{source}"),
-            source_kind: artifacts.source_kind.clone(),
-            source_release_tag: artifacts.source_release_tag.clone(),
-            source_asset: artifacts.source_asset.clone(),
-            installed_at: chrono_now_iso(),
-            binary: exe_name,
-            description: description.unwrap_or_default().to_string(),
-            installed_by_pup: version::VERSION.to_string(),
-        };
-        manifest.save(&ext_dir.join("manifest.json"))?;
-        installed.push(payload.name);
+    let staging_base = unique_work_dir(&ext_base, "pup-install-staging");
+    std::fs::create_dir_all(&staging_base)
+        .with_context(|| format!("creating staging directory {}", staging_base.display()))?;
+    let backup_base = unique_work_dir(&ext_base, "pup-install-backup");
+    if let Err(error) = std::fs::create_dir_all(&backup_base)
+        .with_context(|| format!("creating backup directory {}", backup_base.display()))
+    {
+        cleanup_dir(&staging_base);
+        return Err(error);
     }
 
+    let stage_result = (|| -> Result<(Vec<StagedExtension>, Vec<String>)> {
+        let mut staged = Vec::new();
+        let mut installed = Vec::new();
+        let installed_at = chrono_now_iso();
+
+        for payload in artifacts.payloads {
+            let ext_dir = ext_base.join(format!("pup-{}", payload.name));
+            let stage_dir = staging_base.join(format!("pup-{}", payload.name));
+            std::fs::create_dir_all(&stage_dir)
+                .with_context(|| format!("creating {}", stage_dir.display()))?;
+            let exe_name = write_extension_binary(&stage_dir, &payload.name, &payload.bytes)?;
+
+            let manifest = Manifest {
+                name: payload.name.clone(),
+                version: artifacts.version.clone(),
+                source: format!("github:{source}"),
+                source_kind: artifacts.source_kind.clone(),
+                source_release_tag: artifacts.source_release_tag.clone(),
+                source_asset: artifacts.source_asset.clone(),
+                installed_at: installed_at.clone(),
+                binary: exe_name,
+                description: description.unwrap_or_default().to_string(),
+                installed_by_pup: version::VERSION.to_string(),
+            };
+            manifest.save(&stage_dir.join("manifest.json"))?;
+
+            staged.push(StagedExtension {
+                target_dir: ext_dir,
+                stage_dir,
+                backup_dir: backup_base.join(format!("pup-{}", payload.name)),
+            });
+            installed.push(payload.name);
+        }
+
+        Ok((staged, installed))
+    })();
+
+    let (staged, installed) = match stage_result {
+        Ok(result) => result,
+        Err(error) => {
+            cleanup_dir(&staging_base);
+            cleanup_dir(&backup_base);
+            return Err(error);
+        }
+    };
+
+    if let Err(error) = commit_staged_extensions(&staged, force) {
+        cleanup_dir(&staging_base);
+        cleanup_dir(&backup_base);
+        return Err(error);
+    }
+
+    cleanup_dir(&staging_base);
+    cleanup_dir(&backup_base);
     Ok(installed)
 }
 
@@ -988,30 +1211,7 @@ async fn archive_artifacts_for_request(
                 payloads,
             });
         };
-        let releases =
-            fetch_github_releases_with_limit(client, owner, repo, Some(MAX_IMPLICIT_RELEASE_SCAN))
-                .await?;
-        for release in releases.iter().filter(|release| is_stable_release(release)) {
-            let Some(archive) = download_archive_from_release(client, release, repo).await? else {
-                continue;
-            };
-            if archive.extensions.iter().any(|name| name == extension) {
-                let names = vec![extension.to_string()];
-                let payloads = archive_extension_payloads(&archive, &names)?;
-                return Ok(GitHubInstallArtifacts {
-                    version: archive.version,
-                    source_kind: Some("github_archive".to_string()),
-                    source_release_tag: Some(archive.release_tag),
-                    source_asset: Some(archive.asset_name),
-                    payloads,
-                });
-            }
-        }
-        bail!(
-            "no release archive in {owner}/{repo} contains extension '{extension}' for {}-{}",
-            archive_platform_os(),
-            archive_platform_arch()
-        );
+        return latest_archive_artifacts_for_extension(client, owner, repo, extension).await;
     }
 
     let release = fetch_github_release(client, owner, repo, tag, extension).await?;
@@ -1035,24 +1235,47 @@ async fn latest_archive_artifacts_for_extension(
 ) -> Result<GitHubInstallArtifacts> {
     validate_extension_name(extension)?;
 
-    let releases =
-        fetch_github_releases_with_limit(client, owner, repo, Some(MAX_IMPLICIT_RELEASE_SCAN))
-            .await?;
-    for release in releases.iter().filter(|release| is_stable_release(release)) {
-        let Some(archive) = download_archive_from_release(client, release, repo).await? else {
-            continue;
-        };
-        if archive.extensions.iter().any(|name| name == extension) {
-            let names = vec![extension.to_string()];
-            let payloads = archive_extension_payloads(&archive, &names)?;
-            return Ok(GitHubInstallArtifacts {
-                version: archive.version,
-                source_kind: Some("github_archive".to_string()),
-                source_release_tag: Some(archive.release_tag),
-                source_asset: Some(archive.asset_name),
-                payloads,
-            });
+    let mut scanned = 0;
+    let mut page = 1;
+
+    loop {
+        let releases = fetch_github_release_page(client, owner, repo, page).await?;
+        if releases.is_empty() {
+            break;
         }
+
+        let page_len = releases.len();
+        for release in
+            releases_within_scan_limit(&releases, &mut scanned, MAX_IMPLICIT_RELEASE_SCAN)
+                .iter()
+                .filter(|release| is_stable_release(release))
+        {
+            let Some(archive) = download_archive_from_release(client, release, repo).await? else {
+                continue;
+            };
+            if archive.extensions.iter().any(|name| name == extension) {
+                let names = vec![extension.to_string()];
+                let payloads = archive_extension_payloads(&archive, &names)?;
+                return Ok(GitHubInstallArtifacts {
+                    version: archive.version,
+                    source_kind: Some("github_archive".to_string()),
+                    source_release_tag: Some(archive.release_tag),
+                    source_asset: Some(archive.asset_name),
+                    payloads,
+                });
+            }
+        }
+
+        if page_len < 100 {
+            break;
+        }
+        if scanned >= MAX_IMPLICIT_RELEASE_SCAN {
+            bail!(
+                "{}",
+                release_scan_limit_message(owner, repo, MAX_IMPLICIT_RELEASE_SCAN)
+            );
+        }
+        page += 1;
     }
 
     bail!(
@@ -1259,7 +1482,8 @@ async fn verify_release_asset_checksum(
         return Ok(());
     };
 
-    let checksums_bytes = download_asset(client, checksums_asset).await?;
+    let checksums_bytes =
+        download_asset_with_limit(client, checksums_asset, Some(MAX_CHECKSUMS_BYTES)).await?;
     let checksums = String::from_utf8(checksums_bytes).context("checksums.txt is not UTF-8")?;
     verify_checksum_contents(&checksums, &asset.name, bytes)
 }
@@ -1289,7 +1513,13 @@ async fn download_archive_from_release(
     release: &GitHubRelease,
     project_name: &str,
 ) -> Result<Option<ArchiveDownload>> {
-    download_archive_from_release_with_limit(client, release, project_name, None).await
+    download_archive_from_release_with_limit(
+        client,
+        release,
+        project_name,
+        Some(MAX_INSTALL_ARCHIVE_BYTES),
+    )
+    .await
 }
 
 async fn download_archive_from_release_with_limit(
@@ -1327,21 +1557,35 @@ pub fn list_remote_extensions(
     let inventories = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             let client = github_client()?;
-            let releases = fetch_github_releases_with_limit(
-                &client,
-                owner,
-                repo,
-                Some(MAX_REMOTE_LIST_RELEASES),
-            )
-            .await?;
             let mut inventories = Vec::new();
-            for release in releases.iter().filter(|release| !release.draft) {
-                if let Some(inventory) =
-                    archive_inventory_from_release(&client, release, repo).await?
-                {
-                    inventories.push(inventory);
+            let mut scanned = 0;
+            let mut page = 1;
+
+            loop {
+                let releases = fetch_github_release_page(&client, owner, repo, page).await?;
+                if releases.is_empty() {
+                    break;
                 }
+
+                let page_len = releases.len();
+                for release in
+                    releases_within_scan_limit(&releases, &mut scanned, MAX_REMOTE_LIST_RELEASES)
+                        .iter()
+                        .filter(|release| !release.draft)
+                {
+                    if let Some(inventory) =
+                        archive_inventory_from_release(&client, release, repo).await?
+                    {
+                        inventories.push(inventory);
+                    }
+                }
+
+                if page_len < 100 || scanned >= MAX_REMOTE_LIST_RELEASES {
+                    break;
+                }
+                page += 1;
             }
+
             Ok::<_, anyhow::Error>(inventories)
         })
     })?;
@@ -2055,6 +2299,26 @@ mod tests {
     }
 
     #[test]
+    fn test_releases_within_scan_limit_returns_first_page_before_limit() {
+        let releases: Vec<GitHubRelease> = (0..101)
+            .map(|index| GitHubRelease {
+                tag_name: format!("v{index}"),
+                draft: false,
+                prerelease: false,
+                assets: vec![],
+            })
+            .collect();
+        let mut scanned = 0;
+
+        let scanned_releases = releases_within_scan_limit(&releases, &mut scanned, 100);
+
+        assert_eq!(scanned_releases.len(), 100);
+        assert_eq!(scanned, 100);
+        assert_eq!(scanned_releases[0].tag_name, "v0");
+        assert_eq!(scanned_releases[99].tag_name, "v99");
+    }
+
+    #[test]
     fn test_find_platform_asset_uses_asset_name_not_ext_name() {
         // Verify that find_platform_asset uses the repo-derived name, not a user override.
         // If installed with --name custom, the asset should still be looked up as "pup-hello-..."
@@ -2258,6 +2522,21 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_extension_from_archive_tar_gz_rejects_oversized_member() {
+        let archive = make_tar_gz(&[("pup-foo", b"foo")]);
+
+        let result = extract_extension_from_archive_with_limit(
+            "bundle_1.2.3_Darwin_arm64.tar.gz",
+            &archive,
+            "foo",
+            2,
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("byte limit"));
+    }
+
+    #[test]
     fn test_extension_names_from_archive_zip() {
         let archive = make_zip(&[
             ("README.md", b"docs"),
@@ -2285,6 +2564,143 @@ mod tests {
                 .expect("bar should be extracted from zip");
 
         assert_eq!(extracted, b"bar");
+    }
+
+    #[test]
+    fn test_extract_extension_from_archive_zip_rejects_oversized_member() {
+        let archive = make_zip(&[("pup-foo.exe", b"foo")]);
+
+        let result = extract_extension_from_archive_with_limit(
+            "bundle_1.2.3_Windows_x86_64.zip",
+            &archive,
+            "foo",
+            2,
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("byte limit"));
+    }
+
+    fn write_test_file(path: &Path, contents: &[u8]) {
+        std::fs::write(path, contents).unwrap();
+    }
+
+    #[test]
+    fn test_commit_staged_extensions_rolls_back_before_install() {
+        let dir = std::env::temp_dir().join(format!(
+            "pup-test-rollback-before-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let target_foo = dir.join("pup-foo");
+        let target_bar = dir.join("pup-bar");
+        let stage_foo = dir.join("stage-foo");
+        let stage_bar = dir.join("stage-bar");
+        let backup_foo = dir.join("backup-foo");
+        let backup_bar = dir.join("backup-bar");
+        for path in [&target_foo, &target_bar, &stage_foo, &stage_bar] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        write_test_file(&target_foo.join("pup-foo"), b"old-foo");
+        write_test_file(&target_bar.join("pup-bar"), b"old-bar");
+        write_test_file(&stage_foo.join("pup-foo"), b"new-foo");
+        write_test_file(&stage_bar.join("pup-bar"), b"new-bar");
+
+        let staged = vec![
+            StagedExtension {
+                target_dir: target_foo.clone(),
+                stage_dir: stage_foo,
+                backup_dir: backup_foo,
+            },
+            StagedExtension {
+                target_dir: target_bar.clone(),
+                stage_dir: stage_bar,
+                backup_dir: backup_bar,
+            },
+        ];
+
+        let result = commit_staged_extensions_with_hook(&staged, true, |index| {
+            if index == 0 {
+                anyhow::bail!("injected failure");
+            }
+            Ok(())
+        });
+
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read(target_foo.join("pup-foo")).unwrap(),
+            b"old-foo"
+        );
+        assert_eq!(
+            std::fs::read(target_bar.join("pup-bar")).unwrap(),
+            b"old-bar"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_commit_staged_extensions_rolls_back_after_partial_install() {
+        let dir = std::env::temp_dir().join(format!(
+            "pup-test-rollback-after-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let target_foo = dir.join("pup-foo");
+        let target_bar = dir.join("pup-bar");
+        let stage_foo = dir.join("stage-foo");
+        let stage_bar = dir.join("stage-bar");
+        let backup_foo = dir.join("backup-foo");
+        let backup_bar = dir.join("backup-bar");
+        for path in [&target_foo, &target_bar, &stage_foo, &stage_bar] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        write_test_file(&target_foo.join("pup-foo"), b"old-foo");
+        write_test_file(&target_bar.join("pup-bar"), b"old-bar");
+        write_test_file(&stage_foo.join("pup-foo"), b"new-foo");
+        write_test_file(&stage_bar.join("pup-bar"), b"new-bar");
+
+        let staged = vec![
+            StagedExtension {
+                target_dir: target_foo.clone(),
+                stage_dir: stage_foo,
+                backup_dir: backup_foo,
+            },
+            StagedExtension {
+                target_dir: target_bar.clone(),
+                stage_dir: stage_bar,
+                backup_dir: backup_bar,
+            },
+        ];
+
+        let result = commit_staged_extensions_with_hook(&staged, true, |index| {
+            if index == 1 {
+                anyhow::bail!("injected failure");
+            }
+            Ok(())
+        });
+
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read(target_foo.join("pup-foo")).unwrap(),
+            b"old-foo"
+        );
+        assert_eq!(
+            std::fs::read(target_bar.join("pup-bar")).unwrap(),
+            b"old-bar"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

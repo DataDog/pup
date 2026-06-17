@@ -66,12 +66,9 @@ Manually refresh your access token using the refresh token. This happens automat
 ### 4. Logout
 
 ```bash
-pup auth logout                                # default session for the current site
-pup auth logout --site datadoghq.eu            # default session for a non-default site
-pup auth logout --org staging-child            # one named session, leaves others intact
+pup auth logout                    # default session (site resolved from stored session)
+pup auth logout --org staging-child  # one named session, leaves others intact
 ```
-
-Use `--site` to target the default session when it lives on a non-`datadoghq.com` site.
 
 **Side effect on sibling sessions:** logging out the default (unnamed)
 session for a site also deletes that site's shared DCR client

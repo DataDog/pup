@@ -242,10 +242,10 @@ pup auth logout
 Pup persists each login as a separate session, so you can authenticate against multiple Datadog sites and orgs and switch between them with `--org <name>` (or `DD_ORG=<name>`) on any subcommand.
 
 ```bash
-# Login to a non-default site. --site is a global flag (the inline form of
-# DD_SITE) accepted on any command, so you can also select the site per-command.
+# Login to a non-default site. The site is stored in the session and
+# recalled automatically -- no --site or DD_SITE needed afterwards.
 pup auth login --site datadoghq.eu
-pup monitors list --site datadoghq.eu     # or: DD_SITE=datadoghq.eu pup monitors list
+pup monitors list                             # site recalled automatically
 
 # Named session for a parent/child sub-org on the same site.
 pup auth login --org staging-child
@@ -284,7 +284,7 @@ Note: `pup auth logout` (default session) also deletes the shared DCR client cre
 
 `--site` is the highest-priority source and applies before `--org`, so an explicit site is never moved by the session lookup an `--org` would otherwise trigger.
 
-If multiple sessions share the same org name on different sites, step 2 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to disambiguate. An unnamed (default) session can't be selected by `--org` at all -- if you have multiple unnamed sessions on different sites, set `DD_SITE` to pick one.
+If multiple sessions share the same org name on different sites, step 3 is skipped (ambiguous) and pup warns to stderr; pass `--site` or `DD_SITE` to disambiguate.
 
 **Token Storage**: By default, OAuth tokens and DCR client credentials are stored in your platform's secure store: macOS Keychain (via Apple's Security framework, with Touch ID prompts), Linux Secret Service (via the `keyring` crate), or Windows Credential Manager (via the `keyring` crate; sharded across multiple WinCred entries to stay within WinCred's per-record size limit). When no secure store is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions; in file mode tokens and client credentials are kept in separate files (`tokens_<site>.json`, `client_<site>.json`). Set `DD_TOKEN_STORAGE=file` to force file storage. In either mode, all tokens for a given site share one tokens entry, keyed internally by org name.
 

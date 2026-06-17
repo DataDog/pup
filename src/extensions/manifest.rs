@@ -7,6 +7,12 @@ pub struct Manifest {
     pub name: String,
     pub version: String,
     pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_release_tag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_asset: Option<String>,
     pub installed_at: String,
     pub binary: String,
     pub description: String,
@@ -38,6 +44,9 @@ mod tests {
             name: "hello".to_string(),
             version: "0.1.0".to_string(),
             source: "local:/tmp/pup-hello".to_string(),
+            source_kind: None,
+            source_release_tag: None,
+            source_asset: None,
             installed_at: "2026-03-29T00:00:00Z".to_string(),
             binary: "pup-hello".to_string(),
             description: "A hello world extension".to_string(),
@@ -60,6 +69,38 @@ mod tests {
         assert_eq!(loaded.version, original.version);
         assert_eq!(loaded.source, original.source);
         assert_eq!(loaded.binary, original.binary);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_manifest_archive_metadata_roundtrip() {
+        let dir = std::env::temp_dir().join("pup-test-manifest-archive-roundtrip");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("manifest.json");
+
+        let original = Manifest {
+            name: "foo".to_string(),
+            version: "1.2.3".to_string(),
+            source: "github:owner/repo".to_string(),
+            source_kind: Some("github_archive".to_string()),
+            source_release_tag: Some("v1.2.3".to_string()),
+            source_asset: Some("repo_1.2.3_Darwin_arm64.tar.gz".to_string()),
+            installed_at: "2026-03-29T00:00:00Z".to_string(),
+            binary: "pup-foo".to_string(),
+            description: String::new(),
+            installed_by_pup: "1.1.0".to_string(),
+        };
+        original.save(&path).unwrap();
+
+        let loaded = Manifest::load(&path).unwrap();
+        assert_eq!(loaded.source_kind.as_deref(), Some("github_archive"));
+        assert_eq!(loaded.source_release_tag.as_deref(), Some("v1.2.3"));
+        assert_eq!(
+            loaded.source_asset.as_deref(),
+            Some("repo_1.2.3_Darwin_arm64.tar.gz")
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

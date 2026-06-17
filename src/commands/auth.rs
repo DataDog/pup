@@ -35,7 +35,6 @@ fn org_suffix(org: Option<&str>) -> String {
 pub async fn login(
     cfg: &Config,
     scopes: Vec<String>,
-    subdomain: Option<&str>,
     callback_port: Option<u16>,
     org_uuid: Option<&str>,
 ) -> Result<()> {
@@ -58,13 +57,8 @@ pub async fn login(
     let mut server = crate::auth::callback::CallbackServer::new(callback_port).await?;
     let redirect_uri = server.redirect_uri();
     let org_label = org_suffix(org);
-    eprintln!("\n🔐 Starting OAuth2 login for site: {site}{org_label}\n");
-    if let Some(sub) = subdomain {
-        // Compose against the actual site, not a hardcoded prod host. Mirrors
-        // the URL-construction fix in dcr::build_authorization_url so the log
-        // line and the URL the browser opens stay in agreement on staging.
-        eprintln!("🏢 Using SAML/SSO subdomain: {sub}.{site}");
-    }
+    let auth_host = cfg.auth_host();
+    eprintln!("\n🔐 Starting OAuth2 login for site: {site} (auth host: {auth_host}){org_label}\n");
     eprintln!("📡 Callback server started on: {redirect_uri}");
 
     let scope_strs: Vec<&str> = scopes.iter().map(String::as_str).collect();
@@ -119,7 +113,6 @@ pub async fn login(
         &state,
         &challenge,
         &scope_strs,
-        subdomain,
         effective_org_uuid.as_deref(),
     );
     if let Some(uuid) = effective_org_uuid.as_deref() {
@@ -172,9 +165,7 @@ pub async fn login(
     }
 
     // 7. Exchange code for tokens.
-    // Use the actual site from the callback (e.g. "us3.datadoghq.com") when
-    // available, so the token exchange targets the correct region.
-    let effective_site = result.domain.as_deref().unwrap_or(site);
+    let effective_site = resolve_effective_site(site, result.domain.as_deref());
     eprintln!("🔄 Exchanging authorization code for tokens...");
     let tokens = dcr::DcrClient::new(effective_site)
         .exchange_code(&result.code, &redirect_uri, &challenge.verifier, &creds)
@@ -254,6 +245,37 @@ pub async fn login(
     Ok(())
 }
 
+/// Pick the site to key the exchanged token, session, and DCR credential under.
+///
+/// For a canonical Datadog site, prefer the actual region reported by the OAuth
+/// callback (e.g. logging into `datadoghq.com` but the org lives in
+/// `us3.datadoghq.com`) so everything targets the right region. For a host
+/// addressed verbatim (vanity domain / custom gateway / oncall) the user pinned
+/// the exact host via `--site`/`DD_SITE`: the callback's `domain` names the
+/// Datadog region *behind* it, but every request and the stored credentials
+/// must stay keyed to that single host — so the user's site wins and the
+/// callback domain is ignored. Gated on the same predicate as `api_host_for`/
+/// `auth_host_for` so the exchange host can't diverge from the request host.
+///
+/// The callback `domain` is attacker-influenceable (a tampered URL pasted into
+/// the stdin fallback path), so even on the canonical branch it is adopted only
+/// when it is a Datadog-owned host (see [`is_datadog_owned_host`]). A foreign or
+/// malformed value is dropped in favor of the user's already-validated pinned
+/// site rather than becoming the token-exchange host — which would leak the
+/// PKCE verifier and DCR client credentials to that host. A plain syntactic
+/// check is not enough here: a well-formed `evil.com` would pass it, so the gate
+/// is an ownership allowlist, mirroring the shape check applied to `dd_oid`.
+#[cfg(not(target_arch = "wasm32"))]
+fn resolve_effective_site<'a>(site: &'a str, callback_domain: Option<&'a str>) -> &'a str {
+    if crate::config::uses_datadog_subdomains(site) {
+        callback_domain
+            .filter(|d| crate::config::is_datadog_owned_host(d))
+            .unwrap_or(site)
+    } else {
+        site
+    }
+}
+
 /// Loose UUID shape check (8-4-4-4-12 hex with dashes, ASCII only). The
 /// callback's `dd_oid` is unsigned metadata — in the stdin-paste fallback
 /// path a tampered URL could carry an arbitrary string. Rejecting anything
@@ -325,7 +347,6 @@ fn resolve_save_target(
 pub async fn login(
     _cfg: &Config,
     _scopes: Vec<String>,
-    _subdomain: Option<&str>,
     _callback_port: Option<u16>,
     _org_uuid: Option<&str>,
 ) -> Result<()> {
@@ -946,6 +967,75 @@ mod tests {
     fn resolve_save_target_no_hint_keeps_requested_org() {
         let t = resolve_save_target(Some("prod-child"), None, None, None);
         assert!(matches!(t, SaveTarget::Requested(Some(s)) if s == "prod-child"));
+    }
+
+    #[test]
+    fn resolve_effective_site_canonical_prefers_callback_region() {
+        // Canonical login that lands in a specific region: adopt it.
+        assert_eq!(
+            resolve_effective_site("datadoghq.com", Some("us3.datadoghq.com")),
+            "us3.datadoghq.com"
+        );
+    }
+
+    #[test]
+    fn resolve_effective_site_canonical_no_domain_keeps_site() {
+        // Canonical login with no region reported: keep the requested site.
+        assert_eq!(
+            resolve_effective_site("datadoghq.com", None),
+            "datadoghq.com"
+        );
+    }
+
+    #[test]
+    fn resolve_effective_site_gateway_ignores_callback_domain() {
+        // Custom gateway: the callback names the backend region, but the token,
+        // session, and DCR credential must stay keyed to the user's --site host.
+        assert_eq!(
+            resolve_effective_site("mygateway.example.com", Some("us5.datadoghq.com")),
+            "mygateway.example.com"
+        );
+    }
+
+    #[test]
+    fn resolve_effective_site_vanity_ignores_callback_domain() {
+        assert_eq!(
+            resolve_effective_site("mycompany.datadoghq.com", Some("datadoghq.com")),
+            "mycompany.datadoghq.com"
+        );
+    }
+
+    #[test]
+    fn resolve_effective_site_canonical_rejects_non_datadog_callback_domain() {
+        // A tampered callback domain must not become the exchange host / storage
+        // key. This includes a *well-formed* foreign host (evil.com passes a
+        // syntactic check), not just URL-smuggling values — drop it and keep the
+        // user's pinned site.
+        for bad in [
+            "evil.com",
+            "datadoghq.com.evil.com",
+            "evil.com/path",
+            "attacker@evil.com",
+            // Smuggling payload ending in a real base — resolves to evil.com as
+            // a URL host with the rest as path; must still be rejected.
+            "evil.com/x.datadoghq.com",
+        ] {
+            assert_eq!(
+                resolve_effective_site("datadoghq.com", Some(bad)),
+                "datadoghq.com",
+                "{bad:?} must not be adopted as the effective site"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_effective_site_oncall_ignores_callback_domain() {
+        // Oncall hosts are addressed verbatim everywhere (api_host_for/auth_host_for),
+        // so the exchange/storage host must stay verbatim too — not the callback region.
+        assert_eq!(
+            resolve_effective_site("navy.oncall.datadoghq.com", Some("us3.datadoghq.com")),
+            "navy.oncall.datadoghq.com"
+        );
     }
 
     #[test]

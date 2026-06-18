@@ -101,9 +101,7 @@ pub async fn projects_facet_values(
     let api = make_api(cfg);
     let ft = match facet_type {
         "tag" => ModelLabProjectFacetType::TAG,
-        other => anyhow::bail!(
-            "unknown facet type '{other}'; valid values: tag"
-        ),
+        other => anyhow::bail!("unknown facet type '{other}'; valid values: tag"),
     };
     let resp = api
         .list_model_lab_project_facet_values(ft, facet_name)
@@ -283,7 +281,11 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        mock_all(&mut s, r#"{"data":[],"meta":{"page":{"number":0,"size":10,"total":0}}}"#).await;
+        mock_all(
+            &mut s,
+            r#"{"data":[],"meta":{"page":{"number":0,"size":10,"total":0}}}"#,
+        )
+        .await;
         let result = super::projects_list(&cfg, None, None, None, None, None).await;
         assert!(result.is_ok(), "projects list failed: {:?}", result.err());
         cleanup_env();
@@ -361,7 +363,11 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        mock_all(&mut s, r#"{"data":{"id":"1","type":"project_files","attributes":{"files":[]}}}"#).await;
+        mock_all(
+            &mut s,
+            r#"{"data":{"id":"1","type":"project_files","attributes":{"files":[]}}}"#,
+        )
+        .await;
         let result = super::projects_artifacts(&cfg, 1).await;
         assert!(
             result.is_ok(),
@@ -378,10 +384,15 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        mock_all(&mut s, r#"{"data":[],"meta":{"page":{"number":0,"size":10,"total":0}}}"#).await;
-        let result =
-            super::runs_list(&cfg, None, None, None, None, None, None, false, false, None, None, None)
-                .await;
+        mock_all(
+            &mut s,
+            r#"{"data":[],"meta":{"page":{"number":0,"size":10,"total":0}}}"#,
+        )
+        .await;
+        let result = super::runs_list(
+            &cfg, None, None, None, None, None, None, false, false, None, None, None,
+        )
+        .await;
         assert!(result.is_ok(), "runs list failed: {:?}", result.err());
         cleanup_env();
     }
@@ -496,20 +507,25 @@ mod tests {
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data":{"id":"42","type":"artifacts","attributes":{"files":[],"path_in_project":""}}}"#).await;
         let result = super::runs_artifacts(&cfg, 42, None).await;
-        assert!(
-            result.is_ok(),
-            "runs artifacts failed: {:?}",
-            result.err()
-        );
+        assert!(result.is_ok(), "runs artifacts failed: {:?}", result.err());
         cleanup_env();
     }
 
     #[tokio::test]
     async fn test_model_lab_parse_run_status_valid() {
         for s in &[
-            "pending", "running", "completed", "failed", "killed", "unresponsive", "paused",
+            "pending",
+            "running",
+            "completed",
+            "failed",
+            "killed",
+            "unresponsive",
+            "paused",
         ] {
-            assert!(super::parse_run_status(s).is_ok(), "expected '{s}' to be valid");
+            assert!(
+                super::parse_run_status(s).is_ok(),
+                "expected '{s}' to be valid"
+            );
         }
     }
 

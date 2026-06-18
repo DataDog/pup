@@ -223,20 +223,12 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.get_incident_postmortem_template",
     "v2.list_incident_postmortem_templates",
     "v2.update_incident_postmortem_template",
-    // Incident Services (5)
-    "v2.create_incident_service",
-    "v2.delete_incident_service",
-    "v2.get_incident_service",
-    "v2.list_incident_services",
-    "v2.update_incident_service",
-    // Fleet Automation (18)
+    // Fleet Automation (16)
     "v2.list_fleet_agents",
     "v2.get_fleet_agent_info",
     "v2.list_fleet_agent_versions",
     "v2.list_fleet_agent_tracers",
     "v2.list_fleet_tracers",
-    "v2.list_fleet_clusters",
-    "v2.list_fleet_instrumented_pods",
     "v2.list_fleet_deployments",
     "v2.get_fleet_deployment",
     "v2.create_fleet_deployment_configure",
@@ -398,6 +390,30 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.trigger_investigation",
     // Cloud Cost Management — Anomalies (1)
     "v2.list_cost_anomalies",
+    // Tag Policies (6)
+    "v2.create_tag_policy",
+    "v2.delete_tag_policy",
+    "v2.get_tag_policy",
+    "v2.get_tag_policy_score",
+    "v2.list_tag_policies",
+    "v2.update_tag_policy",
+    // Model Lab (16)
+    "v2.delete_model_lab_run",
+    "v2.get_model_lab_artifact_content",
+    "v2.get_model_lab_project",
+    "v2.get_model_lab_run",
+    "v2.list_model_lab_project_artifacts",
+    "v2.list_model_lab_project_facet_keys",
+    "v2.list_model_lab_project_facet_values",
+    "v2.list_model_lab_projects",
+    "v2.list_model_lab_run_artifacts",
+    "v2.list_model_lab_run_facet_keys",
+    "v2.list_model_lab_run_facet_values",
+    "v2.list_model_lab_runs",
+    "v2.pin_model_lab_run",
+    "v2.star_model_lab_project",
+    "v2.unpin_model_lab_run",
+    "v2.unstar_model_lab_project",
 ];
 
 // ---------------------------------------------------------------------------
@@ -1303,7 +1319,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 171);
+        assert_eq!(UNSTABLE_OPS.len(), 186);
     }
 
     #[test]

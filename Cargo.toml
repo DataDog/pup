@@ -127,9 +127,9 @@ ssh-key = { version = "0.6", features = ["p256", "std"], optional = true }
 futures = { version = "0.3", optional = true }
 tokio-util = { version = "0.7", features = ["compat", "io"], optional = true }
 
-# Datadog API client — pinned to master HEAD 2026-05-29
+# Datadog API client — pinned to 0.32.0 tag
 # Use default-features = false; feature sets are activated per-target via features above
-datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "d4954b117c5451c0a8932dd0ad0db450fcb0989c", optional = true, default-features = false }
+datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "b769778d0c58806b615165fb444e6f02dc2e86c0", optional = true, default-features = false }
 
 # HTTP middleware (version-matched to DD client; compiles on all targets)
 reqwest-middleware = "0.5"

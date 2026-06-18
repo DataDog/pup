@@ -3132,37 +3132,11 @@ enum IncidentActions {
         #[command(subcommand)]
         action: IncidentPostmortemActions,
     },
-    /// Manage incident services
-    Services {
-        #[command(subcommand)]
-        action: IncidentServiceActions,
-    },
     /// Import an incident
     Import {
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
     },
-}
-
-#[derive(Subcommand)]
-enum IncidentServiceActions {
-    /// List incident services
-    List,
-    /// Get incident service details
-    Get { service_id: String },
-    /// Create an incident service from JSON
-    Create {
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Update an incident service
-    Update {
-        service_id: String,
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Delete an incident service
-    Delete { service_id: String },
 }
 
 #[derive(Subcommand)]
@@ -6658,21 +6632,10 @@ enum FleetActions {
         #[command(subcommand)]
         action: FleetScheduleActions,
     },
-    /// Manage fleet clusters
-    Clusters {
-        #[command(subcommand)]
-        action: FleetClusterActions,
-    },
     /// Manage fleet tracers
     Tracers {
         #[command(subcommand)]
         action: FleetTracerActions,
-    },
-    /// Manage fleet instrumented pods
-    #[command(name = "instrumented-pods")]
-    InstrumentedPods {
-        #[command(subcommand)]
-        action: FleetInstrumentedPodsActions,
     },
 }
 
@@ -6773,38 +6736,6 @@ enum FleetTracerActions {
         sort_attribute: Option<String>,
         #[arg(long, default_value_t = false, help = "Sort descending")]
         sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetClusterActions {
-    /// List Kubernetes clusters in the fleet.
-    ///
-    /// Returns clusters with node counts, agent versions, enabled products, and services.
-    /// Use this to discover cluster names for use with instrumented-pods.
-    List {
-        #[arg(long, help = "Filter query (e.g. cluster_name:production, env:prod)")]
-        filter: Option<String>,
-        #[arg(long)]
-        page_size: Option<i64>,
-        #[arg(long, help = "Page number (0-indexed)")]
-        page_number: Option<i64>,
-        #[arg(long, help = "Sort by attribute (e.g. cluster_name, node_count)")]
-        sort_attribute: Option<String>,
-        #[arg(long, default_value_t = false, help = "Sort descending")]
-        sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetInstrumentedPodsActions {
-    /// List instrumented pods in a Kubernetes cluster.
-    ///
-    /// Returns pod groups with namespace, owner, injection annotations, and pod names.
-    /// Use this to verify the Admission Controller targeted pods for SSI injection.
-    List {
-        #[arg(help = "Kubernetes cluster name (required)")]
-        cluster_name: String,
     },
 }
 
@@ -11278,23 +11209,6 @@ async fn main_inner() -> anyhow::Result<()> {
                             .await?;
                     }
                 },
-                IncidentActions::Services { action } => match action {
-                    IncidentServiceActions::List => {
-                        commands::incidents::services_list(&cfg).await?;
-                    }
-                    IncidentServiceActions::Get { service_id } => {
-                        commands::incidents::services_get(&cfg, &service_id).await?;
-                    }
-                    IncidentServiceActions::Create { file } => {
-                        commands::incidents::services_create(&cfg, &file).await?;
-                    }
-                    IncidentServiceActions::Update { service_id, file } => {
-                        commands::incidents::services_update(&cfg, &service_id, &file).await?;
-                    }
-                    IncidentServiceActions::Delete { service_id } => {
-                        commands::incidents::services_delete(&cfg, &service_id).await?;
-                    }
-                },
                 IncidentActions::Import { file } => {
                     commands::incidents::import(&cfg, &file).await?;
                 }
@@ -13208,25 +13122,6 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::fleet::schedules_trigger(&cfg, &schedule_id).await?;
                     }
                 },
-                FleetActions::Clusters { action } => match action {
-                    FleetClusterActions::List {
-                        filter,
-                        page_size,
-                        page_number,
-                        sort_attribute,
-                        sort_descending,
-                    } => {
-                        commands::fleet::clusters_list(
-                            &cfg,
-                            filter,
-                            page_size,
-                            page_number,
-                            sort_attribute,
-                            sort_descending,
-                        )
-                        .await?;
-                    }
-                },
                 FleetActions::Tracers { action } => match action {
                     FleetTracerActions::List {
                         filter,
@@ -13244,11 +13139,6 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort_descending,
                         )
                         .await?;
-                    }
-                },
-                FleetActions::InstrumentedPods { action } => match action {
-                    FleetInstrumentedPodsActions::List { cluster_name } => {
-                        commands::fleet::instrumented_pods_list(&cfg, cluster_name).await?;
                     }
                 },
             }

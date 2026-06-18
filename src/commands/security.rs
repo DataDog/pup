@@ -11,8 +11,9 @@ use datadog_api_client::datadogV2::api_restriction_policies::{
     RestrictionPoliciesAPI, UpdateRestrictionPolicyOptionalParams,
 };
 use datadog_api_client::datadogV2::api_security_monitoring::{
-    ListFindingsOptionalParams, ListIndicatorsOfCompromiseOptionalParams,
-    ListSecurityMonitoringRulesOptionalParams, ListSecurityMonitoringSuppressionsOptionalParams,
+    GetIndicatorOfCompromiseOptionalParams, ListFindingsOptionalParams,
+    ListIndicatorsOfCompromiseOptionalParams, ListSecurityMonitoringRulesOptionalParams,
+    ListSecurityMonitoringSuppressionsOptionalParams,
     SearchSecurityMonitoringSignalsOptionalParams, SecurityMonitoringAPI,
 };
 use datadog_api_client::datadogV2::model::{
@@ -471,7 +472,10 @@ pub async fn iocs_list(
 pub async fn iocs_get(cfg: &Config, indicator: &str) -> Result<()> {
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
     let resp = api
-        .get_indicator_of_compromise(indicator.to_string())
+        .get_indicator_of_compromise(
+            indicator.to_string(),
+            GetIndicatorOfCompromiseOptionalParams::default(),
+        )
         .await
         .map_err(|e| anyhow::anyhow!("failed to get indicator of compromise: {e:?}"))?;
     formatter::output(cfg, &resp)

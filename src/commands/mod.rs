@@ -54,6 +54,7 @@ pub mod llm_obs;
 pub mod logs;
 pub mod logs_restriction;
 pub mod metrics;
+pub mod model_lab;
 pub mod misc;
 pub mod monitors;
 pub mod ms_teams;

@@ -397,6 +397,23 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.get_tag_policy_score",
     "v2.list_tag_policies",
     "v2.update_tag_policy",
+    // Model Lab (16)
+    "v2.delete_model_lab_run",
+    "v2.get_model_lab_artifact_content",
+    "v2.get_model_lab_project",
+    "v2.get_model_lab_run",
+    "v2.list_model_lab_project_artifacts",
+    "v2.list_model_lab_project_facet_keys",
+    "v2.list_model_lab_project_facet_values",
+    "v2.list_model_lab_projects",
+    "v2.list_model_lab_run_artifacts",
+    "v2.list_model_lab_run_facet_keys",
+    "v2.list_model_lab_run_facet_values",
+    "v2.list_model_lab_runs",
+    "v2.pin_model_lab_run",
+    "v2.star_model_lab_project",
+    "v2.unpin_model_lab_run",
+    "v2.unstar_model_lab_project",
 ];
 
 // ---------------------------------------------------------------------------
@@ -1302,7 +1319,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 170);
+        assert_eq!(UNSTABLE_OPS.len(), 186);
     }
 
     #[test]

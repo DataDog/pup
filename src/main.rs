@@ -1879,6 +1879,30 @@ enum Commands {
         #[command(subcommand)]
         action: MiscActions,
     },
+    /// Explore Model Lab projects and runs
+    ///
+    /// Browse ML experiment projects and their training runs in Datadog Model Lab.
+    ///
+    /// SUBCOMMANDS:
+    ///   projects    Manage Model Lab projects
+    ///   runs        Manage Model Lab runs
+    ///
+    /// EXAMPLES:
+    ///   pup model-lab projects list
+    ///   pup model-lab projects get 123
+    ///   pup model-lab projects star 123
+    ///   pup model-lab runs list --filter-project-id 123
+    ///   pup model-lab runs get 456
+    ///   pup model-lab runs delete 456
+    ///   pup model-lab runs pin 456
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "model-lab", verbatim_doc_comment)]
+    ModelLab {
+        #[command(subcommand)]
+        action: ModelLabActions,
+    },
     /// Manage monitors
     ///
     /// Manage Datadog monitors for alerting and notifications.
@@ -8122,6 +8146,119 @@ enum MiscActions {
     Status,
 }
 
+// ---- Model Lab ----
+#[derive(Subcommand)]
+enum ModelLabActions {
+    /// Manage Model Lab projects
+    Projects {
+        #[command(subcommand)]
+        action: ModelLabProjectActions,
+    },
+    /// Manage Model Lab runs
+    Runs {
+        #[command(subcommand)]
+        action: ModelLabRunActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelLabProjectActions {
+    /// List Model Lab projects
+    List {
+        #[arg(long, help = "Filter query string")]
+        filter: Option<String>,
+        #[arg(long, help = "Filter by tags (comma-separated)")]
+        filter_tags: Option<String>,
+        #[arg(long, help = "Sort field (e.g. name, created_at)")]
+        sort: Option<String>,
+        #[arg(long)]
+        page_size: Option<i64>,
+        #[arg(long, help = "Page number (0-indexed)")]
+        page_number: Option<i64>,
+    },
+    /// Get a Model Lab project by ID
+    Get { project_id: i64 },
+    /// Star a Model Lab project
+    Star { project_id: i64 },
+    /// Unstar a Model Lab project
+    Unstar { project_id: i64 },
+    /// List artifacts for a Model Lab project
+    Artifacts { project_id: i64 },
+    /// List facet keys for Model Lab projects
+    #[command(name = "facet-keys")]
+    FacetKeys,
+    /// List facet values for a Model Lab project facet
+    #[command(name = "facet-values")]
+    FacetValues {
+        #[arg(help = "Facet type (tag)")]
+        facet_type: String,
+        #[arg(help = "Facet name")]
+        facet_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelLabRunActions {
+    /// List Model Lab runs
+    List {
+        #[arg(long, help = "Filter query string")]
+        filter: Option<String>,
+        #[arg(long, help = "Filter by project ID")]
+        filter_project_id: Option<i64>,
+        #[arg(
+            long,
+            help = "Filter by status: pending, running, completed, failed, killed, unresponsive, paused"
+        )]
+        filter_status: Option<String>,
+        #[arg(long, help = "Filter by tags (comma-separated)")]
+        filter_tags: Option<String>,
+        #[arg(long, help = "Filter by params")]
+        filter_params: Option<String>,
+        #[arg(long, help = "Filter by parent run ID")]
+        filter_parent_run_id: Option<String>,
+        #[arg(long, default_value_t = false, help = "Show pinned runs first")]
+        pinned_first: bool,
+        #[arg(long, default_value_t = false, help = "Include pinned runs")]
+        include_pinned: bool,
+        #[arg(long, help = "Sort field")]
+        sort: Option<String>,
+        #[arg(long)]
+        page_size: Option<i64>,
+        #[arg(long, help = "Page number (0-indexed)")]
+        page_number: Option<i64>,
+    },
+    /// Get a Model Lab run by ID
+    Get { run_id: i64 },
+    /// Delete a Model Lab run
+    Delete { run_id: i64 },
+    /// Pin a Model Lab run
+    Pin { run_id: i64 },
+    /// Unpin a Model Lab run
+    Unpin { run_id: i64 },
+    /// List artifacts for a Model Lab run
+    Artifacts {
+        run_id: i64,
+        #[arg(long, help = "Filter by artifact path prefix")]
+        path: Option<String>,
+    },
+    /// List facet keys for Model Lab runs
+    #[command(name = "facet-keys")]
+    FacetKeys {
+        #[arg(long, help = "Project ID to scope facet keys")]
+        filter_project_id: i64,
+    },
+    /// List facet values for a Model Lab run facet
+    #[command(name = "facet-values")]
+    FacetValues {
+        #[arg(long, help = "Project ID to scope facet values")]
+        filter_project_id: i64,
+        #[arg(help = "Facet type (parameter, attribute, tag, metric)")]
+        facet_type: String,
+        #[arg(help = "Facet name")]
+        facet_name: String,
+    },
+}
+
 // ---- APM ----
 #[derive(Subcommand)]
 enum ApmActions {
@@ -14301,6 +14438,115 @@ async fn main_inner() -> anyhow::Result<()> {
             match action {
                 MiscActions::IpRanges => commands::misc::ip_ranges(&cfg).await?,
                 MiscActions::Status => commands::misc::status(&cfg).await?,
+            }
+        }
+        // --- Model Lab ---
+        Commands::ModelLab { action } => {
+            cfg.validate_auth()?;
+            match action {
+                ModelLabActions::Projects { action } => match action {
+                    ModelLabProjectActions::List {
+                        filter,
+                        filter_tags,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::model_lab::projects_list(
+                            &cfg,
+                            filter,
+                            filter_tags,
+                            sort,
+                            page_size,
+                            page_number,
+                        )
+                        .await?;
+                    }
+                    ModelLabProjectActions::Get { project_id } => {
+                        commands::model_lab::projects_get(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Star { project_id } => {
+                        commands::model_lab::projects_star(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Unstar { project_id } => {
+                        commands::model_lab::projects_unstar(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Artifacts { project_id } => {
+                        commands::model_lab::projects_artifacts(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::FacetKeys => {
+                        commands::model_lab::projects_facet_keys(&cfg).await?;
+                    }
+                    ModelLabProjectActions::FacetValues {
+                        facet_type,
+                        facet_name,
+                    } => {
+                        commands::model_lab::projects_facet_values(&cfg, &facet_type, facet_name)
+                            .await?;
+                    }
+                },
+                ModelLabActions::Runs { action } => match action {
+                    ModelLabRunActions::List {
+                        filter,
+                        filter_project_id,
+                        filter_status,
+                        filter_tags,
+                        filter_params,
+                        filter_parent_run_id,
+                        pinned_first,
+                        include_pinned,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::model_lab::runs_list(
+                            &cfg,
+                            filter,
+                            filter_project_id,
+                            filter_status,
+                            filter_tags,
+                            filter_params,
+                            filter_parent_run_id,
+                            pinned_first,
+                            include_pinned,
+                            sort,
+                            page_size,
+                            page_number,
+                        )
+                        .await?;
+                    }
+                    ModelLabRunActions::Get { run_id } => {
+                        commands::model_lab::runs_get(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Delete { run_id } => {
+                        commands::model_lab::runs_delete(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Pin { run_id } => {
+                        commands::model_lab::runs_pin(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Unpin { run_id } => {
+                        commands::model_lab::runs_unpin(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Artifacts { run_id, path } => {
+                        commands::model_lab::runs_artifacts(&cfg, run_id, path).await?;
+                    }
+                    ModelLabRunActions::FacetKeys { filter_project_id } => {
+                        commands::model_lab::runs_facet_keys(&cfg, filter_project_id).await?;
+                    }
+                    ModelLabRunActions::FacetValues {
+                        filter_project_id,
+                        facet_type,
+                        facet_name,
+                    } => {
+                        commands::model_lab::runs_facet_values(
+                            &cfg,
+                            filter_project_id,
+                            &facet_type,
+                            facet_name,
+                        )
+                        .await?;
+                    }
+                },
             }
         }
         // --- APM ---

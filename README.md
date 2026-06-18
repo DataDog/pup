@@ -497,6 +497,7 @@ The `pup auth status` command works in WASM and reports which credentials are co
 
 - No local token storage (keychain/file) — use `DD_ACCESS_TOKEN` or API keys
 - No browser-based OAuth login flow
+- Extensions are not included in WASM builds; `pup extension ...` and installed extension dispatch are native-only
 - Networking relies on the host runtime's networking capabilities
 
 ### Running with Wasmtime

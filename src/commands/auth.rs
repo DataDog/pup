@@ -44,9 +44,9 @@ pub async fn login(
     let org = cfg.org.as_deref();
 
     // Resolve effective org_uuid: CLI flag wins; otherwise recall the UUID
-    // stored on the matching `(site, org)` session so re-auth keeps emitting
+    // stored on the matching org session so re-auth keeps emitting
     // `dd_oid` without re-passing the flag.
-    let stored_session = storage::find_session(site, org);
+    let stored_session = storage::find_session(org);
     let effective_org_uuid: Option<String> = org_uuid
         .map(String::from)
         .or_else(|| stored_session.as_ref().and_then(|s| s.org_uuid.clone()));

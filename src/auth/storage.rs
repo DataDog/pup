@@ -883,64 +883,47 @@ pub fn list_sessions() -> Result<Vec<SessionEntry>> {
     }
 }
 
-/// Upsert a session entry into the registry. Dedups on `(site, org)`; the
-/// new entry's `org_uuid` wins so re-auth refreshes the stored UUID.
+/// Upsert a session entry into the registry. Dedups on `org` alone; the
+/// new entry's site and `org_uuid` win so re-auth to a different site
+/// replaces the existing entry rather than accumulating a second one.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_session(entry: &SessionEntry) -> Result<()> {
     let mut sessions = list_sessions()?;
-    sessions.retain(|s| !(s.site == entry.site && s.org == entry.org));
+    sessions.retain(|s| s.org != entry.org);
     sessions.push(entry.clone());
     write_sessions(&sessions)
 }
 
 /// Remove a session entry from the registry.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn remove_session(site: &str, org: Option<&str>) -> Result<()> {
+pub fn remove_session(_site: &str, org: Option<&str>) -> Result<()> {
     let mut sessions = list_sessions()?;
-    sessions.retain(|s| !(s.site == site && s.org.as_deref() == org));
+    sessions.retain(|s| s.org.as_deref() != org);
     write_sessions(&sessions)
 }
 
-/// Look up a single session entry by `(site, org)`.
+/// Look up a single session entry by org name.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn find_session(site: &str, org: Option<&str>) -> Option<SessionEntry> {
+pub fn find_session(org: Option<&str>) -> Option<SessionEntry> {
     list_sessions()
         .ok()?
         .into_iter()
-        .find(|s| s.site == site && s.org.as_deref() == org)
+        .find(|s| s.org.as_deref() == org)
 }
 
 /// Look up the site for a named org session. Returns None if no session exists
-/// for that org, or if multiple sessions share the same org name on different
-/// sites (ambiguous — caller must pass DD_SITE explicitly). On the ambiguous
-/// path, prints a one-line warning to stderr naming the conflicting sites so
-/// the user knows the auto-resolution gave up.
+/// for that org. The save_session invariant ensures at most one session per org
+/// name, so the lookup is always unambiguous for current data. Legacy sessions.json
+/// files written by older pup versions could contain two rows for the same named
+/// org on different sites; in that case we return the first match and self-heal
+/// on the next `pup auth login --org <name>`.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn find_session_site(org: &str) -> Option<String> {
-    let sessions = list_sessions().ok()?;
-    let mut sites: Vec<String> = sessions
+    list_sessions()
+        .ok()?
         .into_iter()
-        .filter(|s| s.org.as_deref() == Some(org))
+        .find(|s| s.org.as_deref() == Some(org))
         .map(|s| s.site)
-        .collect();
-    sites.sort();
-    sites.dedup();
-    match sites.len() {
-        0 => None,
-        1 => sites.pop(),
-        _ => {
-            // The caller (Config::from_env / apply_org_override) handles the
-            // resulting None by leaving cfg.site at whatever it was — which
-            // may be a default, an env-set site, or a previously-resolved
-            // org's site — so we do not promise "falling back to default" here.
-            eprintln!(
-                "Warning: org '{org}' has saved sessions on multiple sites ({}); \
-                 not auto-selecting one. Set DD_SITE to disambiguate.",
-                sites.join(", ")
-            );
-            None
-        }
-    }
 }
 
 /// Return the site for the single no-org ("default") session, if there is
@@ -981,6 +964,13 @@ pub fn find_default_session_site() -> Option<String> {
 /// invariant for the no-org ("default") session. Called after a bare login
 /// so that switching regions replaces the previous unnamed default rather
 /// than accumulating ambiguous entries that confuse `find_default_session_site`.
+///
+/// Note: `save_session(None)` now also removes all prior no-org rows as part
+/// of the single-slot invariant, so in the normal bare-login flow `to_prune`
+/// will be empty when this runs. This function remains as a defensive guard
+/// for legacy on-disk data (sessions.json written by older pup versions)
+/// that may have multiple no-org rows for different sites, and to clean up
+/// any orphaned tokens from the displaced session.
 ///
 /// Named-org sessions on any site are never touched.
 #[cfg(not(target_arch = "wasm32"))]
@@ -1507,29 +1497,33 @@ mod tests {
     }
 
     #[test]
-    fn test_find_session_site_ambiguous_returns_none() {
+    fn test_save_session_same_name_different_site_overwrites() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
-        let tmp = TempDir::new("find_sess_amb");
+        let tmp = TempDir::new("find_sess_overwrite");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        // Same org name registered against two different sites → caller must
-        // disambiguate via DD_SITE rather than us picking one.
+        // First login: org "myorg" on .com.
         save_session(&SessionEntry {
             site: "datadoghq.com".into(),
-            org: Some("shared-name".into()),
+            org: Some("myorg".into()),
             org_uuid: None,
         })
         .unwrap();
+        // Re-login: same org name but different site → overwrites the first.
         save_session(&SessionEntry {
             site: "datadoghq.eu".into(),
-            org: Some("shared-name".into()),
+            org: Some("myorg".into()),
             org_uuid: None,
         })
         .unwrap();
-        let result = find_session_site("shared-name");
+
+        let sessions = list_sessions().unwrap();
+        let result = find_session_site("myorg");
         std::env::remove_var("PUP_CONFIG_DIR");
 
-        assert!(result.is_none());
+        // Only one session remains, on the new site.
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(result.as_deref(), Some("datadoghq.eu"));
     }
 
     #[test]
@@ -1588,21 +1582,16 @@ mod tests {
 
     #[test]
     fn test_find_default_session_site_multiple_no_org_rows_returns_none() {
-        // Legacy data: two no-org rows → ambiguous; warn + return None.
+        // Legacy on-disk data: two no-org rows written by an older pup version →
+        // ambiguous; warn + return None. Construct directly via write_sessions
+        // because save_session now enforces the single-slot invariant.
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
         let tmp = TempDir::new("fds_multi");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
-        save_session(&SessionEntry {
-            site: "datadoghq.com".into(),
-            org: None,
-            org_uuid: None,
-        })
-        .unwrap();
-        save_session(&SessionEntry {
-            site: "datadoghq.eu".into(),
-            org: None,
-            org_uuid: None,
-        })
+        write_sessions(&[
+            SessionEntry { site: "datadoghq.com".into(), org: None, org_uuid: None },
+            SessionEntry { site: "datadoghq.eu".into(), org: None, org_uuid: None },
+        ])
         .unwrap();
         let result = find_default_session_site();
         std::env::remove_var("PUP_CONFIG_DIR");
@@ -1726,25 +1715,20 @@ mod tests {
 
     #[test]
     fn test_prune_self_heals_legacy_multiple_no_org_rows() {
-        // The central migration promise: legacy data with two no-org rows is
-        // ambiguous (find_default_session_site warns + returns None), but a bare
+        // The central migration promise: legacy on-disk data with two no-org rows
+        // is ambiguous (find_default_session_site warns + returns None), but a bare
         // login's prune collapses it to one, after which resolution recovers.
+        // Construct directly via write_sessions because save_session now enforces
+        // the single-slot invariant.
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
         let tmp = TempDir::new("prune_self_heal");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
         std::env::set_var("DD_TOKEN_STORAGE", "file");
 
-        save_session(&SessionEntry {
-            site: "datadoghq.com".into(),
-            org: None,
-            org_uuid: None,
-        })
-        .unwrap();
-        save_session(&SessionEntry {
-            site: "datadoghq.eu".into(),
-            org: None,
-            org_uuid: None,
-        })
+        write_sessions(&[
+            SessionEntry { site: "datadoghq.com".into(), org: None, org_uuid: None },
+            SessionEntry { site: "datadoghq.eu".into(), org: None, org_uuid: None },
+        ])
         .unwrap();
 
         // Ambiguous before: two no-org rows → None.
@@ -1764,6 +1748,8 @@ mod tests {
     fn test_prune_deletes_only_other_no_org_token() {
         // Token hygiene + safety: prune deletes the displaced site's no-org token
         // but leaves the kept site's no-org token and any named-org token intact.
+        // Construct two no-org rows directly via write_sessions because save_session
+        // now enforces the single-slot invariant (this is the legacy-data path).
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
         let tmp = TempDir::new("prune_tokens");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
@@ -1783,17 +1769,10 @@ mod tests {
                 .save_tokens("datadoghq.eu", None, &make_token("eu-default"))
                 .unwrap();
         }
-        save_session(&SessionEntry {
-            site: "datadoghq.com".into(),
-            org: None,
-            org_uuid: None,
-        })
-        .unwrap();
-        save_session(&SessionEntry {
-            site: "datadoghq.eu".into(),
-            org: None,
-            org_uuid: None,
-        })
+        write_sessions(&[
+            SessionEntry { site: "datadoghq.com".into(), org: None, org_uuid: None },
+            SessionEntry { site: "datadoghq.eu".into(), org: None, org_uuid: None },
+        ])
         .unwrap();
 
         prune_other_default_sessions("datadoghq.eu").unwrap();

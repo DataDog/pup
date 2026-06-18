@@ -2603,6 +2603,35 @@ enum Commands {
         #[command(subcommand)]
         action: SyntheticsActions,
     },
+    /// Manage tag policies for governance and compliance
+    ///
+    /// Create, list, get, update, and delete tag policies. Tag policies enforce
+    /// required tag keys and allowed values across your Datadog resources, and
+    /// provide compliance scoring to measure adherence.
+    ///
+    /// COMMANDS:
+    ///   list              List all tag policies
+    ///   get <id>          Get a tag policy by ID
+    ///   create --file     Create a tag policy from JSON
+    ///   update <id> -f    Update a tag policy
+    ///   delete <id>       Delete a tag policy
+    ///   score             Get the overall tag policy compliance score
+    ///
+    /// EXAMPLES:
+    ///   pup tag-policies list
+    ///   pup tag-policies list --include-score
+    ///   pup tag-policies list --filter-source api
+    ///   pup tag-policies get pol-abc123 --include-score
+    ///   pup tag-policies create --file policy.json
+    ///   pup tag-policies score pol-abc123
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "tag-policies", verbatim_doc_comment)]
+    TagPolicies {
+        #[command(subcommand)]
+        action: TagPoliciesActions,
+    },
     /// Manage host tags
     ///
     /// Manage tags for hosts in your infrastructure.
@@ -2633,35 +2662,6 @@ enum Commands {
     Tags {
         #[command(subcommand)]
         action: TagActions,
-    },
-    /// Manage tag policies for governance and compliance
-    ///
-    /// Create, list, get, update, and delete tag policies. Tag policies enforce
-    /// required tag keys and allowed values across your Datadog resources, and
-    /// provide compliance scoring to measure adherence.
-    ///
-    /// COMMANDS:
-    ///   list              List all tag policies
-    ///   get <id>          Get a tag policy by ID
-    ///   create --file     Create a tag policy from JSON
-    ///   update <id> -f    Update a tag policy
-    ///   delete <id>       Delete a tag policy
-    ///   score             Get the overall tag policy compliance score
-    ///
-    /// EXAMPLES:
-    ///   pup tag-policies list
-    ///   pup tag-policies list --include-score
-    ///   pup tag-policies list --filter-source api
-    ///   pup tag-policies get pol-abc123 --include-score
-    ///   pup tag-policies create --file policy.json
-    ///   pup tag-policies score pol-abc123
-    ///
-    /// AUTHENTICATION:
-    ///   Requires either OAuth2 authentication or API keys.
-    #[command(name = "tag-policies", verbatim_doc_comment)]
-    TagPolicies {
-        #[command(subcommand)]
-        action: TagPoliciesActions,
     },
     /// Manage Test Optimization settings and flaky tests
     ///

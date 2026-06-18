@@ -3,9 +3,7 @@ use datadog_api_client::datadogV2::api_tag_policies::{
     DeleteTagPolicyOptionalParams, GetTagPolicyOptionalParams, GetTagPolicyScoreOptionalParams,
     ListTagPoliciesOptionalParams, TagPoliciesAPI,
 };
-use datadog_api_client::datadogV2::model::{
-    TagPolicyCreateRequest, TagPolicyUpdateRequest,
-};
+use datadog_api_client::datadogV2::model::{TagPolicyCreateRequest, TagPolicyUpdateRequest};
 
 use crate::config::Config;
 use crate::formatter;
@@ -31,9 +29,7 @@ pub async fn list(
         params = params.include_deleted(true);
     }
     if include_score {
-        params = params.include(
-            datadog_api_client::datadogV2::model::TagPolicyInclude::SCORE,
-        );
+        params = params.include(datadog_api_client::datadogV2::model::TagPolicyInclude::SCORE);
     }
     if let Some(src) = filter_source {
         let source = match src.as_str() {
@@ -59,9 +55,7 @@ pub async fn get(cfg: &Config, policy_id: &str, include_score: bool) -> Result<(
     let api = make_api(cfg);
     let mut params = GetTagPolicyOptionalParams::default();
     if include_score {
-        params = params.include(
-            datadog_api_client::datadogV2::model::TagPolicyInclude::SCORE,
-        );
+        params = params.include(datadog_api_client::datadogV2::model::TagPolicyInclude::SCORE);
     }
     let resp = api
         .get_tag_policy(policy_id.to_string(), params)

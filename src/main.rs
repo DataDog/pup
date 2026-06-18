@@ -4139,7 +4139,11 @@ enum TagPoliciesActions {
         include_disabled: bool,
         #[arg(long, default_value_t = false, help = "Include soft-deleted policies")]
         include_deleted: bool,
-        #[arg(long, default_value_t = false, help = "Include compliance score in response")]
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Include compliance score in response"
+        )]
         include_score: bool,
         #[arg(long, help = "Filter by policy source: api, terraform, ui")]
         filter_source: Option<String>,
@@ -4147,7 +4151,11 @@ enum TagPoliciesActions {
     /// Get a tag policy by ID
     Get {
         policy_id: String,
-        #[arg(long, default_value_t = false, help = "Include compliance score in response")]
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Include compliance score in response"
+        )]
         include_score: bool,
     },
     /// Create a tag policy from a JSON file
@@ -4164,7 +4172,11 @@ enum TagPoliciesActions {
     /// Delete a tag policy
     Delete {
         policy_id: String,
-        #[arg(long, default_value_t = false, help = "Permanently delete (default: soft delete)")]
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Permanently delete (default: soft delete)"
+        )]
         hard_delete: bool,
     },
     /// Get the compliance score for a tag policy

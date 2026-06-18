@@ -1936,6 +1936,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         super::apply_org_override(&mut cfg, "unknown-org".into()).unwrap();

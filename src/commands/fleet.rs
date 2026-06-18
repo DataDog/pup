@@ -1,8 +1,8 @@
 use anyhow::Result;
 use datadog_api_client::datadogV2::api_fleet_automation::{
     FleetAutomationAPI, GetFleetDeploymentOptionalParams, ListFleetAgentTracersOptionalParams,
-    ListFleetAgentsOptionalParams, ListFleetClustersOptionalParams,
-    ListFleetDeploymentsOptionalParams, ListFleetTracersOptionalParams,
+    ListFleetAgentsOptionalParams, ListFleetDeploymentsOptionalParams,
+    ListFleetTracersOptionalParams,
 };
 
 use crate::config::Config;
@@ -218,46 +218,6 @@ pub async fn agents_tracers_list(
     formatter::output(cfg, &resp)
 }
 
-pub async fn clusters_list(
-    cfg: &Config,
-    filter: Option<String>,
-    page_size: Option<i64>,
-    page_number: Option<i64>,
-    sort_attribute: Option<String>,
-    sort_descending: bool,
-) -> Result<()> {
-    let api = crate::make_api!(FleetAutomationAPI, cfg);
-    let mut params = ListFleetClustersOptionalParams::default();
-    if let Some(f) = filter {
-        params = params.filter(f);
-    }
-    if let Some(ps) = page_size {
-        params = params.page_size(ps);
-    }
-    if let Some(pn) = page_number {
-        params = params.page_number(pn);
-    }
-    if let Some(sa) = sort_attribute {
-        params = params.sort_attribute(sa);
-    }
-    if sort_descending {
-        params = params.sort_descending(true);
-    }
-    let resp = api
-        .list_fleet_clusters(params)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to list fleet clusters: {e:?}"))?;
-    formatter::output(cfg, &resp)
-}
-
-pub async fn instrumented_pods_list(cfg: &Config, cluster_name: String) -> Result<()> {
-    let api = crate::make_api!(FleetAutomationAPI, cfg);
-    let resp = api
-        .list_fleet_instrumented_pods(cluster_name)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to list instrumented pods: {e:?}"))?;
-    formatter::output(cfg, &resp)
-}
 
 #[cfg(test)]
 mod tests {
@@ -371,55 +331,6 @@ mod tests {
             "agents_tracers_list failed: {:?}",
             result.err()
         );
-        mock.assert_async().await;
-        cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_fleet_instrumented_pods_list() {
-        let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
-        let cfg = test_config(&server.url());
-
-        let mock = server
-            .mock(
-                "GET",
-                "/api/unstable/fleet/clusters/my-cluster/instrumented_pods",
-            )
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(
-                r#"{"data":{"type":"cluster_name","id":"my-cluster","attributes":{"groups":[]}}}"#,
-            )
-            .create_async()
-            .await;
-
-        let result = super::instrumented_pods_list(&cfg, "my-cluster".into()).await;
-        assert!(
-            result.is_ok(),
-            "instrumented_pods_list failed: {:?}",
-            result.err()
-        );
-        mock.assert_async().await;
-        cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_fleet_clusters_list() {
-        let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
-        let cfg = test_config(&server.url());
-
-        let mock = server
-            .mock("GET", "/api/unstable/fleet/clusters")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"data":{"type":"status","id":"done","attributes":{"clusters":[]}}}"#)
-            .create_async()
-            .await;
-
-        let result = super::clusters_list(&cfg, None, None, None, None, false).await;
-        assert!(result.is_ok(), "clusters_list failed: {:?}", result.err());
         mock.assert_async().await;
         cleanup_env();
     }

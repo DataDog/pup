@@ -223,20 +223,12 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.get_incident_postmortem_template",
     "v2.list_incident_postmortem_templates",
     "v2.update_incident_postmortem_template",
-    // Incident Services (5)
-    "v2.create_incident_service",
-    "v2.delete_incident_service",
-    "v2.get_incident_service",
-    "v2.list_incident_services",
-    "v2.update_incident_service",
-    // Fleet Automation (18)
+    // Fleet Automation (16)
     "v2.list_fleet_agents",
     "v2.get_fleet_agent_info",
     "v2.list_fleet_agent_versions",
     "v2.list_fleet_agent_tracers",
     "v2.list_fleet_tracers",
-    "v2.list_fleet_clusters",
-    "v2.list_fleet_instrumented_pods",
     "v2.list_fleet_deployments",
     "v2.get_fleet_deployment",
     "v2.create_fleet_deployment_configure",
@@ -398,6 +390,13 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.trigger_investigation",
     // Cloud Cost Management — Anomalies (1)
     "v2.list_cost_anomalies",
+    // Tag Policies (6)
+    "v2.create_tag_policy",
+    "v2.delete_tag_policy",
+    "v2.get_tag_policy",
+    "v2.get_tag_policy_score",
+    "v2.list_tag_policies",
+    "v2.update_tag_policy",
 ];
 
 // ---------------------------------------------------------------------------
@@ -1303,7 +1302,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 171);
+        assert_eq!(UNSTABLE_OPS.len(), 170);
     }
 
     #[test]

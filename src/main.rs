@@ -2634,6 +2634,35 @@ enum Commands {
         #[command(subcommand)]
         action: TagActions,
     },
+    /// Manage tag policies for governance and compliance
+    ///
+    /// Create, list, get, update, and delete tag policies. Tag policies enforce
+    /// required tag keys and allowed values across your Datadog resources, and
+    /// provide compliance scoring to measure adherence.
+    ///
+    /// COMMANDS:
+    ///   list              List all tag policies
+    ///   get <id>          Get a tag policy by ID
+    ///   create --file     Create a tag policy from JSON
+    ///   update <id> -f    Update a tag policy
+    ///   delete <id>       Delete a tag policy
+    ///   score             Get the overall tag policy compliance score
+    ///
+    /// EXAMPLES:
+    ///   pup tag-policies list
+    ///   pup tag-policies list --include-score
+    ///   pup tag-policies list --filter-source api
+    ///   pup tag-policies get pol-abc123 --include-score
+    ///   pup tag-policies create --file policy.json
+    ///   pup tag-policies score pol-abc123
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "tag-policies", verbatim_doc_comment)]
+    TagPolicies {
+        #[command(subcommand)]
+        action: TagPoliciesActions,
+    },
     /// Manage Test Optimization settings and flaky tests
     ///
     /// Configure Test Optimization service settings and manage flaky tests
@@ -4099,6 +4128,53 @@ enum TagActions {
     Update { hostname: String, tags: Vec<String> },
     /// Delete all tags from a host
     Delete { hostname: String },
+}
+
+// ---- Tag Policies ----
+#[derive(Subcommand)]
+enum TagPoliciesActions {
+    /// List all tag policies
+    List {
+        #[arg(long, default_value_t = false, help = "Include disabled policies")]
+        include_disabled: bool,
+        #[arg(long, default_value_t = false, help = "Include soft-deleted policies")]
+        include_deleted: bool,
+        #[arg(long, default_value_t = false, help = "Include compliance score in response")]
+        include_score: bool,
+        #[arg(long, help = "Filter by policy source: api, terraform, ui")]
+        filter_source: Option<String>,
+    },
+    /// Get a tag policy by ID
+    Get {
+        policy_id: String,
+        #[arg(long, default_value_t = false, help = "Include compliance score in response")]
+        include_score: bool,
+    },
+    /// Create a tag policy from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with TagPolicyCreateRequest body")]
+        file: String,
+    },
+    /// Update a tag policy from a JSON file
+    Update {
+        policy_id: String,
+        #[arg(long, short, help = "JSON file with TagPolicyUpdateRequest body")]
+        file: String,
+    },
+    /// Delete a tag policy
+    Delete {
+        policy_id: String,
+        #[arg(long, default_value_t = false, help = "Permanently delete (default: soft delete)")]
+        hard_delete: bool,
+    },
+    /// Get the compliance score for a tag policy
+    Score {
+        policy_id: String,
+        #[arg(long, help = "Start of scoring window (Unix ms timestamp)")]
+        ts_start: Option<i64>,
+        #[arg(long, help = "End of scoring window (Unix ms timestamp)")]
+        ts_end: Option<i64>,
+    },
 }
 
 // ---- Users ----
@@ -11745,6 +11821,52 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 TagActions::Delete { hostname } => {
                     commands::tags::delete(&cfg, &hostname).await?;
+                }
+            }
+        }
+        // --- Tag Policies ---
+        Commands::TagPolicies { action } => {
+            cfg.validate_auth()?;
+            match action {
+                TagPoliciesActions::List {
+                    include_disabled,
+                    include_deleted,
+                    include_score,
+                    filter_source,
+                } => {
+                    commands::tag_policies::list(
+                        &cfg,
+                        include_disabled,
+                        include_deleted,
+                        include_score,
+                        filter_source,
+                    )
+                    .await?;
+                }
+                TagPoliciesActions::Get {
+                    policy_id,
+                    include_score,
+                } => {
+                    commands::tag_policies::get(&cfg, &policy_id, include_score).await?;
+                }
+                TagPoliciesActions::Create { file } => {
+                    commands::tag_policies::create(&cfg, &file).await?;
+                }
+                TagPoliciesActions::Update { policy_id, file } => {
+                    commands::tag_policies::update(&cfg, &policy_id, &file).await?;
+                }
+                TagPoliciesActions::Delete {
+                    policy_id,
+                    hard_delete,
+                } => {
+                    commands::tag_policies::delete(&cfg, &policy_id, hard_delete).await?;
+                }
+                TagPoliciesActions::Score {
+                    policy_id,
+                    ts_start,
+                    ts_end,
+                } => {
+                    commands::tag_policies::score(&cfg, &policy_id, ts_start, ts_end).await?;
                 }
             }
         }

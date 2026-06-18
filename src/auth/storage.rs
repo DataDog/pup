@@ -1589,8 +1589,16 @@ mod tests {
         let tmp = TempDir::new("fds_multi");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
         write_sessions(&[
-            SessionEntry { site: "datadoghq.com".into(), org: None, org_uuid: None },
-            SessionEntry { site: "datadoghq.eu".into(), org: None, org_uuid: None },
+            SessionEntry {
+                site: "datadoghq.com".into(),
+                org: None,
+                org_uuid: None,
+            },
+            SessionEntry {
+                site: "datadoghq.eu".into(),
+                org: None,
+                org_uuid: None,
+            },
         ])
         .unwrap();
         let result = find_default_session_site();
@@ -1726,8 +1734,16 @@ mod tests {
         std::env::set_var("DD_TOKEN_STORAGE", "file");
 
         write_sessions(&[
-            SessionEntry { site: "datadoghq.com".into(), org: None, org_uuid: None },
-            SessionEntry { site: "datadoghq.eu".into(), org: None, org_uuid: None },
+            SessionEntry {
+                site: "datadoghq.com".into(),
+                org: None,
+                org_uuid: None,
+            },
+            SessionEntry {
+                site: "datadoghq.eu".into(),
+                org: None,
+                org_uuid: None,
+            },
         ])
         .unwrap();
 
@@ -1770,8 +1786,16 @@ mod tests {
                 .unwrap();
         }
         write_sessions(&[
-            SessionEntry { site: "datadoghq.com".into(), org: None, org_uuid: None },
-            SessionEntry { site: "datadoghq.eu".into(), org: None, org_uuid: None },
+            SessionEntry {
+                site: "datadoghq.com".into(),
+                org: None,
+                org_uuid: None,
+            },
+            SessionEntry {
+                site: "datadoghq.eu".into(),
+                org: None,
+                org_uuid: None,
+            },
         ])
         .unwrap();
 

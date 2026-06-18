@@ -219,7 +219,13 @@ fn output_items<T: Serialize>(
         command: None,
         next_action,
     };
-    formatter::format_and_print(items, &cfg.output_format, cfg.agent_mode, Some(&meta))
+    formatter::format_and_print(
+        items,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 fn parse_ddsql_docs(resp: Value) -> Result<DdsqlDocsResponse> {

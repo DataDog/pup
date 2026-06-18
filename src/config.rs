@@ -23,6 +23,8 @@ pub struct Config {
     pub auto_approve: bool,
     pub agent_mode: bool,
     pub read_only: bool,
+    /// jq expression applied to command output before formatting (`--jq` flag).
+    pub jq: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -197,6 +199,7 @@ impl Config {
                 || env_bool("DD_CLI_READ_ONLY")
                 || env_bool("PUP_READ_ONLY")
                 || file_cfg.read_only.unwrap_or(false),
+            jq: None, // set by caller from --jq flag
         };
 
         Ok(cfg)
@@ -227,6 +230,7 @@ impl Config {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         }
     }
 
@@ -925,6 +929,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         }
     }
 
@@ -1805,6 +1810,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         super::apply_org_override(&mut cfg, "org-b".into()).unwrap();
@@ -1849,6 +1855,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         super::apply_org_override(&mut cfg, "org-a".into()).unwrap();
@@ -1886,6 +1893,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         super::apply_org_override(&mut cfg, "unknown-org".into()).unwrap();
@@ -1966,6 +1974,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         super::apply_org_override(&mut cfg, "any-org".into()).unwrap();
@@ -2012,6 +2021,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         let result = super::apply_org_override(&mut cfg, "bad-org".into());
@@ -2042,6 +2052,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         cfg.set_site_explicit("app.datadoghq.eu".into()).unwrap();
@@ -2063,6 +2074,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
         // site and site_explicit must remain unchanged on failure.
         assert!(cfg.set_site_explicit("evil.com/path".into()).is_err());
@@ -2083,6 +2095,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
         // An empty --site must not silently route to datadoghq.com via
         // normalize_site's empty-string fallback.

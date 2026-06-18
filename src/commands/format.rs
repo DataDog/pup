@@ -69,7 +69,13 @@ fn render(
         None
     };
 
-    formatter::format_and_print(&value, &cfg.output_format, cfg.agent_mode, meta.as_ref())
+    formatter::format_and_print(
+        &value,
+        &cfg.output_format,
+        cfg.agent_mode,
+        meta.as_ref(),
+        cfg.jq.as_deref(),
+    )
 }
 
 #[cfg(test)]
@@ -126,6 +132,7 @@ mod tests {
             auto_approve: false,
             agent_mode,
             read_only: false,
+            jq: None,
         }
     }
 

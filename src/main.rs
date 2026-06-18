@@ -7,6 +7,7 @@ mod commands;
 mod config;
 #[cfg(not(target_arch = "wasm32"))]
 mod extensions;
+mod filter;
 mod formatter;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
@@ -61,6 +62,9 @@ pub(crate) struct Cli {
     /// Named org session (see 'pup auth login --org')
     #[arg(long, global = true)]
     org: Option<String>,
+    /// Filter command output through a jq expression (applied before formatting)
+    #[arg(long, global = true)]
+    jq: Option<String>,
     /// Trust a non-Datadog `--site`/`DD_SITE` host for this invocation (skip the
     /// trust prompt). For durable trust, use `trusted_sites` in config instead.
     #[arg(long, global = true)]
@@ -10968,6 +10972,9 @@ async fn main_inner() -> anyhow::Result<()> {
 
     if cli.read_only {
         cfg.read_only = true;
+    }
+    if cli.jq.is_some() {
+        cfg.jq = cli.jq;
     }
     if cfg.read_only {
         let top = get_top_level_subcommand_name(&matches);

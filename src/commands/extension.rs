@@ -20,6 +20,7 @@ pub fn list(cfg: &Config) -> Result<()> {
                     &cfg.output_format,
                     cfg.agent_mode,
                     None,
+                    cfg.jq.as_deref(),
                 )?;
             }
         }
@@ -50,7 +51,13 @@ pub fn list(cfg: &Config) -> Result<()> {
                     })
                 })
                 .collect();
-            crate::formatter::format_and_print(&items, &cfg.output_format, cfg.agent_mode, None)?;
+            crate::formatter::format_and_print(
+                &items,
+                &cfg.output_format,
+                cfg.agent_mode,
+                None,
+                cfg.jq.as_deref(),
+            )?;
         }
     }
     Ok(())
@@ -177,7 +184,13 @@ pub fn list_remote(cfg: &Config, source: String, extension: Option<String>) -> R
                     })
                 })
                 .collect();
-            crate::formatter::format_and_print(&values, &cfg.output_format, cfg.agent_mode, None)?;
+            crate::formatter::format_and_print(
+                &values,
+                &cfg.output_format,
+                cfg.agent_mode,
+                None,
+                cfg.jq.as_deref(),
+            )?;
         }
     }
     Ok(())

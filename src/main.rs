@@ -7,6 +7,7 @@ mod commands;
 mod config;
 #[cfg(not(target_arch = "wasm32"))]
 mod extensions;
+mod filter;
 mod formatter;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
@@ -37,6 +38,8 @@ pub(crate) mod test_utils {
 }
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::IsTerminal;
 
 #[derive(Parser)]
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
@@ -59,6 +62,13 @@ pub(crate) struct Cli {
     /// Named org session (see 'pup auth login --org')
     #[arg(long, global = true)]
     org: Option<String>,
+    /// Filter command output through a jq expression (applied before formatting)
+    #[arg(long, global = true)]
+    jq: Option<String>,
+    /// Trust a non-Datadog `--site`/`DD_SITE` host for this invocation (skip the
+    /// trust prompt). For durable trust, use `trusted_sites` in config instead.
+    #[arg(long, global = true)]
+    trust_site: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -3140,37 +3150,11 @@ enum IncidentActions {
         #[command(subcommand)]
         action: IncidentPostmortemActions,
     },
-    /// Manage incident services
-    Services {
-        #[command(subcommand)]
-        action: IncidentServiceActions,
-    },
     /// Import an incident
     Import {
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
     },
-}
-
-#[derive(Subcommand)]
-enum IncidentServiceActions {
-    /// List incident services
-    List,
-    /// Get incident service details
-    Get { service_id: String },
-    /// Create an incident service from JSON
-    Create {
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Update an incident service
-    Update {
-        service_id: String,
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Delete an incident service
-    Delete { service_id: String },
 }
 
 #[derive(Subcommand)]
@@ -6666,21 +6650,10 @@ enum FleetActions {
         #[command(subcommand)]
         action: FleetScheduleActions,
     },
-    /// Manage fleet clusters
-    Clusters {
-        #[command(subcommand)]
-        action: FleetClusterActions,
-    },
     /// Manage fleet tracers
     Tracers {
         #[command(subcommand)]
         action: FleetTracerActions,
-    },
-    /// Manage fleet instrumented pods
-    #[command(name = "instrumented-pods")]
-    InstrumentedPods {
-        #[command(subcommand)]
-        action: FleetInstrumentedPodsActions,
     },
 }
 
@@ -6781,38 +6754,6 @@ enum FleetTracerActions {
         sort_attribute: Option<String>,
         #[arg(long, default_value_t = false, help = "Sort descending")]
         sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetClusterActions {
-    /// List Kubernetes clusters in the fleet.
-    ///
-    /// Returns clusters with node counts, agent versions, enabled products, and services.
-    /// Use this to discover cluster names for use with instrumented-pods.
-    List {
-        #[arg(long, help = "Filter query (e.g. cluster_name:production, env:prod)")]
-        filter: Option<String>,
-        #[arg(long)]
-        page_size: Option<i64>,
-        #[arg(long, help = "Page number (0-indexed)")]
-        page_number: Option<i64>,
-        #[arg(long, help = "Sort by attribute (e.g. cluster_name, node_count)")]
-        sort_attribute: Option<String>,
-        #[arg(long, default_value_t = false, help = "Sort descending")]
-        sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetInstrumentedPodsActions {
-    /// List instrumented pods in a Kubernetes cluster.
-    ///
-    /// Returns pod groups with namespace, owner, injection annotations, and pod names.
-    /// Use this to verify the Admission Controller targeted pods for SSI injection.
-    List {
-        #[arg(help = "Kubernetes cluster name (required)")]
-        cluster_name: String,
     },
 }
 
@@ -9682,16 +9623,13 @@ enum AuthActions {
         /// Shorthand: --ro
         #[arg(long, alias = "ro", visible_alias = "ro")]
         read_only: bool,
-        /// Datadog site to authenticate against (e.g. datadoghq.eu, us3.datadoghq.com).
+        /// Datadog site or literal host to authenticate against.
+        /// Standard sites: datadoghq.eu, us3.datadoghq.com, etc.
+        /// Vanity/SAML SSO host: mycompany.datadoghq.com (replaces the old --subdomain flag).
+        /// Custom gateway: mygateway.example.com or mygateway.example.com:8443.
         /// Overrides DD_SITE env var and config file. Defaults to datadoghq.com.
         #[arg(long, value_name = "SITE")]
         site: Option<String>,
-        /// Organization subdomain for SAML/SSO login (e.g. mycompany for mycompany.datadoghq.com).
-        /// Composed against --site, so `--site datad0g.com --subdomain dd` routes to dd.datad0g.com.
-        /// Whether the consent page narrows to a single org depends on per-tenant SAML routing on
-        /// the Datadog side; some subdomains still show the org switcher.
-        #[arg(long, value_name = "SUBDOMAIN")]
-        subdomain: Option<String>,
         /// Pin the OAuth callback to one specific port from the DCR redirect allowlist
         /// [8000, 8080, 8888, 9000] instead of scanning. Useful when forwarding a single port
         /// over SSH. If the chosen port is busy login fails — no fallback. Other values are
@@ -10720,24 +10658,6 @@ fn validate_callback_port(port: u16, source: &str) -> anyhow::Result<u16> {
     Ok(port)
 }
 
-/// Validate a SAML/SSO subdomain string before it's composed into the auth URL.
-/// Non-empty input must be alphanumeric plus `-` so that a value like `evil.com#`
-/// can't smuggle a different host into the URL via fragment/path tricks. The
-/// empty case is accepted because `build_authorization_url` already coerces it
-/// to "fall back to app.{site}".
-fn validate_subdomain(s: &str) -> anyhow::Result<()> {
-    if s.is_empty() {
-        return Ok(());
-    }
-    if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        anyhow::bail!(
-            "--subdomain {s:?} contains invalid characters; \
-             expected ASCII letters, digits, and `-` only"
-        );
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod resolve_callback_port_tests {
     use super::resolve_callback_port;
@@ -10837,34 +10757,39 @@ mod resolve_callback_port_tests {
     }
 
     #[test]
-    fn subdomain_accepts_alphanumeric_and_hyphen() {
-        use super::validate_subdomain;
-        assert!(validate_subdomain("").is_ok());
-        assert!(validate_subdomain("acme").is_ok());
-        assert!(validate_subdomain("dd-staging").is_ok());
-        assert!(validate_subdomain("ab123").is_ok());
+    fn site_flag_accepts_valid_hosts() {
+        use crate::config::validate_site;
+        for good in [
+            "datadoghq.com",
+            "us3.datadoghq.com",
+            "mycompany.datadoghq.com",
+            "mygateway.example.com",
+            "gw.example.com:8443",
+            "host-1.example.com",
+        ] {
+            assert!(validate_site(good).is_ok(), "{good:?} should be accepted");
+        }
     }
 
     #[test]
-    fn subdomain_rejects_url_smuggling_attempts() {
-        use super::validate_subdomain;
-        // The hash/dot/slash/at/space cases would each let a hand-crafted
-        // value redirect the OAuth flow to an attacker-controlled host. Pin
-        // them all as rejections rather than relying on the URL builder.
+    fn site_flag_rejects_url_smuggling_attempts() {
+        use crate::config::validate_site;
+        // These values would redirect API or OAuth calls to an attacker-controlled
+        // host if allowed through URL construction unchecked.
         for bad in [
-            "evil.com#",
-            "evil.com",
-            "evil/path",
-            "user@evil",
+            "evil.com/path",
+            "a#b",
+            "user@host",
             "dd staging",
             "dd_staging", // underscore not in DNS label charset
             "../../etc",
+            "",
         ] {
-            let err = validate_subdomain(bad).unwrap_err();
+            let err = validate_site(bad).unwrap_err();
             let msg = format!("{err}");
             assert!(
-                msg.contains("invalid characters"),
-                "{bad:?} should be rejected with invalid-characters error, got: {msg}"
+                msg.contains("invalid characters") || msg.contains("empty") || msg.contains("dot"),
+                "{bad:?} should be rejected, got: {msg}"
             );
         }
     }
@@ -10975,7 +10900,7 @@ async fn main_inner() -> anyhow::Result<()> {
             if !extensions::is_builtin_command(candidate) {
                 if let Some(ext_path) = extensions::extension_path(candidate) {
                     let mut cfg = config::Config::from_env()?;
-                    parsed.globals.apply_to(&mut cfg);
+                    parsed.globals.apply_to(&mut cfg)?;
                     let exit_code = extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
                     std::process::exit(exit_code);
                 }
@@ -11052,7 +10977,7 @@ async fn main_inner() -> anyhow::Result<()> {
     // Site for this org and access token are also resolved here.
     if let Some(org) = cli.org {
         #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-        config::apply_org_override(&mut cfg, org);
+        config::apply_org_override(&mut cfg, org)?;
         #[cfg(any(feature = "browser", target_arch = "wasm32"))]
         {
             cfg.org = Some(org);
@@ -11061,6 +10986,9 @@ async fn main_inner() -> anyhow::Result<()> {
 
     if cli.read_only {
         cfg.read_only = true;
+    }
+    if cli.jq.is_some() {
+        cfg.jq = cli.jq;
     }
     if cfg.read_only {
         let top = get_top_level_subcommand_name(&matches);
@@ -11080,6 +11008,24 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
             }
         }
+    }
+
+    // Compute once, after agent_mode is resolved (agent mode is always non-interactive).
+    #[cfg(not(target_arch = "wasm32"))]
+    let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+    #[cfg(target_arch = "wasm32")]
+    let interactive = false;
+
+    // Durable trust allowlist from the config file, sourced once for all gate calls.
+    #[cfg(not(feature = "browser"))]
+    let trusted_sites = config::configured_trusted_sites();
+
+    // Gate credential dispatch to non-Datadog hosts before any command dispatches.
+    // Auth subcommands resolve their own site late (after --site is applied in-arm),
+    // so they gate themselves; skip here to avoid a double prompt.
+    #[cfg(not(feature = "browser"))]
+    if !matches!(cli.command, Commands::Auth { .. }) {
+        cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
     }
 
     match cli.command {
@@ -11282,23 +11228,6 @@ async fn main_inner() -> anyhow::Result<()> {
                     IncidentPostmortemActions::Delete { template_id } => {
                         commands::incidents::postmortem_templates_delete(&cfg, &template_id)
                             .await?;
-                    }
-                },
-                IncidentActions::Services { action } => match action {
-                    IncidentServiceActions::List => {
-                        commands::incidents::services_list(&cfg).await?;
-                    }
-                    IncidentServiceActions::Get { service_id } => {
-                        commands::incidents::services_get(&cfg, &service_id).await?;
-                    }
-                    IncidentServiceActions::Create { file } => {
-                        commands::incidents::services_create(&cfg, &file).await?;
-                    }
-                    IncidentServiceActions::Update { service_id, file } => {
-                        commands::incidents::services_update(&cfg, &service_id, &file).await?;
-                    }
-                    IncidentServiceActions::Delete { service_id } => {
-                        commands::incidents::services_delete(&cfg, &service_id).await?;
                     }
                 },
                 IncidentActions::Import { file } => {
@@ -13214,25 +13143,6 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::fleet::schedules_trigger(&cfg, &schedule_id).await?;
                     }
                 },
-                FleetActions::Clusters { action } => match action {
-                    FleetClusterActions::List {
-                        filter,
-                        page_size,
-                        page_number,
-                        sort_attribute,
-                        sort_descending,
-                    } => {
-                        commands::fleet::clusters_list(
-                            &cfg,
-                            filter,
-                            page_size,
-                            page_number,
-                            sort_attribute,
-                            sort_descending,
-                        )
-                        .await?;
-                    }
-                },
                 FleetActions::Tracers { action } => match action {
                     FleetTracerActions::List {
                         filter,
@@ -13250,11 +13160,6 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort_descending,
                         )
                         .await?;
-                    }
-                },
-                FleetActions::InstrumentedPods { action } => match action {
-                    FleetInstrumentedPodsActions::List { cluster_name } => {
-                        commands::fleet::instrumented_pods_list(&cfg, cluster_name).await?;
                     }
                 },
             }
@@ -14826,16 +14731,18 @@ async fn main_inner() -> anyhow::Result<()> {
                 scopes,
                 read_only,
                 site,
-                subdomain,
                 callback_port,
                 org_uuid,
             } => {
                 if let Some(s) = site {
-                    cfg.set_site_explicit(s);
+                    cfg.set_site_explicit(s)?;
                 }
-                if let Some(sub) = subdomain.as_deref() {
-                    validate_subdomain(sub)?;
-                }
+                // Gate here rather than pre-match: --site is applied above and
+                // login opens a browser carrying the real SSO cookie plus DCR
+                // client credentials to this host, so it must be checked even
+                // when --site was not passed (the from_env site is still the target).
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 let is_read_only = read_only || cfg.read_only;
                 let resolved =
                     resolve_login_scopes(scopes.as_deref(), cfg.org.as_deref(), is_read_only);
@@ -14843,26 +14750,29 @@ async fn main_inner() -> anyhow::Result<()> {
                 // Coerce empty `--org-uuid ""` to no-hint so callees treat
                 // it the same as omitting the flag, not as `dd_oid=`.
                 let org_uuid_hint = org_uuid.as_deref().filter(|s| !s.is_empty());
-                commands::auth::login(
-                    &cfg,
-                    resolved,
-                    subdomain.as_deref(),
-                    resolved_port,
-                    org_uuid_hint,
-                )
-                .await?
+                commands::auth::login(&cfg, resolved, resolved_port, org_uuid_hint).await?
             }
             AuthActions::Logout => commands::auth::logout(&cfg).await?,
             AuthActions::Status { site } => {
                 if let Some(s) = site {
-                    cfg.set_site_explicit(s);
+                    cfg.set_site_explicit(s)?;
                 }
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 commands::auth::status(&cfg)?
             }
             #[cfg(debug_assertions)]
             AuthActions::Token => commands::auth::token(&cfg)?,
-            AuthActions::Refresh => commands::auth::refresh(&cfg).await?,
+            AuthActions::Refresh => {
+                // Refresh POSTs the stored refresh token to cfg.site; gate it like
+                // login/status (the pre-match gate skips all Auth subcommands).
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
+                commands::auth::refresh(&cfg).await?
+            }
             AuthActions::List => commands::auth::list(&cfg)?,
+            // `auth test` only prints local config (masked keys, no network call),
+            // so it sends nothing to the host and needs no trust gate.
             AuthActions::Test => commands::test::run(&cfg)?,
         },
         // --- Workflows ---

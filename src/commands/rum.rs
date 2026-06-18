@@ -282,7 +282,7 @@ pub async fn playlists_list(cfg: &Config) -> Result<()> {
 pub async fn playlists_get(cfg: &Config, playlist_id: i32) -> Result<()> {
     let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
     let resp = api
-        .get_rum_replay_playlist(playlist_id)
+        .get_rum_replay_playlist(playlist_id as i64)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get RUM playlist: {e:?}"))?;
     formatter::output(cfg, &resp)

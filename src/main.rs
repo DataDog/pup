@@ -7,6 +7,7 @@ mod commands;
 mod config;
 #[cfg(not(target_arch = "wasm32"))]
 mod extensions;
+mod filter;
 mod formatter;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
@@ -61,6 +62,9 @@ pub(crate) struct Cli {
     /// Named org session (see 'pup auth login --org')
     #[arg(long, global = true)]
     org: Option<String>,
+    /// Filter command output through a jq expression (applied before formatting)
+    #[arg(long, global = true)]
+    jq: Option<String>,
     /// Trust a non-Datadog `--site`/`DD_SITE` host for this invocation (skip the
     /// trust prompt). For durable trust, use `trusted_sites` in config instead.
     #[arg(long, global = true)]
@@ -1080,7 +1084,7 @@ enum Commands {
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips LIMIT 5"
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips" -o csv > results.csv
     ///   cat query.sql | pup ddsql table --query - -o table
-    ///   pup ddsql time-series --query "SELECT avg(system.cpu.user) FROM metrics GROUP BY host" --from 1h --interval 300000
+    ///   pup ddsql time-series --query "SELECT timestamp, value, tags->'host' AS host FROM dd.metrics_timeseries('avg:system.cpu.user{*} by {host}')" --from 1h
     ///   pup ddsql spec
     ///   pup ddsql schema tables --query ec2 --limit 100
     ///   pup ddsql schema columns --table-id public.aws.ec2_instance
@@ -1875,6 +1879,30 @@ enum Commands {
         #[command(subcommand)]
         action: MiscActions,
     },
+    /// Explore Model Lab projects and runs
+    ///
+    /// Browse ML experiment projects and their training runs in Datadog Model Lab.
+    ///
+    /// SUBCOMMANDS:
+    ///   projects    Manage Model Lab projects
+    ///   runs        Manage Model Lab runs
+    ///
+    /// EXAMPLES:
+    ///   pup model-lab projects list
+    ///   pup model-lab projects get 123
+    ///   pup model-lab projects star 123
+    ///   pup model-lab runs list --filter-project-id 123
+    ///   pup model-lab runs get 456
+    ///   pup model-lab runs delete 456
+    ///   pup model-lab runs pin 456
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "model-lab", verbatim_doc_comment)]
+    ModelLab {
+        #[command(subcommand)]
+        action: ModelLabActions,
+    },
     /// Manage monitors
     ///
     /// Manage Datadog monitors for alerting and notifications.
@@ -2599,6 +2627,35 @@ enum Commands {
         #[command(subcommand)]
         action: SyntheticsActions,
     },
+    /// Manage tag policies for governance and compliance
+    ///
+    /// Create, list, get, update, and delete tag policies. Tag policies enforce
+    /// required tag keys and allowed values across your Datadog resources, and
+    /// provide compliance scoring to measure adherence.
+    ///
+    /// COMMANDS:
+    ///   list              List all tag policies
+    ///   get <id>          Get a tag policy by ID
+    ///   create --file     Create a tag policy from JSON
+    ///   update <id> -f    Update a tag policy
+    ///   delete <id>       Delete a tag policy
+    ///   score             Get the overall tag policy compliance score
+    ///
+    /// EXAMPLES:
+    ///   pup tag-policies list
+    ///   pup tag-policies list --include-score
+    ///   pup tag-policies list --filter-source api
+    ///   pup tag-policies get pol-abc123 --include-score
+    ///   pup tag-policies create --file policy.json
+    ///   pup tag-policies score pol-abc123
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "tag-policies", verbatim_doc_comment)]
+    TagPolicies {
+        #[command(subcommand)]
+        action: TagPoliciesActions,
+    },
     /// Manage host tags
     ///
     /// Manage tags for hosts in your infrastructure.
@@ -3132,37 +3189,11 @@ enum IncidentActions {
         #[command(subcommand)]
         action: IncidentPostmortemActions,
     },
-    /// Manage incident services
-    Services {
-        #[command(subcommand)]
-        action: IncidentServiceActions,
-    },
     /// Import an incident
     Import {
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
     },
-}
-
-#[derive(Subcommand)]
-enum IncidentServiceActions {
-    /// List incident services
-    List,
-    /// Get incident service details
-    Get { service_id: String },
-    /// Create an incident service from JSON
-    Create {
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Update an incident service
-    Update {
-        service_id: String,
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Delete an incident service
-    Delete { service_id: String },
 }
 
 #[derive(Subcommand)]
@@ -4121,6 +4152,65 @@ enum TagActions {
     Update { hostname: String, tags: Vec<String> },
     /// Delete all tags from a host
     Delete { hostname: String },
+}
+
+// ---- Tag Policies ----
+#[derive(Subcommand)]
+enum TagPoliciesActions {
+    /// List all tag policies
+    List {
+        #[arg(long, default_value_t = false, help = "Include disabled policies")]
+        include_disabled: bool,
+        #[arg(long, default_value_t = false, help = "Include soft-deleted policies")]
+        include_deleted: bool,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Include compliance score in response"
+        )]
+        include_score: bool,
+        #[arg(long, help = "Filter by policy source: api, terraform, ui")]
+        filter_source: Option<String>,
+    },
+    /// Get a tag policy by ID
+    Get {
+        policy_id: String,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Include compliance score in response"
+        )]
+        include_score: bool,
+    },
+    /// Create a tag policy from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with TagPolicyCreateRequest body")]
+        file: String,
+    },
+    /// Update a tag policy from a JSON file
+    Update {
+        policy_id: String,
+        #[arg(long, short, help = "JSON file with TagPolicyUpdateRequest body")]
+        file: String,
+    },
+    /// Delete a tag policy
+    Delete {
+        policy_id: String,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Permanently delete (default: soft delete)"
+        )]
+        hard_delete: bool,
+    },
+    /// Get the compliance score for a tag policy
+    Score {
+        policy_id: String,
+        #[arg(long, help = "Start of scoring window (Unix ms timestamp)")]
+        ts_start: Option<i64>,
+        #[arg(long, help = "End of scoring window (Unix ms timestamp)")]
+        ts_end: Option<i64>,
+    },
 }
 
 // ---- Users ----
@@ -6658,21 +6748,10 @@ enum FleetActions {
         #[command(subcommand)]
         action: FleetScheduleActions,
     },
-    /// Manage fleet clusters
-    Clusters {
-        #[command(subcommand)]
-        action: FleetClusterActions,
-    },
     /// Manage fleet tracers
     Tracers {
         #[command(subcommand)]
         action: FleetTracerActions,
-    },
-    /// Manage fleet instrumented pods
-    #[command(name = "instrumented-pods")]
-    InstrumentedPods {
-        #[command(subcommand)]
-        action: FleetInstrumentedPodsActions,
     },
 }
 
@@ -6773,38 +6852,6 @@ enum FleetTracerActions {
         sort_attribute: Option<String>,
         #[arg(long, default_value_t = false, help = "Sort descending")]
         sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetClusterActions {
-    /// List Kubernetes clusters in the fleet.
-    ///
-    /// Returns clusters with node counts, agent versions, enabled products, and services.
-    /// Use this to discover cluster names for use with instrumented-pods.
-    List {
-        #[arg(long, help = "Filter query (e.g. cluster_name:production, env:prod)")]
-        filter: Option<String>,
-        #[arg(long)]
-        page_size: Option<i64>,
-        #[arg(long, help = "Page number (0-indexed)")]
-        page_number: Option<i64>,
-        #[arg(long, help = "Sort by attribute (e.g. cluster_name, node_count)")]
-        sort_attribute: Option<String>,
-        #[arg(long, default_value_t = false, help = "Sort descending")]
-        sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetInstrumentedPodsActions {
-    /// List instrumented pods in a Kubernetes cluster.
-    ///
-    /// Returns pod groups with namespace, owner, injection annotations, and pod names.
-    /// Use this to verify the Admission Controller targeted pods for SSI injection.
-    List {
-        #[arg(help = "Kubernetes cluster name (required)")]
-        cluster_name: String,
     },
 }
 
@@ -8097,6 +8144,119 @@ enum MiscActions {
     IpRanges,
     /// Check API status
     Status,
+}
+
+// ---- Model Lab ----
+#[derive(Subcommand)]
+enum ModelLabActions {
+    /// Manage Model Lab projects
+    Projects {
+        #[command(subcommand)]
+        action: ModelLabProjectActions,
+    },
+    /// Manage Model Lab runs
+    Runs {
+        #[command(subcommand)]
+        action: ModelLabRunActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelLabProjectActions {
+    /// List Model Lab projects
+    List {
+        #[arg(long, help = "Filter query string")]
+        filter: Option<String>,
+        #[arg(long, help = "Filter by tags (comma-separated)")]
+        filter_tags: Option<String>,
+        #[arg(long, help = "Sort field (e.g. name, created_at)")]
+        sort: Option<String>,
+        #[arg(long)]
+        page_size: Option<i64>,
+        #[arg(long, help = "Page number (0-indexed)")]
+        page_number: Option<i64>,
+    },
+    /// Get a Model Lab project by ID
+    Get { project_id: i64 },
+    /// Star a Model Lab project
+    Star { project_id: i64 },
+    /// Unstar a Model Lab project
+    Unstar { project_id: i64 },
+    /// List artifacts for a Model Lab project
+    Artifacts { project_id: i64 },
+    /// List facet keys for Model Lab projects
+    #[command(name = "facet-keys")]
+    FacetKeys,
+    /// List facet values for a Model Lab project facet
+    #[command(name = "facet-values")]
+    FacetValues {
+        #[arg(help = "Facet type (tag)")]
+        facet_type: String,
+        #[arg(help = "Facet name")]
+        facet_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelLabRunActions {
+    /// List Model Lab runs
+    List {
+        #[arg(long, help = "Filter query string")]
+        filter: Option<String>,
+        #[arg(long, help = "Filter by project ID")]
+        filter_project_id: Option<i64>,
+        #[arg(
+            long,
+            help = "Filter by status: pending, running, completed, failed, killed, unresponsive, paused"
+        )]
+        filter_status: Option<String>,
+        #[arg(long, help = "Filter by tags (comma-separated)")]
+        filter_tags: Option<String>,
+        #[arg(long, help = "Filter by params")]
+        filter_params: Option<String>,
+        #[arg(long, help = "Filter by parent run ID")]
+        filter_parent_run_id: Option<String>,
+        #[arg(long, default_value_t = false, help = "Show pinned runs first")]
+        pinned_first: bool,
+        #[arg(long, default_value_t = false, help = "Include pinned runs")]
+        include_pinned: bool,
+        #[arg(long, help = "Sort field")]
+        sort: Option<String>,
+        #[arg(long)]
+        page_size: Option<i64>,
+        #[arg(long, help = "Page number (0-indexed)")]
+        page_number: Option<i64>,
+    },
+    /// Get a Model Lab run by ID
+    Get { run_id: i64 },
+    /// Delete a Model Lab run
+    Delete { run_id: i64 },
+    /// Pin a Model Lab run
+    Pin { run_id: i64 },
+    /// Unpin a Model Lab run
+    Unpin { run_id: i64 },
+    /// List artifacts for a Model Lab run
+    Artifacts {
+        run_id: i64,
+        #[arg(long, help = "Filter by artifact path prefix")]
+        path: Option<String>,
+    },
+    /// List facet keys for Model Lab runs
+    #[command(name = "facet-keys")]
+    FacetKeys {
+        #[arg(long, help = "Project ID to scope facet keys")]
+        filter_project_id: i64,
+    },
+    /// List facet values for a Model Lab run facet
+    #[command(name = "facet-values")]
+    FacetValues {
+        #[arg(long, help = "Project ID to scope facet values")]
+        filter_project_id: i64,
+        #[arg(help = "Facet type (parameter, attribute, tag, metric)")]
+        facet_type: String,
+        #[arg(help = "Facet name")]
+        facet_name: String,
+    },
 }
 
 // ---- APM ----
@@ -11048,6 +11208,9 @@ async fn main_inner() -> anyhow::Result<()> {
     if cli.read_only {
         cfg.read_only = true;
     }
+    if cli.jq.is_some() {
+        cfg.jq = cli.jq;
+    }
     if cfg.read_only {
         let top = get_top_level_subcommand_name(&matches);
         let is_local_only = matches!(
@@ -11286,23 +11449,6 @@ async fn main_inner() -> anyhow::Result<()> {
                     IncidentPostmortemActions::Delete { template_id } => {
                         commands::incidents::postmortem_templates_delete(&cfg, &template_id)
                             .await?;
-                    }
-                },
-                IncidentActions::Services { action } => match action {
-                    IncidentServiceActions::List => {
-                        commands::incidents::services_list(&cfg).await?;
-                    }
-                    IncidentServiceActions::Get { service_id } => {
-                        commands::incidents::services_get(&cfg, &service_id).await?;
-                    }
-                    IncidentServiceActions::Create { file } => {
-                        commands::incidents::services_create(&cfg, &file).await?;
-                    }
-                    IncidentServiceActions::Update { service_id, file } => {
-                        commands::incidents::services_update(&cfg, &service_id, &file).await?;
-                    }
-                    IncidentServiceActions::Delete { service_id } => {
-                        commands::incidents::services_delete(&cfg, &service_id).await?;
                     }
                 },
                 IncidentActions::Import { file } => {
@@ -11834,6 +11980,52 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 TagActions::Delete { hostname } => {
                     commands::tags::delete(&cfg, &hostname).await?;
+                }
+            }
+        }
+        // --- Tag Policies ---
+        Commands::TagPolicies { action } => {
+            cfg.validate_auth()?;
+            match action {
+                TagPoliciesActions::List {
+                    include_disabled,
+                    include_deleted,
+                    include_score,
+                    filter_source,
+                } => {
+                    commands::tag_policies::list(
+                        &cfg,
+                        include_disabled,
+                        include_deleted,
+                        include_score,
+                        filter_source,
+                    )
+                    .await?;
+                }
+                TagPoliciesActions::Get {
+                    policy_id,
+                    include_score,
+                } => {
+                    commands::tag_policies::get(&cfg, &policy_id, include_score).await?;
+                }
+                TagPoliciesActions::Create { file } => {
+                    commands::tag_policies::create(&cfg, &file).await?;
+                }
+                TagPoliciesActions::Update { policy_id, file } => {
+                    commands::tag_policies::update(&cfg, &policy_id, &file).await?;
+                }
+                TagPoliciesActions::Delete {
+                    policy_id,
+                    hard_delete,
+                } => {
+                    commands::tag_policies::delete(&cfg, &policy_id, hard_delete).await?;
+                }
+                TagPoliciesActions::Score {
+                    policy_id,
+                    ts_start,
+                    ts_end,
+                } => {
+                    commands::tag_policies::score(&cfg, &policy_id, ts_start, ts_end).await?;
                 }
             }
         }
@@ -13218,25 +13410,6 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::fleet::schedules_trigger(&cfg, &schedule_id).await?;
                     }
                 },
-                FleetActions::Clusters { action } => match action {
-                    FleetClusterActions::List {
-                        filter,
-                        page_size,
-                        page_number,
-                        sort_attribute,
-                        sort_descending,
-                    } => {
-                        commands::fleet::clusters_list(
-                            &cfg,
-                            filter,
-                            page_size,
-                            page_number,
-                            sort_attribute,
-                            sort_descending,
-                        )
-                        .await?;
-                    }
-                },
                 FleetActions::Tracers { action } => match action {
                     FleetTracerActions::List {
                         filter,
@@ -13254,11 +13427,6 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort_descending,
                         )
                         .await?;
-                    }
-                },
-                FleetActions::InstrumentedPods { action } => match action {
-                    FleetInstrumentedPodsActions::List { cluster_name } => {
-                        commands::fleet::instrumented_pods_list(&cfg, cluster_name).await?;
                     }
                 },
             }
@@ -14280,6 +14448,115 @@ async fn main_inner() -> anyhow::Result<()> {
             match action {
                 MiscActions::IpRanges => commands::misc::ip_ranges(&cfg).await?,
                 MiscActions::Status => commands::misc::status(&cfg).await?,
+            }
+        }
+        // --- Model Lab ---
+        Commands::ModelLab { action } => {
+            cfg.validate_auth()?;
+            match action {
+                ModelLabActions::Projects { action } => match action {
+                    ModelLabProjectActions::List {
+                        filter,
+                        filter_tags,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::model_lab::projects_list(
+                            &cfg,
+                            filter,
+                            filter_tags,
+                            sort,
+                            page_size,
+                            page_number,
+                        )
+                        .await?;
+                    }
+                    ModelLabProjectActions::Get { project_id } => {
+                        commands::model_lab::projects_get(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Star { project_id } => {
+                        commands::model_lab::projects_star(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Unstar { project_id } => {
+                        commands::model_lab::projects_unstar(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Artifacts { project_id } => {
+                        commands::model_lab::projects_artifacts(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::FacetKeys => {
+                        commands::model_lab::projects_facet_keys(&cfg).await?;
+                    }
+                    ModelLabProjectActions::FacetValues {
+                        facet_type,
+                        facet_name,
+                    } => {
+                        commands::model_lab::projects_facet_values(&cfg, &facet_type, facet_name)
+                            .await?;
+                    }
+                },
+                ModelLabActions::Runs { action } => match action {
+                    ModelLabRunActions::List {
+                        filter,
+                        filter_project_id,
+                        filter_status,
+                        filter_tags,
+                        filter_params,
+                        filter_parent_run_id,
+                        pinned_first,
+                        include_pinned,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::model_lab::runs_list(
+                            &cfg,
+                            filter,
+                            filter_project_id,
+                            filter_status,
+                            filter_tags,
+                            filter_params,
+                            filter_parent_run_id,
+                            pinned_first,
+                            include_pinned,
+                            sort,
+                            page_size,
+                            page_number,
+                        )
+                        .await?;
+                    }
+                    ModelLabRunActions::Get { run_id } => {
+                        commands::model_lab::runs_get(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Delete { run_id } => {
+                        commands::model_lab::runs_delete(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Pin { run_id } => {
+                        commands::model_lab::runs_pin(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Unpin { run_id } => {
+                        commands::model_lab::runs_unpin(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Artifacts { run_id, path } => {
+                        commands::model_lab::runs_artifacts(&cfg, run_id, path).await?;
+                    }
+                    ModelLabRunActions::FacetKeys { filter_project_id } => {
+                        commands::model_lab::runs_facet_keys(&cfg, filter_project_id).await?;
+                    }
+                    ModelLabRunActions::FacetValues {
+                        filter_project_id,
+                        facet_type,
+                        facet_name,
+                    } => {
+                        commands::model_lab::runs_facet_values(
+                            &cfg,
+                            filter_project_id,
+                            &facet_type,
+                            facet_name,
+                        )
+                        .await?;
+                    }
+                },
             }
         }
         // --- APM ---

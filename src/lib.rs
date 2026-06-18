@@ -18,6 +18,8 @@ mod api;
 #[cfg(feature = "browser")]
 mod config;
 #[cfg(feature = "browser")]
+mod filter;
+#[cfg(feature = "browser")]
 mod formatter;
 #[cfg(feature = "browser")]
 mod version;

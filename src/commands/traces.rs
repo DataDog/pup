@@ -159,7 +159,13 @@ pub async fn search(
     } else {
         None
     };
-    formatter::format_and_print(&resp, &cfg.output_format, cfg.agent_mode, meta.as_ref())?;
+    formatter::format_and_print(
+        &resp,
+        &cfg.output_format,
+        cfg.agent_mode,
+        meta.as_ref(),
+        cfg.jq.as_deref(),
+    )?;
     Ok(())
 }
 
@@ -217,7 +223,13 @@ pub async fn aggregate(
     } else {
         None
     };
-    formatter::format_and_print(&resp, &cfg.output_format, cfg.agent_mode, meta.as_ref())?;
+    formatter::format_and_print(
+        &resp,
+        &cfg.output_format,
+        cfg.agent_mode,
+        meta.as_ref(),
+        cfg.jq.as_deref(),
+    )?;
     Ok(())
 }
 

@@ -28,6 +28,7 @@ pub(crate) struct PreParsedGlobals {
     pub agent: bool,
     pub read_only: bool,
     pub org: Option<String>,
+    pub jq: Option<String>,
     pub trust_site: bool,
 }
 
@@ -40,6 +41,7 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
         agent: false,
         read_only: false,
         org: None,
+        jq: None,
         trust_site: false,
     };
     let mut candidate: Option<String> = None;
@@ -65,6 +67,11 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
                     globals.org = Some(val.clone());
                 }
             }
+            "--jq" => {
+                if let Some(val) = iter.next() {
+                    globals.jq = Some(val.clone());
+                }
+            }
             // Boolean flags
             "--yes" | "-y" => globals.yes = true,
             "--agent" => globals.agent = true,
@@ -76,6 +83,9 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
             }
             s if s.starts_with("--org=") => {
                 globals.org = Some(s["--org=".len()..].to_string());
+            }
+            s if s.starts_with("--jq=") => {
+                globals.jq = Some(s["--jq=".len()..].to_string());
             }
             // Short flag with attached value: -ojson, -otable
             s if s.starts_with("-o") && s.len() > 2 => {
@@ -136,6 +146,9 @@ impl PreParsedGlobals {
             {
                 cfg.org = Some(org.clone());
             }
+        }
+        if self.jq.is_some() {
+            cfg.jq = self.jq.clone();
         }
         Ok(())
     }

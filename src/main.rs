@@ -6739,7 +6739,6 @@ enum FleetTracerActions {
     },
 }
 
-
 // ---- Data Deletion ----
 #[derive(Subcommand)]
 enum DataDeletionActions {

@@ -416,5 +416,4 @@ mod tests {
         let _ = super::postmortem_templates_list(&cfg).await;
         cleanup_env();
     }
-
 }

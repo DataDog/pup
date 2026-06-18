@@ -218,7 +218,6 @@ pub async fn agents_tracers_list(
     formatter::output(cfg, &resp)
 }
 
-
 #[cfg(test)]
 mod tests {
 

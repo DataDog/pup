@@ -7,6 +7,7 @@ mod commands;
 mod config;
 #[cfg(not(target_arch = "wasm32"))]
 mod extensions;
+mod filter;
 mod formatter;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
@@ -37,13 +38,15 @@ pub(crate) mod test_utils {
 }
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::IsTerminal;
 
 #[derive(Parser)]
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
 pub(crate) struct Cli {
-    /// Output format (json, table, yaml, csv)
-    #[arg(short, long, global = true, default_value = "json")]
-    output: String,
+    /// Output format (json, table, yaml, csv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
+    #[arg(short, long, global = true)]
+    output: Option<String>,
     /// Auto-approve destructive operations
     #[arg(short = 'y', long = "yes", global = true)]
     yes: bool,
@@ -59,6 +62,13 @@ pub(crate) struct Cli {
     /// Named org session (see 'pup auth login --org')
     #[arg(long, global = true)]
     org: Option<String>,
+    /// Filter command output through a jq expression (applied before formatting)
+    #[arg(long, global = true)]
+    jq: Option<String>,
+    /// Trust a non-Datadog `--site`/`DD_SITE` host for this invocation (skip the
+    /// trust prompt). For durable trust, use `trusted_sites` in config instead.
+    #[arg(long, global = true)]
+    trust_site: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -1077,7 +1087,7 @@ enum Commands {
     ///   pup dbm samples search --query "dbm_type:activity service:orders env:prod" --from 1h --limit 10
     ///
     /// AUTHENTICATION:
-    ///   Requires DD_API_KEY + DD_APP_KEY.
+    ///   Accepts OAuth2 (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
     #[command(verbatim_doc_comment)]
     Dbm {
         #[command(subcommand)]
@@ -1097,7 +1107,7 @@ enum Commands {
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips LIMIT 5"
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips" -o csv > results.csv
     ///   cat query.sql | pup ddsql table --query - -o table
-    ///   pup ddsql time-series --query "SELECT avg(system.cpu.user) FROM metrics GROUP BY host" --from 1h --interval 300000
+    ///   pup ddsql time-series --query "SELECT timestamp, value, tags->'host' AS host FROM dd.metrics_timeseries('avg:system.cpu.user{*} by {host}')" --from 1h
     ///   pup ddsql spec
     ///   pup ddsql schema tables --query ec2 --limit 100
     ///   pup ddsql schema columns --table-id public.aws.ec2_instance
@@ -1395,6 +1405,32 @@ enum Commands {
         #[command(subcommand)]
         action: FleetActions,
     },
+    /// Render JSON through pup's formatter
+    ///
+    /// Reads a JSON document from stdin (or --input FILE) and prints it using the
+    /// configured output format (--output, or $DD_OUTPUT / $PUP_OUTPUT) and agent
+    /// mode. Lets an extension in any language reuse pup's table/yaml/csv/tsv
+    /// rendering and agent envelope instead of reimplementing them.
+    ///
+    /// EXAMPLES:
+    ///   pup api v2/monitors --silent | pup format --output table
+    ///   echo '[{"id":1}]' | pup format --output csv
+    #[cfg(not(target_arch = "wasm32"))]
+    #[command(visible_alias = "fmt", verbatim_doc_comment)]
+    Format {
+        /// Read JSON from file, or use "-" (default) for stdin
+        #[arg(long, value_name = "FILE")]
+        input: Option<String>,
+        /// Set metadata.count in the agent-mode envelope
+        #[arg(long, value_name = "N")]
+        count: Option<usize>,
+        /// Set metadata.command in the agent-mode envelope
+        #[arg(long, value_name = "STR")]
+        command: Option<String>,
+        /// Set metadata.next_action in the agent-mode envelope
+        #[arg(long, value_name = "STR")]
+        next_action: Option<String>,
+    },
     /// Manage High Availability Multi-Region (HAMR)
     ///
     /// Manage Datadog High Availability Multi-Region (HAMR) connections.
@@ -1427,6 +1463,7 @@ enum Commands {
     ///   • Resolve ownership and on-call (owner)
     ///   • Show upstream/downstream dependencies (deps)
     ///   • Register a service definition from YAML (register)
+    ///   • Migrate service catalog YAML to v3 schema (migrate-schema)
     ///
     /// EXAMPLES:
     ///   # Get full context for a service
@@ -1443,6 +1480,9 @@ enum Commands {
     ///
     ///   # Register a service definition
     ///   pup idp register service.datadog.yaml
+    ///
+    ///   # Migrate a catalog file to v3
+    ///   pup idp migrate-schema service.datadog.yaml
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication (pup auth login) or API keys
@@ -1861,6 +1901,30 @@ enum Commands {
     Misc {
         #[command(subcommand)]
         action: MiscActions,
+    },
+    /// Explore Model Lab projects and runs
+    ///
+    /// Browse ML experiment projects and their training runs in Datadog Model Lab.
+    ///
+    /// SUBCOMMANDS:
+    ///   projects    Manage Model Lab projects
+    ///   runs        Manage Model Lab runs
+    ///
+    /// EXAMPLES:
+    ///   pup model-lab projects list
+    ///   pup model-lab projects get 123
+    ///   pup model-lab projects star 123
+    ///   pup model-lab runs list --filter-project-id 123
+    ///   pup model-lab runs get 456
+    ///   pup model-lab runs delete 456
+    ///   pup model-lab runs pin 456
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "model-lab", verbatim_doc_comment)]
+    ModelLab {
+        #[command(subcommand)]
+        action: ModelLabActions,
     },
     /// Manage monitors
     ///
@@ -2586,6 +2650,35 @@ enum Commands {
         #[command(subcommand)]
         action: SyntheticsActions,
     },
+    /// Manage tag policies for governance and compliance
+    ///
+    /// Create, list, get, update, and delete tag policies. Tag policies enforce
+    /// required tag keys and allowed values across your Datadog resources, and
+    /// provide compliance scoring to measure adherence.
+    ///
+    /// COMMANDS:
+    ///   list              List all tag policies
+    ///   get <id>          Get a tag policy by ID
+    ///   create --file     Create a tag policy from JSON
+    ///   update <id> -f    Update a tag policy
+    ///   delete <id>       Delete a tag policy
+    ///   score             Get the overall tag policy compliance score
+    ///
+    /// EXAMPLES:
+    ///   pup tag-policies list
+    ///   pup tag-policies list --include-score
+    ///   pup tag-policies list --filter-source api
+    ///   pup tag-policies get pol-abc123 --include-score
+    ///   pup tag-policies create --file policy.json
+    ///   pup tag-policies score pol-abc123
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "tag-policies", verbatim_doc_comment)]
+    TagPolicies {
+        #[command(subcommand)]
+        action: TagPoliciesActions,
+    },
     /// Manage host tags
     ///
     /// Manage tags for hosts in your infrastructure.
@@ -3119,37 +3212,11 @@ enum IncidentActions {
         #[command(subcommand)]
         action: IncidentPostmortemActions,
     },
-    /// Manage incident services
-    Services {
-        #[command(subcommand)]
-        action: IncidentServiceActions,
-    },
     /// Import an incident
     Import {
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
     },
-}
-
-#[derive(Subcommand)]
-enum IncidentServiceActions {
-    /// List incident services
-    List,
-    /// Get incident service details
-    Get { service_id: String },
-    /// Create an incident service from JSON
-    Create {
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Update an incident service
-    Update {
-        service_id: String,
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Delete an incident service
-    Delete { service_id: String },
 }
 
 #[derive(Subcommand)]
@@ -4110,6 +4177,65 @@ enum TagActions {
     Delete { hostname: String },
 }
 
+// ---- Tag Policies ----
+#[derive(Subcommand)]
+enum TagPoliciesActions {
+    /// List all tag policies
+    List {
+        #[arg(long, default_value_t = false, help = "Include disabled policies")]
+        include_disabled: bool,
+        #[arg(long, default_value_t = false, help = "Include soft-deleted policies")]
+        include_deleted: bool,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Include compliance score in response"
+        )]
+        include_score: bool,
+        #[arg(long, help = "Filter by policy source: api, terraform, ui")]
+        filter_source: Option<String>,
+    },
+    /// Get a tag policy by ID
+    Get {
+        policy_id: String,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Include compliance score in response"
+        )]
+        include_score: bool,
+    },
+    /// Create a tag policy from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with TagPolicyCreateRequest body")]
+        file: String,
+    },
+    /// Update a tag policy from a JSON file
+    Update {
+        policy_id: String,
+        #[arg(long, short, help = "JSON file with TagPolicyUpdateRequest body")]
+        file: String,
+    },
+    /// Delete a tag policy
+    Delete {
+        policy_id: String,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Permanently delete (default: soft delete)"
+        )]
+        hard_delete: bool,
+    },
+    /// Get the compliance score for a tag policy
+    Score {
+        policy_id: String,
+        #[arg(long, help = "Start of scoring window (Unix ms timestamp)")]
+        ts_start: Option<i64>,
+        #[arg(long, help = "End of scoring window (Unix ms timestamp)")]
+        ts_end: Option<i64>,
+    },
+}
+
 // ---- Users ----
 #[derive(Subcommand)]
 enum UserActions {
@@ -4514,6 +4640,24 @@ enum IdpActions {
     Register {
         /// Path to the service.datadog.yaml file
         file: String,
+    },
+    /// Migrate a service catalog YAML file to v3 schema
+    ///
+    /// Detects the current schema version (v1, v2, v2.1, v2.2) and converts
+    /// it to v3 format. Tries the Datadog convert API first; falls back to
+    /// local migration if the API fails or rejects the input.
+    ///
+    /// After migration, validates the output against the official v3 JSON schemas
+    /// fetched from GitHub, then prompts where to write the result.
+    ///
+    /// EXAMPLES:
+    ///   pup idp migrate-schema service.datadog.yaml
+    ///   pup idp migrate-schema ./catalog/checkout-api.yaml
+    ///   pup idp migrate-schema
+    #[command(verbatim_doc_comment)]
+    MigrateSchema {
+        /// Path to the YAML file (optional — auto-discovers *.datadog.yaml if omitted)
+        file: Option<String>,
     },
 }
 
@@ -6665,21 +6809,10 @@ enum FleetActions {
         #[command(subcommand)]
         action: FleetScheduleActions,
     },
-    /// Manage fleet clusters
-    Clusters {
-        #[command(subcommand)]
-        action: FleetClusterActions,
-    },
     /// Manage fleet tracers
     Tracers {
         #[command(subcommand)]
         action: FleetTracerActions,
-    },
-    /// Manage fleet instrumented pods
-    #[command(name = "instrumented-pods")]
-    InstrumentedPods {
-        #[command(subcommand)]
-        action: FleetInstrumentedPodsActions,
     },
 }
 
@@ -6780,38 +6913,6 @@ enum FleetTracerActions {
         sort_attribute: Option<String>,
         #[arg(long, default_value_t = false, help = "Sort descending")]
         sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetClusterActions {
-    /// List Kubernetes clusters in the fleet.
-    ///
-    /// Returns clusters with node counts, agent versions, enabled products, and services.
-    /// Use this to discover cluster names for use with instrumented-pods.
-    List {
-        #[arg(long, help = "Filter query (e.g. cluster_name:production, env:prod)")]
-        filter: Option<String>,
-        #[arg(long)]
-        page_size: Option<i64>,
-        #[arg(long, help = "Page number (0-indexed)")]
-        page_number: Option<i64>,
-        #[arg(long, help = "Sort by attribute (e.g. cluster_name, node_count)")]
-        sort_attribute: Option<String>,
-        #[arg(long, default_value_t = false, help = "Sort descending")]
-        sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetInstrumentedPodsActions {
-    /// List instrumented pods in a Kubernetes cluster.
-    ///
-    /// Returns pod groups with namespace, owner, injection annotations, and pod names.
-    /// Use this to verify the Admission Controller targeted pods for SSI injection.
-    List {
-        #[arg(help = "Kubernetes cluster name (required)")]
-        cluster_name: String,
     },
 }
 
@@ -8104,6 +8205,119 @@ enum MiscActions {
     IpRanges,
     /// Check API status
     Status,
+}
+
+// ---- Model Lab ----
+#[derive(Subcommand)]
+enum ModelLabActions {
+    /// Manage Model Lab projects
+    Projects {
+        #[command(subcommand)]
+        action: ModelLabProjectActions,
+    },
+    /// Manage Model Lab runs
+    Runs {
+        #[command(subcommand)]
+        action: ModelLabRunActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelLabProjectActions {
+    /// List Model Lab projects
+    List {
+        #[arg(long, help = "Filter query string")]
+        filter: Option<String>,
+        #[arg(long, help = "Filter by tags (comma-separated)")]
+        filter_tags: Option<String>,
+        #[arg(long, help = "Sort field (e.g. name, created_at)")]
+        sort: Option<String>,
+        #[arg(long)]
+        page_size: Option<i64>,
+        #[arg(long, help = "Page number (0-indexed)")]
+        page_number: Option<i64>,
+    },
+    /// Get a Model Lab project by ID
+    Get { project_id: i64 },
+    /// Star a Model Lab project
+    Star { project_id: i64 },
+    /// Unstar a Model Lab project
+    Unstar { project_id: i64 },
+    /// List artifacts for a Model Lab project
+    Artifacts { project_id: i64 },
+    /// List facet keys for Model Lab projects
+    #[command(name = "facet-keys")]
+    FacetKeys,
+    /// List facet values for a Model Lab project facet
+    #[command(name = "facet-values")]
+    FacetValues {
+        #[arg(help = "Facet type (tag)")]
+        facet_type: String,
+        #[arg(help = "Facet name")]
+        facet_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelLabRunActions {
+    /// List Model Lab runs
+    List {
+        #[arg(long, help = "Filter query string")]
+        filter: Option<String>,
+        #[arg(long, help = "Filter by project ID")]
+        filter_project_id: Option<i64>,
+        #[arg(
+            long,
+            help = "Filter by status: pending, running, completed, failed, killed, unresponsive, paused"
+        )]
+        filter_status: Option<String>,
+        #[arg(long, help = "Filter by tags (comma-separated)")]
+        filter_tags: Option<String>,
+        #[arg(long, help = "Filter by params")]
+        filter_params: Option<String>,
+        #[arg(long, help = "Filter by parent run ID")]
+        filter_parent_run_id: Option<String>,
+        #[arg(long, default_value_t = false, help = "Show pinned runs first")]
+        pinned_first: bool,
+        #[arg(long, default_value_t = false, help = "Include pinned runs")]
+        include_pinned: bool,
+        #[arg(long, help = "Sort field")]
+        sort: Option<String>,
+        #[arg(long)]
+        page_size: Option<i64>,
+        #[arg(long, help = "Page number (0-indexed)")]
+        page_number: Option<i64>,
+    },
+    /// Get a Model Lab run by ID
+    Get { run_id: i64 },
+    /// Delete a Model Lab run
+    Delete { run_id: i64 },
+    /// Pin a Model Lab run
+    Pin { run_id: i64 },
+    /// Unpin a Model Lab run
+    Unpin { run_id: i64 },
+    /// List artifacts for a Model Lab run
+    Artifacts {
+        run_id: i64,
+        #[arg(long, help = "Filter by artifact path prefix")]
+        path: Option<String>,
+    },
+    /// List facet keys for Model Lab runs
+    #[command(name = "facet-keys")]
+    FacetKeys {
+        #[arg(long, help = "Project ID to scope facet keys")]
+        filter_project_id: i64,
+    },
+    /// List facet values for a Model Lab run facet
+    #[command(name = "facet-values")]
+    FacetValues {
+        #[arg(long, help = "Project ID to scope facet values")]
+        filter_project_id: i64,
+        #[arg(help = "Facet type (parameter, attribute, tag, metric)")]
+        facet_type: String,
+        #[arg(help = "Facet name")]
+        facet_name: String,
+    },
 }
 
 // ---- APM ----
@@ -9681,16 +9895,13 @@ enum AuthActions {
         /// Shorthand: --ro
         #[arg(long, alias = "ro", visible_alias = "ro")]
         read_only: bool,
-        /// Datadog site to authenticate against (e.g. datadoghq.eu, us3.datadoghq.com).
+        /// Datadog site or literal host to authenticate against.
+        /// Standard sites: datadoghq.eu, us3.datadoghq.com, etc.
+        /// Vanity/SAML SSO host: mycompany.datadoghq.com (replaces the old --subdomain flag).
+        /// Custom gateway: mygateway.example.com or mygateway.example.com:8443.
         /// Overrides DD_SITE env var and config file. Defaults to datadoghq.com.
         #[arg(long, value_name = "SITE")]
         site: Option<String>,
-        /// Organization subdomain for SAML/SSO login (e.g. mycompany for mycompany.datadoghq.com).
-        /// Composed against --site, so `--site datad0g.com --subdomain dd` routes to dd.datad0g.com.
-        /// Whether the consent page narrows to a single org depends on per-tenant SAML routing on
-        /// the Datadog side; some subdomains still show the org switcher.
-        #[arg(long, value_name = "SUBDOMAIN")]
-        subdomain: Option<String>,
         /// Pin the OAuth callback to one specific port from the DCR redirect allowlist
         /// [8000, 8080, 8888, 9000] instead of scanning. Useful when forwarding a single port
         /// over SSH. If the chosen port is busy login fails — no fallback. Other values are
@@ -10719,24 +10930,6 @@ fn validate_callback_port(port: u16, source: &str) -> anyhow::Result<u16> {
     Ok(port)
 }
 
-/// Validate a SAML/SSO subdomain string before it's composed into the auth URL.
-/// Non-empty input must be alphanumeric plus `-` so that a value like `evil.com#`
-/// can't smuggle a different host into the URL via fragment/path tricks. The
-/// empty case is accepted because `build_authorization_url` already coerces it
-/// to "fall back to app.{site}".
-fn validate_subdomain(s: &str) -> anyhow::Result<()> {
-    if s.is_empty() {
-        return Ok(());
-    }
-    if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        anyhow::bail!(
-            "--subdomain {s:?} contains invalid characters; \
-             expected ASCII letters, digits, and `-` only"
-        );
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod resolve_callback_port_tests {
     use super::resolve_callback_port;
@@ -10836,34 +11029,39 @@ mod resolve_callback_port_tests {
     }
 
     #[test]
-    fn subdomain_accepts_alphanumeric_and_hyphen() {
-        use super::validate_subdomain;
-        assert!(validate_subdomain("").is_ok());
-        assert!(validate_subdomain("acme").is_ok());
-        assert!(validate_subdomain("dd-staging").is_ok());
-        assert!(validate_subdomain("ab123").is_ok());
+    fn site_flag_accepts_valid_hosts() {
+        use crate::config::validate_site;
+        for good in [
+            "datadoghq.com",
+            "us3.datadoghq.com",
+            "mycompany.datadoghq.com",
+            "mygateway.example.com",
+            "gw.example.com:8443",
+            "host-1.example.com",
+        ] {
+            assert!(validate_site(good).is_ok(), "{good:?} should be accepted");
+        }
     }
 
     #[test]
-    fn subdomain_rejects_url_smuggling_attempts() {
-        use super::validate_subdomain;
-        // The hash/dot/slash/at/space cases would each let a hand-crafted
-        // value redirect the OAuth flow to an attacker-controlled host. Pin
-        // them all as rejections rather than relying on the URL builder.
+    fn site_flag_rejects_url_smuggling_attempts() {
+        use crate::config::validate_site;
+        // These values would redirect API or OAuth calls to an attacker-controlled
+        // host if allowed through URL construction unchecked.
         for bad in [
-            "evil.com#",
-            "evil.com",
-            "evil/path",
-            "user@evil",
+            "evil.com/path",
+            "a#b",
+            "user@host",
             "dd staging",
             "dd_staging", // underscore not in DNS label charset
             "../../etc",
+            "",
         ] {
-            let err = validate_subdomain(bad).unwrap_err();
+            let err = validate_site(bad).unwrap_err();
             let msg = format!("{err}");
             assert!(
-                msg.contains("invalid characters"),
-                "{bad:?} should be rejected with invalid-characters error, got: {msg}"
+                msg.contains("invalid characters") || msg.contains("empty") || msg.contains("dot"),
+                "{bad:?} should be rejected, got: {msg}"
             );
         }
     }
@@ -10887,6 +11085,52 @@ mod resolve_callback_port_tests {
             std::env::remove_var("PUP_OAUTH_CALLBACK_PORT");
             assert_eq!(env_got, Some(port), "env port {port} should be accepted");
         }
+    }
+}
+
+/// Resolve the effective output format. An explicit `--output` flag wins and is
+/// validated — a malformed value is a hard error rather than being silently
+/// ignored. When the flag is absent, the format already resolved from env/config
+/// in `Config::from_env` is kept, so `DD_OUTPUT` / `PUP_OUTPUT` (and the format an
+/// extension inherits from its parent) survive.
+fn resolve_output_format(
+    flag: Option<&str>,
+    resolved: config::OutputFormat,
+) -> anyhow::Result<config::OutputFormat> {
+    match flag {
+        Some(s) => s
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid --output value: {e}")),
+        None => Ok(resolved),
+    }
+}
+
+#[cfg(test)]
+mod resolve_output_format_tests {
+    use super::resolve_output_format;
+    use crate::config::OutputFormat;
+
+    #[test]
+    fn explicit_flag_overrides_resolved() {
+        let got = resolve_output_format(Some("table"), OutputFormat::Json).unwrap();
+        assert_eq!(got, OutputFormat::Table);
+    }
+
+    #[test]
+    fn absent_flag_keeps_resolved() {
+        // No --output: the env/config-resolved format (e.g. an inherited
+        // PUP_OUTPUT) must survive instead of being clobbered by a default.
+        let got = resolve_output_format(None, OutputFormat::Yaml).unwrap();
+        assert_eq!(got, OutputFormat::Yaml);
+    }
+
+    #[test]
+    fn invalid_explicit_flag_errors() {
+        let got = resolve_output_format(Some("tabel"), OutputFormat::Json);
+        assert!(
+            got.is_err(),
+            "a malformed --output value must be a hard error"
+        );
     }
 }
 
@@ -10928,7 +11172,7 @@ async fn main_inner() -> anyhow::Result<()> {
             if !extensions::is_builtin_command(candidate) {
                 if let Some(ext_path) = extensions::extension_path(candidate) {
                     let mut cfg = config::Config::from_env()?;
-                    parsed.globals.apply_to(&mut cfg);
+                    parsed.globals.apply_to(&mut cfg)?;
                     let exit_code = extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
                     std::process::exit(exit_code);
                 }
@@ -10990,10 +11234,10 @@ async fn main_inner() -> anyhow::Result<()> {
 
     let mut cfg = config::Config::from_env()?;
 
-    // Apply flag overrides
-    if let Ok(fmt) = cli.output.parse() {
-        cfg.output_format = fmt;
-    }
+    // Apply flag overrides. `--output` is only applied when explicitly set so the
+    // format resolved from DD_OUTPUT / PUP_OUTPUT in `from_env` survives when no
+    // flag is passed (extensions rely on inheriting the parent's format).
+    cfg.output_format = resolve_output_format(cli.output.as_deref(), cfg.output_format)?;
     if cli.yes {
         cfg.auto_approve = true;
     }
@@ -11005,7 +11249,7 @@ async fn main_inner() -> anyhow::Result<()> {
     // Site for this org and access token are also resolved here.
     if let Some(org) = cli.org {
         #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-        config::apply_org_override(&mut cfg, org);
+        config::apply_org_override(&mut cfg, org)?;
         #[cfg(any(feature = "browser", target_arch = "wasm32"))]
         {
             cfg.org = Some(org);
@@ -11014,6 +11258,9 @@ async fn main_inner() -> anyhow::Result<()> {
 
     if cli.read_only {
         cfg.read_only = true;
+    }
+    if cli.jq.is_some() {
+        cfg.jq = cli.jq;
     }
     if cfg.read_only {
         let top = get_top_level_subcommand_name(&matches);
@@ -11033,6 +11280,24 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
             }
         }
+    }
+
+    // Compute once, after agent_mode is resolved (agent mode is always non-interactive).
+    #[cfg(not(target_arch = "wasm32"))]
+    let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+    #[cfg(target_arch = "wasm32")]
+    let interactive = false;
+
+    // Durable trust allowlist from the config file, sourced once for all gate calls.
+    #[cfg(not(feature = "browser"))]
+    let trusted_sites = config::configured_trusted_sites();
+
+    // Gate credential dispatch to non-Datadog hosts before any command dispatches.
+    // Auth subcommands resolve their own site late (after --site is applied in-arm),
+    // so they gate themselves; skip here to avoid a double prompt.
+    #[cfg(not(feature = "browser"))]
+    if !matches!(cli.command, Commands::Auth { .. }) {
+        cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
     }
 
     match cli.command {
@@ -11235,23 +11500,6 @@ async fn main_inner() -> anyhow::Result<()> {
                     IncidentPostmortemActions::Delete { template_id } => {
                         commands::incidents::postmortem_templates_delete(&cfg, &template_id)
                             .await?;
-                    }
-                },
-                IncidentActions::Services { action } => match action {
-                    IncidentServiceActions::List => {
-                        commands::incidents::services_list(&cfg).await?;
-                    }
-                    IncidentServiceActions::Get { service_id } => {
-                        commands::incidents::services_get(&cfg, &service_id).await?;
-                    }
-                    IncidentServiceActions::Create { file } => {
-                        commands::incidents::services_create(&cfg, &file).await?;
-                    }
-                    IncidentServiceActions::Update { service_id, file } => {
-                        commands::incidents::services_update(&cfg, &service_id, &file).await?;
-                    }
-                    IncidentServiceActions::Delete { service_id } => {
-                        commands::incidents::services_delete(&cfg, &service_id).await?;
                     }
                 },
                 IncidentActions::Import { file } => {
@@ -11786,6 +12034,52 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
             }
         }
+        // --- Tag Policies ---
+        Commands::TagPolicies { action } => {
+            cfg.validate_auth()?;
+            match action {
+                TagPoliciesActions::List {
+                    include_disabled,
+                    include_deleted,
+                    include_score,
+                    filter_source,
+                } => {
+                    commands::tag_policies::list(
+                        &cfg,
+                        include_disabled,
+                        include_deleted,
+                        include_score,
+                        filter_source,
+                    )
+                    .await?;
+                }
+                TagPoliciesActions::Get {
+                    policy_id,
+                    include_score,
+                } => {
+                    commands::tag_policies::get(&cfg, &policy_id, include_score).await?;
+                }
+                TagPoliciesActions::Create { file } => {
+                    commands::tag_policies::create(&cfg, &file).await?;
+                }
+                TagPoliciesActions::Update { policy_id, file } => {
+                    commands::tag_policies::update(&cfg, &policy_id, &file).await?;
+                }
+                TagPoliciesActions::Delete {
+                    policy_id,
+                    hard_delete,
+                } => {
+                    commands::tag_policies::delete(&cfg, &policy_id, hard_delete).await?;
+                }
+                TagPoliciesActions::Score {
+                    policy_id,
+                    ts_start,
+                    ts_end,
+                } => {
+                    commands::tag_policies::score(&cfg, &policy_id, ts_start, ts_end).await?;
+                }
+            }
+        }
         // --- Users ---
         Commands::Users { action } => {
             cfg.validate_auth()?;
@@ -11904,26 +12198,31 @@ async fn main_inner() -> anyhow::Result<()> {
             }
         }
         // --- IDP (Internal Developer Portal) ---
-        Commands::Idp { action } => {
-            cfg.validate_auth()?;
-            match action {
-                IdpActions::Assist { entity } => {
-                    commands::idp::assist(&cfg, &entity).await?;
-                }
-                IdpActions::Find { query } => {
-                    commands::idp::find(&cfg, &query).await?;
-                }
-                IdpActions::Owner { entity } => {
-                    commands::idp::owner(&cfg, &entity).await?;
-                }
-                IdpActions::Deps { entity } => {
-                    commands::idp::deps(&cfg, &entity).await?;
-                }
-                IdpActions::Register { file } => {
-                    commands::idp::register(&cfg, &file).await?;
-                }
+        Commands::Idp { action } => match action {
+            IdpActions::Assist { entity } => {
+                cfg.validate_auth()?;
+                commands::idp::assist(&cfg, &entity).await?;
             }
-        }
+            IdpActions::Find { query } => {
+                cfg.validate_auth()?;
+                commands::idp::find(&cfg, &query).await?;
+            }
+            IdpActions::Owner { entity } => {
+                cfg.validate_auth()?;
+                commands::idp::owner(&cfg, &entity).await?;
+            }
+            IdpActions::Deps { entity } => {
+                cfg.validate_auth()?;
+                commands::idp::deps(&cfg, &entity).await?;
+            }
+            IdpActions::Register { file } => {
+                cfg.validate_auth()?;
+                commands::idp::register(&cfg, &file).await?;
+            }
+            IdpActions::MigrateSchema { file } => {
+                commands::idp::migrate_schema(&cfg, file).await?;
+            }
+        },
         // --- Audit Logs ---
         Commands::AuditLogs { action } => {
             cfg.validate_auth()?;
@@ -13189,25 +13488,6 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::fleet::schedules_trigger(&cfg, &schedule_id).await?;
                     }
                 },
-                FleetActions::Clusters { action } => match action {
-                    FleetClusterActions::List {
-                        filter,
-                        page_size,
-                        page_number,
-                        sort_attribute,
-                        sort_descending,
-                    } => {
-                        commands::fleet::clusters_list(
-                            &cfg,
-                            filter,
-                            page_size,
-                            page_number,
-                            sort_attribute,
-                            sort_descending,
-                        )
-                        .await?;
-                    }
-                },
                 FleetActions::Tracers { action } => match action {
                     FleetTracerActions::List {
                         filter,
@@ -13225,11 +13505,6 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort_descending,
                         )
                         .await?;
-                    }
-                },
-                FleetActions::InstrumentedPods { action } => match action {
-                    FleetInstrumentedPodsActions::List { cluster_name } => {
-                        commands::fleet::instrumented_pods_list(&cfg, cluster_name).await?;
                     }
                 },
             }
@@ -14253,6 +14528,115 @@ async fn main_inner() -> anyhow::Result<()> {
                 MiscActions::Status => commands::misc::status(&cfg).await?,
             }
         }
+        // --- Model Lab ---
+        Commands::ModelLab { action } => {
+            cfg.validate_auth()?;
+            match action {
+                ModelLabActions::Projects { action } => match action {
+                    ModelLabProjectActions::List {
+                        filter,
+                        filter_tags,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::model_lab::projects_list(
+                            &cfg,
+                            filter,
+                            filter_tags,
+                            sort,
+                            page_size,
+                            page_number,
+                        )
+                        .await?;
+                    }
+                    ModelLabProjectActions::Get { project_id } => {
+                        commands::model_lab::projects_get(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Star { project_id } => {
+                        commands::model_lab::projects_star(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Unstar { project_id } => {
+                        commands::model_lab::projects_unstar(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Artifacts { project_id } => {
+                        commands::model_lab::projects_artifacts(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::FacetKeys => {
+                        commands::model_lab::projects_facet_keys(&cfg).await?;
+                    }
+                    ModelLabProjectActions::FacetValues {
+                        facet_type,
+                        facet_name,
+                    } => {
+                        commands::model_lab::projects_facet_values(&cfg, &facet_type, facet_name)
+                            .await?;
+                    }
+                },
+                ModelLabActions::Runs { action } => match action {
+                    ModelLabRunActions::List {
+                        filter,
+                        filter_project_id,
+                        filter_status,
+                        filter_tags,
+                        filter_params,
+                        filter_parent_run_id,
+                        pinned_first,
+                        include_pinned,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::model_lab::runs_list(
+                            &cfg,
+                            filter,
+                            filter_project_id,
+                            filter_status,
+                            filter_tags,
+                            filter_params,
+                            filter_parent_run_id,
+                            pinned_first,
+                            include_pinned,
+                            sort,
+                            page_size,
+                            page_number,
+                        )
+                        .await?;
+                    }
+                    ModelLabRunActions::Get { run_id } => {
+                        commands::model_lab::runs_get(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Delete { run_id } => {
+                        commands::model_lab::runs_delete(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Pin { run_id } => {
+                        commands::model_lab::runs_pin(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Unpin { run_id } => {
+                        commands::model_lab::runs_unpin(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Artifacts { run_id, path } => {
+                        commands::model_lab::runs_artifacts(&cfg, run_id, path).await?;
+                    }
+                    ModelLabRunActions::FacetKeys { filter_project_id } => {
+                        commands::model_lab::runs_facet_keys(&cfg, filter_project_id).await?;
+                    }
+                    ModelLabRunActions::FacetValues {
+                        filter_project_id,
+                        facet_type,
+                        facet_name,
+                    } => {
+                        commands::model_lab::runs_facet_values(
+                            &cfg,
+                            filter_project_id,
+                            &facet_type,
+                            facet_name,
+                        )
+                        .await?;
+                    }
+                },
+            }
+        }
         // --- APM ---
         Commands::Apm { action } => {
             cfg.validate_auth()?;
@@ -14663,8 +15047,8 @@ async fn main_inner() -> anyhow::Result<()> {
                 &cfg,
                 &endpoint,
                 &method,
-                &field,
                 &header,
+                &field,
                 &raw_field,
                 input.as_deref(),
                 include,
@@ -14672,6 +15056,17 @@ async fn main_inner() -> anyhow::Result<()> {
                 verbose,
             )
             .await?;
+        }
+        // --- Format ---
+        // No auth required: this only renders JSON the caller already has.
+        #[cfg(not(target_arch = "wasm32"))]
+        Commands::Format {
+            input,
+            count,
+            command,
+            next_action,
+        } => {
+            commands::format::run(&cfg, input.as_deref(), count, command, next_action)?;
         }
         // --- Skills ---
         #[cfg(not(target_arch = "wasm32"))]
@@ -14790,16 +15185,18 @@ async fn main_inner() -> anyhow::Result<()> {
                 scopes,
                 read_only,
                 site,
-                subdomain,
                 callback_port,
                 org_uuid,
             } => {
                 if let Some(s) = site {
-                    cfg.set_site_explicit(s);
+                    cfg.set_site_explicit(s)?;
                 }
-                if let Some(sub) = subdomain.as_deref() {
-                    validate_subdomain(sub)?;
-                }
+                // Gate here rather than pre-match: --site is applied above and
+                // login opens a browser carrying the real SSO cookie plus DCR
+                // client credentials to this host, so it must be checked even
+                // when --site was not passed (the from_env site is still the target).
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 let is_read_only = read_only || cfg.read_only;
                 let resolved =
                     resolve_login_scopes(scopes.as_deref(), cfg.org.as_deref(), is_read_only);
@@ -14807,26 +15204,29 @@ async fn main_inner() -> anyhow::Result<()> {
                 // Coerce empty `--org-uuid ""` to no-hint so callees treat
                 // it the same as omitting the flag, not as `dd_oid=`.
                 let org_uuid_hint = org_uuid.as_deref().filter(|s| !s.is_empty());
-                commands::auth::login(
-                    &cfg,
-                    resolved,
-                    subdomain.as_deref(),
-                    resolved_port,
-                    org_uuid_hint,
-                )
-                .await?
+                commands::auth::login(&cfg, resolved, resolved_port, org_uuid_hint).await?
             }
             AuthActions::Logout => commands::auth::logout(&cfg).await?,
             AuthActions::Status { site } => {
                 if let Some(s) = site {
-                    cfg.set_site_explicit(s);
+                    cfg.set_site_explicit(s)?;
                 }
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 commands::auth::status(&cfg)?
             }
             #[cfg(debug_assertions)]
             AuthActions::Token => commands::auth::token(&cfg)?,
-            AuthActions::Refresh => commands::auth::refresh(&cfg).await?,
+            AuthActions::Refresh => {
+                // Refresh POSTs the stored refresh token to cfg.site; gate it like
+                // login/status (the pre-match gate skips all Auth subcommands).
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
+                commands::auth::refresh(&cfg).await?
+            }
             AuthActions::List => commands::auth::list(&cfg)?,
+            // `auth test` only prints local config (masked keys, no network call),
+            // so it sends nothing to the host and needs no trust gate.
             AuthActions::Test => commands::test::run(&cfg)?,
         },
         // --- Workflows ---

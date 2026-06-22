@@ -12,7 +12,7 @@ fn make_api(cfg: &Config) -> SeatsAPI {
 
 pub async fn users_list(cfg: &Config, product: &str, limit: i32) -> Result<()> {
     let api = make_api(cfg);
-    let params = GetSeatsUsersOptionalParams::default().page_limit(limit);
+    let params = GetSeatsUsersOptionalParams::default().page_limit(limit as i64);
     let resp = api
         .get_seats_users(product.to_string(), params)
         .await

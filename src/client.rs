@@ -115,49 +115,22 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
         );
     }
 
-    // If PUP_MOCK_SERVER is set, redirect all requests to the mock server.
-    // The DD client uses server templates like "{protocol}://{name}" at index 1.
-    if let Ok(mock_url) = std::env::var("PUP_MOCK_SERVER") {
-        dd_cfg.server_index = 1;
-        let url = mock_url
-            .trim_start_matches("http://")
-            .trim_start_matches("https://");
-        let protocol = if mock_url.starts_with("https") {
-            "https"
-        } else {
-            "http"
-        };
-        dd_cfg
-            .server_variables
-            .insert("protocol".into(), protocol.into());
-        dd_cfg.server_variables.insert("name".into(), url.into());
-    } else {
-        // Server index 0 only accepts production sites (datadoghq.com, us3, us5,
-        // ap1, ap2, eu, gov). Server index 2 uses the same URL template but with
-        // no enum restriction, so it works for any site including staging
-        // (datad0g.com). Use index 2 for non-standard sites.
-        //
-        // The SDK populates `server_variables["site"]` from the DD_SITE env var
-        // at Configuration::default() time. We override it with `cfg.site` so
-        // programmatic site resolution (e.g. `--org` picking up a saved site
-        // from the session registry) reaches the SDK without requiring the
-        // user to also set DD_SITE.
-        static STANDARD_SITES: &[&str] = &[
-            "datadoghq.com",
-            "us3.datadoghq.com",
-            "us5.datadoghq.com",
-            "ap1.datadoghq.com",
-            "ap2.datadoghq.com",
-            "datadoghq.eu",
-            "ddog-gov.com",
-        ];
-        if !STANDARD_SITES.contains(&cfg.site.as_str()) {
-            dd_cfg.server_index = 2;
-        }
-        dd_cfg
-            .server_variables
-            .insert("site".into(), cfg.site.clone());
-    }
+    // Route the SDK at the single resolved API host. `api_base_url()` already
+    // encapsulates every case: the PUP_MOCK_SERVER override, the `api.{site}`
+    // derivation for canonical Datadog sites, and the verbatim host for
+    // vanity/gateway hosts. We feed it through the SDK's `{protocol}://{name}`
+    // template (server index 1) so the host is targeted exactly as resolved —
+    // the SDK never re-derives or prepends anything from `site`.
+    let base = cfg.api_base_url();
+    // A scheme-less value only occurs for a PUP_MOCK_SERVER set without
+    // `http(s)://`; default it to plain http (mock servers run HTTP locally).
+    // The non-mock path always yields `https://...`, so it never hits the fallback.
+    let (protocol, name) = base.split_once("://").unwrap_or(("http", base.as_str()));
+    dd_cfg.server_index = 1;
+    dd_cfg
+        .server_variables
+        .insert("protocol".into(), protocol.into());
+    dd_cfg.server_variables.insert("name".into(), name.into());
 
     dd_cfg
 }
@@ -250,20 +223,12 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.get_incident_postmortem_template",
     "v2.list_incident_postmortem_templates",
     "v2.update_incident_postmortem_template",
-    // Incident Services (5)
-    "v2.create_incident_service",
-    "v2.delete_incident_service",
-    "v2.get_incident_service",
-    "v2.list_incident_services",
-    "v2.update_incident_service",
-    // Fleet Automation (18)
+    // Fleet Automation (16)
     "v2.list_fleet_agents",
     "v2.get_fleet_agent_info",
     "v2.list_fleet_agent_versions",
     "v2.list_fleet_agent_tracers",
     "v2.list_fleet_tracers",
-    "v2.list_fleet_clusters",
-    "v2.list_fleet_instrumented_pods",
     "v2.list_fleet_deployments",
     "v2.get_fleet_deployment",
     "v2.create_fleet_deployment_configure",
@@ -425,6 +390,30 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.trigger_investigation",
     // Cloud Cost Management — Anomalies (1)
     "v2.list_cost_anomalies",
+    // Tag Policies (6)
+    "v2.create_tag_policy",
+    "v2.delete_tag_policy",
+    "v2.get_tag_policy",
+    "v2.get_tag_policy_score",
+    "v2.list_tag_policies",
+    "v2.update_tag_policy",
+    // Model Lab (16)
+    "v2.delete_model_lab_run",
+    "v2.get_model_lab_artifact_content",
+    "v2.get_model_lab_project",
+    "v2.get_model_lab_run",
+    "v2.list_model_lab_project_artifacts",
+    "v2.list_model_lab_project_facet_keys",
+    "v2.list_model_lab_project_facet_values",
+    "v2.list_model_lab_projects",
+    "v2.list_model_lab_run_artifacts",
+    "v2.list_model_lab_run_facet_keys",
+    "v2.list_model_lab_run_facet_values",
+    "v2.list_model_lab_runs",
+    "v2.pin_model_lab_run",
+    "v2.star_model_lab_project",
+    "v2.unpin_model_lab_run",
+    "v2.unstar_model_lab_project",
 ];
 
 // ---------------------------------------------------------------------------
@@ -958,7 +947,14 @@ async fn raw_post_impl(
     parse_response_json(resp).await
 }
 
-fn apply_auth(
+/// Apply Datadog authentication headers to a request builder.
+///
+/// Chooses between OAuth bearer and API-key/App-key auth based on `cfg` and the
+/// per-endpoint requirements in [`requires_api_key_fallback`]: endpoints that do
+/// not accept OAuth (see `OAUTH_EXCLUDED_ENDPOINTS`) force API-key auth even when
+/// a bearer token is present. Exposed so the generic `pup api` passthrough reuses
+/// the same auth routing as the typed clients.
+pub fn apply_auth(
     mut req: reqwest::RequestBuilder,
     cfg: &Config,
     method: &str,
@@ -1137,6 +1133,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         }
     }
 
@@ -1161,44 +1158,79 @@ mod tests {
         assert_eq!(get_auth_type(&cfg), AuthType::None);
     }
 
-    /// `make_dd_config` must propagate `cfg.site` into the SDK's `site`
-    /// server variable, otherwise programmatic site resolution (e.g.
-    /// `--org` picking up a saved staging site) silently routes API calls
-    /// to api.datadoghq.com.
+    /// Asserts the SDK is routed at the host produced by `name`/`protocol`,
+    /// the single `{protocol}://{name}` template at server index 1.
+    fn assert_dd_host(
+        dd_cfg: &datadog_api_client::datadog::Configuration,
+        protocol: &str,
+        host: &str,
+    ) {
+        assert_eq!(dd_cfg.server_index, 1);
+        assert_eq!(
+            dd_cfg.server_variables.get("protocol").map(String::as_str),
+            Some(protocol)
+        );
+        assert_eq!(
+            dd_cfg.server_variables.get("name").map(String::as_str),
+            Some(host)
+        );
+    }
+
+    /// Canonical Datadog sites derive `api.{site}` — including non-default ones
+    /// (staging datad0g.com, datadoghq.eu) resolved programmatically via `--org`
+    /// rather than DD_SITE.
     #[test]
-    fn test_make_dd_config_uses_cfg_site_for_non_standard() {
+    fn test_make_dd_config_canonical_site_derives_api_host() {
         let _guard = ENV_LOCK.blocking_lock();
         std::env::remove_var("PUP_MOCK_SERVER");
         std::env::remove_var("DD_SITE");
 
         let mut cfg = test_cfg();
         cfg.site = "datad0g.com".into();
+        assert_dd_host(&make_dd_config(&cfg), "https", "api.datad0g.com");
 
-        let dd_cfg = make_dd_config(&cfg);
-
-        assert_eq!(dd_cfg.server_index, 2);
-        assert_eq!(
-            dd_cfg.server_variables.get("site").map(String::as_str),
-            Some("datad0g.com")
-        );
+        cfg.site = "datadoghq.eu".into();
+        assert_dd_host(&make_dd_config(&cfg), "https", "api.datadoghq.eu");
     }
 
     #[test]
-    fn test_make_dd_config_uses_cfg_site_for_standard() {
+    fn test_make_dd_config_literal_host_used_verbatim() {
         let _guard = ENV_LOCK.blocking_lock();
         std::env::remove_var("PUP_MOCK_SERVER");
         std::env::remove_var("DD_SITE");
 
         let mut cfg = test_cfg();
-        cfg.site = "datadoghq.eu".into();
+        cfg.site = "mygateway.example.com".into(); // literal, not in KNOWN_SITES
+        assert_dd_host(&make_dd_config(&cfg), "https", "mygateway.example.com");
+    }
+
+    #[test]
+    fn test_make_dd_config_vanity_subdomain_used_verbatim() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_MOCK_SERVER");
+        std::env::remove_var("DD_SITE");
+
+        let mut cfg = test_cfg();
+        cfg.site = "mycompany.datadoghq.com".into(); // vanity, not in KNOWN_SITES
+        assert_dd_host(&make_dd_config(&cfg), "https", "mycompany.datadoghq.com");
+    }
+
+    /// A literal host must be targeted verbatim even when the user has DD_SITE
+    /// set in their shell — `cfg.site` is the single source of truth and the SDK
+    /// never re-derives the host from the `DD_SITE`-populated `site` variable.
+    #[test]
+    fn test_make_dd_config_literal_host_ignores_env_dd_site() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_MOCK_SERVER");
+        std::env::set_var("DD_SITE", "datadoghq.com");
+
+        let mut cfg = test_cfg();
+        cfg.site = "mygateway.example.com".into(); // literal, not in KNOWN_SITES
 
         let dd_cfg = make_dd_config(&cfg);
+        std::env::remove_var("DD_SITE");
 
-        assert_eq!(dd_cfg.server_index, 0);
-        assert_eq!(
-            dd_cfg.server_variables.get("site").map(String::as_str),
-            Some("datadoghq.eu")
-        );
+        assert_dd_host(&dd_cfg, "https", "mygateway.example.com");
     }
 
     /// `cfg.site` (e.g. resolved from a saved org session) must override any
@@ -1215,14 +1247,9 @@ mod tests {
         cfg.site = "datad0g.com".into();
 
         let dd_cfg = make_dd_config(&cfg);
-
         std::env::remove_var("DD_SITE");
 
-        assert_eq!(dd_cfg.server_index, 2);
-        assert_eq!(
-            dd_cfg.server_variables.get("site").map(String::as_str),
-            Some("datad0g.com")
-        );
+        assert_dd_host(&dd_cfg, "https", "api.datad0g.com");
     }
 
     #[test]
@@ -1292,7 +1319,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 171);
+        assert_eq!(UNSTABLE_OPS.len(), 186);
     }
 
     #[test]
@@ -1343,9 +1370,10 @@ mod tests {
         std::env::set_var("DD_API_KEY", "test-key");
         std::env::set_var("DD_APP_KEY", "test-app-key");
         std::env::remove_var("PUP_MOCK_SERVER");
+        std::env::remove_var("DD_SITE");
         let dd_cfg = make_dd_config(&cfg);
-        // Verify unstable ops are enabled (server_index should be default 0)
-        assert_eq!(dd_cfg.server_index, 0);
+        // Default canonical site datadoghq.com derives api.datadoghq.com.
+        assert_dd_host(&dd_cfg, "https", "api.datadoghq.com");
         std::env::remove_var("DD_API_KEY");
         std::env::remove_var("DD_APP_KEY");
     }
@@ -1382,6 +1410,22 @@ mod tests {
             dd_cfg.server_variables.get("name").unwrap(),
             "mock.example.com"
         );
+        std::env::remove_var("PUP_MOCK_SERVER");
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+    }
+
+    /// A scheme-less PUP_MOCK_SERVER (no `http(s)://`) defaults to plain http —
+    /// mock servers run HTTP locally. Exercises the `split_once` fallback branch.
+    #[test]
+    fn test_make_dd_config_scheme_less_mock_defaults_to_http() {
+        let _guard = ENV_LOCK.blocking_lock();
+        let cfg = test_cfg();
+        std::env::set_var("DD_API_KEY", "test-key");
+        std::env::set_var("DD_APP_KEY", "test-app-key");
+        std::env::set_var("PUP_MOCK_SERVER", "127.0.0.1:9999");
+        let dd_cfg = make_dd_config(&cfg);
+        assert_dd_host(&dd_cfg, "http", "127.0.0.1:9999");
         std::env::remove_var("PUP_MOCK_SERVER");
         std::env::remove_var("DD_API_KEY");
         std::env::remove_var("DD_APP_KEY");

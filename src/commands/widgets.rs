@@ -63,10 +63,10 @@ pub async fn list(
         params = params.sort(s);
     }
     if let Some(n) = page_number {
-        params = params.page_number(n);
+        params = params.page_number(n as i64);
     }
     if let Some(n) = page_size {
-        params = params.page_size(n);
+        params = params.page_size(n as i64);
     }
 
     let resp = api

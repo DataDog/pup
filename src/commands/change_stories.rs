@@ -63,7 +63,13 @@ pub async fn list(
         next_action: None,
     };
 
-    formatter::format_and_print(&data, &cfg.output_format, cfg.agent_mode, Some(&meta), cfg.jq.as_deref())
+    formatter::format_and_print(
+        &data,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 #[cfg(test)]

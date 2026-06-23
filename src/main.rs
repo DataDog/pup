@@ -9686,6 +9686,56 @@ enum SkillsActions {
         #[arg(long)]
         project: bool,
     },
+    /// Browse the remote Datadog skill catalog
+    ///
+    /// COMMANDS:
+    ///   list      List skills from the remote catalog (optionally filtered by tag)
+    ///   get       Fetch a single skill's full content by name
+    ///
+    /// EXAMPLES:
+    ///   pup skills catalog list
+    ///   pup skills catalog list --tags apm
+    ///   pup skills catalog list --tags apm --tags observability
+    ///   pup skills catalog get kubernetes-agent-install
+    Catalog {
+        #[command(subcommand)]
+        action: SkillsCatalogActions,
+    },
+    /// Record an onboarding session checkpoint or terminal event
+    ///
+    /// EXAMPLES:
+    ///   pup skills session --session-id <uuid> --skill-ids kubernetes-agent-install --summary "installed agent" --status completed
+    ///   pup skills session --session-id <uuid> --skill-ids apm-setup --skill-ids missing-traces --summary "in progress" --status in_progress
+    Session {
+        /// Session UUID
+        #[arg(long)]
+        session_id: String,
+        /// Skill IDs used in this session (repeatable)
+        #[arg(long = "skill-ids", name = "skill-ids")]
+        skill_ids: Vec<String>,
+        /// Human-readable summary of what happened
+        #[arg(long)]
+        summary: String,
+        /// Session status: in_progress, completed, failed, abandoned
+        #[arg(long)]
+        status: String,
+    },
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Subcommand)]
+enum SkillsCatalogActions {
+    /// List skills from the remote Datadog skill catalog
+    List {
+        /// Filter by tag (repeatable, e.g. --tags apm --tags observability)
+        #[arg(long)]
+        tags: Vec<String>,
+    },
+    /// Fetch a single skill's full content by name
+    Get {
+        /// Skill name (e.g. kubernetes-agent-install)
+        name: String,
+    },
 }
 
 // ---- Product Analytics ----
@@ -15112,6 +15162,27 @@ async fn main_inner() -> anyhow::Result<()> {
             )?,
             SkillsActions::Path { platform, project } => {
                 commands::skills::path(platform.map(|p| p.as_canonical().to_string()), project)?
+            }
+            SkillsActions::Catalog { action } => {
+                cfg.validate_auth()?;
+                match action {
+                    SkillsCatalogActions::List { tags } => {
+                        commands::skills::catalog_list(&cfg, tags).await?;
+                    }
+                    SkillsCatalogActions::Get { name } => {
+                        commands::skills::catalog_get(&cfg, name).await?;
+                    }
+                }
+            }
+            SkillsActions::Session {
+                session_id,
+                skill_ids,
+                summary,
+                status,
+            } => {
+                cfg.validate_auth()?;
+                commands::skills::session_record(&cfg, session_id, skill_ids, summary, status)
+                    .await?;
             }
         },
         // --- Product Analytics ---

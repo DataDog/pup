@@ -1,5 +1,8 @@
 use anyhow::{bail, Result};
 
+use crate::client;
+use crate::config::Config;
+use crate::formatter;
 use crate::skills;
 
 /// Resolve the platform list from CLI input, validating each entry.
@@ -298,6 +301,49 @@ pub fn path(platform: Option<String>, project: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub async fn catalog_list(cfg: &Config, tags: Vec<String>) -> Result<()> {
+    let query = tags
+        .iter()
+        .map(|t| format!("tags={t}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let path = if query.is_empty() {
+        "/api/v2/skills".to_string()
+    } else {
+        format!("/api/v2/skills?{query}")
+    };
+    let data = client::raw_get(cfg, &path, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn catalog_get(cfg: &Config, name: String) -> Result<()> {
+    let path = format!("/api/v2/skills/{name}");
+    let data = client::raw_get(cfg, &path, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn session_record(
+    cfg: &Config,
+    session_id: String,
+    skill_ids: Vec<String>,
+    summary: String,
+    status: String,
+) -> Result<()> {
+    let body = serde_json::json!({
+        "data": {
+            "type": "onboarding_session",
+            "id": session_id,
+            "attributes": {
+                "skill_ids": skill_ids,
+                "summary": summary,
+                "status": status,
+            }
+        }
+    });
+    let data = client::raw_post(cfg, "/api/v2/onboarding/sessions", body).await?;
+    formatter::output(cfg, &data)
 }
 
 #[cfg(test)]

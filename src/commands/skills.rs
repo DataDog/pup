@@ -68,7 +68,13 @@ pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<(
         })
         .collect();
 
-    crate::formatter::format_and_print(&items, &cfg.output_format, cfg.agent_mode, None)?;
+    crate::formatter::format_and_print(
+        &items,
+        &cfg.output_format,
+        cfg.agent_mode,
+        None,
+        cfg.jq.as_deref(),
+    )?;
     Ok(())
 }
 
@@ -246,7 +252,13 @@ pub fn install(
             "directories": directories,
             "platforms": platforms_hit.iter().collect::<Vec<_>>(),
         });
-        crate::formatter::format_and_print(&result, &cfg.output_format, cfg.agent_mode, None)?;
+        crate::formatter::format_and_print(
+            &result,
+            &cfg.output_format,
+            cfg.agent_mode,
+            None,
+            cfg.jq.as_deref(),
+        )?;
     } else {
         for d in &dirs_used {
             println!("  {d}");
@@ -306,6 +318,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         }
     }
 

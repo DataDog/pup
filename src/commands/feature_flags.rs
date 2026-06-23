@@ -35,10 +35,10 @@ pub async fn flags_list(
         params = params.is_archived(v);
     }
     if let Some(v) = limit {
-        params = params.limit(v);
+        params = params.limit(v as i64);
     }
     if let Some(v) = offset {
-        params = params.offset(v);
+        params = params.offset(v as i64);
     }
     let resp = api
         .list_feature_flags(params)
@@ -128,10 +128,10 @@ pub async fn envs_list(
         params = params.key(v);
     }
     if let Some(v) = limit {
-        params = params.limit(v);
+        params = params.limit(v as i64);
     }
     if let Some(v) = offset {
-        params = params.offset(v);
+        params = params.offset(v as i64);
     }
     let resp = api
         .list_feature_flags_environments(params)

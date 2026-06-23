@@ -2867,6 +2867,12 @@ enum ExtensionActions {
     Install {
         /// Source: local file path (with --local) or GitHub owner/repo
         source: String,
+        /// Install one extension from a GitHub release archive (without pup- prefix)
+        #[arg(long, conflicts_with_all = ["local", "name", "all"])]
+        extension: Option<String>,
+        /// Install all extensions found in a GitHub release archive
+        #[arg(long, conflicts_with_all = ["local", "extension", "name", "description"])]
+        all: bool,
         /// Install a specific release tag (GitHub only)
         #[arg(long, conflicts_with = "local")]
         tag: Option<String>,
@@ -2885,6 +2891,14 @@ enum ExtensionActions {
         /// Short description shown in `pup help`
         #[arg(long)]
         description: Option<String>,
+    },
+    /// List extensions available from a remote GitHub repository
+    ListRemote {
+        /// Source: GitHub owner/repo
+        source: String,
+        /// Filter to one extension (without pup- prefix)
+        #[arg(long)]
+        extension: Option<String>,
     },
     /// Remove an installed extension
     Remove {
@@ -15655,6 +15669,8 @@ async fn main_inner() -> anyhow::Result<()> {
             ExtensionActions::List => commands::extension::list(&cfg)?,
             ExtensionActions::Install {
                 source,
+                extension,
+                all,
                 tag,
                 local,
                 link,
@@ -15666,6 +15682,8 @@ async fn main_inner() -> anyhow::Result<()> {
                     &cfg,
                     commands::extension::InstallOptions {
                         source,
+                        extension,
+                        all,
                         tag,
                         local,
                         link,
@@ -15674,6 +15692,9 @@ async fn main_inner() -> anyhow::Result<()> {
                         description,
                     },
                 )?;
+            }
+            ExtensionActions::ListRemote { source, extension } => {
+                commands::extension::list_remote(&cfg, source, extension)?;
             }
             ExtensionActions::Remove { name } => commands::extension::remove(&cfg, name)?,
             ExtensionActions::Upgrade { name, all } => {

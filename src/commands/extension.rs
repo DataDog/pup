@@ -66,6 +66,8 @@ pub fn list(cfg: &Config) -> Result<()> {
 /// Options for installing an extension.
 pub struct InstallOptions {
     pub source: String,
+    pub extension: Option<String>,
+    pub all: bool,
     pub tag: Option<String>,
     pub local: bool,
     pub link: bool,
@@ -78,6 +80,8 @@ pub struct InstallOptions {
 pub fn install(_cfg: &Config, opts: InstallOptions) -> Result<()> {
     let InstallOptions {
         source,
+        extension,
+        all,
         tag,
         local,
         link,
@@ -86,6 +90,9 @@ pub fn install(_cfg: &Config, opts: InstallOptions) -> Result<()> {
         description,
     } = opts;
     if local {
+        if extension.is_some() || all {
+            bail!("--extension and --all are only supported for GitHub installs");
+        }
         let source_path = PathBuf::from(&source);
         // Derive name from filename if not provided.
         let ext_name = match name {
@@ -124,20 +131,68 @@ pub fn install(_cfg: &Config, opts: InstallOptions) -> Result<()> {
     }
 
     // GitHub-based installation: source is "owner/repo".
-    extensions::install::install_from_github(
+    let installed = extensions::install::install_from_github(
         &source,
         tag.as_deref(),
         name.as_deref(),
+        extension.as_deref(),
+        all,
         force,
         description.as_deref(),
     )?;
 
-    let display_name = name.unwrap_or_else(|| {
-        let repo = source.split('/').nth(1).unwrap_or(&source);
-        extensions::install::derive_name_from_repo(repo)
-    });
-    println!("Installed extension '{display_name}' from github:{source}");
+    if installed.len() == 1 {
+        println!(
+            "Installed extension '{}' from github:{source}",
+            installed[0]
+        );
+    } else {
+        println!(
+            "Installed {} extensions from github:{source}: {}",
+            installed.len(),
+            installed.join(", ")
+        );
+    }
 
+    Ok(())
+}
+
+/// List extensions available from a remote GitHub repository.
+pub fn list_remote(cfg: &Config, source: String, extension: Option<String>) -> Result<()> {
+    let items = extensions::install::list_remote_extensions(&source, extension.as_deref())?;
+    match cfg.output_format {
+        crate::config::OutputFormat::Table => {
+            if items.is_empty() {
+                println!("No remote extensions found.");
+            } else {
+                for item in &items {
+                    println!("{} v{} ({})", item.name, item.version, item.tag);
+                }
+            }
+        }
+        _ => {
+            let values: Vec<serde_json::Value> = items
+                .iter()
+                .map(|item| {
+                    serde_json::json!({
+                        "name": item.name,
+                        "version": item.version,
+                        "tag": item.tag,
+                        "source": item.source,
+                        "asset": item.asset,
+                        "inferred_from_archive": item.inferred_from_archive,
+                    })
+                })
+                .collect();
+            crate::formatter::format_and_print(
+                &values,
+                &cfg.output_format,
+                cfg.agent_mode,
+                None,
+                cfg.jq.as_deref(),
+            )?;
+        }
+    }
     Ok(())
 }
 

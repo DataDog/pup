@@ -38,6 +38,9 @@ native = [
     "dep:ssh-key",
     "dep:futures",
     "dep:tokio-util",
+    "dep:flate2",
+    "dep:tar",
+    "dep:zip",
 ]
 wasi = [
     "dep:datadog-api-client",
@@ -126,6 +129,9 @@ russh = { version = "0.61", optional = true }
 ssh-key = { version = "0.6", features = ["p256", "std"], optional = true }
 futures = { version = "0.3", optional = true }
 tokio-util = { version = "0.7", features = ["compat", "io"], optional = true }
+flate2 = { version = "1", optional = true }
+tar = { version = "0.4", optional = true }
+zip = { version = "8", default-features = false, features = ["deflate"], optional = true }
 
 # Datadog API client — pinned to 0.32.0 tag
 # Use default-features = false; feature sets are activated per-target via features above

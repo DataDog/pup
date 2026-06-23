@@ -76,6 +76,12 @@ fn inject_auth_env(cmd: &mut std::process::Command, cfg: &Config) {
         }
     }
 
+    // GitHub tokens are used only by pup for extension install/list/upgrade.
+    // Extensions receive Datadog auth, not repository access credentials.
+    for name in ["GH_TOKEN", "GITHUB_TOKEN", "HOMEBREW_GITHUB_API_TOKEN"] {
+        cmd.env_remove(name);
+    }
+
     // Boolean mode flags - set when active, unset when not.
     if cfg.auto_approve {
         cmd.env("PUP_AUTO_APPROVE", "true");
@@ -102,5 +108,44 @@ fn inject_auth_env(cmd: &mut std::process::Command, cfg: &Config) {
         None => {
             cmd.env_remove("PUP_FILTER");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::OutputFormat;
+
+    fn test_config() -> Config {
+        Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.com".to_string(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+            jq: None,
+        }
+    }
+
+    fn removed_env(cmd: &std::process::Command, name: &str) -> bool {
+        cmd.get_envs()
+            .any(|(key, value)| key == name && value.is_none())
+    }
+
+    #[test]
+    fn test_inject_auth_env_removes_github_tokens() {
+        let cfg = test_config();
+        let mut cmd = std::process::Command::new("pup-foo");
+
+        inject_auth_env(&mut cmd, &cfg);
+
+        assert!(removed_env(&cmd, "GH_TOKEN"));
+        assert!(removed_env(&cmd, "GITHUB_TOKEN"));
+        assert!(removed_env(&cmd, "HOMEBREW_GITHUB_API_TOKEN"));
     }
 }

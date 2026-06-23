@@ -11173,6 +11173,16 @@ async fn main_inner() -> anyhow::Result<()> {
                 if let Some(ext_path) = extensions::extension_path(candidate) {
                     let mut cfg = config::Config::from_env()?;
                     parsed.globals.apply_to(&mut cfg)?;
+                    #[cfg(not(feature = "browser"))]
+                    {
+                        let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+                        let trusted_sites = config::configured_trusted_sites();
+                        cfg.ensure_site_trusted(
+                            parsed.globals.trust_site,
+                            interactive,
+                            &trusted_sites,
+                        )?;
+                    }
                     let exit_code = extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
                     std::process::exit(exit_code);
                 }

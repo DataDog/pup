@@ -29,6 +29,7 @@ pub(crate) struct PreParsedGlobals {
     pub read_only: bool,
     pub org: Option<String>,
     pub jq: Option<String>,
+    pub trust_site: bool,
 }
 
 /// Parse the CLI arguments in a single left-to-right pass.
@@ -41,6 +42,7 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
         read_only: false,
         org: None,
         jq: None,
+        trust_site: false,
     };
     let mut candidate: Option<String> = None;
     let mut ext_args: Vec<String> = Vec::new();
@@ -74,6 +76,7 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
             "--yes" | "-y" => globals.yes = true,
             "--agent" => globals.agent = true,
             "--read-only" => globals.read_only = true,
+            "--trust-site" => globals.trust_site = true,
             // Equals-syntax value flags: --output=table, --org=prod
             s if s.starts_with("--output=") => {
                 globals.output = Some(s["--output=".len()..].to_string());
@@ -216,6 +219,21 @@ mod tests {
         assert!(parsed.globals.yes);
         assert!(parsed.globals.agent);
         assert!(parsed.globals.read_only);
+    }
+
+    #[test]
+    fn test_parse_trust_site_flag() {
+        let parsed = parse_extension_args(&args("pup --trust-site terraform plan"));
+        assert_eq!(parsed.candidate.as_deref(), Some("terraform"));
+        assert_eq!(parsed.ext_args, vec!["plan"]);
+        assert!(parsed.globals.trust_site);
+    }
+
+    #[test]
+    fn test_parse_trust_site_defaults_false() {
+        let parsed = parse_extension_args(&args("pup terraform plan"));
+        assert_eq!(parsed.candidate.as_deref(), Some("terraform"));
+        assert!(!parsed.globals.trust_site);
     }
 
     #[test]

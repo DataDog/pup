@@ -42,6 +42,7 @@ pup skills list
 
 | Skill | Description |
 |-------|-------------|
+| **dd-onboarding** | Agent install, APM, logs, integrations — AI-driven setup via live skill API |
 | **dd-pup** | Primary CLI - all pup commands, auth, site config |
 | **dd-monitors** | Create, manage, mute monitors and alerts |
 | **dd-logs** | Search logs, pipelines, archives |

@@ -37,6 +37,14 @@ static DD_PUP_PI_FILES: &[(&str, &str)] = &[
 pub static SKILLS: &[SkillEntry] = &[
     // --- Skills (from agent-skills + claude-plugin) ---
     SkillEntry {
+        name: "dd-onboarding",
+        description: "Datadog Agentic Onboarding. Guides installation and setup of the Datadog Agent, APM, logs, integrations, and cloud environments via an AI-driven workflow.",
+        entry_type: "skill",
+        content: include_str!("../skills/dd-onboarding/SKILL.md"),
+        platform: "",
+        files: &[],
+    },
+    SkillEntry {
         name: "dd-pup",
         description: "Datadog CLI (pup). OAuth2 auth with token refresh.",
         entry_type: "skill",

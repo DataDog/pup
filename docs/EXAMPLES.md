@@ -198,6 +198,40 @@ pup dbm samples search \
   --limit=25
 ```
 
+## Change Stories
+
+### List Change Stories for a Service
+```bash
+# All change events in the last hour (relative time)
+pup change-stories list --service api-gateway --from 1h --to now
+
+# All change events using an absolute window with unix timestamps
+pup change-stories list --service api-gateway --from 1713132000 --to 1713135600
+
+# Narrow to deployments in production using an absolute window
+pup change-stories list \
+  --service api-gateway --env prod \
+  --from 2024-01-15T00:00:00Z --to 2024-01-15T01:00:00Z \
+  --story-types deployment
+
+# Multiple story types
+pup change-stories list \
+  --service api-gateway \
+  --from 2024-01-15T00:00:00Z --to 2024-01-15T01:00:00Z \
+  --story-types deployment --story-types kubernetes
+
+# Region-scoped filter (--filter-tags is key:value)
+pup change-stories list \
+  --service api-gateway \
+  --from 2024-01-15T00:00:00Z --to 2024-01-15T01:00:00Z \
+  --filter-tags datacenter:us1.prod.dog
+
+# Trim response to ~4000 tokens (server default is 10000)
+pup change-stories list \
+  --service api-gateway --from 30min --to now \
+  --token-limit 4000
+```
+
 ## SLOs
 
 ### List SLOs

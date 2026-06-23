@@ -132,6 +132,7 @@ list of commands as built.
 | HAMR | ✅ | `hamr connections get`, `hamr connections create` | **New** — High Availability Multi-Region connections |
 | Investigations | ✅ | `investigations list`, `investigations get`, `investigations trigger` | Bits AI SRE investigation management |
 | Change Management | ✅ | `change-management create`, `change-management get`, `change-management update`, `change-management create-branch`, `change-management decisions` | Change request management with decisions and branching |
+| Change Stories | ✅ | `change-stories list` | Change events for a service (deployments, feature flags, config, k8s, watchdog) over a time window |
 | Incident Services/Teams | ✅ | `incidents services`, `incidents teams` | Service and team CRUD scoped to incident management |
 | Live Debugger | ✅ | `debugger probes list`, `debugger probes get`, `debugger probes create`, `debugger probes delete`, `debugger probes watch` | Remote log probe management for Live Debugger |
 | Software Catalog | ✅ | `software-catalog entities list`, `software-catalog entities upsert`, `software-catalog kinds list`, `software-catalog relations list` | Software Catalog entity and kind management (next-gen catalog) |

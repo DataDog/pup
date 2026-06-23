@@ -14,6 +14,7 @@ pub mod authn_mappings;
 pub mod bits;
 pub mod cases;
 pub mod change_management;
+pub mod change_stories;
 pub mod cicd;
 pub mod cloud;
 pub mod cloud_auth;

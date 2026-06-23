@@ -44,9 +44,9 @@ pub async fn login(
     let org = cfg.org.as_deref();
 
     // Resolve effective org_uuid: CLI flag wins; otherwise recall the UUID
-    // stored on the matching `(site, org)` session so re-auth keeps emitting
+    // stored on the matching org session so re-auth keeps emitting
     // `dd_oid` without re-passing the flag.
-    let stored_session = storage::find_session(site, org);
+    let stored_session = storage::find_session(org);
     let effective_org_uuid: Option<String> = org_uuid
         .map(String::from)
         .or_else(|| stored_session.as_ref().and_then(|s| s.org_uuid.clone()));
@@ -366,18 +366,32 @@ pub async fn login(
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn logout(cfg: &Config) -> Result<()> {
-    let site = &cfg.site;
     let org = cfg.org.as_deref();
+    // Collect all sessions matching this org name before removing them. Under
+    // the one-per-name invariant there is normally only one, but legacy
+    // sessions.json files may have two rows for the same org on different sites.
+    // Delete tokens for each so none are orphaned in keychain/file storage.
+    let sessions_to_remove: Vec<_> = storage::list_sessions()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| s.org.as_deref() == org)
+        .collect();
     with_storage(|store| {
-        store.delete_tokens(site, org)?;
-        // Only delete client credentials when logging out the default (no-org) session;
-        // client credentials are site-scoped and shared across orgs
-        if org.is_none() {
-            store.delete_client_credentials(site)?;
+        for s in &sessions_to_remove {
+            store.delete_tokens(&s.site, org)?;
+            // Client credentials are site-scoped and shared across orgs; only
+            // delete them when logging out the default (no-org) session.
+            if org.is_none() {
+                store.delete_client_credentials(&s.site)?;
+            }
         }
         Ok(())
     })?;
-    storage::remove_session(site, org)?;
+    storage::remove_session(&cfg.site, org)?;
+    let site = sessions_to_remove
+        .first()
+        .map(|s| s.site.as_str())
+        .unwrap_or(&cfg.site);
     let org_label = org_suffix(org);
     eprintln!("Logged out from {site}{org_label}. Tokens removed.");
     Ok(())

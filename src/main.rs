@@ -9733,8 +9733,43 @@ enum SkillsCatalogActions {
     },
     /// Fetch a single skill's full content by name
     Get {
-        /// Skill name (e.g. kubernetes-agent-install)
+        /// Skill name (e.g. apm-k8s-ssi-agent-install)
         name: String,
+    },
+    /// Publish a skill file to the remote catalog (creates a new skill)
+    ///
+    /// EXAMPLES:
+    ///   pup skills catalog publish SKILL.md --name apm-k8s-ssi-agent-install --tags apm
+    ///   pup skills catalog publish SKILL.md --name dd-apm --description "APM router" --tags apm --tags onboarding
+    Publish {
+        /// Path to the skill markdown file to publish
+        file: String,
+        /// Name to register the skill under in the catalog
+        #[arg(long)]
+        name: String,
+        /// Human-readable description of the skill
+        #[arg(long)]
+        description: Option<String>,
+        /// Tags for filtering (repeatable)
+        #[arg(long)]
+        tags: Vec<String>,
+    },
+    /// Update an existing skill in the remote catalog
+    ///
+    /// EXAMPLES:
+    ///   pup skills catalog update SKILL.md --name apm-k8s-ssi-agent-install
+    Update {
+        /// Path to the updated skill markdown file
+        file: String,
+        /// Name of the skill to update
+        #[arg(long)]
+        name: String,
+        /// Updated human-readable description
+        #[arg(long)]
+        description: Option<String>,
+        /// Updated tags (replaces existing tags)
+        #[arg(long)]
+        tags: Vec<String>,
     },
 }
 
@@ -15171,6 +15206,24 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     SkillsCatalogActions::Get { name } => {
                         commands::skills::catalog_get(&cfg, name).await?;
+                    }
+                    SkillsCatalogActions::Publish {
+                        file,
+                        name,
+                        description,
+                        tags,
+                    } => {
+                        commands::skills::catalog_publish(&cfg, file, name, description, tags)
+                            .await?;
+                    }
+                    SkillsCatalogActions::Update {
+                        file,
+                        name,
+                        description,
+                        tags,
+                    } => {
+                        commands::skills::catalog_update(&cfg, file, name, description, tags)
+                            .await?;
                     }
                 }
             }

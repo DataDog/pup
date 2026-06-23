@@ -4,6 +4,7 @@ use crate::client;
 use crate::config::Config;
 use crate::formatter;
 use crate::skills;
+use std::path::Path;
 
 /// Resolve the platform list from CLI input, validating each entry.
 ///
@@ -321,6 +322,58 @@ pub async fn catalog_list(cfg: &Config, tags: Vec<String>) -> Result<()> {
 pub async fn catalog_get(cfg: &Config, name: String) -> Result<()> {
     let path = format!("/api/v2/skills/{name}");
     let data = client::raw_get(cfg, &path, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn catalog_publish(
+    cfg: &Config,
+    file: String,
+    name: String,
+    description: Option<String>,
+    tags: Vec<String>,
+) -> Result<()> {
+    let content = std::fs::read_to_string(Path::new(&file))
+        .map_err(|e| anyhow::anyhow!("failed to read {file}: {e}"))?;
+    let desc = description.unwrap_or_default();
+    let body = serde_json::json!({
+        "data": {
+            "type": "registry_skill",
+            "attributes": {
+                "name": name,
+                "description": desc,
+                "content": content,
+                "tags": tags,
+            }
+        }
+    });
+    let data = client::raw_post(cfg, "/api/v2/skills", body).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn catalog_update(
+    cfg: &Config,
+    file: String,
+    name: String,
+    description: Option<String>,
+    tags: Vec<String>,
+) -> Result<()> {
+    let content = std::fs::read_to_string(Path::new(&file))
+        .map_err(|e| anyhow::anyhow!("failed to read {file}: {e}"))?;
+    let mut attrs = serde_json::json!({
+        "content": content,
+        "tags": tags,
+    });
+    if let Some(desc) = description {
+        attrs["description"] = serde_json::json!(desc);
+    }
+    let body = serde_json::json!({
+        "data": {
+            "type": "registry_skill",
+            "attributes": attrs,
+        }
+    });
+    let path = format!("/api/v2/skills/{}", name.replace('/', "%2F"));
+    let data = client::raw_put(cfg, &path, body).await?;
     formatter::output(cfg, &data)
 }
 

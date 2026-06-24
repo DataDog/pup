@@ -2020,7 +2020,11 @@ mod tests {
     fn test_detect_backend_config_file_malformed_yaml_falls_back_to_autodetect() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
         let tmp = TempDir::new("detect_cfg_malformed");
-        std::fs::write(tmp.path().join("config.yaml"), "token_storage: [\nbad yaml\n").unwrap();
+        std::fs::write(
+            tmp.path().join("config.yaml"),
+            "token_storage: [\nbad yaml\n",
+        )
+        .unwrap();
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
         std::env::remove_var("DD_TOKEN_STORAGE");
         // Should not panic; malformed YAML falls through to auto-detect (probe fails → file).
@@ -2035,7 +2039,11 @@ mod tests {
     fn test_detect_backend_config_file_unknown_value_falls_back_to_autodetect() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
         let tmp = TempDir::new("detect_cfg_unknown");
-        std::fs::write(tmp.path().join("config.yaml"), "token_storage: bogus_value\n").unwrap();
+        std::fs::write(
+            tmp.path().join("config.yaml"),
+            "token_storage: bogus_value\n",
+        )
+        .unwrap();
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
         std::env::remove_var("DD_TOKEN_STORAGE");
         let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));

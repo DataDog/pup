@@ -174,12 +174,19 @@ precedence) or `token_storage` in `~/.config/pup/config.yaml`:
 
 | Value | macOS | Linux | Windows |
 |---|---|---|---|
-| `keychain` (default) | Keychain (Security framework) — one-time "Always Allow" | Secret Service (GNOME Keyring / KWallet); falls back to `file` if unavailable | WinCred (chunked) |
+| `keychain` (default) | Keychain (Security framework). macOS may prompt once per stable app identity (signed Homebrew release); unsigned/dev builds may prompt more often. No per-read Touch ID prompt. | Secret Service (GNOME Keyring / KWallet); falls back to `file` if unavailable | WinCred (chunked) |
 | `file` | Plaintext JSON: `~/.config/pup/tokens_<site>.json`, `client_<site>.json`, `0600` perms | Same | Same |
 | `touch-id` | Keychain with `kSecAccessControlUserPresence` — Touch ID or password on every token read | Not supported — warns and falls back to auto-detect | Not supported — warns and falls back to auto-detect |
 
 To opt into Touch ID security, set `DD_TOKEN_STORAGE=touch-id` or add
 `token_storage: touch-id` to `~/.config/pup/config.yaml`.
+
+**Upgrading from a previous version:** existing tokens stored with Touch ID
+access control (`kSecAccessControlUserPresence`) are not automatically migrated.
+On first use after upgrading, macOS will still prompt once to read the old token.
+The new token written after the next refresh will use the default keychain (no
+per-read prompt). For an immediate clean slate, run:
+`pup auth logout && pup auth login`
 
 In secure-store mode each site has one per-site entry holding both
 tokens and client credentials (on Windows, sharded across multiple

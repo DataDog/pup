@@ -294,7 +294,7 @@ The storage backend can be overridden with `DD_TOKEN_STORAGE` (env var) or `toke
 
 | Value | macOS | Linux | Windows | Prompts |
 |---|---|---|---|---|
-| `keychain` (default) | Keychain via Security framework | Secret Service (GNOME Keyring / KWallet); falls back to `file` if unavailable | WinCred (chunked) | One-time "Always Allow" per app |
+| `keychain` (default) | Keychain via Security framework | Secret Service (GNOME Keyring / KWallet); falls back to `file` if unavailable | WinCred (chunked) | macOS may prompt once per stable app identity (signed Homebrew release); unsigned/dev builds may prompt on each invocation |
 | `file` | Plaintext JSON under `~/.config/pup/`, `0600` perms | Same | Same | Never |
 | `touch-id` | Keychain with `kSecAccessControlUserPresence` | Not supported — warns and falls back to auto-detect | Not supported — warns and falls back to auto-detect | Every access (macOS only) |
 

@@ -791,10 +791,10 @@ fn detect_backend_with(try_keychain: impl Fn() -> Result<KeychainStorage>) -> Bo
                 #[cfg(target_os = "macos")]
                 return Box::new(TouchIdStorage::new());
                 #[cfg(not(target_os = "macos"))]
-                eprintln!("Warning: token_storage=touch-id is only supported on macOS, auto-detecting");
+                eprintln!("Warning: token storage backend \"touch-id\" is only supported on macOS, auto-detecting");
             }
             _ => eprintln!(
-                "Warning: unknown DD_TOKEN_STORAGE={val:?} (valid: \"file\", \"keychain\", \"touch-id\"), auto-detecting"
+                "Warning: unknown token storage backend {val:?} (set via DD_TOKEN_STORAGE or config token_storage; valid: \"file\", \"keychain\", \"touch-id\"), auto-detecting"
             ),
         }
     }
@@ -846,11 +846,21 @@ fn read_config_token_storage() -> Option<String> {
         }
     }
 
-    candidates.into_iter().find_map(|path| {
-        let contents = std::fs::read_to_string(path).ok()?;
-        let hint: StorageHint = serde_norway::from_str(&contents).ok()?;
-        hint.token_storage
-    })
+    // Mirror load_config_file(): use the first readable file, parse only that one.
+    // This avoids the subtle case where the primary file exists but lacks
+    // `token_storage`, causing us to fall through to the XDG fallback while the
+    // rest of pup's config comes from the primary file.
+    let contents = candidates
+        .into_iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())?;
+
+    match serde_norway::from_str::<StorageHint>(&contents) {
+        Ok(hint) => hint.token_storage,
+        Err(e) => {
+            eprintln!("Warning: could not parse pup config (token_storage ignored): {e}");
+            None
+        }
+    }
 }
 
 #[cfg(all(target_arch = "wasm32", not(feature = "browser")))]
@@ -1982,22 +1992,70 @@ mod tests {
         );
     }
 
-    // Config file `token_storage: keychain` overrides auto-detect.
+    // Config file `token_storage: file` overrides auto-detect even when the keychain
+    // probe would succeed. The probe succeeds here so that without config-file support
+    // the backend would be Keychain — the File result therefore proves the config was read.
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
     fn test_detect_backend_config_file_token_storage() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
-        let tmp = TempDir::new("detect_cfg_keychain");
+        let tmp = TempDir::new("detect_cfg_file");
         std::fs::write(tmp.path().join("config.yaml"), "token_storage: file\n").unwrap();
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
         std::env::remove_var("DD_TOKEN_STORAGE");
-        let backend = detect_backend_with(|| Err(anyhow::anyhow!("keychain unavailable")));
+        // Probe succeeds: without config support auto-detect would return Keychain.
+        // Getting File here proves the config file was read and respected.
+        let backend = detect_backend_with(KeychainStorage::new);
         std::env::remove_var("PUP_CONFIG_DIR");
         assert_eq!(
             backend.backend_type(),
             BackendType::File,
-            "config file token_storage should be respected"
+            "config file token_storage: file should win over a working keychain"
         );
+    }
+
+    // Malformed config YAML is silently ignored (no panic) and falls through to auto-detect.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_config_file_malformed_yaml_falls_back_to_autodetect() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_cfg_malformed");
+        std::fs::write(tmp.path().join("config.yaml"), "token_storage: [\nbad yaml\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        // Should not panic; malformed YAML falls through to auto-detect (probe fails → file).
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // An unrecognised config file token_storage value warns and falls through to auto-detect.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_config_file_unknown_value_falls_back_to_autodetect() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_cfg_unknown");
+        std::fs::write(tmp.path().join("config.yaml"), "token_storage: bogus_value\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // touch-id on non-macOS falls through to auto-detect (warns but does not error).
+    #[test]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
+    fn test_detect_backend_touch_id_on_non_macos_falls_back_to_autodetect() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_touch_id_non_macos");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "touch-id");
+        // Probe fails → should fall through all the way to file.
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
     }
 
     // DD_TOKEN_STORAGE env var overrides config file token_storage.

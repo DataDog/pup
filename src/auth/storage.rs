@@ -773,28 +773,37 @@ fn detect_backend() -> Box<dyn Storage> {
 // and exercise all failure paths without OS-level credential-store mocking.
 #[cfg(not(target_arch = "wasm32"))]
 fn detect_backend_with(try_keychain: impl Fn() -> Result<KeychainStorage>) -> Box<dyn Storage> {
-    // Check DD_TOKEN_STORAGE env var
-    if let Ok(val) = std::env::var("DD_TOKEN_STORAGE") {
+    // Precedence: DD_TOKEN_STORAGE env var > config file token_storage > auto-detect.
+    let storage_hint = std::env::var("DD_TOKEN_STORAGE")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(read_config_token_storage);
+
+    if let Some(ref val) = storage_hint {
         match val.as_str() {
             "file" => return Box::new(FileStorage::new().expect("failed to create file storage")),
             // Explicit opt-in: panic with a clear message if the backend is
             // unavailable rather than silently falling back to a different store.
             "keychain" => return Box::new(try_keychain().expect("keychain not available")),
+            // Touch ID requires biometric entitlements and is macOS-only. On other
+            // platforms, warn and fall through to auto-detect.
+            "touch-id" => {
+                #[cfg(target_os = "macos")]
+                return Box::new(TouchIdStorage::new());
+                #[cfg(not(target_os = "macos"))]
+                eprintln!("Warning: token_storage=touch-id is only supported on macOS, auto-detecting");
+            }
             _ => eprintln!(
-                "Warning: unknown DD_TOKEN_STORAGE={val:?} (valid: \"file\", \"keychain\"), auto-detecting"
+                "Warning: unknown DD_TOKEN_STORAGE={val:?} (valid: \"file\", \"keychain\", \"touch-id\"), auto-detecting"
             ),
         }
     }
 
-    // On macOS, use Touch ID-capable storage by default.
-    #[cfg(target_os = "macos")]
-    return Box::new(TouchIdStorage::new());
-
-    // On other platforms (Windows, Linux, etc.), probe the keyring backend and
-    // fall back to file storage if the keychain daemon is not available.
-    // On Windows the chunked WinCred scheme keeps each blob under the 2560-byte
-    // platform limit, so keychain is safe to use as the default here too.
-    #[cfg(not(target_os = "macos"))]
+    // Auto-detect: probe the OS keychain and fall back to file storage if unavailable.
+    // On macOS this uses the standard keychain (same as other platforms). Touch ID
+    // storage with per-access biometric prompts is available via DD_TOKEN_STORAGE=touch-id
+    // or config file `token_storage: touch-id`.
+    // On Windows the chunked WinCred scheme keeps blobs within the 2560-byte limit.
     match try_keychain() {
         Ok(ks) => Box::new(ks),
         Err(e) => {
@@ -804,6 +813,44 @@ fn detect_backend_with(try_keychain: impl Fn() -> Result<KeychainStorage>) -> Bo
             Box::new(FileStorage::new().expect("failed to create file storage"))
         }
     }
+}
+
+/// Read `token_storage` from the pup config file, returning the raw string value
+/// if present. Used as a fallback when `DD_TOKEN_STORAGE` env var is not set.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_config_token_storage() -> Option<String> {
+    #[derive(serde::Deserialize, Default)]
+    struct StorageHint {
+        token_storage: Option<String>,
+    }
+
+    // Mirror config_file_candidates() from config.rs. We inline the path logic here
+    // rather than calling into config.rs because config.rs calls get_storage(), and
+    // calling config functions during storage initialisation could be confusing;
+    // config_dir() is safe (it only reads env/filesystem), so we use it directly.
+    let config_dir = crate::config::config_dir()?;
+    let mut candidates = vec![config_dir.join("config.yaml")];
+    // On macOS also check the XDG-style path (~/.config/pup/) as a fallback,
+    // mirroring the behaviour of config_file_candidates().
+    #[cfg(target_os = "macos")]
+    if std::env::var("PUP_CONFIG_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        if let Some(home) = dirs::home_dir() {
+            let xdg = home.join(".config/pup/config.yaml");
+            if !candidates.contains(&xdg) {
+                candidates.push(xdg);
+            }
+        }
+    }
+
+    candidates.into_iter().find_map(|path| {
+        let contents = std::fs::read_to_string(path).ok()?;
+        let hint: StorageHint = serde_norway::from_str(&contents).ok()?;
+        hint.token_storage
+    })
 }
 
 #[cfg(all(target_arch = "wasm32", not(feature = "browser")))]
@@ -1824,10 +1871,8 @@ mod tests {
 
     // Exercises the FileStorage fallback when the auto-detect keychain probe fails,
     // without requiring OS-level credential-store mocking.
-    // Not compiled on macOS: detect_backend_with ignores the probe there (TouchId
-    // is always the macOS default), so injecting a failing probe would assert nothing.
     #[test]
-    #[cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
+    #[cfg(not(target_arch = "wasm32"))]
     fn test_detect_backend_with_probe_failure_falls_back_to_file() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
         let tmp = TempDir::new("detect_fallback");
@@ -1900,6 +1945,75 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
         std::env::remove_var("PUP_CONFIG_DIR");
         assert_eq!(backend.backend_type(), BackendType::Keychain);
+    }
+
+    // DD_TOKEN_STORAGE=touch-id selects TouchIdStorage on macOS.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_detect_backend_dd_token_storage_touch_id() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_touch_id");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "touch-id");
+        let backend = detect_backend();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(
+            backend.storage_location(),
+            "OS keychain (Touch ID)",
+            "DD_TOKEN_STORAGE=touch-id should select TouchIdStorage on macOS"
+        );
+    }
+
+    // macOS auto-detect should now use KeychainStorage, not TouchIdStorage.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_detect_backend_macos_default_is_keychain_not_touch_id() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_macos_default");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        let backend = detect_backend();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(
+            backend.storage_location(),
+            "OS keychain",
+            "macOS auto-detect should use KeychainStorage by default"
+        );
+    }
+
+    // Config file `token_storage: keychain` overrides auto-detect.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_config_file_token_storage() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_cfg_keychain");
+        std::fs::write(tmp.path().join("config.yaml"), "token_storage: file\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("keychain unavailable")));
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(
+            backend.backend_type(),
+            BackendType::File,
+            "config file token_storage should be respected"
+        );
+    }
+
+    // DD_TOKEN_STORAGE env var overrides config file token_storage.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_env_overrides_config_file() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_env_wins");
+        // Config says "keychain" but env says "file" — env wins.
+        std::fs::write(tmp.path().join("config.yaml"), "token_storage: keychain\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let backend = detect_backend();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
     }
 
     // Returns a token whose serialised SiteData exceeds WIN_CHUNK_BYTES (1000),

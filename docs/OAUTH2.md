@@ -164,12 +164,22 @@ Proof Key for Code Exchange prevents authorization code interception:
 #### Token Storage
 
 By default, OAuth tokens and DCR client credentials are stored in your
-platform's secure store: macOS Keychain (via Apple's Security framework,
-with Touch ID prompts), Linux Secret Service (via the `keyring` crate),
-or Windows Credential Manager (via the `keyring` crate). When the
-secure store is unavailable, pup falls back to JSON files under
-`~/.config/pup/` with `0600` permissions. Set `DD_TOKEN_STORAGE=file`
-to force file storage.
+platform's secure store: macOS Keychain (via Apple's Security framework),
+Linux Secret Service (via the `keyring` crate), or Windows Credential
+Manager (via the `keyring` crate). When the secure store is unavailable,
+pup falls back to JSON files under `~/.config/pup/` with `0600` permissions.
+
+The storage backend can be overridden via `DD_TOKEN_STORAGE` (env var, takes
+precedence) or `token_storage` in `~/.config/pup/config.yaml`:
+
+| Value | macOS | Linux | Windows |
+|---|---|---|---|
+| `keychain` (default) | Keychain (Security framework) — one-time "Always Allow" | Secret Service (GNOME Keyring / KWallet); falls back to `file` if unavailable | WinCred (chunked) |
+| `file` | Plaintext JSON: `~/.config/pup/tokens_<site>.json`, `client_<site>.json`, `0600` perms | Same | Same |
+| `touch-id` | Keychain with `kSecAccessControlUserPresence` — Touch ID or password on every token read | Not supported — warns and falls back to auto-detect | Not supported — warns and falls back to auto-detect |
+
+To opt into Touch ID security, set `DD_TOKEN_STORAGE=touch-id` or add
+`token_storage: touch-id` to `~/.config/pup/config.yaml`.
 
 In secure-store mode each site has one per-site entry holding both
 tokens and client credentials (on Windows, sharded across multiple

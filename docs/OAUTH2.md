@@ -181,12 +181,8 @@ precedence) or `token_storage` in `~/.config/pup/config.yaml`:
 To opt into Touch ID security, set `DD_TOKEN_STORAGE=touch-id` or add
 `token_storage: touch-id` to `~/.config/pup/config.yaml`.
 
-**Upgrading from a previous version:** existing tokens stored with Touch ID
-access control (`kSecAccessControlUserPresence`) are not automatically migrated.
-On first use after upgrading, macOS will still prompt once to read the old token.
-The new token written after the next refresh will use the default keychain (no
-per-read prompt). For an immediate clean slate, run:
-`pup auth logout && pup auth login`
+**Upgrading from a previous version:** to ensure your stored token uses the
+new default backend, run `pup auth logout && pup auth login`.
 
 In secure-store mode each site has one per-site entry holding both
 tokens and client credentials (on Windows, sharded across multiple

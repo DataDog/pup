@@ -829,6 +829,7 @@ fn read_config_token_storage() -> Option<String> {
     // calling config functions during storage initialisation could be confusing;
     // config_dir() is safe (it only reads env/filesystem), so we use it directly.
     let config_dir = crate::config::config_dir()?;
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut candidates = vec![config_dir.join("config.yaml")];
     // On macOS also check the XDG-style path (~/.config/pup/) as a fallback,
     // mirroring the behaviour of config_file_candidates().

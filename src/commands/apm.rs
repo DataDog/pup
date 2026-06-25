@@ -949,14 +949,8 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::sampling_rules_create(
-            &cfg,
-            "api".into(),
-            "prod".into(),
-            "*".into(),
-            0.1,
-        )
-        .await;
+        let result =
+            super::sampling_rules_create(&cfg, "api".into(), "prod".into(), "*".into(), 0.1).await;
         assert!(
             result.is_ok(),
             "sampling_rules_create failed: {:?}",
@@ -983,14 +977,8 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::sampling_rules_create(
-            &cfg,
-            "api".into(),
-            "prod".into(),
-            "*".into(),
-            -1.0,
-        )
-        .await;
+        let result =
+            super::sampling_rules_create(&cfg, "api".into(), "prod".into(), "*".into(), -1.0).await;
         assert!(result.is_err(), "expected error on 422");
         cleanup_env();
     }

@@ -2022,6 +2022,8 @@ mod tests {
             "chunk _1 must exist — payload must exceed WIN_CHUNK_BYTES"
         );
 
+        // Clear the in-memory cache so the load actually reads back the WinCred chunks.
+        store.cache.lock().unwrap().clear();
         let loaded = store.load_tokens(site, None).unwrap().unwrap();
         assert_eq!(loaded.access_token, token.access_token);
 
@@ -2044,6 +2046,8 @@ mod tests {
 
         // Second write: tiny token → single chunk.
         store.save_tokens(site, None, &make_token("small")).unwrap();
+        // Clear the in-memory cache so the load reads back from WinCred.
+        store.cache.lock().unwrap().clear();
         let loaded = store.load_tokens(site, None).unwrap().unwrap();
         assert_eq!(loaded.access_token, "small");
 
@@ -2094,6 +2098,8 @@ mod tests {
             .delete_credential()
             .unwrap();
 
+        // Clear the in-memory cache so the load reflects the corrupted WinCred state.
+        store.cache.lock().unwrap().clear();
         // Load should return None (empty state) not partial data.
         assert!(store.load_tokens(site, None).unwrap().is_none());
 

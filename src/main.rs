@@ -8489,12 +8489,17 @@ enum ApmDependencyActions {
 
 #[derive(Subcommand)]
 enum ApmTroubleshootingActions {
-    /// List instrumentation errors for a host
+    /// List instrumentation errors for a host or org-wide
     List {
-        #[arg(long, help = "Hostname to query (required)")]
-        hostname: String,
+        #[arg(long, help = "Hostname to query (omit for org-wide results)")]
+        hostname: Option<String>,
         #[arg(long, help = "Time window (e.g. 4h, 24h, 1h30m)")]
         timeframe: Option<String>,
+        #[arg(
+            long,
+            help = "Filter by result (success, error, abort, unknown; comma-separated)"
+        )]
+        result: Option<String>,
     },
 }
 
@@ -14716,8 +14721,10 @@ async fn main_inner() -> anyhow::Result<()> {
                     ApmTroubleshootingActions::List {
                         hostname,
                         timeframe,
+                        result,
                     } => {
-                        commands::apm::troubleshooting_list(&cfg, hostname, timeframe).await?;
+                        commands::apm::troubleshooting_list(&cfg, hostname, timeframe, result)
+                            .await?;
                     }
                 },
                 ApmActions::ServiceRemapping { action } => match action {

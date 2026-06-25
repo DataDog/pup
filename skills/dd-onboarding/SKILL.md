@@ -22,8 +22,17 @@ curl -s -X GET "https://api.${DD_SITE:-datadoghq.com}/api/v2/onboarding/skills/o
 ```
 
 The orchestrator will guide credential validation, environment discovery, skill selection, and
-step-by-step setup. Follow it exactly — do not skip steps or proceed without the orchestrator
-content loaded.
+step-by-step setup. Follow it exactly.
+
+**If this curl returns an error or empty output — STOP.** Do not proceed with any Datadog setup,
+troubleshooting, or configuration. Do not fall back to training knowledge. Fix the fetch first:
+- `{"errors":["Forbidden"]}` → the API key lacks permission for the onboarding API, or the service
+  is not available at this site. Ask the user to confirm `DD_SITE` and verify the key has `apm_read`
+  scope, or provide the correct endpoint.
+- Empty output → pipe failed. Run the curl without `| jq` to see the raw response.
+- Any other error → show the raw response to the user and wait for guidance.
+
+There is no fallback. The orchestrator content must be loaded before any action is taken.
 
 ## Prerequisites
 

@@ -8602,7 +8602,10 @@ enum ApmSamplingRulesActions {
     Create {
         #[arg(long, help = "Service name (required)")]
         service: String,
-        #[arg(long, help = "Environment (required, must match DD_ENV on the service)")]
+        #[arg(
+            long,
+            help = "Environment (required, must match DD_ENV on the service)"
+        )]
         env: String,
         #[arg(
             long,

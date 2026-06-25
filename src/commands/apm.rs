@@ -345,19 +345,11 @@ async fn post_onboarding(
     formatter::output(cfg, &data)
 }
 
-pub async fn adaptive_sampling_onboard(
-    cfg: &Config,
-    service: String,
-    env: String,
-) -> Result<()> {
+pub async fn adaptive_sampling_onboard(cfg: &Config, service: String, env: String) -> Result<()> {
     post_onboarding(cfg, service, env, true).await
 }
 
-pub async fn adaptive_sampling_offboard(
-    cfg: &Config,
-    service: String,
-    env: String,
-) -> Result<()> {
+pub async fn adaptive_sampling_offboard(cfg: &Config, service: String, env: String) -> Result<()> {
     post_onboarding(cfg, service, env, false).await
 }
 
@@ -408,12 +400,7 @@ pub async fn adaptive_sampling_preview(
             "attributes": attrs,
         }
     });
-    let data = client::raw_post(
-        cfg,
-        &format!("{ADAPTIVE_SAMPLING_BASE}/preview"),
-        body,
-    )
-    .await?;
+    let data = client::raw_post(cfg, &format!("{ADAPTIVE_SAMPLING_BASE}/preview"), body).await?;
     formatter::output(cfg, &data)
 }
 
@@ -1162,14 +1149,8 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::sampling_rules_create(
-            &cfg,
-            "api".into(),
-            "prod".into(),
-            "*".into(),
-            0.1,
-        )
-        .await;
+        let result =
+            super::sampling_rules_create(&cfg, "api".into(), "prod".into(), "*".into(), 0.1).await;
         assert!(
             result.is_ok(),
             "sampling_rules_create failed: {:?}",
@@ -1196,14 +1177,8 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::sampling_rules_create(
-            &cfg,
-            "api".into(),
-            "prod".into(),
-            "*".into(),
-            -1.0,
-        )
-        .await;
+        let result =
+            super::sampling_rules_create(&cfg, "api".into(), "prod".into(), "*".into(), -1.0).await;
         assert!(result.is_err(), "expected error on 422");
         cleanup_env();
     }
@@ -1340,8 +1315,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result =
-            super::adaptive_sampling_onboard(&cfg, "api".into(), "prod".into()).await;
+        let result = super::adaptive_sampling_onboard(&cfg, "api".into(), "prod".into()).await;
         assert!(
             result.is_ok(),
             "adaptive_sampling_onboard failed: {:?}",
@@ -1365,8 +1339,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result =
-            super::adaptive_sampling_offboard(&cfg, "api".into(), "prod".into()).await;
+        let result = super::adaptive_sampling_offboard(&cfg, "api".into(), "prod".into()).await;
         assert!(
             result.is_ok(),
             "adaptive_sampling_offboard failed: {:?}",
@@ -1414,8 +1387,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result =
-            super::adaptive_sampling_set_allotment(&cfg, Some(100_000), None).await;
+        let result = super::adaptive_sampling_set_allotment(&cfg, Some(100_000), None).await;
         assert!(
             result.is_ok(),
             "adaptive_sampling_set_allotment with bytes failed: {:?}",

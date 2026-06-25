@@ -162,6 +162,118 @@ fn test_auth_status_site_flag_is_optional() {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_install_accepts_remote_extension_selector() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "extension",
+        "install",
+        "owner/repo",
+        "--extension",
+        "foo",
+    ])
+    .expect("extension install --extension should parse");
+
+    match cli.command {
+        crate::Commands::Extension { action } => match action {
+            crate::ExtensionActions::Install {
+                source, extension, ..
+            } => {
+                assert_eq!(source, "owner/repo");
+                assert_eq!(extension.as_deref(), Some("foo"));
+            }
+            _ => panic!("expected ExtensionActions::Install"),
+        },
+        _ => panic!("expected Commands::Extension"),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_install_accepts_all_remote_extensions() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "extension", "install", "owner/repo", "--all"])
+        .expect("extension install --all should parse");
+
+    match cli.command {
+        crate::Commands::Extension { action } => match action {
+            crate::ExtensionActions::Install { all, .. } => {
+                assert!(all);
+            }
+            _ => panic!("expected ExtensionActions::Install"),
+        },
+        _ => panic!("expected Commands::Extension"),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_install_rejects_remote_extension_with_name_override() {
+    use clap::Parser;
+
+    let result = crate::Cli::try_parse_from([
+        "pup",
+        "extension",
+        "install",
+        "owner/repo",
+        "--extension",
+        "foo",
+        "--name",
+        "bar",
+    ]);
+
+    assert!(result.is_err());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_install_rejects_all_with_description() {
+    use clap::Parser;
+
+    let result = crate::Cli::try_parse_from([
+        "pup",
+        "extension",
+        "install",
+        "owner/repo",
+        "--all",
+        "--description",
+        "example",
+    ]);
+
+    assert!(result.is_err());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_list_remote_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "extension",
+        "list-remote",
+        "owner/repo",
+        "--extension",
+        "foo",
+    ])
+    .expect("extension list-remote should parse");
+
+    match cli.command {
+        crate::Commands::Extension { action } => match action {
+            crate::ExtensionActions::ListRemote { source, extension } => {
+                assert_eq!(source, "owner/repo");
+                assert_eq!(extension.as_deref(), Some("foo"));
+            }
+            _ => panic!("expected ExtensionActions::ListRemote"),
+        },
+        _ => panic!("expected Commands::Extension"),
+    }
+}
+
 #[test]
 fn test_top_level_commands_sorted_alphabetically() {
     let app = crate::Cli::command();

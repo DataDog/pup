@@ -1,6 +1,6 @@
 [package]
 name = "pup"
-version = "0.65.0"
+version = "1.4.1"
 edition = "2021"
 rust-version = "1.93.1"
 publish = false
@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 default = ["native"]
 native = [
     "dep:datadog-api-client",
-    "datadog-api-client/native-tls",
+    "datadog-api-client/rustls-tls",
     "datadog-api-client/zstd",
     "datadog-api-client/retry",
     "dep:keyring",
@@ -38,6 +38,9 @@ native = [
     "dep:ssh-key",
     "dep:futures",
     "dep:tokio-util",
+    "dep:flate2",
+    "dep:tar",
+    "dep:zip",
 ]
 wasi = [
     "dep:datadog-api-client",
@@ -120,16 +123,19 @@ aes-gcm = { version = "0.10", optional = true }
 # ---- Native-only dependencies ----
 
 # Synthetics tunnel
-tokio-tungstenite = { version = "0.29", features = ["native-tls"], optional = true }
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"], optional = true }
 yamux = { version = "0.13", optional = true }
-russh = { version = "0.60", optional = true }
+russh = { version = "0.61", optional = true }
 ssh-key = { version = "0.6", features = ["p256", "std"], optional = true }
 futures = { version = "0.3", optional = true }
 tokio-util = { version = "0.7", features = ["compat", "io"], optional = true }
+flate2 = { version = "1", optional = true }
+tar = { version = "0.4", optional = true }
+zip = { version = "8", default-features = false, features = ["deflate"], optional = true }
 
-# Datadog API client — pinned to master HEAD 2026-05-29
+# Datadog API client — pinned to 0.32.0 tag
 # Use default-features = false; feature sets are activated per-target via features above
-datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "d4954b117c5451c0a8932dd0ad0db450fcb0989c", optional = true, default-features = false }
+datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "b769778d0c58806b615165fb444e6f02dc2e86c0", optional = true, default-features = false }
 
 # HTTP middleware (version-matched to DD client; compiles on all targets)
 reqwest-middleware = "0.5"
@@ -157,6 +163,10 @@ serde-wasm-bindgen = { version = "0.6", optional = true }
 
 # RNG support in browser WASM (getrandom 0.4 — wasm_js feature enables JS crypto API)
 getrandom = { version = "0.4", features = ["wasm_js"], optional = true }
+jsonschema = { version = "0.46.5", default-features = false }
+jaq-core = "3.1.0"
+jaq-std = "3.0.1"
+jaq-json = { version = "2.0.1", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = ">=0.13, <0.13.3", features = ["stream"] }

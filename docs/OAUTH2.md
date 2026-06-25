@@ -66,13 +66,9 @@ Manually refresh your access token using the refresh token. This happens automat
 ### 4. Logout
 
 ```bash
-pup auth logout                                # default session for the current site
-DD_SITE=datadoghq.eu pup auth logout           # default session for a non-default site
+pup auth logout                                # default session
 pup auth logout --org staging-child            # one named session, leaves others intact
 ```
-
-`pup auth logout` itself doesn't accept a `--site` flag; use `DD_SITE` to
-pick which default session to clear.
 
 **Side effect on sibling sessions:** logging out the default (unnamed)
 session for a site also deletes that site's shared DCR client
@@ -352,10 +348,17 @@ pup auth login --org staging-child
 # subsequent commands recall it from the session registry.
 pup auth login --site ap2.datadoghq.com --org ap2-prod
 
-# A SAML/SSO org. --subdomain narrows the consent page to one org for
-# tenants with subdomain-routed SSO. It is only used during the browser
-# flow and is not persisted with the session.
-pup auth login --org acme-prod --subdomain acme
+# A SAML/SSO org with a vanity login page (e.g. acme.datadoghq.com).
+# Pass the full host via --site so the OAuth consent page routes to the
+# correct tenant. The literal host is used verbatim; --subdomain has been
+# removed.
+pup auth login --org acme-prod --site acme.datadoghq.com
+
+# A non-Datadog host (an API gateway or proxy) is used verbatim too, but
+# because it is not a Datadog-owned domain pup confirms before sending
+# credentials. Answer the prompt, pass --trust-site, set PUP_TRUST_SITE=1, or
+# add the host to trusted_sites in the config file. See docs/TROUBLESHOOTING.md.
+pup auth login --site mygateway.example.com --trust-site
 
 # Pre-target a specific org by UUID (sent as `dd_oid`). Skips the org
 # switcher when the existing browser session matches, and pre-routes
@@ -408,8 +411,7 @@ accepts `--site`.
 If multiple sessions share the same org name on different sites, step 2
 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to
 disambiguate. An unnamed (default) session can't be selected by `--org`
-at all (it has no name to look up), so if you have multiple unnamed
-sessions on different sites, set `DD_SITE` to pick one.
+at all -- it has no name to look up.
 
 ### Session registry
 

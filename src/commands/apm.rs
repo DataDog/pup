@@ -86,16 +86,25 @@ pub async fn flow_map(
 
 pub async fn troubleshooting_list(
     cfg: &Config,
-    hostname: String,
+    hostname: Option<String>,
     timeframe: Option<String>,
+    result: Option<String>,
 ) -> Result<()> {
     let path = "/api/unstable/apm/instrumentation-errors";
-    let mut query = vec![("hostname", hostname.as_str())];
-    let tf_owned;
-    if let Some(tf) = &timeframe {
-        tf_owned = tf.clone();
-        query.push(("timeframe", tf_owned.as_str()));
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    if let Some(h) = hostname {
+        pairs.push(("hostname".to_string(), h));
     }
+    if let Some(tf) = timeframe {
+        pairs.push(("timeframe".to_string(), tf));
+    }
+    if let Some(r) = result {
+        pairs.push(("result".to_string(), r));
+    }
+    let query: Vec<(&str, &str)> = pairs
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
     let data = client::raw_get(cfg, path, &query).await?;
     formatter::output(cfg, &data)
 }
@@ -526,7 +535,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::troubleshooting_list(&cfg, "my-host".into(), None).await;
+        let result = super::troubleshooting_list(&cfg, Some("my-host".into()), None, None).await;
         assert!(
             result.is_ok(),
             "troubleshooting list failed: {:?}",
@@ -554,10 +563,71 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::troubleshooting_list(&cfg, "my-host".into(), Some("4h".into())).await;
+        let result =
+            super::troubleshooting_list(&cfg, Some("my-host".into()), Some("4h".into()), None)
+                .await;
         assert!(
             result.is_ok(),
             "troubleshooting list with timeframe failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_apm_troubleshooting_list_org_wide() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("GET", "/api/unstable/apm/instrumentation-errors")
+            .match_query(mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::troubleshooting_list(&cfg, None, None, None).await;
+        assert!(
+            result.is_ok(),
+            "troubleshooting list org-wide failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_apm_troubleshooting_list_with_result_filter() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("GET", "/api/unstable/apm/instrumentation-errors")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("hostname".into(), "my-host".into()),
+                mockito::Matcher::UrlEncoded("result".into(), "error,abort".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::troubleshooting_list(
+            &cfg,
+            Some("my-host".into()),
+            None,
+            Some("error,abort".into()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "troubleshooting list with result filter failed: {:?}",
             result.err()
         );
         mock.assert_async().await;

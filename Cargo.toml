@@ -171,9 +171,5 @@ jaq-json = { version = "2.0.1", features = ["serde"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = ">=0.13, <0.13.3", features = ["stream"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-security-framework = "3.7"
-security-framework-sys = "2.17"
-
 [dev-dependencies]
 mockito = "1"

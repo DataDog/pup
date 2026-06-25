@@ -185,8 +185,19 @@ impl Storage for FileStorage {
 // Keychain storage (via keyring crate) — native only
 // ---------------------------------------------------------------------------
 
+/// OS keychain storage via the `keyring` crate.
+///
+/// `cache` memoizes the per-site `SiteData` for the lifetime of the process. A
+/// single command often reads the same item several times (token load, client
+/// credential load, plus command-level reads); without the cache each read is a
+/// separate OS keychain access, and on an untrusted binary each one raises its
+/// own authorization prompt. Reading once and serving the rest from memory keeps
+/// that to a single prompt per site per command. Writes update the cache so a
+/// later read in the same process sees fresh data.
 #[cfg(not(target_arch = "wasm32"))]
-pub struct KeychainStorage;
+pub struct KeychainStorage {
+    cache: Mutex<HashMap<String, SiteData>>,
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 const SERVICE_NAME: &str = "pup";
@@ -217,15 +228,19 @@ impl KeychainStorage {
         #[cfg(not(target_os = "windows"))]
         keyring::Entry::new(SERVICE_NAME, "__pup_probe__")
             .map_err(|e| anyhow::anyhow!("keychain not available: {e}"))?;
-        Ok(Self)
+        Ok(Self {
+            cache: Mutex::new(HashMap::new()),
+        })
     }
 }
 
 /// Combined per-site state stored in a single keychain entry.
 /// Consolidating tokens + client credentials into one entry reduces macOS
-/// authorization dialogs from 2 → 1 per site on first access.
+/// authorization dialogs from 2 → 1 per site on first access. KeychainStorage
+/// additionally memoizes this per-process (see its `cache`) so repeated reads
+/// within one command hit the OS keychain at most once per site.
 #[cfg(not(target_arch = "wasm32"))]
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
 struct SiteData {
     #[serde(default)]
     tokens: OrgTokenMap,
@@ -250,10 +265,49 @@ impl KeychainStorage {
         format!("state_{}", sanitize(site))
     }
 
+    // --- per-process cache wrappers ----------------------------------------------
+    // Collapse repeated reads of the same site within one command to a single OS
+    // keychain access. `*_raw` methods below do the actual keychain I/O.
+
+    fn load_state(&self, site: &str) -> Result<SiteData> {
+        if let Some(data) = self
+            .cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .get(site)
+        {
+            return Ok(data.clone());
+        }
+        let data = self.load_state_raw(site)?;
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .insert(site.to_string(), data.clone());
+        Ok(data)
+    }
+
+    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
+        self.save_state_raw(site, data)?;
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .insert(site.to_string(), data.clone());
+        Ok(())
+    }
+
+    fn delete_state(&self, site: &str) -> Result<()> {
+        self.delete_state_raw(site)?;
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .remove(site);
+        Ok(())
+    }
+
     // --- non-Windows: single keychain entry per site ----------------------------
 
     #[cfg(not(target_os = "windows"))]
-    fn load_state(&self, site: &str) -> Result<SiteData> {
+    fn load_state_raw(&self, site: &str) -> Result<SiteData> {
         let entry = keyring::Entry::new(SERVICE_NAME, &Self::state_key(site))?;
         match entry.get_password() {
             Ok(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
@@ -263,14 +317,14 @@ impl KeychainStorage {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
+    fn save_state_raw(&self, site: &str, data: &SiteData) -> Result<()> {
         let entry = keyring::Entry::new(SERVICE_NAME, &Self::state_key(site))?;
         let json = serde_json::to_string(data)?;
         entry.set_password(&json).map_err(Into::into)
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn delete_state(&self, site: &str) -> Result<()> {
+    fn delete_state_raw(&self, site: &str) -> Result<()> {
         let entry = keyring::Entry::new(SERVICE_NAME, &Self::state_key(site))?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -285,7 +339,7 @@ impl KeychainStorage {
     // data stored before this scheme was introduced is still readable.
 
     #[cfg(target_os = "windows")]
-    fn load_state(&self, site: &str) -> Result<SiteData> {
+    fn load_state_raw(&self, site: &str) -> Result<SiteData> {
         let base = Self::state_key(site);
         let count_entry = keyring::Entry::new(SERVICE_NAME, &format!("{base}_c"))?;
         let n: usize = match count_entry.get_password() {
@@ -323,7 +377,7 @@ impl KeychainStorage {
     }
 
     #[cfg(target_os = "windows")]
-    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
+    fn save_state_raw(&self, site: &str, data: &SiteData) -> Result<()> {
         let base = Self::state_key(site);
         let json = serde_json::to_string(data)?;
         // Tokens, scope words, and JSON punctuation are all ASCII in practice.
@@ -361,7 +415,7 @@ impl KeychainStorage {
     }
 
     #[cfg(target_os = "windows")]
-    fn delete_state(&self, site: &str) -> Result<()> {
+    fn delete_state_raw(&self, site: &str) -> Result<()> {
         let base = Self::state_key(site);
         let count_entry = keyring::Entry::new(SERVICE_NAME, &format!("{base}_c"))?;
         let n: usize = match count_entry.get_password() {
@@ -405,156 +459,6 @@ impl Storage for KeychainStorage {
 
     fn storage_location(&self) -> String {
         "OS keychain".to_string()
-    }
-
-    fn save_tokens(&self, site: &str, org: Option<&str>, tokens: &TokenSet) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.tokens
-            .insert(org_map_key(org).to_string(), tokens.clone());
-        self.save_state(site, &data)
-    }
-
-    fn load_tokens(&self, site: &str, org: Option<&str>) -> Result<Option<TokenSet>> {
-        Ok(self.load_state(site)?.tokens.remove(org_map_key(org)))
-    }
-
-    fn delete_tokens(&self, site: &str, org: Option<&str>) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.tokens.remove(org_map_key(org));
-        if data.tokens.is_empty() && data.client.is_none() {
-            self.delete_state(site)
-        } else {
-            self.save_state(site, &data)
-        }
-    }
-
-    fn save_client_credentials(&self, site: &str, creds: &ClientCredentials) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.client = Some(creds.clone());
-        self.save_state(site, &data)
-    }
-
-    fn load_client_credentials(&self, site: &str) -> Result<Option<ClientCredentials>> {
-        Ok(self.load_state(site)?.client)
-    }
-
-    fn delete_client_credentials(&self, site: &str) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.client = None;
-        if data.tokens.is_empty() {
-            self.delete_state(site)
-        } else {
-            self.save_state(site, &data)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Touch ID keychain storage — macOS only
-//
-// Uses the modern SecItemAdd/SecItemCopyMatching API (not the legacy
-// SecKeychain API that the `keyring` crate uses) so that macOS presents
-// Touch ID as the authentication method instead of a password dialog.
-//
-// Access control: kSecAccessControlUserPresence — macOS offers Touch ID
-// first, falling back to the login password if Touch ID is unavailable or
-// the user cancels. The prompt appears on every keychain access.
-//
-// Requires the binary to be code-signed (standard for Homebrew releases).
-// If the binary is unsigned (e.g. a local dev build), Touch ID access
-// control silently degrades to a standard keychain item so the tool
-// remains functional.
-// ---------------------------------------------------------------------------
-
-#[cfg(target_os = "macos")]
-pub struct TouchIdStorage;
-
-/// errSecMissingEntitlement (-34018): thrown by SecItemAdd when using
-/// biometric access control on an unsigned binary.
-#[cfg(target_os = "macos")]
-const ERR_MISSING_ENTITLEMENT: i32 = -34018;
-
-#[cfg(target_os = "macos")]
-impl TouchIdStorage {
-    pub fn new() -> Self {
-        Self
-    }
-
-    fn load_state(&self, site: &str) -> Result<SiteData> {
-        use security_framework::passwords::{generic_password, PasswordOptions};
-        use security_framework_sys::base::errSecItemNotFound;
-
-        let opts =
-            PasswordOptions::new_generic_password(SERVICE_NAME, &KeychainStorage::state_key(site));
-        match generic_password(opts) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_default()),
-            Err(e) if e.code() == errSecItemNotFound => Ok(SiteData::default()),
-            Err(e) => Err(anyhow::anyhow!("keychain read failed: {e}")),
-        }
-    }
-
-    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
-        use security_framework::passwords::{
-            delete_generic_password_options, set_generic_password_options, AccessControlOptions,
-            PasswordOptions,
-        };
-        use security_framework_sys::base::errSecDuplicateItem;
-
-        let json = serde_json::to_vec(data)?;
-        let key = KeychainStorage::state_key(site);
-
-        // Attempt 1: create with Touch ID access control.
-        let mut opts = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-        opts.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-        match set_generic_password_options(&json, opts) {
-            Ok(()) => return Ok(()),
-            // Duplicate item — delete and re-create to apply access control.
-            Err(ref e) if e.code() == errSecDuplicateItem => {
-                let del_opts = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-                delete_generic_password_options(del_opts).ok();
-
-                let mut opts2 = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-                opts2.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-                match set_generic_password_options(&json, opts2) {
-                    Ok(()) => return Ok(()),
-                    // Still no entitlement after re-create — fall through to plain write.
-                    Err(ref e) if e.code() == ERR_MISSING_ENTITLEMENT => {}
-                    Err(e) => return Err(anyhow::anyhow!("keychain write failed: {e}")),
-                }
-            }
-            // Binary not code-signed: degrade gracefully to a plain item.
-            Err(ref e) if e.code() == ERR_MISSING_ENTITLEMENT => {}
-            Err(e) => return Err(anyhow::anyhow!("keychain write failed: {e}")),
-        }
-
-        // Attempt 2: write without access control (unsigned binary fallback).
-        let opts = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-        set_generic_password_options(&json, opts)
-            .map_err(|e| anyhow::anyhow!("keychain write failed: {e}"))
-    }
-
-    fn delete_state(&self, site: &str) -> Result<()> {
-        use security_framework::passwords::{delete_generic_password_options, PasswordOptions};
-        use security_framework_sys::base::errSecItemNotFound;
-
-        let opts =
-            PasswordOptions::new_generic_password(SERVICE_NAME, &KeychainStorage::state_key(site));
-        match delete_generic_password_options(opts) {
-            Ok(()) => Ok(()),
-            Err(e) if e.code() == errSecItemNotFound => Ok(()),
-            Err(e) => Err(anyhow::anyhow!("keychain delete failed: {e}")),
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-impl Storage for TouchIdStorage {
-    fn backend_type(&self) -> BackendType {
-        BackendType::Keychain
-    }
-
-    fn storage_location(&self) -> String {
-        "OS keychain (Touch ID)".to_string()
     }
 
     fn save_tokens(&self, site: &str, org: Option<&str>, tokens: &TokenSet) -> Result<()> {
@@ -748,6 +652,7 @@ impl Storage for LocalStorageBackend {
 // Factory — auto-detect backend, with fallback
 // ---------------------------------------------------------------------------
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 static STORAGE: Mutex<Option<Box<dyn Storage>>> = Mutex::new(None);
@@ -785,25 +690,15 @@ fn detect_backend_with(try_keychain: impl Fn() -> Result<KeychainStorage>) -> Bo
             // Explicit opt-in: panic with a clear message if the backend is
             // unavailable rather than silently falling back to a different store.
             "keychain" => return Box::new(try_keychain().expect("keychain not available")),
-            // Touch ID requires biometric entitlements and is macOS-only. On other
-            // platforms, warn and fall through to auto-detect.
-            "touch-id" => {
-                #[cfg(target_os = "macos")]
-                return Box::new(TouchIdStorage::new());
-                #[cfg(not(target_os = "macos"))]
-                eprintln!("Warning: token storage backend \"touch-id\" is only supported on macOS, auto-detecting");
-            }
             _ => eprintln!(
-                "Warning: unknown token storage backend {val:?} (set via DD_TOKEN_STORAGE or config token_storage; valid: \"file\", \"keychain\", \"touch-id\"), auto-detecting"
+                "Warning: unknown token storage backend {val:?} (set via DD_TOKEN_STORAGE or config token_storage; valid: \"file\", \"keychain\"), auto-detecting"
             ),
         }
     }
 
     // Auto-detect: probe the OS keychain and fall back to file storage if unavailable.
-    // On macOS this uses the standard keychain (same as other platforms). Touch ID
-    // storage with per-access biometric prompts is available via DD_TOKEN_STORAGE=touch-id
-    // or config file `token_storage: touch-id`.
-    // On Windows the chunked WinCred scheme keeps blobs within the 2560-byte limit.
+    // The same standard OS keychain is used on every platform (on Windows the chunked
+    // WinCred scheme keeps blobs within the 2560-byte limit).
     match try_keychain() {
         Ok(ks) => Box::new(ks),
         Err(e) => {
@@ -1958,28 +1853,10 @@ mod tests {
         assert_eq!(backend.backend_type(), BackendType::Keychain);
     }
 
-    // DD_TOKEN_STORAGE=touch-id selects TouchIdStorage on macOS.
+    // macOS auto-detect uses the standard OS keychain (KeychainStorage).
     #[test]
     #[cfg(target_os = "macos")]
-    fn test_detect_backend_dd_token_storage_touch_id() {
-        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
-        let tmp = TempDir::new("detect_touch_id");
-        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
-        std::env::set_var("DD_TOKEN_STORAGE", "touch-id");
-        let backend = detect_backend();
-        std::env::remove_var("DD_TOKEN_STORAGE");
-        std::env::remove_var("PUP_CONFIG_DIR");
-        assert_eq!(
-            backend.storage_location(),
-            "OS keychain (Touch ID)",
-            "DD_TOKEN_STORAGE=touch-id should select TouchIdStorage on macOS"
-        );
-    }
-
-    // macOS auto-detect should now use KeychainStorage, not TouchIdStorage.
-    #[test]
-    #[cfg(target_os = "macos")]
-    fn test_detect_backend_macos_default_is_keychain_not_touch_id() {
+    fn test_detect_backend_macos_default_is_keychain() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
         let tmp = TempDir::new("detect_macos_default");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
@@ -2052,19 +1929,44 @@ mod tests {
         assert_eq!(backend.backend_type(), BackendType::File);
     }
 
-    // touch-id on non-macOS falls through to auto-detect (warns but does not error).
+    // An unrecognised DD_TOKEN_STORAGE env value warns and falls through to auto-detect.
     #[test]
-    #[cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
-    fn test_detect_backend_touch_id_on_non_macos_falls_back_to_autodetect() {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_unknown_env_value_falls_back_to_autodetect() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
-        let tmp = TempDir::new("detect_touch_id_non_macos");
+        let tmp = TempDir::new("detect_unknown_env");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
-        std::env::set_var("DD_TOKEN_STORAGE", "touch-id");
+        std::env::set_var("DD_TOKEN_STORAGE", "bogus_value");
         // Probe fails → should fall through all the way to file.
         let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
         std::env::remove_var("DD_TOKEN_STORAGE");
         std::env::remove_var("PUP_CONFIG_DIR");
         assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // KeychainStorage memoizes per-site state: a value placed in the cache is served
+    // without touching the OS keychain. (If the cache were bypassed, load_state_raw
+    // would read a nonexistent entry and return None.)
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_keychain_storage_load_uses_cache() {
+        let store = KeychainStorage {
+            cache: Mutex::new(HashMap::new()),
+        };
+        let mut data = SiteData::default();
+        data.tokens
+            .insert(DEFAULT_ORG_KEY.to_string(), make_token("cached_tok"));
+        store
+            .cache
+            .lock()
+            .unwrap()
+            .insert("cache-test.example".to_string(), data);
+
+        let got = store
+            .load_tokens("cache-test.example", None)
+            .unwrap()
+            .expect("cached token should be returned without a keychain read");
+        assert_eq!(got.access_token, "cached_tok");
     }
 
     // DD_TOKEN_STORAGE env var overrides config file token_storage.
@@ -2083,6 +1985,14 @@ mod tests {
         assert_eq!(backend.backend_type(), BackendType::File);
     }
 
+    // A KeychainStorage with an empty cache, bypassing the new()-time probe.
+    #[cfg(target_os = "windows")]
+    fn test_keychain() -> KeychainStorage {
+        KeychainStorage {
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
     // Returns a token whose serialised SiteData exceeds WIN_CHUNK_BYTES (1000),
     // guaranteeing that KeychainStorage will write at least four WinCred chunks.
     // A 3000-char access token + JSON overhead ≈ 3200 bytes → 4 chunks minimum.
@@ -2096,7 +2006,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_keychain_storage_chunked_roundtrip() {
-        let store = KeychainStorage;
+        let store = test_keychain();
         let site = "chunked_test.datadoghq.com";
 
         let token = make_multi_chunk_token();
@@ -2124,7 +2034,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_keychain_storage_chunked_shrink_cleans_stale_entries() {
-        let store = KeychainStorage;
+        let store = test_keychain();
         let site = "chunked_shrink.datadoghq.com";
 
         // First write: large token → multiple chunks.
@@ -2157,7 +2067,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_keychain_storage_chunked_missing_chunk_returns_default() {
-        let store = KeychainStorage;
+        let store = test_keychain();
         let site = "chunked_missing.datadoghq.com";
 
         // Write a token large enough to produce at least 2 WinCred chunks.

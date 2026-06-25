@@ -169,20 +169,20 @@ Linux Secret Service (via the `keyring` crate), or Windows Credential
 Manager (via the `keyring` crate). When the secure store is unavailable,
 pup falls back to JSON files under `~/.config/pup/` with `0600` permissions.
 
+Each per-site entry is read at most once per command (reads are memoized for the
+process), so the OS keychain prompts at most once per site even when a command
+loads credentials several times.
+
 The storage backend can be overridden via `DD_TOKEN_STORAGE` (env var, takes
 precedence) or `token_storage` in `~/.config/pup/config.yaml`:
 
 | Value | macOS | Linux | Windows |
 |---|---|---|---|
-| `keychain` (default) | Keychain (Security framework). macOS may prompt once per stable app identity (signed Homebrew release); unsigned/dev builds may prompt more often. No per-read Touch ID prompt. | Secret Service (GNOME Keyring / KWallet); falls back to `file` if unavailable | WinCred (chunked) |
+| `keychain` (default) | Keychain (Security framework). macOS may prompt once per stable app identity (signed Homebrew release); unsigned/dev builds may prompt more often. | Secret Service (GNOME Keyring / KWallet); falls back to `file` if unavailable | WinCred (chunked) |
 | `file` | Plaintext JSON: `~/.config/pup/tokens_<site>.json`, `client_<site>.json`, `0600` perms | Same | Same |
-| `touch-id` | Keychain with `kSecAccessControlUserPresence` — Touch ID or password on every token read | Not supported — warns and falls back to auto-detect | Not supported — warns and falls back to auto-detect |
-
-To opt into Touch ID security, set `DD_TOKEN_STORAGE=touch-id` or add
-`token_storage: touch-id` to `~/.config/pup/config.yaml`.
 
 **Upgrading from a previous version:** to ensure your stored token uses the
-new default backend, run `pup auth logout && pup auth login`.
+current default backend, run `pup auth logout && pup auth login`.
 
 In secure-store mode each site has one per-site entry holding both
 tokens and client credentials (on Windows, sharded across multiple

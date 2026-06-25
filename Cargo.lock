@@ -3007,8 +3007,6 @@ dependencies = [
  "reqwest",
  "reqwest-middleware",
  "russh",
- "security-framework 3.7.0",
- "security-framework-sys",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

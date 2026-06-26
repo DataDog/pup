@@ -8310,7 +8310,7 @@ enum ApmSamplingRulesActions {
             help = "Resource glob — `*` matches all resources for the service, or e.g. 'GET /api/users'"
         )]
         resource: String,
-        #[arg(long, help = "Sample rate between 0.0 and 1.0")]
+        #[arg(long, help = "Sample rate between 0.0 and 1.0", value_parser = parse_sample_rate)]
         sample_rate: f64,
     },
     /// Update an existing sampling rule by ID (replaces all attributes)
@@ -8323,7 +8323,7 @@ enum ApmSamplingRulesActions {
         env: String,
         #[arg(long, help = "Resource glob")]
         resource: String,
-        #[arg(long, help = "Sample rate between 0.0 and 1.0")]
+        #[arg(long, help = "Sample rate between 0.0 and 1.0", value_parser = parse_sample_rate)]
         sample_rate: f64,
     },
     /// Delete a sampling rule by ID
@@ -10723,6 +10723,16 @@ fn validate_callback_port(port: u16, source: &str) -> anyhow::Result<u16> {
 /// can't smuggle a different host into the URL via fragment/path tricks. The
 /// empty case is accepted because `build_authorization_url` already coerces it
 /// to "fall back to app.{site}".
+fn parse_sample_rate(s: &str) -> anyhow::Result<f64> {
+    let rate: f64 = s
+        .parse()
+        .map_err(|_| anyhow::anyhow!("--sample-rate must be a number between 0.0 and 1.0"))?;
+    if !(0.0..=1.0).contains(&rate) {
+        anyhow::bail!("--sample-rate {rate} is out of range; must be between 0.0 and 1.0");
+    }
+    Ok(rate)
+}
+
 fn validate_subdomain(s: &str) -> anyhow::Result<()> {
     if s.is_empty() {
         return Ok(());

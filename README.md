@@ -288,7 +288,16 @@ Note: `pup auth logout` (default session) also deletes the shared DCR client cre
 
 Each org name maps to exactly one session, so step 2 is always unambiguous. An unnamed (default) session can't be selected by `--org` at all -- it has no name to look up.
 
-**Token Storage**: By default, OAuth tokens and DCR client credentials are stored in your platform's secure store: macOS Keychain (via Apple's Security framework, with Touch ID prompts), Linux Secret Service (via the `keyring` crate), or Windows Credential Manager (via the `keyring` crate; sharded across multiple WinCred entries to stay within WinCred's per-record size limit). When no secure store is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions; in file mode tokens and client credentials are kept in separate files (`tokens_<site>.json`, `client_<site>.json`). Set `DD_TOKEN_STORAGE=file` to force file storage. In either mode, all tokens for a given site share one tokens entry, keyed internally by org name.
+**Token Storage**: By default, OAuth tokens and DCR client credentials are stored in your platform's secure store: macOS Keychain (via Apple's Security framework), Linux Secret Service (via the `keyring` crate), or Windows Credential Manager (via the `keyring` crate; sharded across multiple WinCred entries to stay within WinCred's per-record size limit). When no secure store is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions; in file mode tokens and client credentials are kept in separate files (`tokens_<site>.json`, `client_<site>.json`). In either mode, all tokens for a given site share one tokens entry, keyed internally by org name.
+
+Within a single command, the per-site entry is read at most once (reads are memoized for the process), so the OS keychain prompts at most once per site even when a command touches credentials several times.
+
+The storage backend can be overridden with `DD_TOKEN_STORAGE` (env var) or `token_storage` in the config file (env var takes precedence):
+
+| Value | macOS | Linux | Windows | Prompts |
+|---|---|---|---|---|
+| `keychain` (default) | Keychain via Security framework | Secret Service (GNOME Keyring / KWallet); falls back to `file` if unavailable | WinCred (chunked) | macOS may prompt once per stable app identity (signed Homebrew release); unsigned/dev builds may prompt on each new build |
+| `file` | Plaintext JSON under `~/.config/pup/`, `0600` perms | Same | Same | Never |
 
 **Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available yet, use API key authentication.
 
@@ -429,7 +438,7 @@ pup incidents get abc-123-def
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 - `PUP_TRUST_SITE`: Trust a non-Datadog `--site`/`DD_SITE` host for this invocation without a prompt (true/1). For durable trust, add the host to `trusted_sites` in the config file. See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#override-api-endpoint).
 - `DD_AUTO_APPROVE`: Auto-approve destructive operations (true/false)
-- `DD_TOKEN_STORAGE`: Token storage backend (keychain or file, default: auto-detect)
+- `DD_TOKEN_STORAGE`: Token storage backend (`keychain` (default) or `file`). Can also be set as `token_storage` in the config file.
 
 ## Agent Mode
 

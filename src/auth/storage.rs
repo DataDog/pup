@@ -185,8 +185,19 @@ impl Storage for FileStorage {
 // Keychain storage (via keyring crate) — native only
 // ---------------------------------------------------------------------------
 
+/// OS keychain storage via the `keyring` crate.
+///
+/// `cache` memoizes the per-site `SiteData` for the lifetime of the process. A
+/// single command often reads the same item several times (token load, client
+/// credential load, plus command-level reads); without the cache each read is a
+/// separate OS keychain access, and on an untrusted binary each one raises its
+/// own authorization prompt. Reading once and serving the rest from memory keeps
+/// that to a single prompt per site per command. Writes update the cache so a
+/// later read in the same process sees fresh data.
 #[cfg(not(target_arch = "wasm32"))]
-pub struct KeychainStorage;
+pub struct KeychainStorage {
+    cache: Mutex<HashMap<String, SiteData>>,
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 const SERVICE_NAME: &str = "pup";
@@ -217,15 +228,19 @@ impl KeychainStorage {
         #[cfg(not(target_os = "windows"))]
         keyring::Entry::new(SERVICE_NAME, "__pup_probe__")
             .map_err(|e| anyhow::anyhow!("keychain not available: {e}"))?;
-        Ok(Self)
+        Ok(Self {
+            cache: Mutex::new(HashMap::new()),
+        })
     }
 }
 
 /// Combined per-site state stored in a single keychain entry.
 /// Consolidating tokens + client credentials into one entry reduces macOS
-/// authorization dialogs from 2 → 1 per site on first access.
+/// authorization dialogs from 2 → 1 per site on first access. KeychainStorage
+/// additionally memoizes this per-process (see its `cache`) so repeated reads
+/// within one command hit the OS keychain at most once per site.
 #[cfg(not(target_arch = "wasm32"))]
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
 struct SiteData {
     #[serde(default)]
     tokens: OrgTokenMap,
@@ -250,10 +265,49 @@ impl KeychainStorage {
         format!("state_{}", sanitize(site))
     }
 
+    // --- per-process cache wrappers ----------------------------------------------
+    // Collapse repeated reads of the same site within one command to a single OS
+    // keychain access. `*_raw` methods below do the actual keychain I/O.
+
+    fn load_state(&self, site: &str) -> Result<SiteData> {
+        if let Some(data) = self
+            .cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .get(site)
+        {
+            return Ok(data.clone());
+        }
+        let data = self.load_state_raw(site)?;
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .insert(site.to_string(), data.clone());
+        Ok(data)
+    }
+
+    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
+        self.save_state_raw(site, data)?;
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .insert(site.to_string(), data.clone());
+        Ok(())
+    }
+
+    fn delete_state(&self, site: &str) -> Result<()> {
+        self.delete_state_raw(site)?;
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .remove(site);
+        Ok(())
+    }
+
     // --- non-Windows: single keychain entry per site ----------------------------
 
     #[cfg(not(target_os = "windows"))]
-    fn load_state(&self, site: &str) -> Result<SiteData> {
+    fn load_state_raw(&self, site: &str) -> Result<SiteData> {
         let entry = keyring::Entry::new(SERVICE_NAME, &Self::state_key(site))?;
         match entry.get_password() {
             Ok(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
@@ -263,14 +317,14 @@ impl KeychainStorage {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
+    fn save_state_raw(&self, site: &str, data: &SiteData) -> Result<()> {
         let entry = keyring::Entry::new(SERVICE_NAME, &Self::state_key(site))?;
         let json = serde_json::to_string(data)?;
         entry.set_password(&json).map_err(Into::into)
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn delete_state(&self, site: &str) -> Result<()> {
+    fn delete_state_raw(&self, site: &str) -> Result<()> {
         let entry = keyring::Entry::new(SERVICE_NAME, &Self::state_key(site))?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -285,7 +339,7 @@ impl KeychainStorage {
     // data stored before this scheme was introduced is still readable.
 
     #[cfg(target_os = "windows")]
-    fn load_state(&self, site: &str) -> Result<SiteData> {
+    fn load_state_raw(&self, site: &str) -> Result<SiteData> {
         let base = Self::state_key(site);
         let count_entry = keyring::Entry::new(SERVICE_NAME, &format!("{base}_c"))?;
         let n: usize = match count_entry.get_password() {
@@ -323,7 +377,7 @@ impl KeychainStorage {
     }
 
     #[cfg(target_os = "windows")]
-    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
+    fn save_state_raw(&self, site: &str, data: &SiteData) -> Result<()> {
         let base = Self::state_key(site);
         let json = serde_json::to_string(data)?;
         // Tokens, scope words, and JSON punctuation are all ASCII in practice.
@@ -361,7 +415,7 @@ impl KeychainStorage {
     }
 
     #[cfg(target_os = "windows")]
-    fn delete_state(&self, site: &str) -> Result<()> {
+    fn delete_state_raw(&self, site: &str) -> Result<()> {
         let base = Self::state_key(site);
         let count_entry = keyring::Entry::new(SERVICE_NAME, &format!("{base}_c"))?;
         let n: usize = match count_entry.get_password() {
@@ -405,156 +459,6 @@ impl Storage for KeychainStorage {
 
     fn storage_location(&self) -> String {
         "OS keychain".to_string()
-    }
-
-    fn save_tokens(&self, site: &str, org: Option<&str>, tokens: &TokenSet) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.tokens
-            .insert(org_map_key(org).to_string(), tokens.clone());
-        self.save_state(site, &data)
-    }
-
-    fn load_tokens(&self, site: &str, org: Option<&str>) -> Result<Option<TokenSet>> {
-        Ok(self.load_state(site)?.tokens.remove(org_map_key(org)))
-    }
-
-    fn delete_tokens(&self, site: &str, org: Option<&str>) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.tokens.remove(org_map_key(org));
-        if data.tokens.is_empty() && data.client.is_none() {
-            self.delete_state(site)
-        } else {
-            self.save_state(site, &data)
-        }
-    }
-
-    fn save_client_credentials(&self, site: &str, creds: &ClientCredentials) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.client = Some(creds.clone());
-        self.save_state(site, &data)
-    }
-
-    fn load_client_credentials(&self, site: &str) -> Result<Option<ClientCredentials>> {
-        Ok(self.load_state(site)?.client)
-    }
-
-    fn delete_client_credentials(&self, site: &str) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.client = None;
-        if data.tokens.is_empty() {
-            self.delete_state(site)
-        } else {
-            self.save_state(site, &data)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Touch ID keychain storage — macOS only
-//
-// Uses the modern SecItemAdd/SecItemCopyMatching API (not the legacy
-// SecKeychain API that the `keyring` crate uses) so that macOS presents
-// Touch ID as the authentication method instead of a password dialog.
-//
-// Access control: kSecAccessControlUserPresence — macOS offers Touch ID
-// first, falling back to the login password if Touch ID is unavailable or
-// the user cancels. The prompt appears on every keychain access.
-//
-// Requires the binary to be code-signed (standard for Homebrew releases).
-// If the binary is unsigned (e.g. a local dev build), Touch ID access
-// control silently degrades to a standard keychain item so the tool
-// remains functional.
-// ---------------------------------------------------------------------------
-
-#[cfg(target_os = "macos")]
-pub struct TouchIdStorage;
-
-/// errSecMissingEntitlement (-34018): thrown by SecItemAdd when using
-/// biometric access control on an unsigned binary.
-#[cfg(target_os = "macos")]
-const ERR_MISSING_ENTITLEMENT: i32 = -34018;
-
-#[cfg(target_os = "macos")]
-impl TouchIdStorage {
-    pub fn new() -> Self {
-        Self
-    }
-
-    fn load_state(&self, site: &str) -> Result<SiteData> {
-        use security_framework::passwords::{generic_password, PasswordOptions};
-        use security_framework_sys::base::errSecItemNotFound;
-
-        let opts =
-            PasswordOptions::new_generic_password(SERVICE_NAME, &KeychainStorage::state_key(site));
-        match generic_password(opts) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_default()),
-            Err(e) if e.code() == errSecItemNotFound => Ok(SiteData::default()),
-            Err(e) => Err(anyhow::anyhow!("keychain read failed: {e}")),
-        }
-    }
-
-    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
-        use security_framework::passwords::{
-            delete_generic_password_options, set_generic_password_options, AccessControlOptions,
-            PasswordOptions,
-        };
-        use security_framework_sys::base::errSecDuplicateItem;
-
-        let json = serde_json::to_vec(data)?;
-        let key = KeychainStorage::state_key(site);
-
-        // Attempt 1: create with Touch ID access control.
-        let mut opts = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-        opts.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-        match set_generic_password_options(&json, opts) {
-            Ok(()) => return Ok(()),
-            // Duplicate item — delete and re-create to apply access control.
-            Err(ref e) if e.code() == errSecDuplicateItem => {
-                let del_opts = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-                delete_generic_password_options(del_opts).ok();
-
-                let mut opts2 = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-                opts2.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-                match set_generic_password_options(&json, opts2) {
-                    Ok(()) => return Ok(()),
-                    // Still no entitlement after re-create — fall through to plain write.
-                    Err(ref e) if e.code() == ERR_MISSING_ENTITLEMENT => {}
-                    Err(e) => return Err(anyhow::anyhow!("keychain write failed: {e}")),
-                }
-            }
-            // Binary not code-signed: degrade gracefully to a plain item.
-            Err(ref e) if e.code() == ERR_MISSING_ENTITLEMENT => {}
-            Err(e) => return Err(anyhow::anyhow!("keychain write failed: {e}")),
-        }
-
-        // Attempt 2: write without access control (unsigned binary fallback).
-        let opts = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-        set_generic_password_options(&json, opts)
-            .map_err(|e| anyhow::anyhow!("keychain write failed: {e}"))
-    }
-
-    fn delete_state(&self, site: &str) -> Result<()> {
-        use security_framework::passwords::{delete_generic_password_options, PasswordOptions};
-        use security_framework_sys::base::errSecItemNotFound;
-
-        let opts =
-            PasswordOptions::new_generic_password(SERVICE_NAME, &KeychainStorage::state_key(site));
-        match delete_generic_password_options(opts) {
-            Ok(()) => Ok(()),
-            Err(e) if e.code() == errSecItemNotFound => Ok(()),
-            Err(e) => Err(anyhow::anyhow!("keychain delete failed: {e}")),
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-impl Storage for TouchIdStorage {
-    fn backend_type(&self) -> BackendType {
-        BackendType::Keychain
-    }
-
-    fn storage_location(&self) -> String {
-        "OS keychain (Touch ID)".to_string()
     }
 
     fn save_tokens(&self, site: &str, org: Option<&str>, tokens: &TokenSet) -> Result<()> {
@@ -748,6 +652,7 @@ impl Storage for LocalStorageBackend {
 // Factory — auto-detect backend, with fallback
 // ---------------------------------------------------------------------------
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 static STORAGE: Mutex<Option<Box<dyn Storage>>> = Mutex::new(None);
@@ -773,28 +678,27 @@ fn detect_backend() -> Box<dyn Storage> {
 // and exercise all failure paths without OS-level credential-store mocking.
 #[cfg(not(target_arch = "wasm32"))]
 fn detect_backend_with(try_keychain: impl Fn() -> Result<KeychainStorage>) -> Box<dyn Storage> {
-    // Check DD_TOKEN_STORAGE env var
-    if let Ok(val) = std::env::var("DD_TOKEN_STORAGE") {
+    // Precedence: DD_TOKEN_STORAGE env var > config file token_storage > auto-detect.
+    let storage_hint = std::env::var("DD_TOKEN_STORAGE")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(read_config_token_storage);
+
+    if let Some(ref val) = storage_hint {
         match val.as_str() {
             "file" => return Box::new(FileStorage::new().expect("failed to create file storage")),
             // Explicit opt-in: panic with a clear message if the backend is
             // unavailable rather than silently falling back to a different store.
             "keychain" => return Box::new(try_keychain().expect("keychain not available")),
             _ => eprintln!(
-                "Warning: unknown DD_TOKEN_STORAGE={val:?} (valid: \"file\", \"keychain\"), auto-detecting"
+                "Warning: unknown token storage backend {val:?} (set via DD_TOKEN_STORAGE or config token_storage; valid: \"file\", \"keychain\"), auto-detecting"
             ),
         }
     }
 
-    // On macOS, use Touch ID-capable storage by default.
-    #[cfg(target_os = "macos")]
-    return Box::new(TouchIdStorage::new());
-
-    // On other platforms (Windows, Linux, etc.), probe the keyring backend and
-    // fall back to file storage if the keychain daemon is not available.
-    // On Windows the chunked WinCred scheme keeps each blob under the 2560-byte
-    // platform limit, so keychain is safe to use as the default here too.
-    #[cfg(not(target_os = "macos"))]
+    // Auto-detect: probe the OS keychain and fall back to file storage if unavailable.
+    // The same standard OS keychain is used on every platform (on Windows the chunked
+    // WinCred scheme keeps blobs within the 2560-byte limit).
     match try_keychain() {
         Ok(ks) => Box::new(ks),
         Err(e) => {
@@ -802,6 +706,55 @@ fn detect_backend_with(try_keychain: impl Fn() -> Result<KeychainStorage>) -> Bo
                 "Warning: OS keychain not available ({e}), using file storage (~/.config/pup/)"
             );
             Box::new(FileStorage::new().expect("failed to create file storage"))
+        }
+    }
+}
+
+/// Read `token_storage` from the pup config file, returning the raw string value
+/// if present. Used as a fallback when `DD_TOKEN_STORAGE` env var is not set.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_config_token_storage() -> Option<String> {
+    #[derive(serde::Deserialize, Default)]
+    struct StorageHint {
+        token_storage: Option<String>,
+    }
+
+    // Mirror config_file_candidates() from config.rs. We inline the path logic here
+    // rather than calling into config.rs because config.rs calls get_storage(), and
+    // calling config functions during storage initialisation could be confusing;
+    // config_dir() is safe (it only reads env/filesystem), so we use it directly.
+    let config_dir = crate::config::config_dir()?;
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+    let mut candidates = vec![config_dir.join("config.yaml")];
+    // On macOS also check the XDG-style path (~/.config/pup/) as a fallback,
+    // mirroring the behaviour of config_file_candidates().
+    #[cfg(target_os = "macos")]
+    if std::env::var("PUP_CONFIG_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        if let Some(home) = dirs::home_dir() {
+            let xdg = home.join(".config/pup/config.yaml");
+            if !candidates.contains(&xdg) {
+                candidates.push(xdg);
+            }
+        }
+    }
+
+    // Mirror load_config_file(): use the first readable file, parse only that one.
+    // This avoids the subtle case where the primary file exists but lacks
+    // `token_storage`, causing us to fall through to the XDG fallback while the
+    // rest of pup's config comes from the primary file.
+    let contents = candidates
+        .into_iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())?;
+
+    match serde_norway::from_str::<StorageHint>(&contents) {
+        Ok(hint) => hint.token_storage,
+        Err(e) => {
+            eprintln!("Warning: could not parse pup config (token_storage ignored): {e}");
+            None
         }
     }
 }
@@ -1824,10 +1777,8 @@ mod tests {
 
     // Exercises the FileStorage fallback when the auto-detect keychain probe fails,
     // without requiring OS-level credential-store mocking.
-    // Not compiled on macOS: detect_backend_with ignores the probe there (TouchId
-    // is always the macOS default), so injecting a failing probe would assert nothing.
     #[test]
-    #[cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
+    #[cfg(not(target_arch = "wasm32"))]
     fn test_detect_backend_with_probe_failure_falls_back_to_file() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
         let tmp = TempDir::new("detect_fallback");
@@ -1902,6 +1853,146 @@ mod tests {
         assert_eq!(backend.backend_type(), BackendType::Keychain);
     }
 
+    // macOS auto-detect uses the standard OS keychain (KeychainStorage).
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_detect_backend_macos_default_is_keychain() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_macos_default");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        let backend = detect_backend();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(
+            backend.storage_location(),
+            "OS keychain",
+            "macOS auto-detect should use KeychainStorage by default"
+        );
+    }
+
+    // Config file `token_storage: file` overrides auto-detect even when the keychain
+    // probe would succeed. The probe succeeds here so that without config-file support
+    // the backend would be Keychain — the File result therefore proves the config was read.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_config_file_token_storage() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_cfg_file");
+        std::fs::write(tmp.path().join("config.yaml"), "token_storage: file\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        // Probe succeeds: without config support auto-detect would return Keychain.
+        // Getting File here proves the config file was read and respected.
+        let backend = detect_backend_with(KeychainStorage::new);
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(
+            backend.backend_type(),
+            BackendType::File,
+            "config file token_storage: file should win over a working keychain"
+        );
+    }
+
+    // Malformed config YAML is silently ignored (no panic) and falls through to auto-detect.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_config_file_malformed_yaml_falls_back_to_autodetect() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_cfg_malformed");
+        std::fs::write(
+            tmp.path().join("config.yaml"),
+            "token_storage: [\nbad yaml\n",
+        )
+        .unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        // Should not panic; malformed YAML falls through to auto-detect (probe fails → file).
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // An unrecognised config file token_storage value warns and falls through to auto-detect.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_config_file_unknown_value_falls_back_to_autodetect() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_cfg_unknown");
+        std::fs::write(
+            tmp.path().join("config.yaml"),
+            "token_storage: bogus_value\n",
+        )
+        .unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // An unrecognised DD_TOKEN_STORAGE env value warns and falls through to auto-detect.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_unknown_env_value_falls_back_to_autodetect() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_unknown_env");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "bogus_value");
+        // Probe fails → should fall through all the way to file.
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // KeychainStorage memoizes per-site state: a value placed in the cache is served
+    // without touching the OS keychain. (If the cache were bypassed, load_state_raw
+    // would read a nonexistent entry and return None.)
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_keychain_storage_load_uses_cache() {
+        let store = KeychainStorage {
+            cache: Mutex::new(HashMap::new()),
+        };
+        let mut data = SiteData::default();
+        data.tokens
+            .insert(DEFAULT_ORG_KEY.to_string(), make_token("cached_tok"));
+        store
+            .cache
+            .lock()
+            .unwrap()
+            .insert("cache-test.example".to_string(), data);
+
+        let got = store
+            .load_tokens("cache-test.example", None)
+            .unwrap()
+            .expect("cached token should be returned without a keychain read");
+        assert_eq!(got.access_token, "cached_tok");
+    }
+
+    // DD_TOKEN_STORAGE env var overrides config file token_storage.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_env_overrides_config_file() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_env_wins");
+        // Config says "keychain" but env says "file" — env wins.
+        std::fs::write(tmp.path().join("config.yaml"), "token_storage: keychain\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let backend = detect_backend();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // A KeychainStorage with an empty cache, bypassing the new()-time probe.
+    #[cfg(target_os = "windows")]
+    fn test_keychain() -> KeychainStorage {
+        KeychainStorage {
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
     // Returns a token whose serialised SiteData exceeds WIN_CHUNK_BYTES (1000),
     // guaranteeing that KeychainStorage will write at least four WinCred chunks.
     // A 3000-char access token + JSON overhead ≈ 3200 bytes → 4 chunks minimum.
@@ -1915,7 +2006,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_keychain_storage_chunked_roundtrip() {
-        let store = KeychainStorage;
+        let store = test_keychain();
         let site = "chunked_test.datadoghq.com";
 
         let token = make_multi_chunk_token();
@@ -1931,6 +2022,8 @@ mod tests {
             "chunk _1 must exist — payload must exceed WIN_CHUNK_BYTES"
         );
 
+        // Clear the in-memory cache so the load actually reads back the WinCred chunks.
+        store.cache.lock().unwrap().clear();
         let loaded = store.load_tokens(site, None).unwrap().unwrap();
         assert_eq!(loaded.access_token, token.access_token);
 
@@ -1943,7 +2036,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_keychain_storage_chunked_shrink_cleans_stale_entries() {
-        let store = KeychainStorage;
+        let store = test_keychain();
         let site = "chunked_shrink.datadoghq.com";
 
         // First write: large token → multiple chunks.
@@ -1953,6 +2046,8 @@ mod tests {
 
         // Second write: tiny token → single chunk.
         store.save_tokens(site, None, &make_token("small")).unwrap();
+        // Clear the in-memory cache so the load reads back from WinCred.
+        store.cache.lock().unwrap().clear();
         let loaded = store.load_tokens(site, None).unwrap().unwrap();
         assert_eq!(loaded.access_token, "small");
 
@@ -1976,7 +2071,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_keychain_storage_chunked_missing_chunk_returns_default() {
-        let store = KeychainStorage;
+        let store = test_keychain();
         let site = "chunked_missing.datadoghq.com";
 
         // Write a token large enough to produce at least 2 WinCred chunks.
@@ -2003,6 +2098,8 @@ mod tests {
             .delete_credential()
             .unwrap();
 
+        // Clear the in-memory cache so the load reflects the corrupted WinCred state.
+        store.cache.lock().unwrap().clear();
         // Load should return None (empty state) not partial data.
         assert!(store.load_tokens(site, None).unwrap().is_none());
 

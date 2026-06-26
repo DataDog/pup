@@ -8377,6 +8377,22 @@ enum ApmActions {
         #[command(subcommand)]
         action: ApmServiceRemappingActions,
     },
+    /// Manage APM customer sampling rules (per-service per-resource head-based sampling rates).
+    /// Backed by Remote Config product APM_TRACING with provenance=customer.
+    /// Rules show on traces with `_dd.p.dm:-11` and `ingestion_reason:remote_rule`.
+    #[command(name = "sampling-rules")]
+    SamplingRules {
+        #[command(subcommand)]
+        action: ApmSamplingRulesActions,
+    },
+    /// Manage APM adaptive sampling — onboard services and configure the monthly allotment.
+    /// Datadog auto-tunes per-resource sampling rates to fit the configured byte/percent budget.
+    /// Generated rules show on traces with `_dd.p.dm:-12` and `ingestion_reason:adaptive_rule`.
+    #[command(name = "adaptive-sampling")]
+    AdaptiveSampling {
+        #[command(subcommand)]
+        action: ApmAdaptiveSamplingActions,
+    },
     /// View APM service instance configuration
     #[command(name = "service-config")]
     ServiceConfig {
@@ -8564,6 +8580,121 @@ enum ApmServiceRemappingActions {
         id: String,
         #[arg(help = "Rule version (from list output)")]
         version: i64,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApmSamplingRulesActions {
+    /// List sampling rules. With `--service` + `--env`, narrows to that target.
+    List {
+        #[arg(long, help = "Filter by service name (must be combined with --env)")]
+        service: Option<String>,
+        #[arg(long, help = "Filter by environment (must be combined with --service)")]
+        env: Option<String>,
+    },
+    /// Get a sampling rule config by ID
+    Get {
+        #[arg(help = "Config ID")]
+        id: String,
+    },
+    /// Create a customer sampling rule for (service, env, resource).
+    /// Rate is between 0.0 and 1.0. Anything > 1e-6 is honored.
+    Create {
+        #[arg(long, help = "Service name (required)")]
+        service: String,
+        #[arg(
+            long,
+            help = "Environment (required, must match DD_ENV on the service)"
+        )]
+        env: String,
+        #[arg(
+            long,
+            help = "Resource glob — `*` matches all resources for the service, or e.g. 'GET /api/users'"
+        )]
+        resource: String,
+        #[arg(long, help = "Sample rate between 0.0 and 1.0")]
+        sample_rate: f64,
+    },
+    /// Update an existing sampling rule by ID (replaces all attributes)
+    Update {
+        #[arg(help = "Config ID")]
+        id: String,
+        #[arg(long, help = "Service name")]
+        service: String,
+        #[arg(long, help = "Environment")]
+        env: String,
+        #[arg(long, help = "Resource glob")]
+        resource: String,
+        #[arg(long, help = "Sample rate between 0.0 and 1.0")]
+        sample_rate: f64,
+    },
+    /// Delete a sampling rule by ID
+    Delete {
+        #[arg(help = "Config ID")]
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApmAdaptiveSamplingActions {
+    /// Get the onboarding status. With `--service` and `--env`, returns one entry; otherwise lists all.
+    #[command(name = "onboarding-status")]
+    OnboardingStatus {
+        #[arg(long, help = "Filter by service name (optional)")]
+        service: Option<String>,
+        #[arg(long, help = "Filter by environment (optional)")]
+        env: Option<String>,
+    },
+    /// Onboard a (service, env) pair to adaptive sampling
+    Onboard {
+        #[arg(long, help = "Service name (required)")]
+        service: String,
+        #[arg(long, help = "Environment (required)")]
+        env: String,
+    },
+    /// Offboard a (service, env) pair from adaptive sampling
+    Offboard {
+        #[arg(long, help = "Service name (required)")]
+        service: String,
+        #[arg(long, help = "Environment (required)")]
+        env: String,
+    },
+    /// Read the org's adaptive sampling allotment configuration
+    #[command(name = "get-allotment")]
+    GetAllotment,
+    /// Set the org's adaptive sampling allotment. Provide exactly one of --bytes or --percent.
+    #[command(name = "set-allotment")]
+    SetAllotment {
+        #[arg(
+            long,
+            conflicts_with = "percent",
+            help = "Monthly target in bytes (strategy=fixed_target)"
+        )]
+        bytes: Option<i64>,
+        #[arg(
+            long,
+            conflicts_with = "bytes",
+            help = "Percent of total monthly allotment (strategy=percent_total)"
+        )]
+        percent: Option<f64>,
+    },
+    /// Check whether the configured allotment is sufficient for current ingestion
+    Check,
+    /// Preview the allotment Datadog would compute for a strategy without applying it.
+    /// Provide exactly one of --bytes or --percent.
+    Preview {
+        #[arg(
+            long,
+            conflicts_with = "percent",
+            help = "Monthly target in bytes (strategy=fixed_target)"
+        )]
+        bytes: Option<i64>,
+        #[arg(
+            long,
+            conflicts_with = "bytes",
+            help = "Percent of total monthly allotment (strategy=percent_total)"
+        )]
+        percent: Option<f64>,
     },
 }
 
@@ -14760,6 +14891,80 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     ApmServiceRemappingActions::Delete { id, version } => {
                         commands::apm::service_remapping_delete(&cfg, id, version).await?;
+                    }
+                },
+                ApmActions::SamplingRules { action } => match action {
+                    ApmSamplingRulesActions::List { service, env } => {
+                        commands::apm::sampling_rules_list(&cfg, service, env).await?;
+                    }
+                    ApmSamplingRulesActions::Get { id } => {
+                        commands::apm::sampling_rules_get(&cfg, id).await?;
+                    }
+                    ApmSamplingRulesActions::Create {
+                        service,
+                        env,
+                        resource,
+                        sample_rate,
+                    } => {
+                        commands::apm::sampling_rules_create(
+                            &cfg,
+                            service,
+                            env,
+                            resource,
+                            sample_rate,
+                        )
+                        .await?;
+                    }
+                    ApmSamplingRulesActions::Update {
+                        id,
+                        service,
+                        env,
+                        resource,
+                        sample_rate,
+                    } => {
+                        commands::apm::sampling_rules_update(
+                            &cfg,
+                            id,
+                            service,
+                            env,
+                            resource,
+                            sample_rate,
+                        )
+                        .await?;
+                    }
+                    ApmSamplingRulesActions::Delete { id } => {
+                        commands::apm::sampling_rules_delete(&cfg, id).await?;
+                    }
+                },
+                ApmActions::AdaptiveSampling { action } => match action {
+                    ApmAdaptiveSamplingActions::OnboardingStatus { service, env } => {
+                        commands::apm::adaptive_sampling_onboarding_status(&cfg, service, env)
+                            .await?;
+                    }
+                    ApmAdaptiveSamplingActions::Onboard { service, env } => {
+                        commands::apm::adaptive_sampling_onboard(&cfg, service, env).await?;
+                    }
+                    ApmAdaptiveSamplingActions::Offboard { service, env } => {
+                        commands::apm::adaptive_sampling_offboard(&cfg, service, env).await?;
+                    }
+                    ApmAdaptiveSamplingActions::GetAllotment => {
+                        commands::apm::adaptive_sampling_get_allotment(&cfg).await?;
+                    }
+                    ApmAdaptiveSamplingActions::SetAllotment { bytes, percent } => {
+                        if bytes.is_none() && percent.is_none() {
+                            anyhow::bail!("must provide --bytes or --percent");
+                        }
+                        commands::apm::adaptive_sampling_set_allotment(&cfg, bytes, percent)
+                            .await?;
+                    }
+                    ApmAdaptiveSamplingActions::Check => {
+                        commands::apm::adaptive_sampling_check(&cfg).await?;
+                    }
+                    ApmAdaptiveSamplingActions::Preview { bytes, percent } => {
+                        if bytes.is_none() && percent.is_none() {
+                            anyhow::bail!("must provide --bytes or --percent");
+                        }
+                        commands::apm::adaptive_sampling_preview(&cfg, bytes, percent).await?;
                     }
                 },
                 ApmActions::ServiceConfig { action } => match action {

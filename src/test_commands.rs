@@ -397,6 +397,146 @@ fn test_ddsql_table_query_requires_explicit_value() {
 }
 
 // -------------------------------------------------------------------------
+// --sort with hyphen-prefixed values (e.g. -failure_rate, -timestamp)
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_cicd_flaky_tests_search_sort_accepts_hyphen_value() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "cicd",
+        "flaky-tests",
+        "search",
+        "--query",
+        "*",
+        "--sort",
+        "-failure_rate",
+    ])
+    .expect("cicd flaky-tests search --sort -failure_rate should parse");
+
+    match cli.command {
+        crate::Commands::Cicd { action } => match action {
+            crate::CicdActions::FlakyTests { action } => match action {
+                crate::CicdFlakyTestActions::Search { sort, .. } => {
+                    assert_eq!(sort.as_deref(), Some("-failure_rate"));
+                }
+                _ => panic!("expected CicdFlakyTestActions::Search"),
+            },
+            _ => panic!("expected CicdActions::FlakyTests"),
+        },
+        _ => panic!("expected Commands::Cicd"),
+    }
+}
+
+#[test]
+fn test_cicd_flaky_tests_search_sort_accepts_positive_value() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "cicd",
+        "flaky-tests",
+        "search",
+        "--sort",
+        "fqn",
+    ])
+    .expect("cicd flaky-tests search --sort fqn should parse");
+
+    match cli.command {
+        crate::Commands::Cicd { action } => match action {
+            crate::CicdActions::FlakyTests { action } => match action {
+                crate::CicdFlakyTestActions::Search { sort, .. } => {
+                    assert_eq!(sort.as_deref(), Some("fqn"));
+                }
+                _ => panic!("expected CicdFlakyTestActions::Search"),
+            },
+            _ => panic!("expected CicdActions::FlakyTests"),
+        },
+        _ => panic!("expected Commands::Cicd"),
+    }
+}
+
+#[test]
+fn test_logs_list_sort_accepts_hyphen_timestamp() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "list",
+        "--sort",
+        "-timestamp",
+    ])
+    .expect("logs list --sort -timestamp should parse");
+
+    match cli.command {
+        crate::Commands::Logs { action } => match action {
+            crate::LogActions::List { sort, .. } => {
+                assert_eq!(sort, "-timestamp");
+            }
+            _ => panic!("expected LogActions::List"),
+        },
+        _ => panic!("expected Commands::Logs"),
+    }
+}
+
+#[test]
+fn test_traces_search_sort_accepts_hyphen_timestamp() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "traces",
+        "search",
+        "--query",
+        "*",
+        "--sort",
+        "-timestamp",
+    ])
+    .expect("traces search --sort -timestamp should parse");
+
+    match cli.command {
+        crate::Commands::Traces { action } => match action {
+            crate::TracesActions::Search { sort, .. } => {
+                assert_eq!(sort, "-timestamp");
+            }
+            _ => panic!("expected TracesActions::Search"),
+        },
+        _ => panic!("expected Commands::Traces"),
+    }
+}
+
+#[test]
+fn test_security_rules_list_sort_accepts_hyphen_name() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "security",
+        "rules",
+        "list",
+        "--sort",
+        "-name",
+    ])
+    .expect("security rules list --sort -name should parse");
+
+    match cli.command {
+        crate::Commands::Security { action } => match action {
+            crate::SecurityActions::Rules { action } => match action {
+                crate::SecurityRuleActions::List { sort, .. } => {
+                    assert_eq!(sort.as_deref(), Some("-name"));
+                }
+                _ => panic!("expected SecurityRuleActions::List"),
+            },
+            _ => panic!("expected SecurityActions::Rules"),
+        },
+        _ => panic!("expected Commands::Security"),
+    }
+}
+
+// -------------------------------------------------------------------------
 // SymDB (duplicate of commands::symdb::tests::test_symdb_view_display, kept
 // here because colocating would collide with the pre-existing copy).
 // -------------------------------------------------------------------------

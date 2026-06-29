@@ -774,6 +774,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
         let result = super::projects_list(&cfg).await;
         assert!(result.is_err(), "should fail without auth");
@@ -1186,6 +1187,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
         let result = super::datasets_create(&cfg, "proj-1", tmp.to_str().unwrap()).await;
         assert!(result.is_err(), "should fail without auth");
@@ -1272,6 +1274,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         let result = super::experiments_summary(&cfg, "exp-1").await;
@@ -1420,6 +1423,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         let result = super::experiments_events_get(&cfg, "exp-1", "evt-1").await;
@@ -1856,6 +1860,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
 
         let result = super::spans_search(

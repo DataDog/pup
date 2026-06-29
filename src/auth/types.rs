@@ -51,6 +51,8 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "apm_read",
         "apm_remote_configuration_read",
         "apm_service_catalog_read",
+        "apm_service_ingest_read",
+        "apps_run",
         "audit_logs_read",
         "aws_configuration_read",
         "azure_configuration_read",
@@ -61,7 +63,9 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "code_coverage_read",
         "test_optimization_read",
         "dashboards_read",
+        "built_in_features",
         "data_scanner_read",
+        "dbm_read",
         "error_tracking_read",
         "events_read",
         "gcp_configuration_read",
@@ -110,7 +114,14 @@ pub fn default_scopes() -> Vec<&'static str> {
         "apm_remote_configuration_read",
         "apm_remote_configuration_write",
         "apm_service_catalog_read",
+        "apm_service_ingest_read",
+        "apm_service_ingest_write",
         "apm_service_renaming_write",
+        // App Builder
+        "apps_run",
+        "apps_write",
+        // Connections (required by App Builder GetApp)
+        "connections_read",
         // Audit
         "audit_logs_read",
         // AWS
@@ -143,6 +154,12 @@ pub fn default_scopes() -> Vec<&'static str> {
         "data_scanner_read",
         // Data Streams
         "data_streams_monitoring_capture_messages",
+        // Database Monitoring
+        // built_in_features is required on US1/EU1 while the DBM team migrates to dbm_read.
+        // Both are requested so the command works on all sites during the transition.
+        // Once the migration is complete, built_in_features can be removed from both scope lists.
+        "built_in_features",
+        "dbm_read",
         // Error Tracking
         "error_tracking_read",
         // Events
@@ -311,6 +328,13 @@ mod tests {
         assert!(scopes.contains(&"observability_pipelines_read"));
         assert!(scopes.contains(&"observability_pipelines_deploy"));
         assert!(scopes.contains(&"observability_pipelines_delete"));
+        // App Builder
+        assert!(scopes.contains(&"apps_run"));
+        assert!(scopes.contains(&"apps_write"));
+        assert!(scopes.contains(&"connections_read"));
+        // Database Monitoring
+        assert!(scopes.contains(&"dbm_read"));
+        assert!(scopes.contains(&"built_in_features"));
     }
 
     #[test]
@@ -326,6 +350,9 @@ mod tests {
         }
         assert!(ro.contains(&"dashboards_read"));
         assert!(ro.contains(&"monitors_read"));
+        assert!(ro.contains(&"apps_run"));
+        assert!(ro.contains(&"dbm_read"));
+        assert!(ro.contains(&"built_in_features"));
         assert!(!ro.contains(&"org_management"));
         assert!(!ro.contains(&"teams_manage"));
         assert!(!ro.contains(&"monitors_write"));

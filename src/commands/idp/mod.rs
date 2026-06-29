@@ -6,6 +6,9 @@ use crate::config::Config;
 use crate::formatter;
 use crate::util;
 
+mod migrate;
+pub use migrate::migrate_schema;
+
 // ---------------------------------------------------------------------------
 // Response types
 // ---------------------------------------------------------------------------
@@ -514,7 +517,13 @@ pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
         )),
     };
 
-    formatter::format_and_print(&response, &cfg.output_format, cfg.agent_mode, Some(&meta))
+    formatter::format_and_print(
+        &response,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 /// Find entities matching a query.
@@ -538,7 +547,13 @@ pub async fn find(cfg: &Config, query: &str) -> Result<()> {
         ),
     };
 
-    formatter::format_and_print(&data, &cfg.output_format, cfg.agent_mode, Some(&meta))
+    formatter::format_and_print(
+        &data,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 /// Resolve owner, team, and on-call context for an entity.
@@ -584,7 +599,13 @@ pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
         next_action: None,
     };
 
-    formatter::format_and_print(&response, &cfg.output_format, cfg.agent_mode, Some(&meta))
+    formatter::format_and_print(
+        &response,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 /// Show dependency and relationship context for an entity.
@@ -608,7 +629,13 @@ pub async fn deps(cfg: &Config, entity: &str) -> Result<()> {
         next_action: Some("Use `pup idp assist <dep_name>` to inspect any dependency".to_string()),
     };
 
-    formatter::format_and_print(&response, &cfg.output_format, cfg.agent_mode, Some(&meta))
+    formatter::format_and_print(
+        &response,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 /// Register a service definition from a YAML file.
@@ -638,7 +665,13 @@ pub async fn register(cfg: &Config, file: &str) -> Result<()> {
         )),
     };
 
-    formatter::format_and_print(&data, &cfg.output_format, cfg.agent_mode, Some(&meta))
+    formatter::format_and_print(
+        &data,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 #[cfg(test)]

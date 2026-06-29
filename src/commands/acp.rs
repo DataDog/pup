@@ -27,7 +27,7 @@ const LASSIE_BASE: &str = "/api/unstable/lassie-ng/v1";
 pub async fn serve(cfg: &Config, port: u16, host: &str, agent_id: Option<String>) -> Result<()> {
     cfg.validate_auth()?;
 
-    let app_base = format!("https://app.{}", cfg.site);
+    let app_base = format!("https://{}", cfg.auth_host());
     let access_token = cfg.access_token.clone();
     let api_key = cfg.api_key.clone();
     let app_key = cfg.app_key.clone();

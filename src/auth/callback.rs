@@ -19,6 +19,8 @@ pub struct CallbackResult {
     pub dd_oid: Option<String>,
     /// Display name of the consented org (`dd_org_name`).
     pub dd_org_name: Option<String>,
+    /// Actual Datadog site/region from the OAuth callback (`domain`).
+    pub domain: Option<String>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -199,6 +201,7 @@ async fn accept_loop(
             error_description,
             dd_oid,
             dd_org_name,
+            domain,
         };
         if let Some(tx) = result_tx.lock().unwrap().take() {
             let _ = tx.send(result);
@@ -294,6 +297,7 @@ fn parse_callback_url(input: &str) -> Result<CallbackResult> {
     let mut error_description = None;
     let mut dd_oid = None;
     let mut dd_org_name = None;
+    let mut domain = None;
     for (k, v) in url.query_pairs() {
         match k.as_ref() {
             "code" => code = Some(v.into_owned()),
@@ -302,6 +306,7 @@ fn parse_callback_url(input: &str) -> Result<CallbackResult> {
             "error_description" => error_description = Some(v.into_owned()),
             "dd_oid" => dd_oid = Some(v.into_owned()),
             "dd_org_name" => dd_org_name = Some(v.into_owned()),
+            "domain" => domain = Some(v.into_owned()),
             _ => {}
         }
     }
@@ -315,6 +320,7 @@ fn parse_callback_url(input: &str) -> Result<CallbackResult> {
         error_description,
         dd_oid,
         dd_org_name,
+        domain,
     })
 }
 
@@ -366,17 +372,19 @@ mod tests {
         assert!(r.error_description.is_none());
         assert!(r.dd_oid.is_none());
         assert!(r.dd_org_name.is_none());
+        assert!(r.domain.is_none());
     }
 
     #[test]
-    fn parse_callback_url_extracts_dd_oid_and_org_name() {
+    fn parse_callback_url_extracts_dd_oid_org_name_and_domain() {
         // Real callback shape from a Datadog OAuth flow — the issuer appends
-        // dd_oid and (URL-encoded) dd_org_name alongside code and state.
+        // dd_oid, (URL-encoded) dd_org_name, and domain alongside code and state.
         let r = parse_callback_url(
             "http://127.0.0.1:8000/oauth/callback\
              ?code=abc&state=xyz\
              &dd_oid=00000000-1111-2222-3333-444444444444\
-             &dd_org_name=Datadog+HQ",
+             &dd_org_name=Datadog+HQ\
+             &domain=us3.datadoghq.com",
         )
         .unwrap();
         assert_eq!(
@@ -384,6 +392,7 @@ mod tests {
             Some("00000000-1111-2222-3333-444444444444")
         );
         assert_eq!(r.dd_org_name.as_deref(), Some("Datadog HQ"));
+        assert_eq!(r.domain.as_deref(), Some("us3.datadoghq.com"));
     }
 
     #[test]

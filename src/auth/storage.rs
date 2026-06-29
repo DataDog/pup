@@ -185,8 +185,19 @@ impl Storage for FileStorage {
 // Keychain storage (via keyring crate) — native only
 // ---------------------------------------------------------------------------
 
+/// OS keychain storage via the `keyring` crate.
+///
+/// `cache` memoizes the per-site `SiteData` for the lifetime of the process. A
+/// single command often reads the same item several times (token load, client
+/// credential load, plus command-level reads); without the cache each read is a
+/// separate OS keychain access, and on an untrusted binary each one raises its
+/// own authorization prompt. Reading once and serving the rest from memory keeps
+/// that to a single prompt per site per command. Writes update the cache so a
+/// later read in the same process sees fresh data.
 #[cfg(not(target_arch = "wasm32"))]
-pub struct KeychainStorage;
+pub struct KeychainStorage {
+    cache: Mutex<HashMap<String, SiteData>>,
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 const SERVICE_NAME: &str = "pup";
@@ -217,15 +228,19 @@ impl KeychainStorage {
         #[cfg(not(target_os = "windows"))]
         keyring::Entry::new(SERVICE_NAME, "__pup_probe__")
             .map_err(|e| anyhow::anyhow!("keychain not available: {e}"))?;
-        Ok(Self)
+        Ok(Self {
+            cache: Mutex::new(HashMap::new()),
+        })
     }
 }
 
 /// Combined per-site state stored in a single keychain entry.
 /// Consolidating tokens + client credentials into one entry reduces macOS
-/// authorization dialogs from 2 → 1 per site on first access.
+/// authorization dialogs from 2 → 1 per site on first access. KeychainStorage
+/// additionally memoizes this per-process (see its `cache`) so repeated reads
+/// within one command hit the OS keychain at most once per site.
 #[cfg(not(target_arch = "wasm32"))]
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
 struct SiteData {
     #[serde(default)]
     tokens: OrgTokenMap,
@@ -250,10 +265,49 @@ impl KeychainStorage {
         format!("state_{}", sanitize(site))
     }
 
+    // --- per-process cache wrappers ----------------------------------------------
+    // Collapse repeated reads of the same site within one command to a single OS
+    // keychain access. `*_raw` methods below do the actual keychain I/O.
+
+    fn load_state(&self, site: &str) -> Result<SiteData> {
+        if let Some(data) = self
+            .cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .get(site)
+        {
+            return Ok(data.clone());
+        }
+        let data = self.load_state_raw(site)?;
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .insert(site.to_string(), data.clone());
+        Ok(data)
+    }
+
+    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
+        self.save_state_raw(site, data)?;
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .insert(site.to_string(), data.clone());
+        Ok(())
+    }
+
+    fn delete_state(&self, site: &str) -> Result<()> {
+        self.delete_state_raw(site)?;
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .remove(site);
+        Ok(())
+    }
+
     // --- non-Windows: single keychain entry per site ----------------------------
 
     #[cfg(not(target_os = "windows"))]
-    fn load_state(&self, site: &str) -> Result<SiteData> {
+    fn load_state_raw(&self, site: &str) -> Result<SiteData> {
         let entry = keyring::Entry::new(SERVICE_NAME, &Self::state_key(site))?;
         match entry.get_password() {
             Ok(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
@@ -263,14 +317,14 @@ impl KeychainStorage {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
+    fn save_state_raw(&self, site: &str, data: &SiteData) -> Result<()> {
         let entry = keyring::Entry::new(SERVICE_NAME, &Self::state_key(site))?;
         let json = serde_json::to_string(data)?;
         entry.set_password(&json).map_err(Into::into)
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn delete_state(&self, site: &str) -> Result<()> {
+    fn delete_state_raw(&self, site: &str) -> Result<()> {
         let entry = keyring::Entry::new(SERVICE_NAME, &Self::state_key(site))?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -285,7 +339,7 @@ impl KeychainStorage {
     // data stored before this scheme was introduced is still readable.
 
     #[cfg(target_os = "windows")]
-    fn load_state(&self, site: &str) -> Result<SiteData> {
+    fn load_state_raw(&self, site: &str) -> Result<SiteData> {
         let base = Self::state_key(site);
         let count_entry = keyring::Entry::new(SERVICE_NAME, &format!("{base}_c"))?;
         let n: usize = match count_entry.get_password() {
@@ -323,7 +377,7 @@ impl KeychainStorage {
     }
 
     #[cfg(target_os = "windows")]
-    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
+    fn save_state_raw(&self, site: &str, data: &SiteData) -> Result<()> {
         let base = Self::state_key(site);
         let json = serde_json::to_string(data)?;
         // Tokens, scope words, and JSON punctuation are all ASCII in practice.
@@ -361,7 +415,7 @@ impl KeychainStorage {
     }
 
     #[cfg(target_os = "windows")]
-    fn delete_state(&self, site: &str) -> Result<()> {
+    fn delete_state_raw(&self, site: &str) -> Result<()> {
         let base = Self::state_key(site);
         let count_entry = keyring::Entry::new(SERVICE_NAME, &format!("{base}_c"))?;
         let n: usize = match count_entry.get_password() {
@@ -405,156 +459,6 @@ impl Storage for KeychainStorage {
 
     fn storage_location(&self) -> String {
         "OS keychain".to_string()
-    }
-
-    fn save_tokens(&self, site: &str, org: Option<&str>, tokens: &TokenSet) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.tokens
-            .insert(org_map_key(org).to_string(), tokens.clone());
-        self.save_state(site, &data)
-    }
-
-    fn load_tokens(&self, site: &str, org: Option<&str>) -> Result<Option<TokenSet>> {
-        Ok(self.load_state(site)?.tokens.remove(org_map_key(org)))
-    }
-
-    fn delete_tokens(&self, site: &str, org: Option<&str>) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.tokens.remove(org_map_key(org));
-        if data.tokens.is_empty() && data.client.is_none() {
-            self.delete_state(site)
-        } else {
-            self.save_state(site, &data)
-        }
-    }
-
-    fn save_client_credentials(&self, site: &str, creds: &ClientCredentials) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.client = Some(creds.clone());
-        self.save_state(site, &data)
-    }
-
-    fn load_client_credentials(&self, site: &str) -> Result<Option<ClientCredentials>> {
-        Ok(self.load_state(site)?.client)
-    }
-
-    fn delete_client_credentials(&self, site: &str) -> Result<()> {
-        let mut data = self.load_state(site)?;
-        data.client = None;
-        if data.tokens.is_empty() {
-            self.delete_state(site)
-        } else {
-            self.save_state(site, &data)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Touch ID keychain storage — macOS only
-//
-// Uses the modern SecItemAdd/SecItemCopyMatching API (not the legacy
-// SecKeychain API that the `keyring` crate uses) so that macOS presents
-// Touch ID as the authentication method instead of a password dialog.
-//
-// Access control: kSecAccessControlUserPresence — macOS offers Touch ID
-// first, falling back to the login password if Touch ID is unavailable or
-// the user cancels. The prompt appears on every keychain access.
-//
-// Requires the binary to be code-signed (standard for Homebrew releases).
-// If the binary is unsigned (e.g. a local dev build), Touch ID access
-// control silently degrades to a standard keychain item so the tool
-// remains functional.
-// ---------------------------------------------------------------------------
-
-#[cfg(target_os = "macos")]
-pub struct TouchIdStorage;
-
-/// errSecMissingEntitlement (-34018): thrown by SecItemAdd when using
-/// biometric access control on an unsigned binary.
-#[cfg(target_os = "macos")]
-const ERR_MISSING_ENTITLEMENT: i32 = -34018;
-
-#[cfg(target_os = "macos")]
-impl TouchIdStorage {
-    pub fn new() -> Self {
-        Self
-    }
-
-    fn load_state(&self, site: &str) -> Result<SiteData> {
-        use security_framework::passwords::{generic_password, PasswordOptions};
-        use security_framework_sys::base::errSecItemNotFound;
-
-        let opts =
-            PasswordOptions::new_generic_password(SERVICE_NAME, &KeychainStorage::state_key(site));
-        match generic_password(opts) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_default()),
-            Err(e) if e.code() == errSecItemNotFound => Ok(SiteData::default()),
-            Err(e) => Err(anyhow::anyhow!("keychain read failed: {e}")),
-        }
-    }
-
-    fn save_state(&self, site: &str, data: &SiteData) -> Result<()> {
-        use security_framework::passwords::{
-            delete_generic_password_options, set_generic_password_options, AccessControlOptions,
-            PasswordOptions,
-        };
-        use security_framework_sys::base::errSecDuplicateItem;
-
-        let json = serde_json::to_vec(data)?;
-        let key = KeychainStorage::state_key(site);
-
-        // Attempt 1: create with Touch ID access control.
-        let mut opts = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-        opts.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-        match set_generic_password_options(&json, opts) {
-            Ok(()) => return Ok(()),
-            // Duplicate item — delete and re-create to apply access control.
-            Err(ref e) if e.code() == errSecDuplicateItem => {
-                let del_opts = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-                delete_generic_password_options(del_opts).ok();
-
-                let mut opts2 = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-                opts2.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-                match set_generic_password_options(&json, opts2) {
-                    Ok(()) => return Ok(()),
-                    // Still no entitlement after re-create — fall through to plain write.
-                    Err(ref e) if e.code() == ERR_MISSING_ENTITLEMENT => {}
-                    Err(e) => return Err(anyhow::anyhow!("keychain write failed: {e}")),
-                }
-            }
-            // Binary not code-signed: degrade gracefully to a plain item.
-            Err(ref e) if e.code() == ERR_MISSING_ENTITLEMENT => {}
-            Err(e) => return Err(anyhow::anyhow!("keychain write failed: {e}")),
-        }
-
-        // Attempt 2: write without access control (unsigned binary fallback).
-        let opts = PasswordOptions::new_generic_password(SERVICE_NAME, &key);
-        set_generic_password_options(&json, opts)
-            .map_err(|e| anyhow::anyhow!("keychain write failed: {e}"))
-    }
-
-    fn delete_state(&self, site: &str) -> Result<()> {
-        use security_framework::passwords::{delete_generic_password_options, PasswordOptions};
-        use security_framework_sys::base::errSecItemNotFound;
-
-        let opts =
-            PasswordOptions::new_generic_password(SERVICE_NAME, &KeychainStorage::state_key(site));
-        match delete_generic_password_options(opts) {
-            Ok(()) => Ok(()),
-            Err(e) if e.code() == errSecItemNotFound => Ok(()),
-            Err(e) => Err(anyhow::anyhow!("keychain delete failed: {e}")),
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-impl Storage for TouchIdStorage {
-    fn backend_type(&self) -> BackendType {
-        BackendType::Keychain
-    }
-
-    fn storage_location(&self) -> String {
-        "OS keychain (Touch ID)".to_string()
     }
 
     fn save_tokens(&self, site: &str, org: Option<&str>, tokens: &TokenSet) -> Result<()> {
@@ -748,6 +652,7 @@ impl Storage for LocalStorageBackend {
 // Factory — auto-detect backend, with fallback
 // ---------------------------------------------------------------------------
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 static STORAGE: Mutex<Option<Box<dyn Storage>>> = Mutex::new(None);
@@ -773,28 +678,27 @@ fn detect_backend() -> Box<dyn Storage> {
 // and exercise all failure paths without OS-level credential-store mocking.
 #[cfg(not(target_arch = "wasm32"))]
 fn detect_backend_with(try_keychain: impl Fn() -> Result<KeychainStorage>) -> Box<dyn Storage> {
-    // Check DD_TOKEN_STORAGE env var
-    if let Ok(val) = std::env::var("DD_TOKEN_STORAGE") {
+    // Precedence: DD_TOKEN_STORAGE env var > config file token_storage > auto-detect.
+    let storage_hint = std::env::var("DD_TOKEN_STORAGE")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(read_config_token_storage);
+
+    if let Some(ref val) = storage_hint {
         match val.as_str() {
             "file" => return Box::new(FileStorage::new().expect("failed to create file storage")),
             // Explicit opt-in: panic with a clear message if the backend is
             // unavailable rather than silently falling back to a different store.
             "keychain" => return Box::new(try_keychain().expect("keychain not available")),
             _ => eprintln!(
-                "Warning: unknown DD_TOKEN_STORAGE={val:?} (valid: \"file\", \"keychain\"), auto-detecting"
+                "Warning: unknown token storage backend {val:?} (set via DD_TOKEN_STORAGE or config token_storage; valid: \"file\", \"keychain\"), auto-detecting"
             ),
         }
     }
 
-    // On macOS, use Touch ID-capable storage by default.
-    #[cfg(target_os = "macos")]
-    return Box::new(TouchIdStorage::new());
-
-    // On other platforms (Windows, Linux, etc.), probe the keyring backend and
-    // fall back to file storage if the keychain daemon is not available.
-    // On Windows the chunked WinCred scheme keeps each blob under the 2560-byte
-    // platform limit, so keychain is safe to use as the default here too.
-    #[cfg(not(target_os = "macos"))]
+    // Auto-detect: probe the OS keychain and fall back to file storage if unavailable.
+    // The same standard OS keychain is used on every platform (on Windows the chunked
+    // WinCred scheme keeps blobs within the 2560-byte limit).
     match try_keychain() {
         Ok(ks) => Box::new(ks),
         Err(e) => {
@@ -802,6 +706,55 @@ fn detect_backend_with(try_keychain: impl Fn() -> Result<KeychainStorage>) -> Bo
                 "Warning: OS keychain not available ({e}), using file storage (~/.config/pup/)"
             );
             Box::new(FileStorage::new().expect("failed to create file storage"))
+        }
+    }
+}
+
+/// Read `token_storage` from the pup config file, returning the raw string value
+/// if present. Used as a fallback when `DD_TOKEN_STORAGE` env var is not set.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_config_token_storage() -> Option<String> {
+    #[derive(serde::Deserialize, Default)]
+    struct StorageHint {
+        token_storage: Option<String>,
+    }
+
+    // Mirror config_file_candidates() from config.rs. We inline the path logic here
+    // rather than calling into config.rs because config.rs calls get_storage(), and
+    // calling config functions during storage initialisation could be confusing;
+    // config_dir() is safe (it only reads env/filesystem), so we use it directly.
+    let config_dir = crate::config::config_dir()?;
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+    let mut candidates = vec![config_dir.join("config.yaml")];
+    // On macOS also check the XDG-style path (~/.config/pup/) as a fallback,
+    // mirroring the behaviour of config_file_candidates().
+    #[cfg(target_os = "macos")]
+    if std::env::var("PUP_CONFIG_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        if let Some(home) = dirs::home_dir() {
+            let xdg = home.join(".config/pup/config.yaml");
+            if !candidates.contains(&xdg) {
+                candidates.push(xdg);
+            }
+        }
+    }
+
+    // Mirror load_config_file(): use the first readable file, parse only that one.
+    // This avoids the subtle case where the primary file exists but lacks
+    // `token_storage`, causing us to fall through to the XDG fallback while the
+    // rest of pup's config comes from the primary file.
+    let contents = candidates
+        .into_iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())?;
+
+    match serde_norway::from_str::<StorageHint>(&contents) {
+        Ok(hint) => hint.token_storage,
+        Err(e) => {
+            eprintln!("Warning: could not parse pup config (token_storage ignored): {e}");
+            None
         }
     }
 }
@@ -883,64 +836,126 @@ pub fn list_sessions() -> Result<Vec<SessionEntry>> {
     }
 }
 
-/// Upsert a session entry into the registry. Dedups on `(site, org)`; the
-/// new entry's `org_uuid` wins so re-auth refreshes the stored UUID.
+/// Upsert a session entry into the registry. Dedups on `org` alone; the
+/// new entry's site and `org_uuid` win so re-auth to a different site
+/// replaces the existing entry rather than accumulating a second one.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_session(entry: &SessionEntry) -> Result<()> {
     let mut sessions = list_sessions()?;
-    sessions.retain(|s| !(s.site == entry.site && s.org == entry.org));
+    sessions.retain(|s| s.org != entry.org);
     sessions.push(entry.clone());
     write_sessions(&sessions)
 }
 
 /// Remove a session entry from the registry.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn remove_session(site: &str, org: Option<&str>) -> Result<()> {
+pub fn remove_session(_site: &str, org: Option<&str>) -> Result<()> {
     let mut sessions = list_sessions()?;
-    sessions.retain(|s| !(s.site == site && s.org.as_deref() == org));
+    sessions.retain(|s| s.org.as_deref() != org);
     write_sessions(&sessions)
 }
 
-/// Look up a single session entry by `(site, org)`.
+/// Look up a single session entry by org name.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn find_session(site: &str, org: Option<&str>) -> Option<SessionEntry> {
+pub fn find_session(org: Option<&str>) -> Option<SessionEntry> {
     list_sessions()
         .ok()?
         .into_iter()
-        .find(|s| s.site == site && s.org.as_deref() == org)
+        .find(|s| s.org.as_deref() == org)
 }
 
 /// Look up the site for a named org session. Returns None if no session exists
-/// for that org, or if multiple sessions share the same org name on different
-/// sites (ambiguous — caller must pass DD_SITE explicitly). On the ambiguous
-/// path, prints a one-line warning to stderr naming the conflicting sites so
-/// the user knows the auto-resolution gave up.
+/// for that org. The save_session invariant ensures at most one session per org
+/// name, so the lookup is always unambiguous for current data. Legacy sessions.json
+/// files written by older pup versions could contain two rows for the same named
+/// org on different sites; in that case we return the first match and self-heal
+/// on the next `pup auth login --org <name>`.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn find_session_site(org: &str) -> Option<String> {
-    let sessions = list_sessions().ok()?;
-    let mut sites: Vec<String> = sessions
+    list_sessions()
+        .ok()?
         .into_iter()
-        .filter(|s| s.org.as_deref() == Some(org))
+        .find(|s| s.org.as_deref() == Some(org))
+        .map(|s| s.site)
+}
+
+/// Return the site for the single no-org ("default") session, if there is
+/// exactly one. Zero → None. Multiple (legacy data before the single-slot
+/// invariant was enforced) → warns and returns None so the caller falls
+/// through to `datadoghq.com`; the next bare login self-heals to one entry.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn find_default_session_site() -> Option<String> {
+    let mut sites: Vec<String> = list_sessions()
+        .ok()?
+        .into_iter()
+        .filter(|s| s.org.is_none())
         .map(|s| s.site)
         .collect();
     sites.sort();
     sites.dedup();
     match sites.len() {
-        0 => None,
         1 => sites.pop(),
+        0 => None,
         _ => {
-            // The caller (Config::from_env / apply_org_override) handles the
-            // resulting None by leaving cfg.site at whatever it was — which
-            // may be a default, an env-set site, or a previously-resolved
-            // org's site — so we do not promise "falling back to default" here.
+            // Legacy: multiple no-org rows on different sites. A bare login
+            // enforces the single-slot invariant (see prune_other_default_sessions),
+            // so this path only fires for pre-existing data and self-heals on the
+            // next bare login (a named `--org` login does not prune).
             eprintln!(
-                "Warning: org '{org}' has saved sessions on multiple sites ({}); \
-                 not auto-selecting one. Set DD_SITE to disambiguate.",
+                "Warning: multiple default (no-org) sessions on different \
+                 sites ({}); not auto-selecting. Set DD_SITE or re-run \
+                 pup auth login.",
                 sites.join(", ")
             );
             None
         }
     }
+}
+
+/// Remove session registry rows for `(site != keep_site, org=None)` and
+/// best-effort delete their stored tokens, enforcing the single-slot
+/// invariant for the no-org ("default") session. Called after a bare login
+/// so that switching regions replaces the previous unnamed default rather
+/// than accumulating ambiguous entries that confuse `find_default_session_site`.
+///
+/// Note: `save_session(None)` now also removes all prior no-org rows as part
+/// of the single-slot invariant, so in the normal bare-login flow `to_prune`
+/// will be empty when this runs. This function remains as a defensive guard
+/// for legacy on-disk data (sessions.json written by older pup versions)
+/// that may have multiple no-org rows for different sites, and to clean up
+/// any orphaned tokens from the displaced session.
+///
+/// Named-org sessions on any site are never touched.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn prune_other_default_sessions(keep_site: &str) -> Result<()> {
+    let sessions = list_sessions()?;
+    let to_prune: Vec<String> = sessions
+        .into_iter()
+        .filter(|s| s.org.is_none() && s.site != keep_site)
+        .map(|s| s.site)
+        .collect();
+    if to_prune.is_empty() {
+        return Ok(());
+    }
+    // Remove the session rows FIRST: rows are the authoritative source of truth
+    // for resolution, so the only residue a later failure can leave is an orphan
+    // token (never read — tokens are only loaded by an explicit (site, org) key).
+    // Doing token deletion first would risk the opposite: a failed write_sessions
+    // leaving a tokenless extra no-org row, which find_default_session_site treats
+    // as ambiguous and falls back to datadoghq.com — the exact #592 failure.
+    let mut sessions = list_sessions()?;
+    sessions.retain(|s| !(s.org.is_none() && to_prune.contains(&s.site)));
+    write_sessions(&sessions)?;
+    // Best-effort token cleanup: initialise the storage backend only now that the
+    // rows are gone. delete_tokens(site, None) removes only the no-org token slot
+    // for that site; named-org tokens on the same site are untouched.
+    let guard = get_storage()?;
+    let mut lock = guard.lock().unwrap();
+    let store = lock.as_mut().unwrap();
+    for site in &to_prune {
+        let _ = store.delete_tokens(site, None);
+    }
+    Ok(())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1435,29 +1450,33 @@ mod tests {
     }
 
     #[test]
-    fn test_find_session_site_ambiguous_returns_none() {
+    fn test_save_session_same_name_different_site_overwrites() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
-        let tmp = TempDir::new("find_sess_amb");
+        let tmp = TempDir::new("find_sess_overwrite");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());
 
-        // Same org name registered against two different sites → caller must
-        // disambiguate via DD_SITE rather than us picking one.
+        // First login: org "myorg" on .com.
         save_session(&SessionEntry {
             site: "datadoghq.com".into(),
-            org: Some("shared-name".into()),
+            org: Some("myorg".into()),
             org_uuid: None,
         })
         .unwrap();
+        // Re-login: same org name but different site → overwrites the first.
         save_session(&SessionEntry {
             site: "datadoghq.eu".into(),
-            org: Some("shared-name".into()),
+            org: Some("myorg".into()),
             org_uuid: None,
         })
         .unwrap();
-        let result = find_session_site("shared-name");
+
+        let sessions = list_sessions().unwrap();
+        let result = find_session_site("myorg");
         std::env::remove_var("PUP_CONFIG_DIR");
 
-        assert!(result.is_none());
+        // Only one session remains, on the new site.
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(result.as_deref(), Some("datadoghq.eu"));
     }
 
     #[test]
@@ -1479,14 +1498,287 @@ mod tests {
         assert!(result.is_none());
     }
 
+    // --- find_default_session_site -----------------------------------------------
+
+    #[test]
+    fn test_find_default_session_site_no_sessions() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("fds_none");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        let result = find_default_session_site();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_find_default_session_site_one_no_org_row() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("fds_one");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        // Named-org sessions on other sites must not interfere.
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        let result = find_default_session_site();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(result.as_deref(), Some("datadoghq.eu"));
+    }
+
+    #[test]
+    fn test_find_default_session_site_multiple_no_org_rows_returns_none() {
+        // Legacy on-disk data: two no-org rows written by an older pup version →
+        // ambiguous; warn + return None. Construct directly via write_sessions
+        // because save_session now enforces the single-slot invariant.
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("fds_multi");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        write_sessions(&[
+            SessionEntry {
+                site: "datadoghq.com".into(),
+                org: None,
+                org_uuid: None,
+            },
+            SessionEntry {
+                site: "datadoghq.eu".into(),
+                org: None,
+                org_uuid: None,
+            },
+        ])
+        .unwrap();
+        let result = find_default_session_site();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert!(result.is_none());
+    }
+
+    // --- prune_other_default_sessions -------------------------------------------
+
+    #[test]
+    fn test_prune_removes_other_no_org_sites() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_removes");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        // Old default session on .com; we are now logging into .eu.
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+        // Named-org session on .com — must survive.
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        // New default session we are keeping.
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+
+        prune_other_default_sessions("datadoghq.eu").unwrap();
+
+        let sessions = list_sessions().unwrap();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        // No-org .com row is gone.
+        assert!(!sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.com" && s.org.is_none()));
+        // Keep-site no-org row survives.
+        assert!(sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.eu" && s.org.is_none()));
+        // Named-org row on .com survives.
+        assert!(sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.com" && s.org.as_deref() == Some("prod")));
+    }
+
+    #[test]
+    fn test_prune_no_op_when_only_keep_site() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_noop");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: None,
+            org_uuid: None,
+        })
+        .unwrap();
+
+        // Pruning for the same site should be a no-op.
+        prune_other_default_sessions("datadoghq.com").unwrap();
+
+        let sessions = list_sessions().unwrap();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].org.is_none());
+        assert_eq!(sessions[0].site, "datadoghq.com");
+    }
+
+    #[test]
+    fn test_prune_named_org_sessions_untouched() {
+        // prune_other_default_sessions must never remove named-org sessions
+        // on any site, including the kept site and other sites.
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_named");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        save_session(&SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("prod".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+        save_session(&SessionEntry {
+            site: "datadoghq.eu".into(),
+            org: Some("staging".into()),
+            org_uuid: None,
+        })
+        .unwrap();
+
+        prune_other_default_sessions("datadoghq.eu").unwrap();
+
+        let sessions = list_sessions().unwrap();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        // Both named-org sessions survive.
+        assert_eq!(sessions.len(), 2);
+        assert!(sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.com" && s.org.as_deref() == Some("prod")));
+        assert!(sessions
+            .iter()
+            .any(|s| s.site == "datadoghq.eu" && s.org.as_deref() == Some("staging")));
+    }
+
+    #[test]
+    fn test_prune_self_heals_legacy_multiple_no_org_rows() {
+        // The central migration promise: legacy on-disk data with two no-org rows
+        // is ambiguous (find_default_session_site warns + returns None), but a bare
+        // login's prune collapses it to one, after which resolution recovers.
+        // Construct directly via write_sessions because save_session now enforces
+        // the single-slot invariant.
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_self_heal");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        write_sessions(&[
+            SessionEntry {
+                site: "datadoghq.com".into(),
+                org: None,
+                org_uuid: None,
+            },
+            SessionEntry {
+                site: "datadoghq.eu".into(),
+                org: None,
+                org_uuid: None,
+            },
+        ])
+        .unwrap();
+
+        // Ambiguous before: two no-org rows → None.
+        assert!(find_default_session_site().is_none());
+
+        // A bare login to .eu prunes the .com no-org row.
+        prune_other_default_sessions("datadoghq.eu").unwrap();
+
+        // Recovered: exactly one no-org row, resolution returns it.
+        let healed = find_default_session_site();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(healed.as_deref(), Some("datadoghq.eu"));
+    }
+
+    #[test]
+    fn test_prune_deletes_only_other_no_org_token() {
+        // Token hygiene + safety: prune deletes the displaced site's no-org token
+        // but leaves the kept site's no-org token and any named-org token intact.
+        // Construct two no-org rows directly via write_sessions because save_session
+        // now enforces the single-slot invariant (this is the legacy-data path).
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("prune_tokens");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+
+        let guard = get_storage().unwrap();
+        {
+            let lock = guard.lock().unwrap();
+            let store = lock.as_ref().unwrap();
+            store
+                .save_tokens("datadoghq.com", None, &make_token("com-default"))
+                .unwrap();
+            store
+                .save_tokens("datadoghq.com", Some("prod"), &make_token("com-prod"))
+                .unwrap();
+            store
+                .save_tokens("datadoghq.eu", None, &make_token("eu-default"))
+                .unwrap();
+        }
+        write_sessions(&[
+            SessionEntry {
+                site: "datadoghq.com".into(),
+                org: None,
+                org_uuid: None,
+            },
+            SessionEntry {
+                site: "datadoghq.eu".into(),
+                org: None,
+                org_uuid: None,
+            },
+        ])
+        .unwrap();
+
+        prune_other_default_sessions("datadoghq.eu").unwrap();
+
+        let lock = guard.lock().unwrap();
+        let store = lock.as_ref().unwrap();
+        let com_default = store.load_tokens("datadoghq.com", None).unwrap();
+        let com_prod = store.load_tokens("datadoghq.com", Some("prod")).unwrap();
+        let eu_default = store.load_tokens("datadoghq.eu", None).unwrap();
+        drop(lock);
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+
+        // Displaced no-org token gone; named-org token on the same site and the
+        // kept site's no-org token both survive.
+        assert!(
+            com_default.is_none(),
+            "displaced no-org .com token should be deleted"
+        );
+        assert!(com_prod.is_some(), "named-org .com token must survive");
+        assert!(eu_default.is_some(), "kept-site no-org token must survive");
+    }
+
     // --- detect_backend ---------------------------------------------------------
 
     // Exercises the FileStorage fallback when the auto-detect keychain probe fails,
     // without requiring OS-level credential-store mocking.
-    // Not compiled on macOS: detect_backend_with ignores the probe there (TouchId
-    // is always the macOS default), so injecting a failing probe would assert nothing.
     #[test]
-    #[cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
+    #[cfg(not(target_arch = "wasm32"))]
     fn test_detect_backend_with_probe_failure_falls_back_to_file() {
         let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
         let tmp = TempDir::new("detect_fallback");
@@ -1561,6 +1853,146 @@ mod tests {
         assert_eq!(backend.backend_type(), BackendType::Keychain);
     }
 
+    // macOS auto-detect uses the standard OS keychain (KeychainStorage).
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_detect_backend_macos_default_is_keychain() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_macos_default");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        let backend = detect_backend();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(
+            backend.storage_location(),
+            "OS keychain",
+            "macOS auto-detect should use KeychainStorage by default"
+        );
+    }
+
+    // Config file `token_storage: file` overrides auto-detect even when the keychain
+    // probe would succeed. The probe succeeds here so that without config-file support
+    // the backend would be Keychain — the File result therefore proves the config was read.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_config_file_token_storage() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_cfg_file");
+        std::fs::write(tmp.path().join("config.yaml"), "token_storage: file\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        // Probe succeeds: without config support auto-detect would return Keychain.
+        // Getting File here proves the config file was read and respected.
+        let backend = detect_backend_with(KeychainStorage::new);
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(
+            backend.backend_type(),
+            BackendType::File,
+            "config file token_storage: file should win over a working keychain"
+        );
+    }
+
+    // Malformed config YAML is silently ignored (no panic) and falls through to auto-detect.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_config_file_malformed_yaml_falls_back_to_autodetect() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_cfg_malformed");
+        std::fs::write(
+            tmp.path().join("config.yaml"),
+            "token_storage: [\nbad yaml\n",
+        )
+        .unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        // Should not panic; malformed YAML falls through to auto-detect (probe fails → file).
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // An unrecognised config file token_storage value warns and falls through to auto-detect.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_config_file_unknown_value_falls_back_to_autodetect() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_cfg_unknown");
+        std::fs::write(
+            tmp.path().join("config.yaml"),
+            "token_storage: bogus_value\n",
+        )
+        .unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // An unrecognised DD_TOKEN_STORAGE env value warns and falls through to auto-detect.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_unknown_env_value_falls_back_to_autodetect() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_unknown_env");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "bogus_value");
+        // Probe fails → should fall through all the way to file.
+        let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe")));
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // KeychainStorage memoizes per-site state: a value placed in the cache is served
+    // without touching the OS keychain. (If the cache were bypassed, load_state_raw
+    // would read a nonexistent entry and return None.)
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_keychain_storage_load_uses_cache() {
+        let store = KeychainStorage {
+            cache: Mutex::new(HashMap::new()),
+        };
+        let mut data = SiteData::default();
+        data.tokens
+            .insert(DEFAULT_ORG_KEY.to_string(), make_token("cached_tok"));
+        store
+            .cache
+            .lock()
+            .unwrap()
+            .insert("cache-test.example".to_string(), data);
+
+        let got = store
+            .load_tokens("cache-test.example", None)
+            .unwrap()
+            .expect("cached token should be returned without a keychain read");
+        assert_eq!(got.access_token, "cached_tok");
+    }
+
+    // DD_TOKEN_STORAGE env var overrides config file token_storage.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_detect_backend_env_overrides_config_file() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_env_wins");
+        // Config says "keychain" but env says "file" — env wins.
+        std::fs::write(tmp.path().join("config.yaml"), "token_storage: keychain\n").unwrap();
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let backend = detect_backend();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // A KeychainStorage with an empty cache, bypassing the new()-time probe.
+    #[cfg(target_os = "windows")]
+    fn test_keychain() -> KeychainStorage {
+        KeychainStorage {
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
     // Returns a token whose serialised SiteData exceeds WIN_CHUNK_BYTES (1000),
     // guaranteeing that KeychainStorage will write at least four WinCred chunks.
     // A 3000-char access token + JSON overhead ≈ 3200 bytes → 4 chunks minimum.
@@ -1574,7 +2006,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_keychain_storage_chunked_roundtrip() {
-        let store = KeychainStorage;
+        let store = test_keychain();
         let site = "chunked_test.datadoghq.com";
 
         let token = make_multi_chunk_token();
@@ -1590,6 +2022,8 @@ mod tests {
             "chunk _1 must exist — payload must exceed WIN_CHUNK_BYTES"
         );
 
+        // Clear the in-memory cache so the load actually reads back the WinCred chunks.
+        store.cache.lock().unwrap().clear();
         let loaded = store.load_tokens(site, None).unwrap().unwrap();
         assert_eq!(loaded.access_token, token.access_token);
 
@@ -1602,7 +2036,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_keychain_storage_chunked_shrink_cleans_stale_entries() {
-        let store = KeychainStorage;
+        let store = test_keychain();
         let site = "chunked_shrink.datadoghq.com";
 
         // First write: large token → multiple chunks.
@@ -1612,6 +2046,8 @@ mod tests {
 
         // Second write: tiny token → single chunk.
         store.save_tokens(site, None, &make_token("small")).unwrap();
+        // Clear the in-memory cache so the load reads back from WinCred.
+        store.cache.lock().unwrap().clear();
         let loaded = store.load_tokens(site, None).unwrap().unwrap();
         assert_eq!(loaded.access_token, "small");
 
@@ -1635,7 +2071,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_keychain_storage_chunked_missing_chunk_returns_default() {
-        let store = KeychainStorage;
+        let store = test_keychain();
         let site = "chunked_missing.datadoghq.com";
 
         // Write a token large enough to produce at least 2 WinCred chunks.
@@ -1662,6 +2098,8 @@ mod tests {
             .delete_credential()
             .unwrap();
 
+        // Clear the in-memory cache so the load reflects the corrupted WinCred state.
+        store.cache.lock().unwrap().clear();
         // Load should return None (empty state) not partial data.
         assert!(store.load_tokens(site, None).unwrap().is_none());
 

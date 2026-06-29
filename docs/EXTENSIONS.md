@@ -2,7 +2,7 @@
 
 ## Overview
 
-Pup extensions are standalone executables that add new subcommands to pup. When you run `pup terraform ...`, pup checks if `terraform` is a built-in command. If not, it looks for an installed extension named `pup-terraform` and runs it with your arguments and auth credentials.
+Pup extensions are standalone executables that add new subcommands to pup. When you run `pup foo ...`, pup checks if `foo` is a built-in command. If not, it looks for an installed extension named `pup-foo` and runs it with your arguments and auth credentials.
 
 Extensions let teams ship experimental features independently without modifying pup's core or doing a full release. Any language works - extensions are just executables.
 
@@ -12,27 +12,36 @@ Extensions let teams ship experimental features independently without modifying 
 
 ```bash
 # Install from a GitHub repository (downloads the latest release)
-pup extension install jkirsteins/pup-hello
+pup extension install owner/pup-foo
 
 # Install a specific release version
-pup extension install jkirsteins/pup-hello --tag v1.0.0
+pup extension install owner/pup-foo --tag v1.0.0
+
+# List extensions available from a shared release repository
+pup extension list-remote owner/repo
+
+# Install one extension from a shared release repository
+pup extension install owner/repo --extension foo
+
+# Install all extensions from a shared release repository's latest release
+pup extension install owner/repo --all
 ```
 
 ### Install from a local file
 
 ```bash
 # Install from a local binary
-pup extension install --local /path/to/pup-my-tool
+pup extension install --local /path/to/pup-foo
 
 # Install as a symlink (for development)
-pup extension install --local /path/to/pup-my-tool --link
+pup extension install --local /path/to/pup-foo --link
 ```
 
 ### Use it
 
 ```bash
 # The extension becomes a pup subcommand
-pup my-tool --some-flag value
+pup foo --some-flag value
 ```
 
 ### Manage extensions
@@ -45,13 +54,13 @@ pup extension list
 pup -o table extension list
 
 # Upgrade a single extension to the latest release
-pup extension upgrade my-tool
+pup extension upgrade foo
 
 # Upgrade all installed extensions
 pup extension upgrade --all
 
 # Remove an extension
-pup extension remove my-tool
+pup extension remove foo
 ```
 
 ## Writing an Extension
@@ -67,11 +76,11 @@ echo "Site: $DD_SITE"
 echo "Args: $@"
 ```
 
-Save this as `pup-hello`, make it executable (`chmod +x pup-hello`), and install it:
+Save this as `pup-foo`, make it executable (`chmod +x pup-foo`), and install it:
 
 ```bash
-pup extension install --local ./pup-hello
-pup hello world
+pup extension install --local ./pup-foo
+pup foo world
 # Output:
 # Hello from pup extension!
 # Site: datadoghq.com
@@ -84,8 +93,8 @@ pup hello world
 - `<name>` must be lowercase letters, digits, and hyphens only, starting with a letter
 - `<name>` must not conflict with a built-in pup command (e.g., `monitors`, `logs`, `auth`)
 
-Valid: `pup-terraform`, `pup-cost-report`, `pup-lint`
-Invalid: `pup-Terraform`, `pup-2fast`, `pup-my_tool`, `pup-monitors`
+Valid: `pup-foo`, `pup-cost-report`, `pup-lint`
+Invalid: `pup-Foo`, `pup-2fast`, `pup-my_tool`, `pup-monitors`
 
 ## Auth Forwarding
 
@@ -109,7 +118,11 @@ Pup refreshes the OAuth2 token if needed before passing it to the extension, so 
 
 Variables not active in the current session are explicitly removed from the child environment to prevent stale credentials from leaking through the parent shell.
 
+The `PUP_OUTPUT`, `PUP_AGENT_MODE`, `PUP_READ_ONLY`, and `PUP_AUTO_APPROVE` variables are read back by a child `pup` process. So if your extension shells out to `pup` (see below), those nested calls automatically inherit the format and mode the user selected on the parent command.
+
 ### Example: using auth in a Python extension
+
+The example below hand-rolls the HTTP call. If pup is on `PATH` (it is, when pup dispatched your extension), prefer shelling out to `pup api` and `pup format` instead — see [Reusing pup's client and formatter](#reusing-pups-client-and-formatter) below.
 
 ```python
 #!/usr/bin/env python3
@@ -131,13 +144,57 @@ print(resp.json())
 
 Extensions written in Rust can use the `datadog-api-client` crate. The standard Datadog SDK env vars (`DD_API_KEY`, `DD_APP_KEY`, `DD_SITE`) are forwarded automatically, so most SDKs will work without any extra configuration.
 
+## Reusing pup's client and formatter
+
+The examples above hand-roll HTTP and auth. You usually don't need to. Because pup is on `PATH` when it dispatched your extension, an extension in **any language** can shell out to the parent `pup` binary and reuse pup's request handling and output formatting directly — no auth, refresh, site-resolution, or table/CSV code of your own.
+
+### Make authenticated API calls with `pup api`
+
+`pup api <ENDPOINT>` reuses pup's full auth handler: it chooses OAuth bearer vs. API-key auth, applies the per-endpoint fallback for endpoints that don't accept OAuth (e.g. `/api/v2/api_keys`, fleet, cost), sets the branded User-Agent, and resolves the site. The extension already has a fresh `DD_ACCESS_TOKEN` (or the `DD_API_KEY`/`DD_APP_KEY` pair) in its environment, so these calls are authenticated automatically.
+
+```bash
+#!/bin/bash
+# GET as JSON, then extract fields. --silent suppresses pup's own rendering.
+pup api v2/monitors --silent | jq -r '.[].name'
+
+# POST a typed body (-F coerces ints/bools/null; -f keeps raw strings).
+pup api v2/tags/hosts/myhost -X POST -F source=web
+```
+
+### Render output with `pup format`
+
+`pup format` (alias `fmt`) reads a JSON document from stdin (or `--input FILE`) and prints it using the caller's output format and agent mode — the same JSON / YAML / table / CSV / TSV rendering and agent envelope every built-in command uses. Because pup forwards `PUP_OUTPUT` and a child `pup` reads it back, your extension inherits the format the user originally requested.
+
+```bash
+#!/bin/bash
+results='[{"id":1,"name":"alpha"},{"id":2,"name":"beta"}]'
+
+# Honor whatever -o the user passed to `pup foo`.
+echo "$results" | pup format
+
+# Or force a specific format.
+echo "$results" | pup format --output table
+
+# Populate the agent-mode envelope metadata.
+echo "$results" | pup format --count 2 --command "foo list"
+```
+
+### Combine them
+
+A fully consistent extension that adds zero auth or formatting code:
+
+```bash
+#!/bin/bash
+pup api v2/monitors --silent | pup format
+```
+
 ## Global Flags
 
 Pup's global flags (`--output`, `--yes`, `--agent`, `--read-only`, `--org`) are parsed by pup before dispatching to the extension. They are NOT passed as CLI arguments to the extension - instead, they are forwarded as environment variables (see the table above).
 
 ```bash
 # --output table is consumed by pup, extension receives PUP_OUTPUT=table
-pup --output table my-tool do-something
+pup --output table foo do-something
 
 # The extension receives only: ["do-something"]
 # Not: ["--output", "table", "do-something"]
@@ -146,7 +203,7 @@ pup --output table my-tool do-something
 Extension-specific flags (anything pup doesn't recognize) are passed through to the extension unchanged:
 
 ```bash
-pup my-tool plan --workspace prod --var-file vars.tfvars
+pup foo plan --workspace prod --var-file vars.tfvars
 # Extension receives: ["plan", "--workspace", "prod", "--var-file", "vars.tfvars"]
 ```
 
@@ -158,7 +215,7 @@ pup my-tool plan --workspace prod --var-file vars.tfvars
 pup extension install owner/repo
 ```
 
-Downloads the platform-specific binary from the repository's latest GitHub Release and installs it. The extension name is derived from the repo name (stripping the `pup-` prefix if present). For example, `jkirsteins/pup-hello` installs as `hello`.
+Downloads the platform-specific binary from the repository's latest GitHub Release and installs it. The extension name is derived from the repo name (stripping the `pup-` prefix if present). For example, `owner/pup-foo` installs as `foo`.
 
 GitHub releases must include assets following the naming convention:
 
@@ -167,18 +224,18 @@ pup-<name>-<os>-<arch>
 ```
 
 Where:
-- `<name>` is the extension name (e.g., `hello`)
+- `<name>` is the extension name (e.g., `foo`)
 - `<os>` is one of: `darwin`, `linux`, `windows`
 - `<arch>` is one of: `x86_64`, `aarch64`
 
-Example assets for an extension named `hello`:
+Example assets for an extension named `foo`:
 
 ```
-pup-hello-darwin-aarch64
-pup-hello-darwin-x86_64
-pup-hello-linux-aarch64
-pup-hello-linux-x86_64
-pup-hello-windows-x86_64.exe
+pup-foo-darwin-aarch64
+pup-foo-darwin-x86_64
+pup-foo-linux-aarch64
+pup-foo-linux-x86_64
+pup-foo-windows-x86_64.exe
 ```
 
 To install a specific release tag:
@@ -187,10 +244,66 @@ To install a specific release tag:
 pup extension install owner/repo --tag v1.0.0
 ```
 
+`--tag` expects the exact GitHub release tag. If the release is tagged `v1.0.0`, use `--tag v1.0.0`, not `--tag 1.0.0`.
+
+### Shared GitHub release repositories
+
+A GitHub repository can also publish one platform archive containing multiple top-level extension executables:
+
+```
+repo_1.2.3_Darwin_arm64.tar.gz
+repo_1.2.3_Linux_x86_64.tar.gz
+repo_1.2.3_Windows_x86_64.zip
+```
+
+Each archive can contain executables such as:
+
+```
+pup-foo
+pup-bar
+```
+
+List remote versions inferred from release archives:
+
+```bash
+pup extension list-remote owner/repo
+pup extension list-remote owner/repo --extension foo
+```
+
+The table output shows both the extension version and the GitHub release tag in parentheses. Use the tag value when installing a specific release.
+
+Install one extension from the newest release archive that contains it:
+
+```bash
+pup extension install owner/repo --extension foo
+```
+
+Install one extension from a specific release tag:
+
+```bash
+pup extension install owner/repo --extension foo --tag v1.0.0
+```
+
+Install all extensions from the latest release archive:
+
+```bash
+pup extension install owner/repo --all
+```
+
+If a release archive contains exactly one extension, `pup extension install owner/repo` can infer it. If it contains multiple extensions, pup asks you to choose `--extension <name>` or `--all`.
+
+Private GitHub repositories are supported with either an explicit token or an existing GitHub CLI login. Token resolution order is:
+
+1. `GH_TOKEN`, `GITHUB_TOKEN`, or `HOMEBREW_GITHUB_API_TOKEN`
+2. the active GitHub CLI account from `gh auth token --hostname github.com`
+3. anonymous GitHub access for public repositories
+
+`gh` is optional. Pup uses it only as a credential helper when no explicit token is set. Pup does not switch accounts, refresh scopes, create tokens, store GitHub tokens, or pass GitHub tokens to extensions. If access fails and multiple GitHub CLI accounts are configured, choose the desired account with `gh auth switch --hostname github.com` or set `GH_TOKEN` explicitly.
+
 ### Local install (copy)
 
 ```bash
-pup extension install --local /path/to/pup-my-tool
+pup extension install --local /path/to/pup-foo
 ```
 
 Copies the binary into pup's extensions directory and sets executable permissions.
@@ -198,7 +311,7 @@ Copies the binary into pup's extensions directory and sets executable permission
 ### Local install (symlink)
 
 ```bash
-pup extension install --local /path/to/pup-my-tool --link
+pup extension install --local /path/to/pup-foo --link
 ```
 
 Creates a symlink instead of copying. Useful during development so changes to the source binary take effect immediately without reinstalling.
@@ -206,7 +319,7 @@ Creates a symlink instead of copying. Useful during development so changes to th
 ### Custom name
 
 ```bash
-pup extension install --local /path/to/my-binary --name my-tool
+pup extension install --local /path/to/my-binary --name foo
 ```
 
 By default, the extension name is derived from the filename (stripping `pup-` prefix and `.exe` suffix) for local installs, or from the repo name for GitHub installs. Use `--name` to override.
@@ -214,7 +327,7 @@ By default, the extension name is derived from the filename (stripping `pup-` pr
 ### Force reinstall
 
 ```bash
-pup extension install --local /path/to/pup-my-tool --force
+pup extension install --local /path/to/pup-foo --force
 pup extension install owner/repo --force
 ```
 
@@ -225,10 +338,10 @@ Overwrites an existing extension with the same name.
 ### Upgrade a single extension
 
 ```bash
-pup extension upgrade hello
+pup extension upgrade foo
 ```
 
-Checks the GitHub release for a newer version. If one is available, downloads and installs it. If the extension is already at the latest version, prints a message and does nothing.
+Checks GitHub for a newer version. For single-binary repositories, pup checks the latest release. For shared release repositories, pup searches releases newest-first and upgrades to the newest release archive that contains that extension. If the extension is already at the latest version, prints a message and does nothing.
 
 ### Upgrade all extensions
 
@@ -250,8 +363,8 @@ Extensions are stored in pup's config directory:
 
 ```
 <config_dir>/extensions/
-  pup-my-tool/
-    pup-my-tool          # the executable
+  pup-foo/
+    pup-foo              # the executable
     manifest.json        # metadata (written by pup at install time)
 ```
 
@@ -353,22 +466,8 @@ To extract an existing pup feature into an extension:
 4. Remove the feature from pup's core `Commands` enum
 5. Distribute the extension binary separately
 
-## Demo Extension
-
-A demo extension is available for testing at [jkirsteins/pup-hello](https://github.com/jkirsteins/pup-hello):
-
-```bash
-pup extension install jkirsteins/pup-hello
-pup hello world
-# Output:
-# Hello from pup extension! (v1.1.0)
-# Site: datadoghq.com
-# Args: world
-```
-
 ## Limitations
 
-- **Public repositories only**: GitHub-based installation works with public repositories. Private repository support (token forwarding) is not implemented.
 - **Source must be a regular file**: `pup extension install --local` requires the source path to be a regular file, not a directory.
 - **Agent-mode help**: `pup --agent <ext-name> --help` prints pup's top-level schema, not the extension's help. In normal mode, `--help` is passed through to the extension.
-- **No signing or verification**: Downloaded binaries are not cryptographically verified. Only install extensions from trusted sources.
+- **No signing**: Downloaded binaries are not signed. If a release includes `checksums.txt`, pup verifies the selected archive checksum before installing. Only install extensions from trusted sources.

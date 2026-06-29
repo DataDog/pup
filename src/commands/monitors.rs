@@ -47,7 +47,13 @@ pub async fn list(
         command: Some("monitors list".to_string()),
         next_action: None,
     };
-    formatter::format_and_print(&monitors, &cfg.output_format, cfg.agent_mode, Some(&meta))?;
+    formatter::format_and_print(
+        &monitors,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )?;
     Ok(())
 }
 
@@ -63,7 +69,13 @@ pub async fn get(cfg: &Config, monitor_id: i64) -> Result<()> {
         command: Some("monitors get".to_string()),
         next_action: None,
     };
-    formatter::format_and_print(&resp, &cfg.output_format, cfg.agent_mode, Some(&meta))
+    formatter::format_and_print(
+        &resp,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 pub async fn create(cfg: &Config, file: &str) -> Result<()> {

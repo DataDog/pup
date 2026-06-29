@@ -86,16 +86,25 @@ pub async fn flow_map(
 
 pub async fn troubleshooting_list(
     cfg: &Config,
-    hostname: String,
+    hostname: Option<String>,
     timeframe: Option<String>,
+    result: Option<String>,
 ) -> Result<()> {
     let path = "/api/unstable/apm/instrumentation-errors";
-    let mut query = vec![("hostname", hostname.as_str())];
-    let tf_owned;
-    if let Some(tf) = &timeframe {
-        tf_owned = tf.clone();
-        query.push(("timeframe", tf_owned.as_str()));
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    if let Some(h) = hostname {
+        pairs.push(("hostname".to_string(), h));
     }
+    if let Some(tf) = timeframe {
+        pairs.push(("timeframe".to_string(), tf));
+    }
+    if let Some(r) = result {
+        pairs.push(("result".to_string(), r));
+    }
+    let query: Vec<(&str, &str)> = pairs
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
     let data = client::raw_get(cfg, path, &query).await?;
     formatter::output(cfg, &data)
 }
@@ -265,6 +274,136 @@ pub async fn sampling_rules_delete(cfg: &Config, id: String) -> Result<()> {
     client::raw_delete(cfg, &format!("{SAMPLING_RULES_BASE}/{id}")).await
 }
 
+// =============================================================================
+// APM adaptive sampling — let Datadog auto-tune per-resource sampling rates to
+// fit a monthly byte/percent allotment. Generated rules surface on traces with
+// `_dd.p.dm:-12` and `ingestion_reason:adaptive_rule`.
+//
+// Strategy values:
+//   - "fixed_target"  — set a hard byte target (use with --bytes)
+//   - "percent_total" — set a percent of allotment cap (use with --percent)
+// =============================================================================
+
+const ADAPTIVE_SAMPLING_BASE: &str = "/api/ui/adaptive_sampling";
+
+fn allotment_attributes(bytes: Option<i64>, percent: Option<f64>) -> serde_json::Value {
+    let strategy = if bytes.is_some() {
+        "fixed_target"
+    } else {
+        "percent_total"
+    };
+    let mut attrs = serde_json::json!({ "strategy": strategy });
+    if let Some(b) = bytes {
+        attrs["allotment_bytes"] = serde_json::json!(b);
+    }
+    if let Some(p) = percent {
+        attrs["allotment_percent"] = serde_json::json!(p);
+    }
+    attrs
+}
+
+pub async fn adaptive_sampling_onboarding_status(
+    cfg: &Config,
+    service: Option<String>,
+    env: Option<String>,
+) -> Result<()> {
+    let path = format!("{ADAPTIVE_SAMPLING_BASE}/onboarding_status");
+    let mut params: Vec<(&str, &str)> = Vec::new();
+    if let Some(s) = service.as_deref() {
+        params.push(("service", s));
+    }
+    if let Some(e) = env.as_deref() {
+        params.push(("env", e));
+    }
+    let data = client::raw_get(cfg, &path, &params).await?;
+    formatter::output(cfg, &data)
+}
+
+async fn post_onboarding(
+    cfg: &Config,
+    service: String,
+    env: String,
+    onboarded: bool,
+) -> Result<()> {
+    let body = serde_json::json!({
+        "data": {
+            "id": "1",
+            "type": "apm_adaptive_sampling_onboarding_status",
+            "attributes": {
+                "service": service,
+                "env": env,
+                "onboarded": onboarded,
+            }
+        }
+    });
+    let data = client::raw_post(
+        cfg,
+        &format!("{ADAPTIVE_SAMPLING_BASE}/onboarding_status"),
+        body,
+    )
+    .await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn adaptive_sampling_onboard(cfg: &Config, service: String, env: String) -> Result<()> {
+    post_onboarding(cfg, service, env, true).await
+}
+
+pub async fn adaptive_sampling_offboard(cfg: &Config, service: String, env: String) -> Result<()> {
+    post_onboarding(cfg, service, env, false).await
+}
+
+pub async fn adaptive_sampling_get_allotment(cfg: &Config) -> Result<()> {
+    let path = format!("{ADAPTIVE_SAMPLING_BASE}/allotment_config");
+    let data = client::raw_get(cfg, &path, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn adaptive_sampling_set_allotment(
+    cfg: &Config,
+    bytes: Option<i64>,
+    percent: Option<f64>,
+) -> Result<()> {
+    let attrs = allotment_attributes(bytes, percent);
+    let body = serde_json::json!({
+        "data": {
+            "id": "1",
+            "type": "apm_adaptive_sampling_allotment_config",
+            "attributes": attrs,
+        }
+    });
+    let data = client::raw_post(
+        cfg,
+        &format!("{ADAPTIVE_SAMPLING_BASE}/allotment_config"),
+        body,
+    )
+    .await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn adaptive_sampling_check(cfg: &Config) -> Result<()> {
+    let path = format!("{ADAPTIVE_SAMPLING_BASE}/allotment_check");
+    let data = client::raw_get(cfg, &path, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn adaptive_sampling_preview(
+    cfg: &Config,
+    bytes: Option<i64>,
+    percent: Option<f64>,
+) -> Result<()> {
+    let attrs = allotment_attributes(bytes, percent);
+    let body = serde_json::json!({
+        "data": {
+            "id": "1",
+            "type": "apm_adaptive_sampling_allotment_preview",
+            "attributes": attrs,
+        }
+    });
+    let data = client::raw_post(cfg, &format!("{ADAPTIVE_SAMPLING_BASE}/preview"), body).await?;
+    formatter::output(cfg, &data)
+}
+
 pub async fn service_config_get(
     cfg: &Config,
     service_name: String,
@@ -383,7 +522,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::troubleshooting_list(&cfg, "my-host".into(), None).await;
+        let result = super::troubleshooting_list(&cfg, Some("my-host".into()), None, None).await;
         assert!(
             result.is_ok(),
             "troubleshooting list failed: {:?}",
@@ -411,10 +550,71 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::troubleshooting_list(&cfg, "my-host".into(), Some("4h".into())).await;
+        let result =
+            super::troubleshooting_list(&cfg, Some("my-host".into()), Some("4h".into()), None)
+                .await;
         assert!(
             result.is_ok(),
             "troubleshooting list with timeframe failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_apm_troubleshooting_list_org_wide() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("GET", "/api/unstable/apm/instrumentation-errors")
+            .match_query(mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::troubleshooting_list(&cfg, None, None, None).await;
+        assert!(
+            result.is_ok(),
+            "troubleshooting list org-wide failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_apm_troubleshooting_list_with_result_filter() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("GET", "/api/unstable/apm/instrumentation-errors")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("hostname".into(), "my-host".into()),
+                mockito::Matcher::UrlEncoded("result".into(), "error,abort".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::troubleshooting_list(
+            &cfg,
+            Some("my-host".into()),
+            None,
+            Some("error,abort".into()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "troubleshooting list with result filter failed: {:?}",
             result.err()
         );
         mock.assert_async().await;
@@ -1037,6 +1237,234 @@ mod tests {
         assert!(
             result.is_ok(),
             "sampling_rules_delete failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    // ===== adaptive sampling =====
+
+    #[tokio::test]
+    async fn test_adaptive_sampling_onboarding_status_no_filter() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("GET", "/api/ui/adaptive_sampling/onboarding_status")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::adaptive_sampling_onboarding_status(&cfg, None, None).await;
+        assert!(
+            result.is_ok(),
+            "adaptive_sampling_onboarding_status failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_adaptive_sampling_onboarding_status_with_filter() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock(
+                "GET",
+                "/api/ui/adaptive_sampling/onboarding_status?service=api&env=prod",
+            )
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"onboarded": true}}"#)
+            .create_async()
+            .await;
+
+        let result = super::adaptive_sampling_onboarding_status(
+            &cfg,
+            Some("api".into()),
+            Some("prod".into()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "adaptive_sampling_onboarding_status with filter failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_adaptive_sampling_onboard() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("POST", "/api/ui/adaptive_sampling/onboarding_status")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"onboarded": true}}"#)
+            .create_async()
+            .await;
+
+        let result = super::adaptive_sampling_onboard(&cfg, "api".into(), "prod".into()).await;
+        assert!(
+            result.is_ok(),
+            "adaptive_sampling_onboard failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_adaptive_sampling_offboard() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("POST", "/api/ui/adaptive_sampling/onboarding_status")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"onboarded": false}}"#)
+            .create_async()
+            .await;
+
+        let result = super::adaptive_sampling_offboard(&cfg, "api".into(), "prod".into()).await;
+        assert!(
+            result.is_ok(),
+            "adaptive_sampling_offboard failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_adaptive_sampling_get_allotment() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("GET", "/api/ui/adaptive_sampling/allotment_config")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"strategy": "fixed_target", "allotment_bytes": 100000}}"#)
+            .create_async()
+            .await;
+
+        let result = super::adaptive_sampling_get_allotment(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "adaptive_sampling_get_allotment failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_adaptive_sampling_set_allotment_bytes() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("POST", "/api/ui/adaptive_sampling/allotment_config")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {}}"#)
+            .create_async()
+            .await;
+
+        let result = super::adaptive_sampling_set_allotment(&cfg, Some(100_000), None).await;
+        assert!(
+            result.is_ok(),
+            "adaptive_sampling_set_allotment with bytes failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_adaptive_sampling_set_allotment_percent() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("POST", "/api/ui/adaptive_sampling/allotment_config")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {}}"#)
+            .create_async()
+            .await;
+
+        let result = super::adaptive_sampling_set_allotment(&cfg, None, Some(50.0)).await;
+        assert!(
+            result.is_ok(),
+            "adaptive_sampling_set_allotment with percent failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_adaptive_sampling_check() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("GET", "/api/ui/adaptive_sampling/allotment_check")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"data": {"allotment_bytes": 100000, "ingested_bytes": 50000, "projected_monthly_ingested_bytes": 150000}}"#,
+            )
+            .create_async()
+            .await;
+
+        let result = super::adaptive_sampling_check(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "adaptive_sampling_check failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_adaptive_sampling_preview() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("POST", "/api/ui/adaptive_sampling/preview")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"monthly_quota": 100000, "monthly_target": 50000}}"#)
+            .create_async()
+            .await;
+
+        let result = super::adaptive_sampling_preview(&cfg, Some(50_000), None).await;
+        assert!(
+            result.is_ok(),
+            "adaptive_sampling_preview failed: {:?}",
             result.err()
         );
         mock.assert_async().await;

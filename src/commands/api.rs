@@ -69,6 +69,25 @@ fn normalize_path(endpoint: &str) -> String {
     }
 }
 
+/// Returns true when `url`'s scheme, host, and effective port all match the
+/// configured Datadog API base (`cfg.api_base_url()`). Used as a credential-
+/// exfiltration guard: an absolute URL pointing anywhere other than the configured
+/// Datadog host must not receive Datadog credentials. Scheme is compared so a
+/// cleartext `http://host:443` cannot ride the credentials of an `https` config,
+/// and the host comparison is ASCII-case-insensitive (the `url` crate lowercases
+/// hosts at parse time). Any parse failure fails closed (no credentials).
+fn targets_configured_host(url: &str, cfg: &Config) -> bool {
+    let base = cfg.api_base_url();
+    match (reqwest::Url::parse(url), reqwest::Url::parse(&base)) {
+        (Ok(u), Ok(b)) => {
+            u.scheme() == b.scheme()
+                && u.host_str() == b.host_str()
+                && u.port_or_known_default() == b.port_or_known_default()
+        }
+        _ => false,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     cfg: &Config,
@@ -85,10 +104,30 @@ pub async fn run(
     let method_upper = method.to_uppercase();
 
     // Full URLs pass through; relative paths get the API base prepended.
-    let url = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+    let is_absolute = endpoint.starts_with("http://") || endpoint.starts_with("https://");
+    let url = if is_absolute {
         endpoint.to_string()
     } else {
         format!("{}{}", cfg.api_base_url(), normalize_path(endpoint))
+    };
+
+    // Only relative paths and absolute URLs that point at the configured Datadog
+    // host may carry Datadog credentials. An absolute URL to any other host is an
+    // SSRF / credential-exfiltration vector: without this guard, a path like
+    // `https://evil.example/api/v2/api_keys` would match the OAuth-exclusion table
+    // and leak the long-lived API keys to an arbitrary host.
+    let credentials_allowed = !is_absolute || targets_configured_host(&url, cfg);
+
+    // Path used for per-endpoint auth routing. For relative endpoints this is the
+    // normalized API path; for absolute URLs on the Datadog host we use the URL's
+    // path component so the OAuth-exclusion table (client::requires_api_key_fallback)
+    // still applies.
+    let auth_path = if is_absolute {
+        reqwest::Url::parse(&url)
+            .map(|u| u.path().to_string())
+            .unwrap_or_else(|_| normalize_path(endpoint))
+    } else {
+        normalize_path(endpoint)
     };
 
     // POST, PUT, PATCH carry a body; GET/HEAD/DELETE use query params.
@@ -134,14 +173,22 @@ pub async fn run(
         .map_err(|_| anyhow::anyhow!("unsupported HTTP method: {method}"))?;
     let mut req = client.request(method_val, &url);
 
-    if let Some(token) = &cfg.access_token {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-        req = req
-            .header("DD-API-KEY", api_key.as_str())
-            .header("DD-APPLICATION-KEY", app_key.as_str());
-    } else {
-        bail!("authentication required: run 'pup auth login' or set DD_API_KEY and DD_APP_KEY");
+    // Reuse the shared auth handler so `pup api` (and extensions that shell out to
+    // it) get the same OAuth-vs-API-key routing as the typed clients, including the
+    // per-endpoint OAuth-exclusion fallback. Skipped for off-host absolute URLs so
+    // Datadog credentials are never sent to an arbitrary host (see above); the
+    // request is sent unauthenticated and the caller may add headers via -H.
+    if credentials_allowed {
+        req = crate::client::apply_auth(req, cfg, &method_upper, &auth_path)?;
+    } else if cfg.access_token.is_some() || cfg.api_key.is_some() {
+        eprintln!(
+            "warning: not sending Datadog credentials to non-Datadog host {:?}; \
+             use -H to add headers explicitly",
+            reqwest::Url::parse(&url)
+                .ok()
+                .and_then(|u| u.host_str().map(str::to_string))
+                .unwrap_or_else(|| url.clone())
+        );
     }
 
     req = req
@@ -198,7 +245,15 @@ pub async fn run(
 
     if !silent && !body_bytes.is_empty() {
         if let Ok(json) = serde_json::from_slice::<Value>(&body_bytes) {
-            println!("{}", serde_json::to_string_pretty(&json)?);
+            // Render through the shared formatter so `--output`/agent mode are
+            // honored, matching every other pup command.
+            crate::formatter::format_and_print(
+                &json,
+                &cfg.output_format,
+                cfg.agent_mode,
+                None,
+                cfg.jq.as_deref(),
+            )?;
         } else {
             print!("{}", String::from_utf8_lossy(&body_bytes));
         }
@@ -521,5 +576,300 @@ mod tests {
         .await;
         assert!(result.is_err(), "expected error for malformed field");
         cleanup_env();
+    }
+
+    /// `pup api -o table` must render through the shared formatter without error,
+    /// proving the output now honors cfg.output_format instead of always JSON.
+    #[tokio::test]
+    async fn test_api_table_output() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.output_format = crate::config::OutputFormat::Table;
+        let _mock = server
+            .mock("GET", "/api/v2/monitors")
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"[{"id":1,"name":"Test"}]"#)
+            .create_async()
+            .await;
+
+        let result = super::run(
+            &cfg,
+            "v2/monitors",
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            false,
+            false,
+        )
+        .await;
+        assert!(result.is_ok(), "api GET table failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    /// OAuth-excluded endpoints (e.g. GET /api/v2/api_keys) must use API-key auth
+    /// even when a bearer token is present. This exercises the reuse of
+    /// client::apply_auth's per-endpoint fallback table.
+    #[tokio::test]
+    async fn test_api_oauth_excluded_uses_api_keys() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        // Both a bearer token AND API keys are configured; the excluded endpoint
+        // must prefer the API keys.
+        cfg.access_token = Some("bearer-token".into());
+        let _mock = server
+            .mock("GET", "/api/v2/api_keys")
+            .match_query(mockito::Matcher::Any)
+            .match_header("DD-API-KEY", "test-api-key")
+            .match_header("DD-APPLICATION-KEY", "test-app-key")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::run(
+            &cfg,
+            "v2/api_keys",
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "expected API-key auth on OAuth-excluded endpoint: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    /// An absolute http(s):// endpoint must still consult the OAuth-exclusion
+    /// table via its URL path — exercising the `is_absolute` auth_path branch.
+    #[tokio::test]
+    async fn test_api_absolute_url_oauth_excluded_uses_api_keys() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.access_token = Some("bearer-token".into());
+        let _mock = server
+            .mock("GET", "/api/v2/api_keys")
+            .match_query(mockito::Matcher::Any)
+            .match_header("DD-API-KEY", "test-api-key")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        // Pass the fully-qualified URL, not a relative path.
+        let absolute = format!("{}/api/v2/api_keys", server.url());
+        let result = super::run(
+            &cfg,
+            &absolute,
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "expected API-key auth on absolute OAuth-excluded URL: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    /// `targets_configured_host` is the credential-exfiltration guard: only the
+    /// configured Datadog host (same host + effective port) is a match.
+    #[test]
+    fn test_targets_configured_host() {
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        std::env::remove_var("PUP_MOCK_SERVER");
+        let cfg = Config {
+            api_key: Some("k".into()),
+            app_key: Some("a".into()),
+            access_token: None,
+            site: "datadoghq.com".into(),
+            site_explicit: true,
+            org: None,
+            output_format: crate::config::OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+            jq: None,
+        };
+        assert!(targets_configured_host(
+            "https://api.datadoghq.com/api/v2/monitors",
+            &cfg
+        ));
+        // Host comparison is ASCII-case-insensitive (url crate lowercases hosts).
+        assert!(targets_configured_host(
+            "https://API.DATADOGHQ.COM/api/v2/monitors",
+            &cfg
+        ));
+        // Different host: not a match.
+        assert!(!targets_configured_host(
+            "https://evil.example/api/v2/api_keys",
+            &cfg
+        ));
+        // userinfo `@` trick — real host is evil.example: not a match.
+        assert!(!targets_configured_host(
+            "https://api.datadoghq.com@evil.example/api/v2/api_keys",
+            &cfg
+        ));
+        // Same host, plain http (default port 80): not a match (no downgrade).
+        assert!(!targets_configured_host(
+            "http://api.datadoghq.com/api/v2/monitors",
+            &cfg
+        ));
+        // Same host, http but port 443: scheme still differs, so not a match —
+        // credentials must never travel cleartext.
+        assert!(!targets_configured_host(
+            "http://api.datadoghq.com:443/api/v2/monitors",
+            &cfg
+        ));
+
+        // Custom site: the configured host changes accordingly.
+        let eu = Config {
+            site: "datadoghq.eu".into(),
+            ..cfg
+        };
+        assert!(targets_configured_host(
+            "https://api.datadoghq.eu/api/v2/monitors",
+            &eu
+        ));
+        // Cross-region: US host is off-host for an EU config (region exfil guard).
+        assert!(!targets_configured_host(
+            "https://api.datadoghq.com/api/v2/monitors",
+            &eu
+        ));
+    }
+
+    /// An absolute URL pointing at a non-Datadog host must receive NO Datadog
+    /// credentials, even on an OAuth-excluded path and even with creds configured.
+    #[tokio::test]
+    async fn test_api_offhost_absolute_url_omits_credentials() {
+        let _lock = lock_env().await;
+        // Configure for the real Datadog host, not the mock, so the mock URL is
+        // treated as a different (off-Datadog) host.
+        std::env::remove_var("PUP_MOCK_SERVER");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = Config {
+            api_key: Some("test-api-key".into()),
+            app_key: Some("test-app-key".into()),
+            access_token: Some("bearer-token".into()),
+            site: "datadoghq.com".into(),
+            site_explicit: true,
+            org: None,
+            output_format: crate::config::OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+            jq: None,
+        };
+        let _mock = server
+            .mock("GET", "/api/v2/api_keys")
+            .match_query(mockito::Matcher::Any)
+            .match_header("authorization", mockito::Matcher::Missing)
+            .match_header("DD-API-KEY", mockito::Matcher::Missing)
+            .match_header("DD-APPLICATION-KEY", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        // OAuth-excluded path on a non-Datadog host: must NOT leak the API keys.
+        let absolute = format!("{}/api/v2/api_keys", server.url());
+        let result = super::run(
+            &cfg,
+            &absolute,
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "off-host request should succeed unauthenticated: {:?}",
+            result.err()
+        );
+        std::env::remove_var("PUP_MOCK_SERVER");
+    }
+
+    /// OAuth-only users (bearer token, no API keys) must not leak the bearer token
+    /// to an off-Datadog host either.
+    #[tokio::test]
+    async fn test_api_offhost_bearer_only_omits_token() {
+        let _lock = lock_env().await;
+        std::env::remove_var("PUP_MOCK_SERVER");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: Some("bearer-token".into()),
+            site: "datadoghq.com".into(),
+            site_explicit: true,
+            org: None,
+            output_format: crate::config::OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+            jq: None,
+        };
+        let _mock = server
+            .mock("GET", "/api/v2/monitors")
+            .match_query(mockito::Matcher::Any)
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"[]"#)
+            .create_async()
+            .await;
+
+        let absolute = format!("{}/api/v2/monitors", server.url());
+        let result = super::run(
+            &cfg,
+            &absolute,
+            "GET",
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "off-host bearer-only request should omit the token: {:?}",
+            result.err()
+        );
+        std::env::remove_var("PUP_MOCK_SERVER");
     }
 }

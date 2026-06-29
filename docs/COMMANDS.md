@@ -82,6 +82,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | workflows | get, create, update, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
 | investigations | list, get, trigger | src/commands/investigations.rs | ✅ |
 | change-requests | create, get, update, create-branch, decisions (update, delete) | src/commands/change_management.rs | ✅ |
+| change-stories | list | src/commands/change_stories.rs | ✅ |
 | app-builder | list, get, create, update, delete, delete-batch, publish, unpublish | src/commands/app_builder.rs | ✅ |
 
 **Note:** RUM command is fully operational. Apps and sessions work completely. Metrics and retention-filters support list/get operations (create/update/delete operations pending due to complex API type structures).
@@ -192,6 +193,7 @@ pup infrastructure hosts list
 - **workflows** - Workflow Automation (get, create, update, delete, run, instances, connections)
 - **investigations** - Bits AI SRE investigations (list, get, trigger)
 - **change-requests** - Change request management (create, get, update, create-branch, decisions)
+- **change-stories** - Change events for a service (deployments, feature flags, config, k8s, watchdog) over time window
 
 ### Organization & Access
 - **users** - User management (list, get, roles)
@@ -219,10 +221,51 @@ Available on all commands:
 --config string      Config file path (default: ~/.config/pup/config.yaml)
 --site string        Datadog site (default: datadoghq.com)
 --output string      Output format: json, yaml, table (default: json)
+--jq string          Filter/transform output with a jq expression (applied before formatting)
 --verbose            Enable verbose logging
 --yes                Skip confirmation prompts
 --read-only          Block all write operations (create, update, delete)
 ```
+
+### `--jq` filtering
+
+`--jq` applies a [jq](https://jqlang.github.io/jq/) expression to the raw JSON response
+**before** output formatting, so it works with every `-o` format:
+
+```bash
+# Extract a single field across all monitors
+pup monitors list --jq '.[].name'
+
+# Select matching records and then format as a table
+pup monitors list --jq '.[] | select(.name | endswith("prod"))' -o table
+
+# Compose with other jq features
+pup logs search --query="status:error" --jq '.data | length'
+```
+
+**Cardinality:** the jq expression may produce a stream of values.
+- 0 outputs → `null`
+- 1 output → the value (unwrapped)
+- 2+ outputs → an array
+
+**Agent mode — filter target:** `--jq` runs on the **raw response payload**, which
+is the value that appears under `.data` in agent mode. Write expressions against the
+payload (e.g. `.[]`), **not** against the envelope (`.data[]` will not work):
+
+```bash
+# correct — targets the payload array
+pup monitors list --agent --jq '.[0]'
+
+# wrong — .data does not exist in the payload --jq sees
+pup monitors list --agent --jq '.data[0]'
+```
+
+**Agent mode — metadata:** when `--jq` is active, `metadata.count` and
+`metadata.truncated` are omitted from the envelope because they describe the
+pre-filter data, not the filtered result.
+
+**Limitation:** commands that print output directly (e.g. `pup auth login`, some runbook
+steps) bypass `format_and_print` and do not honor `--jq`.
 
 ## Recent Enhancements
 

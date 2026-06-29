@@ -2957,7 +2957,7 @@ enum MonitorActions {
         page: i64,
         #[arg(long, default_value_t = 30, help = "Results per page")]
         per_page: i64,
-        #[arg(long, help = "Sort order")]
+        #[arg(long, allow_hyphen_values = true, help = "Sort order")]
         sort: Option<String>,
     },
     /// Delete a monitor
@@ -3070,7 +3070,12 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 10, help = "Number of logs")]
         limit: i32,
-        #[arg(long, default_value = "-timestamp", help = "Sort order")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            default_value = "-timestamp",
+            help = "Sort order"
+        )]
         sort: String,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
@@ -3089,7 +3094,12 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 50, help = "Maximum results")]
         limit: i32,
-        #[arg(long, default_value = "-timestamp", help = "Sort order")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            default_value = "-timestamp",
+            help = "Sort order"
+        )]
         sort: String,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
@@ -3125,6 +3135,7 @@ enum LogActions {
         storage: Option<String>,
         #[arg(
             long,
+            allow_hyphen_values = true,
             default_value = "count",
             help = "Sort groups by aggregation (count,cardinality,pc75,pc90,pc95,pc98,pc99,sum,min,max)"
         )]
@@ -3747,7 +3758,7 @@ enum SyntheticsTestActions {
             help = "Offset from which to start returning results"
         )]
         start: i64,
-        #[arg(long, help = "Sort order")]
+        #[arg(long, allow_hyphen_values = true, help = "Sort order")]
         sort: Option<String>,
     },
     /// Run synthetic tests (requires DD_API_KEY + DD_APP_KEY)
@@ -4079,6 +4090,7 @@ enum DbmSamplesActions {
         limit: i32,
         #[arg(
             long,
+            allow_hyphen_values = true,
             default_value = "desc",
             help = "Sort order: asc, desc, timestamp, or -timestamp"
         )]
@@ -4405,6 +4417,7 @@ enum WidgetActions {
         filter_tags: Option<String>,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort field (title, created_at, modified_at; prefix with - for descending)"
         )]
         sort: Option<String>,
@@ -4553,7 +4566,12 @@ enum InfraHostActions {
     List {
         #[arg(long, help = "Filter hosts")]
         filter: Option<String>,
-        #[arg(long, default_value = "status", help = "Sort field")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            default_value = "status",
+            help = "Sort field"
+        )]
         sort: String,
         #[arg(long, default_value_t = 100, help = "Maximum hosts")]
         count: i64,
@@ -4915,6 +4933,7 @@ enum SecurityRuleActions {
         filter: Option<String>,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort order (name, -name, creation_date, -creation_date, update_date, -update_date, enabled, -enabled, type, -type, highest_severity, -highest_severity, source, -source)"
         )]
         sort: Option<String>,
@@ -4958,6 +4977,7 @@ enum SecuritySignalActions {
         limit: i32,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort order: timestamp (ascending) or -timestamp (descending)"
         )]
         sort: Option<String>,
@@ -5071,6 +5091,7 @@ enum SecuritySuppressionActions {
     List {
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort order (name, -name, start_date, -start_date, expiration_date, -expiration_date, update_date, -update_date, -creation_date, enabled, -enabled)"
         )]
         sort: Option<String>,
@@ -5898,6 +5919,7 @@ enum AppKeyActions {
         /// Sort field (name, -name, created_at, -created_at)
         #[arg(
             long,
+            allow_hyphen_values = true,
             default_value = "",
             help = "Sort field (name, -name, created_at, -created_at)"
         )]
@@ -6384,6 +6406,7 @@ enum CicdFlakyTestActions {
         limit: i64,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort order (fqn, -fqn, first_flaked, -first_flaked, last_flaked, -last_flaked, failure_rate, -failure_rate, pipelines_failed, -pipelines_failed, pipelines_duration_lost, -pipelines_duration_lost)"
         )]
         sort: Option<String>,
@@ -6565,6 +6588,7 @@ enum OnCallMembershipActions {
         page_number: i64,
         #[arg(
             long,
+            allow_hyphen_values = true,
             default_value = "name",
             help = "Sort: name, -name, email, -email, handle, -handle, manager_name, -manager_name"
         )]
@@ -7893,6 +7917,7 @@ enum CostCcmCustomCostsActions {
         status: Option<String>,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort key (prefix with '-' for descending, e.g. '-created_at')"
         )]
         sort: Option<String>,
@@ -8244,7 +8269,11 @@ enum ModelLabProjectActions {
         filter: Option<String>,
         #[arg(long, help = "Filter by tags (comma-separated)")]
         filter_tags: Option<String>,
-        #[arg(long, help = "Sort field (e.g. name, created_at)")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Sort field (e.g. name, created_at)"
+        )]
         sort: Option<String>,
         #[arg(long)]
         page_size: Option<i64>,
@@ -8295,7 +8324,7 @@ enum ModelLabRunActions {
         pinned_first: bool,
         #[arg(long, default_value_t = false, help = "Include pinned runs")]
         include_pinned: bool,
-        #[arg(long, help = "Sort field")]
+        #[arg(long, allow_hyphen_values = true, help = "Sort field")]
         sort: Option<String>,
         #[arg(long)]
         page_size: Option<i64>,
@@ -9539,6 +9568,7 @@ enum TracesActions {
         limit: i32,
         #[arg(
             long,
+            allow_hyphen_values = true,
             default_value = "-timestamp",
             help = "Sort order: timestamp or -timestamp"
         )]

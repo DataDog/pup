@@ -26,7 +26,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
-| monitors | list, get, delete, search | src/commands/monitors.rs | ✅ |
+| monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
 | dashboards | list, get, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
 | ddsql | table, time-series, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |

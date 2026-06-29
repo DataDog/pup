@@ -2962,6 +2962,23 @@ enum MonitorActions {
     },
     /// Delete a monitor
     Delete { monitor_id: i64 },
+    /// Diff a candidate JSON definition against the live monitor
+    Diff {
+        monitor_id: i64,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
+    },
 }
 
 // ---- MS Teams ----
@@ -11532,6 +11549,14 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 MonitorActions::Delete { monitor_id } => {
                     commands::monitors::delete(&cfg, monitor_id).await?;
+                }
+                MonitorActions::Diff {
+                    monitor_id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::monitors::diff(&cfg, monitor_id, &file, &only, &ignore).await?;
                 }
             }
         }

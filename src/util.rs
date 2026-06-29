@@ -1,6 +1,8 @@
 use anyhow::{bail, Result};
 use chrono::Utc;
 use regex::Regex;
+use serde::Serialize;
+use serde_json::Value;
 
 /// Parses a relative duration string like "1h", "30m", "7d" into milliseconds.
 ///
@@ -134,6 +136,157 @@ pub fn read_json_file<T: serde::de::DeserializeOwned>(path: &str) -> Result<T> {
         .map_err(|e| anyhow::anyhow!("failed to read file {path:?}: {e}"))?;
     serde_json::from_str(&contents)
         .map_err(|e| anyhow::anyhow!("failed to parse JSON from {path:?}: {e}"))
+}
+
+// ---- JSON diff helpers ----
+
+/// Read-only server-managed fields that are stripped before diffing a monitor.
+pub const READONLY_MONITOR_FIELDS: &[&str] = &[
+    "id",
+    "created",
+    "created_at",
+    "modified",
+    "deleted",
+    "overall_state",
+    "overall_state_modified",
+    "creator",
+    "org_id",
+    "matching_downtimes",
+];
+
+/// The type of change in a [`DiffEntry`].
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChangeKind {
+    /// Field is present in the candidate but not in the live monitor.
+    Added,
+    /// Field is present in the live monitor but not in the candidate.
+    Removed,
+    /// Field is present in both but with different values.
+    Modified,
+}
+
+/// A single change record produced by [`diff_json`].
+#[derive(Debug, Serialize, PartialEq)]
+pub struct DiffEntry {
+    /// Dot-notation path to the changed field (e.g. `"options.thresholds.critical"`).
+    pub path: String,
+    /// Type of change.
+    pub change: ChangeKind,
+    /// Value in `before` (live). `None` for [`ChangeKind::Added`] entries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<Value>,
+    /// Value in `after` (candidate). `None` for [`ChangeKind::Removed`] entries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<Value>,
+}
+
+/// Remove `readonly` keys at the top level and recursively drop `null`-valued
+/// keys so that absent fields and explicit `null`s compare equal.
+pub fn normalize_for_diff(v: &mut Value, readonly: &[&str]) {
+    if let Value::Object(map) = v {
+        for key in readonly {
+            map.remove(*key);
+        }
+        let keys: Vec<String> = map.keys().cloned().collect();
+        for key in keys {
+            if map[&key].is_null() {
+                map.remove(&key);
+            } else {
+                normalize_for_diff(map.get_mut(&key).unwrap(), &[]);
+            }
+        }
+    }
+}
+
+/// Recursively compare `before` and `after` as `serde_json::Value`s, building
+/// dot-notation change records. Objects recurse; scalars and arrays compare as
+/// whole values. Returns entries sorted by path for deterministic output.
+pub fn diff_json(before: &Value, after: &Value) -> Vec<DiffEntry> {
+    let mut entries = Vec::new();
+    diff_json_inner(before, after, String::new(), &mut entries);
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    entries
+}
+
+fn diff_json_inner(before: &Value, after: &Value, prefix: String, out: &mut Vec<DiffEntry>) {
+    match (before, after) {
+        (Value::Object(b_map), Value::Object(a_map)) => {
+            // Union of all keys across both objects
+            let mut keys: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+            for k in b_map.keys() {
+                keys.insert(k.as_str());
+            }
+            for k in a_map.keys() {
+                keys.insert(k.as_str());
+            }
+            for key in keys {
+                let child_path = if prefix.is_empty() {
+                    key.to_string()
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                match (b_map.get(key), a_map.get(key)) {
+                    (Some(b_val), Some(a_val)) => {
+                        diff_json_inner(b_val, a_val, child_path, out);
+                    }
+                    (None, Some(a_val)) => out.push(DiffEntry {
+                        path: child_path,
+                        change: ChangeKind::Added,
+                        before: None,
+                        after: Some(a_val.clone()),
+                    }),
+                    (Some(b_val), None) => out.push(DiffEntry {
+                        path: child_path,
+                        change: ChangeKind::Removed,
+                        before: Some(b_val.clone()),
+                        after: None,
+                    }),
+                    (None, None) => unreachable!(),
+                }
+            }
+        }
+        _ => {
+            if before != after {
+                out.push(DiffEntry {
+                    path: prefix,
+                    change: ChangeKind::Modified,
+                    before: Some(before.clone()),
+                    after: Some(after.clone()),
+                });
+            }
+        }
+    }
+}
+
+/// Filter a list of [`DiffEntry`]s by path prefix.
+///
+/// - If `only` is non-empty, keep only entries whose path equals or starts
+///   with one of the `only` values (prefix match: `"options.thresholds"` matches
+///   `"options.thresholds"` and `"options.thresholds.critical"`).
+/// - Drop entries whose path equals or starts with any value in `ignore`.
+/// - Empty slices are no-ops.
+pub fn scope_diff(entries: Vec<DiffEntry>, only: &[String], ignore: &[String]) -> Vec<DiffEntry> {
+    // Returns true when `path` equals `filter` exactly or is a sub-path of it
+    // (i.e. starts with `filter.`). The dot-suffix check prevents "option" from
+    // accidentally matching "options.thresholds".
+    fn path_matches(path: &str, filter: &str) -> bool {
+        path == filter
+            || (path.starts_with(filter) && path.as_bytes().get(filter.len()) == Some(&b'.'))
+    }
+
+    entries
+        .into_iter()
+        .filter(|e| {
+            if !only.is_empty() && !only.iter().any(|f| path_matches(&e.path, f)) {
+                return false;
+            }
+            if !ignore.is_empty() && ignore.iter().any(|f| path_matches(&e.path, f)) {
+                return false;
+            }
+            true
+        })
+        .collect()
 }
 
 /// Parses a UUID string, returning a descriptive error if invalid.
@@ -573,5 +726,192 @@ mod tests {
     fn test_parse_compute_rejects_invalid_count_metric() {
         let err = parse_compute_raw("count(@duration)").unwrap_err();
         assert!(err.to_string().contains("does not accept a field"));
+    }
+
+    // ---- diff_json ----
+
+    #[test]
+    fn test_diff_json_identical() {
+        let v: Value = serde_json::json!({"name": "cpu", "query": "avg:system.cpu.user{*} > 90"});
+        assert!(diff_json(&v, &v).is_empty());
+    }
+
+    #[test]
+    fn test_diff_json_modified_scalar() {
+        let before = serde_json::json!({"options": {"thresholds": {"critical": 90}}});
+        let after = serde_json::json!({"options": {"thresholds": {"critical": 95}}});
+        let entries = diff_json(&before, &after);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "options.thresholds.critical");
+        assert_eq!(entries[0].change, ChangeKind::Modified);
+        assert_eq!(entries[0].before, Some(serde_json::json!(90)));
+        assert_eq!(entries[0].after, Some(serde_json::json!(95)));
+    }
+
+    #[test]
+    fn test_diff_json_added_field() {
+        let before = serde_json::json!({"name": "cpu"});
+        let after = serde_json::json!({"name": "cpu", "message": "alert!"});
+        let entries = diff_json(&before, &after);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "message");
+        assert_eq!(entries[0].change, ChangeKind::Added);
+        assert_eq!(entries[0].before, None);
+        assert_eq!(entries[0].after, Some(serde_json::json!("alert!")));
+    }
+
+    #[test]
+    fn test_diff_json_removed_field() {
+        let before = serde_json::json!({"name": "cpu", "message": "alert!"});
+        let after = serde_json::json!({"name": "cpu"});
+        let entries = diff_json(&before, &after);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "message");
+        assert_eq!(entries[0].change, ChangeKind::Removed);
+        assert_eq!(entries[0].before, Some(serde_json::json!("alert!")));
+        assert_eq!(entries[0].after, None);
+    }
+
+    #[test]
+    fn test_diff_json_sorted_paths() {
+        let before = serde_json::json!({"z": 1, "a": 1, "m": 1});
+        let after = serde_json::json!({"z": 2, "a": 2, "m": 2});
+        let entries = diff_json(&before, &after);
+        let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths, vec!["a", "m", "z"]);
+    }
+
+    #[test]
+    fn test_diff_json_array_compared_whole() {
+        let before = serde_json::json!({"tags": ["env:prod", "team:backend"]});
+        let after = serde_json::json!({"tags": ["team:backend", "env:prod"]});
+        let entries = diff_json(&before, &after);
+        // Arrays are compared as whole values; reordered tags → modified
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "tags");
+        assert_eq!(entries[0].change, ChangeKind::Modified);
+    }
+
+    // ---- normalize_for_diff ----
+
+    #[test]
+    fn test_normalize_strips_readonly_fields() {
+        let mut v = serde_json::json!({
+            "id": 12345,
+            "name": "cpu",
+            "created": "2024-01-01",
+            "overall_state": "OK",
+            "org_id": 999,
+        });
+        normalize_for_diff(&mut v, READONLY_MONITOR_FIELDS);
+        let obj = v.as_object().unwrap();
+        assert!(!obj.contains_key("id"));
+        assert!(!obj.contains_key("created"));
+        assert!(!obj.contains_key("overall_state"));
+        assert!(!obj.contains_key("org_id"));
+        assert!(obj.contains_key("name"));
+    }
+
+    #[test]
+    fn test_normalize_drops_null_values() {
+        let mut v = serde_json::json!({"name": "cpu", "message": null, "priority": null});
+        normalize_for_diff(&mut v, &[]);
+        let obj = v.as_object().unwrap();
+        assert!(!obj.contains_key("message"));
+        assert!(!obj.contains_key("priority"));
+        assert!(obj.contains_key("name"));
+    }
+
+    #[test]
+    fn test_normalize_absent_and_null_compare_equal() {
+        // After normalizing, absent and null fields are both gone → no diff entry
+        let mut live = serde_json::json!({"name": "cpu", "priority": null});
+        let mut candidate = serde_json::json!({"name": "cpu"});
+        normalize_for_diff(&mut live, &[]);
+        normalize_for_diff(&mut candidate, &[]);
+        assert!(diff_json(&live, &candidate).is_empty());
+    }
+
+    // ---- scope_diff ----
+
+    // Shorthand for building a Modified DiffEntry in scope_diff tests.
+    fn modified(path: &str) -> DiffEntry {
+        DiffEntry {
+            path: path.into(),
+            change: ChangeKind::Modified,
+            before: Some(serde_json::json!("a")),
+            after: Some(serde_json::json!("b")),
+        }
+    }
+
+    #[test]
+    fn test_scope_diff_empty_filters_noop() {
+        let entries = vec![modified("name"), modified("options.thresholds.critical")];
+        assert_eq!(scope_diff(entries, &[], &[]).len(), 2);
+    }
+
+    #[test]
+    fn test_scope_diff_only_prefix() {
+        let entries = vec![
+            modified("name"),
+            modified("options.thresholds.critical"),
+            modified("options.thresholds.warning"),
+        ];
+        let only = vec!["options.thresholds".to_string()];
+        let result = scope_diff(entries, &only, &[]);
+        assert_eq!(result.len(), 2);
+        assert!(result
+            .iter()
+            .all(|e| e.path.starts_with("options.thresholds")));
+    }
+
+    #[test]
+    fn test_scope_diff_only_exact_match() {
+        let entries = vec![modified("options"), modified("name")];
+        let only = vec!["options".to_string()];
+        let result = scope_diff(entries, &only, &[]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "options");
+    }
+
+    #[test]
+    fn test_scope_diff_only_partial_prefix_does_not_match() {
+        // "option" (no trailing dot) must NOT match "options.thresholds.critical".
+        // The path_matches helper uses a dot-boundary check to prevent this.
+        let entries = vec![modified("options.thresholds.critical")];
+        let only = vec!["option".to_string()];
+        assert!(scope_diff(entries, &only, &[]).is_empty());
+    }
+
+    #[test]
+    fn test_scope_diff_ignore() {
+        let entries = vec![modified("message"), modified("name")];
+        let ignore = vec!["message".to_string()];
+        let result = scope_diff(entries, &[], &ignore);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "name");
+    }
+
+    #[test]
+    fn test_scope_diff_ignore_prefix() {
+        let entries = vec![modified("options.thresholds.critical"), modified("name")];
+        let ignore = vec!["options".to_string()];
+        let result = scope_diff(entries, &[], &ignore);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "name");
+    }
+
+    #[test]
+    fn test_scope_diff_only_and_ignore_combined() {
+        let entries = vec![
+            modified("options.thresholds.critical"),
+            modified("options.thresholds.warning"),
+            modified("name"),
+        ];
+        let only = vec!["options.thresholds".to_string()];
+        let ignore = vec!["options.thresholds.warning".to_string()];
+        let result = scope_diff(entries, &only, &ignore);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "options.thresholds.critical");
     }
 }

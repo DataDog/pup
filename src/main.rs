@@ -3070,7 +3070,12 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 10, help = "Number of logs")]
         limit: i32,
-        #[arg(long, allow_hyphen_values = true, default_value = "-timestamp", help = "Sort order")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            default_value = "-timestamp",
+            help = "Sort order"
+        )]
         sort: String,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
@@ -3089,7 +3094,12 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 50, help = "Maximum results")]
         limit: i32,
-        #[arg(long, allow_hyphen_values = true, default_value = "-timestamp", help = "Sort order")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            default_value = "-timestamp",
+            help = "Sort order"
+        )]
         sort: String,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
@@ -4556,7 +4566,12 @@ enum InfraHostActions {
     List {
         #[arg(long, help = "Filter hosts")]
         filter: Option<String>,
-        #[arg(long, allow_hyphen_values = true, default_value = "status", help = "Sort field")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            default_value = "status",
+            help = "Sort field"
+        )]
         sort: String,
         #[arg(long, default_value_t = 100, help = "Maximum hosts")]
         count: i64,
@@ -8254,7 +8269,11 @@ enum ModelLabProjectActions {
         filter: Option<String>,
         #[arg(long, help = "Filter by tags (comma-separated)")]
         filter_tags: Option<String>,
-        #[arg(long, allow_hyphen_values = true, help = "Sort field (e.g. name, created_at)")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Sort field (e.g. name, created_at)"
+        )]
         sort: Option<String>,
         #[arg(long)]
         page_size: Option<i64>,

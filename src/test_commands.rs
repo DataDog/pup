@@ -434,15 +434,8 @@ fn test_cicd_flaky_tests_search_sort_accepts_hyphen_value() {
 fn test_cicd_flaky_tests_search_sort_accepts_positive_value() {
     use clap::Parser;
 
-    let cli = crate::Cli::try_parse_from([
-        "pup",
-        "cicd",
-        "flaky-tests",
-        "search",
-        "--sort",
-        "fqn",
-    ])
-    .expect("cicd flaky-tests search --sort fqn should parse");
+    let cli = crate::Cli::try_parse_from(["pup", "cicd", "flaky-tests", "search", "--sort", "fqn"])
+        .expect("cicd flaky-tests search --sort fqn should parse");
 
     match cli.command {
         crate::Commands::Cicd { action } => match action {
@@ -462,14 +455,8 @@ fn test_cicd_flaky_tests_search_sort_accepts_positive_value() {
 fn test_logs_list_sort_accepts_hyphen_timestamp() {
     use clap::Parser;
 
-    let cli = crate::Cli::try_parse_from([
-        "pup",
-        "logs",
-        "list",
-        "--sort",
-        "-timestamp",
-    ])
-    .expect("logs list --sort -timestamp should parse");
+    let cli = crate::Cli::try_parse_from(["pup", "logs", "list", "--sort", "-timestamp"])
+        .expect("logs list --sort -timestamp should parse");
 
     match cli.command {
         crate::Commands::Logs { action } => match action {
@@ -512,15 +499,8 @@ fn test_traces_search_sort_accepts_hyphen_timestamp() {
 fn test_security_rules_list_sort_accepts_hyphen_name() {
     use clap::Parser;
 
-    let cli = crate::Cli::try_parse_from([
-        "pup",
-        "security",
-        "rules",
-        "list",
-        "--sort",
-        "-name",
-    ])
-    .expect("security rules list --sort -name should parse");
+    let cli = crate::Cli::try_parse_from(["pup", "security", "rules", "list", "--sort", "-name"])
+        .expect("security rules list --sort -name should parse");
 
     match cli.command {
         crate::Commands::Security { action } => match action {

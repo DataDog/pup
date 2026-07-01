@@ -3068,8 +3068,12 @@ enum LogActions {
         limit: i32,
         #[arg(long, help = "Sort order: asc or desc", default_value = "desc")]
         sort: String,
-        #[arg(long, help = "Comma-separated log indexes")]
-        index: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Log indexes to aggregate, comma-separated or repeated"
+        )]
+        index: Vec<String>,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
     },
@@ -3096,6 +3100,12 @@ enum LogActions {
         sort: String,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Log indexes to search, comma-separated or repeated"
+        )]
+        index: Vec<String>,
     },
     /// Query logs (v2 API)
     Query {
@@ -3120,6 +3130,12 @@ enum LogActions {
         sort: String,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Log indexes to search, comma-separated or repeated"
+        )]
+        index: Vec<String>,
         #[arg(long, help = "Timezone for timestamps")]
         timezone: Option<String>,
     },
@@ -3150,6 +3166,12 @@ enum LogActions {
         limit: i32,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Log indexes to search, comma-separated or repeated"
+        )]
+        index: Vec<String>,
         #[arg(
             long,
             allow_hyphen_values = true,
@@ -11570,10 +11592,22 @@ async fn main_inner() -> anyhow::Result<()> {
                     to,
                     limit,
                     sort,
-                    index: _,
+                    index,
                     storage,
                 } => {
-                    commands::logs::search(&cfg, query, from, to, limit, sort, storage).await?;
+                    commands::logs::search(
+                        &cfg,
+                        commands::logs::SearchArgs {
+                            query,
+                            from,
+                            to,
+                            limit,
+                            sort,
+                            storage,
+                            index,
+                        },
+                    )
+                    .await?;
                 }
                 LogActions::List {
                     query,
@@ -11582,8 +11616,21 @@ async fn main_inner() -> anyhow::Result<()> {
                     limit,
                     sort,
                     storage,
+                    index,
                 } => {
-                    commands::logs::list(&cfg, query, from, to, limit, sort, storage).await?;
+                    commands::logs::list(
+                        &cfg,
+                        commands::logs::SearchArgs {
+                            query,
+                            from,
+                            to,
+                            limit,
+                            sort,
+                            storage,
+                            index,
+                        },
+                    )
+                    .await?;
                 }
                 LogActions::Query {
                     query,
@@ -11592,9 +11639,22 @@ async fn main_inner() -> anyhow::Result<()> {
                     limit,
                     sort,
                     storage,
+                    index,
                     timezone: _,
                 } => {
-                    commands::logs::query(&cfg, query, from, to, limit, sort, storage).await?;
+                    commands::logs::query(
+                        &cfg,
+                        commands::logs::SearchArgs {
+                            query,
+                            from,
+                            to,
+                            limit,
+                            sort,
+                            storage,
+                            index,
+                        },
+                    )
+                    .await?;
                 }
                 LogActions::Aggregate {
                     query,
@@ -11604,6 +11664,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     group_by,
                     limit,
                     storage,
+                    index,
                     sort,
                 } => {
                     commands::logs::aggregate(
@@ -11622,6 +11683,7 @@ async fn main_inner() -> anyhow::Result<()> {
                                 })
                                 .unwrap_or_default(),
                             limit,
+                            index,
                             storage,
                             sort,
                         },

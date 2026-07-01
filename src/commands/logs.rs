@@ -19,8 +19,19 @@ pub struct AggregateArgs {
     pub compute: Vec<String>,
     pub group_by: Vec<String>,
     pub limit: i32,
+    pub index: Vec<String>,
     pub storage: Option<String>,
     pub sort: String,
+}
+
+pub struct SearchArgs {
+    pub query: String,
+    pub from: String,
+    pub to: String,
+    pub limit: i32,
+    pub sort: String,
+    pub storage: Option<String>,
+    pub index: Vec<String>,
 }
 
 fn normalize_storage_tier(storage: Option<String>) -> Result<Option<String>> {
@@ -120,6 +131,7 @@ fn build_aggregate_body(
     computes: Vec<String>,
     group_bys: Vec<String>,
     limit: i32,
+    index: Vec<String>,
     storage: Option<String>,
     sort: &str,
 ) -> Result<serde_json::Value> {
@@ -130,6 +142,9 @@ fn build_aggregate_body(
         "from": from_ms.to_string(),
         "to": to_ms.to_string()
     });
+    if !index.is_empty() {
+        filter["indexes"] = serde_json::json!(index);
+    }
     if let Some(tier) = storage_tier {
         filter["storage_tier"] = serde_json::Value::String(tier);
     }
@@ -176,15 +191,16 @@ fn parse_logs_sort(sort: &str) -> LogsSort {
     }
 }
 
-pub async fn search(
-    cfg: &Config,
-    query: String,
-    from: String,
-    to: String,
-    limit: i32,
-    sort: String,
-    storage: Option<String>,
-) -> Result<()> {
+pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
+    let SearchArgs {
+        query,
+        from,
+        to,
+        limit,
+        sort,
+        storage,
+        index,
+    } = args;
     let api = crate::make_api!(LogsAPI, cfg);
 
     let from_ms = util::parse_time_to_unix_millis(&from)?;
@@ -196,6 +212,9 @@ pub async fn search(
         .query(query)
         .from(from_ms.to_string())
         .to(to_ms.to_string());
+    if !index.is_empty() {
+        filter = filter.indexes(index);
+    }
     if let Some(tier) = storage_tier {
         filter = filter.storage_tier(tier);
     }
@@ -242,29 +261,13 @@ pub async fn search(
 }
 
 /// Alias for `search` with the same interface.
-pub async fn list(
-    cfg: &Config,
-    query: String,
-    from: String,
-    to: String,
-    limit: i32,
-    sort: String,
-    storage: Option<String>,
-) -> Result<()> {
-    search(cfg, query, from, to, limit, sort, storage).await
+pub async fn list(cfg: &Config, args: SearchArgs) -> Result<()> {
+    search(cfg, args).await
 }
 
 /// Alias for `search` with the same interface.
-pub async fn query(
-    cfg: &Config,
-    query: String,
-    from: String,
-    to: String,
-    limit: i32,
-    sort: String,
-    storage: Option<String>,
-) -> Result<()> {
-    search(cfg, query, from, to, limit, sort, storage).await
+pub async fn query(cfg: &Config, args: SearchArgs) -> Result<()> {
+    search(cfg, args).await
 }
 
 pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
@@ -275,6 +278,7 @@ pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
         mut compute,
         group_by,
         limit,
+        index,
         storage,
         sort,
     } = args;
@@ -284,7 +288,7 @@ pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
     let from_ms = util::parse_time_to_unix_millis(&from)?;
     let to_ms = util::parse_time_to_unix_millis(&to)?;
     let body = build_aggregate_body(
-        query, from_ms, to_ms, compute, group_by, limit, storage, &sort,
+        query, from_ms, to_ms, compute, group_by, limit, index, storage, &sort,
     )?;
     let data = client::raw_post(cfg, "/api/v2/logs/analytics/aggregate", body).await?;
     formatter::output(cfg, &data)?;
@@ -407,6 +411,18 @@ mod tests {
 
     use super::*;
 
+    fn search_args(query: &str, storage: Option<String>, index: Vec<String>) -> SearchArgs {
+        SearchArgs {
+            query: query.into(),
+            from: "1h".into(),
+            to: "now".into(),
+            limit: 10,
+            sort: "-timestamp".into(),
+            storage,
+            index,
+        }
+    }
+
     #[test]
     fn test_normalize_storage_tier_alias() {
         let tier = normalize_storage_tier(Some("online_archives".into())).unwrap();
@@ -422,6 +438,7 @@ mod tests {
             vec!["avg(@duration)".into()],
             vec!["service".into()],
             3,
+            vec![],
             Some("flex".into()),
             "count",
         )
@@ -462,6 +479,7 @@ mod tests {
             vec!["count".into()],
             vec![],
             10,
+            vec![],
             None,
             "count",
         )
@@ -495,6 +513,7 @@ mod tests {
             ],
             vec![],
             10,
+            vec![],
             None,
             "count",
         )
@@ -526,6 +545,7 @@ mod tests {
             vec!["count".into()],
             vec!["service".into(), "status".into()],
             5,
+            vec![],
             None,
             "count",
         )
@@ -585,6 +605,7 @@ mod tests {
             vec!["count".into()],
             vec!["host".into()],
             10,
+            vec![],
             None,
             "pc95",
         )
@@ -609,12 +630,52 @@ mod tests {
             vec!["count".into()],
             vec![],
             10,
+            vec![],
             None,
             "pc95",
         )
         .unwrap();
 
         assert!(body.get("group_by").is_none());
+    }
+
+    #[test]
+    fn test_build_aggregate_body_omits_empty_indexes() {
+        let body = build_aggregate_body(
+            "*".into(),
+            1,
+            2,
+            vec!["count".into()],
+            vec![],
+            10,
+            vec![],
+            None,
+            "count",
+        )
+        .unwrap();
+
+        assert!(body["filter"].get("indexes").is_none());
+    }
+
+    #[test]
+    fn test_build_aggregate_body_includes_indexes() {
+        let body = build_aggregate_body(
+            "*".into(),
+            1,
+            2,
+            vec!["count".into()],
+            vec![],
+            10,
+            vec!["main".into(), "web".into()],
+            None,
+            "count",
+        )
+        .unwrap();
+
+        assert_eq!(
+            body["filter"]["indexes"],
+            serde_json::json!(["main", "web"])
+        );
     }
 
     #[test]
@@ -658,17 +719,38 @@ mod tests {
         let cfg = test_config(&server.url());
         let _mock = mock_any(&mut server, "POST", r#"{"data": [], "meta": {"page": {}}}"#).await;
 
+        let result = super::search(&cfg, search_args("status:error", None, vec![])).await;
+        assert!(result.is_ok(), "logs search failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_search_with_indexes() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .match_body(mockito::Matcher::Regex(
+                r#""indexes":\["main","web"\]"#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": [], "meta": {"page": {}}}"#)
+            .create_async()
+            .await;
+
         let result = super::search(
             &cfg,
-            "status:error".into(),
-            "1h".into(),
-            "now".into(),
-            10,
-            "-timestamp".into(),
-            None,
+            search_args("*", None, vec!["main".into(), "web".into()]),
         )
         .await;
-        assert!(result.is_ok(), "logs search failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "logs search with indexes failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 
@@ -694,16 +776,7 @@ mod tests {
 
         let _mock = mock_any(&mut server, "POST", r#"{"data": []}"#).await;
 
-        let result = super::search(
-            &cfg,
-            "status:error".into(),
-            "1h".into(),
-            "now".into(),
-            10,
-            "-timestamp".into(),
-            None,
-        )
-        .await;
+        let result = super::search(&cfg, search_args("status:error", None, vec![])).await;
         assert!(result.is_ok(), "logs search should work with OAuth");
         cleanup_env();
     }
@@ -724,6 +797,7 @@ mod tests {
                 compute: vec!["count".into()],
                 group_by: vec![],
                 limit: 10,
+                index: vec![],
                 storage: None,
                 sort: "count".into(),
             },
@@ -751,6 +825,7 @@ mod tests {
                 ),
                 group_by: vec!["service".into(), "status".into()],
                 limit: 10,
+                index: vec![],
                 storage: None,
                 sort: "count".into(),
             },
@@ -771,16 +846,7 @@ mod tests {
         let cfg = test_config(&server.url());
         let _mock = mock_any(&mut server, "POST", r#"{"data": [], "meta": {"page": {}}}"#).await;
 
-        let result = super::search(
-            &cfg,
-            "*".into(),
-            "1h".into(),
-            "now".into(),
-            10,
-            "-timestamp".into(),
-            Some("flex".into()),
-        )
-        .await;
+        let result = super::search(&cfg, search_args("*", Some("flex".into()), vec![])).await;
         assert!(
             result.is_ok(),
             "logs search with flex failed: {:?}",
@@ -798,12 +864,7 @@ mod tests {
 
         let result = super::search(
             &cfg,
-            "*".into(),
-            "1h".into(),
-            "now".into(),
-            10,
-            "-timestamp".into(),
-            Some("online-archives".into()),
+            search_args("*", Some("online-archives".into()), vec![]),
         )
         .await;
         assert!(
@@ -820,16 +881,8 @@ mod tests {
         let server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
-        let result = super::search(
-            &cfg,
-            "*".into(),
-            "1h".into(),
-            "now".into(),
-            10,
-            "-timestamp".into(),
-            Some("invalid-tier".into()),
-        )
-        .await;
+        let result =
+            super::search(&cfg, search_args("*", Some("invalid-tier".into()), vec![])).await;
         assert!(
             result.is_err(),
             "logs search with invalid storage tier should fail"
@@ -860,6 +913,7 @@ mod tests {
                 compute: vec!["count".into()],
                 group_by: vec![],
                 limit: 10,
+                index: vec![],
                 storage: Some("flex".into()),
                 sort: "count".into(),
             },

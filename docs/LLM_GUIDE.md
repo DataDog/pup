@@ -130,6 +130,9 @@ pup logs aggregate --query="env:prod" --from=30m --compute="percentile(@duration
 
 # Storage tiers
 pup logs search --query="*" --from=30d --storage="flex"
+
+# Specific indexes
+pup logs query --query="*" --index="main,security" --from=1h
 ```
 
 ### Metrics

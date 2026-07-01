@@ -125,6 +125,10 @@ pup logs search \
   --query="service:api" \
   --from="2024-02-04T10:00:00Z" \
   --to="2024-02-04T11:00:00Z"
+
+# Search specific indexes (comma-separated or repeated)
+pup logs query --query="service:api" --index="main,security" --from="1h"
+pup logs query --query="service:api" --index="main" --index="security" --from="1h"
 ```
 
 ### Aggregate Logs
@@ -156,6 +160,14 @@ pup logs aggregate \
   --from="1h" \
   --compute="count,avg(@duration),percentile(@duration, 95)" \
   --group-by="service,status"
+
+# Aggregate a specific index
+pup logs aggregate \
+  --query="service:web-app" \
+  --index="main" \
+  --from="1h" \
+  --compute="count" \
+  --group-by="status"
 ```
 
 ### Search Logs in Specific Storage Tier

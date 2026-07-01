@@ -111,6 +111,7 @@ pup slos get abc-123-def
 ```bash
 pup logs search --query="status:error" --from="1h"
 pup logs search --query="service:api" --from="7d" --storage="flex"
+pup logs query --query="service:api" --index="main,security" --from="1h"
 pup dbm samples search --query="dbm_type:activity service:orders env:prod" --from="1h" --limit=10
 pup metrics search --query="avg:system.cpu.user{*}" --from="1h"
 pup metrics query --query="avg:system.cpu.user{*}" --from="1h"

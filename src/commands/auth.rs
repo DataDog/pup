@@ -6,12 +6,22 @@ use crate::config::Config;
 /// Helper to run a closure with the storage lock held (non-async to avoid holding lock across await).
 fn with_storage<F, R>(f: F) -> Result<R>
 where
-    F: FnOnce(&mut dyn storage::Storage) -> Result<R>,
+    F: FnOnce(&mut dyn storage::Storage) -> Result<R> + Send,
+    R: Send,
 {
-    let guard = storage::get_storage()?;
-    let mut lock = guard.lock().unwrap();
-    let store = lock.as_mut().unwrap();
-    f(&mut **store)
+    // Keep keyring I/O off tokio runtime threads so the keyring crate's
+    // sync wrappers can safely drive async secret-service internals.
+    std::thread::scope(|scope| {
+        let handle = scope.spawn(|| {
+            let guard = storage::get_storage()?;
+            let mut lock = guard.lock().unwrap();
+            let store = lock.as_mut().unwrap();
+            f(&mut **store)
+        });
+        handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("storage worker thread panicked"))?
+    })
 }
 
 /// Parse a token's space-delimited scope claim and return scopes sorted

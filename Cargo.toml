@@ -146,7 +146,7 @@ async-trait = "0.1"
 futures-util = { version = "0.3", default-features = false }
 
 # OS keychain for token storage
-keyring = { version = "3", features = ["apple-native", "linux-native", "windows-native"], optional = true }
+keyring = { version = "3", features = ["apple-native", "async-secret-service", "crypto-rust", "vendored", "linux-native", "windows-native"], optional = true }
 
 # XDG config directory resolution
 dirs = { version = "6", optional = true }

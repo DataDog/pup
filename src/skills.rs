@@ -642,6 +642,17 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         user_extensions: ".pi/agent/extensions",
         uses_agent_md: false,
     },
+    PlatformSpec {
+        name: "devin",
+        aliases: &[],
+        project_skills: ".agents/skills",
+        user_skills: ".agents/skills",
+        project_agents: "",
+        user_agents: "",
+        project_extensions: "",
+        user_extensions: "",
+        uses_agent_md: false,
+    },
 ];
 
 /// CLI-typed selector for `pup skills install <platform>` and `pup skills
@@ -666,6 +677,7 @@ pub enum SkillsPlatform {
     GeminiCode,
     #[clap(alias = "pi-dev")]
     Pi,
+    Devin,
     All,
 }
 
@@ -683,6 +695,7 @@ impl SkillsPlatform {
             SkillsPlatform::Windsurf => "windsurf",
             SkillsPlatform::GeminiCode => "gemini-code",
             SkillsPlatform::Pi => "pi",
+            SkillsPlatform::Devin => "devin",
             SkillsPlatform::All => "all",
         }
     }
@@ -1240,6 +1253,24 @@ mod tests {
     }
 
     #[test]
+    fn test_skills_dir_devin_project_scope() {
+        let root = PathBuf::from("/tmp/test-project");
+        assert_eq!(
+            skills_dir_with_home("devin", None, &root, false, None),
+            Some(root.join(".agents/skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_devin_user_scope() {
+        let home = PathBuf::from("/tmp/fake-home");
+        assert_eq!(
+            skills_dir_with_home("devin", Some(&home), &PathBuf::from("/unused"), true, None),
+            Some(home.join(".agents/skills"))
+        );
+    }
+
+    #[test]
     fn test_skills_dir_unknown_returns_none() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(skills_dir_with_home("nope", None, &root, false, None), None);
@@ -1423,6 +1454,16 @@ mod tests {
     }
 
     #[test]
+    fn test_install_path_agent_devin_as_skill() {
+        let root = PathBuf::from("/tmp/test-project");
+        let e = entry("logs", "agent", "");
+        let (path, fmt) = install_path(&e, "devin", &root, None, false).unwrap();
+        assert_eq!(path, root.join(".agents/skills/logs/SKILL.md"));
+        assert_ne!(path, root.join(".agents/skills/logs.md"));
+        assert_eq!(fmt, InstallFormat::SkillMd);
+    }
+
+    #[test]
     fn test_install_path_dir_override() {
         let root = PathBuf::from("/tmp/test-project");
         let e = entry("logs", "agent", "");
@@ -1497,6 +1538,15 @@ mod tests {
             Some("opencode")
         );
         assert_eq!(lookup_platform("pi").map(|p| p.name), Some("pi"));
+    }
+
+    #[test]
+    fn test_lookup_platform_devin() {
+        let spec = lookup_platform("devin").expect("devin must be a known platform");
+        assert_eq!(spec.name, "devin");
+        assert!(spec.aliases.is_empty());
+        assert!(!spec.uses_agent_md);
+        assert!(!spec.is_extension_only());
     }
 
     #[test]

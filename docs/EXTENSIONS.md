@@ -110,6 +110,7 @@ Extensions receive pup's auth credentials via environment variables. This means 
 | `DD_SITE` | Always | Datadog site (e.g., `datadoghq.com`) |
 | `DD_ORG` | Org is specified | Named org session |
 | `PUP_OUTPUT` | Always | Output format (`json`, `table`, `yaml`, `csv`, `tsv`) |
+| `PUP_FILTER` | `--jq` flag is set | The jq expression, verbatim |
 | `PUP_AUTO_APPROVE` | `--yes` flag or agent mode | `true` |
 | `PUP_READ_ONLY` | Read-only mode | `true` |
 | `PUP_AGENT_MODE` | Agent mode | `true` |
@@ -118,7 +119,7 @@ Pup refreshes the OAuth2 token if needed before passing it to the extension, so 
 
 Variables not active in the current session are explicitly removed from the child environment to prevent stale credentials from leaking through the parent shell.
 
-The `PUP_OUTPUT`, `PUP_AGENT_MODE`, `PUP_READ_ONLY`, and `PUP_AUTO_APPROVE` variables are read back by a child `pup` process. So if your extension shells out to `pup` (see below), those nested calls automatically inherit the format and mode the user selected on the parent command.
+The `PUP_OUTPUT`, `PUP_FILTER`, `PUP_AGENT_MODE`, `PUP_READ_ONLY`, and `PUP_AUTO_APPROVE` variables are read back by a child `pup` process. So if your extension shells out to `pup` (see below), those nested calls automatically inherit the format, `--jq` filter, and mode the user selected on the parent command. An extension that prints its own JSON directly — rather than delegating to a nested `pup` call — still needs to read `PUP_FILTER` itself and apply the jq expression if it wants to honor `--jq`.
 
 ### Example: using auth in a Python extension
 

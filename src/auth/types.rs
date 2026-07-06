@@ -61,6 +61,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "ci_visibility_read",
         "cloud_cost_management_read",
         "code_coverage_read",
+        "dora_metrics_read",
         "test_optimization_read",
         "dashboards_read",
         "built_in_features",
@@ -140,6 +141,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         // Cloud Cost Management
         "cloud_cost_management_read",
         "cloud_cost_management_write",
+        "dora_metrics_read",
         "dora_metrics_write",
         "test_optimization_read",
         "test_optimization_write",

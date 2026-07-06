@@ -223,14 +223,34 @@ impl KeychainStorage {
                 .delete_credential()
                 .map_err(|e| anyhow::anyhow!("keychain probe cleanup failed: {e}"))?;
         }
-        // On macOS and Linux, constructing an Entry is sufficient to confirm the
-        // backend is present; avoid a spurious macOS authorization dialog.
-        #[cfg(not(target_os = "windows"))]
+        // On Linux, also perform a read probe so we fail fast when the
+        // Secret Service DBus name is unavailable and can fall back to file
+        // storage instead of erroring later during auth flows.
+        #[cfg(target_os = "linux")]
+        {
+            let entry = keyring::Entry::new(SERVICE_NAME, "__pup_probe__")
+                .map_err(|e| anyhow::anyhow!("keychain not available: {e}"))?;
+            linux_keychain_probe_result(entry.get_password())?;
+        }
+        // On macOS and other non-Windows targets, constructing an Entry is
+        // sufficient to confirm the backend is present; avoid a spurious macOS
+        // authorization dialog.
+        #[cfg(all(not(target_os = "windows"), not(target_os = "linux")))]
         keyring::Entry::new(SERVICE_NAME, "__pup_probe__")
             .map_err(|e| anyhow::anyhow!("keychain not available: {e}"))?;
         Ok(Self {
             cache: Mutex::new(HashMap::new()),
         })
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn linux_keychain_probe_result(
+    probe_result: std::result::Result<String, keyring::Error>,
+) -> Result<()> {
+    match probe_result {
+        Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("keychain not available: {e}")),
     }
 }
 
@@ -702,10 +722,32 @@ fn detect_backend_with(try_keychain: impl Fn() -> Result<KeychainStorage>) -> Bo
     match try_keychain() {
         Ok(ks) => Box::new(ks),
         Err(e) => {
-            eprintln!(
-                "Warning: OS keychain not available ({e}), using file storage (~/.config/pup/)"
-            );
-            Box::new(FileStorage::new().expect("failed to create file storage"))
+            // On Linux, the default backend is Secret Service (DBus). If that is
+            // unavailable, fall back to the kernel keyring (keyutils) which does
+            // not require a desktop session or running daemon.
+            #[cfg(target_os = "linux")]
+            {
+                eprintln!("Warning: Secret Service not available ({e}), trying kernel keyring");
+                keyring::set_default_credential_builder(
+                    keyring::keyutils::default_credential_builder(),
+                );
+                match try_keychain() {
+                    Ok(ks) => Box::new(ks),
+                    Err(e2) => {
+                        eprintln!(
+                            "Warning: kernel keyring also unavailable ({e2}), using file storage (~/.config/pup/)"
+                        );
+                        Box::new(FileStorage::new().expect("failed to create file storage"))
+                    }
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                eprintln!(
+                    "Warning: OS keychain not available ({e}), using file storage (~/.config/pup/)"
+                );
+                Box::new(FileStorage::new().expect("failed to create file storage"))
+            }
         }
     }
 }
@@ -1775,8 +1817,35 @@ mod tests {
 
     // --- detect_backend ---------------------------------------------------------
 
+    #[test]
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+    fn test_linux_keychain_probe_result_accepts_no_entry() {
+        let result = linux_keychain_probe_result(Err(keyring::Error::NoEntry));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+    fn test_linux_keychain_probe_result_rejects_platform_failure() {
+        let err = linux_keychain_probe_result(Err(keyring::Error::PlatformFailure(Box::new(
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "org.freedesktop.DBus.Error.ServiceUnknown",
+            ),
+        ))))
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("keychain not available"));
+        assert!(
+            err.contains("ServiceUnknown"),
+            "expected dbus service error in message, got: {err}"
+        );
+    }
+
     // Exercises the FileStorage fallback when the auto-detect keychain probe fails,
     // without requiring OS-level credential-store mocking.
+    // On Linux this also exercises the kernel-keyring intermediate fallback (which
+    // also fails because the injected probe always returns Err).
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
     fn test_detect_backend_with_probe_failure_falls_back_to_file() {
@@ -1787,6 +1856,30 @@ mod tests {
         let backend = detect_backend_with(|| Err(anyhow::anyhow!("probe failed")));
         std::env::remove_var("PUP_CONFIG_DIR");
         assert_eq!(backend.backend_type(), BackendType::File);
+    }
+
+    // On Linux, when the Secret Service probe fails but kernel keyring succeeds,
+    // the backend should be Keychain (keyutils-backed).
+    #[test]
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+    fn test_detect_backend_with_secret_service_failure_falls_back_to_keyutils() {
+        let _lock = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("detect_keyutils");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::remove_var("DD_TOKEN_STORAGE");
+        let call_count = std::sync::atomic::AtomicU32::new(0);
+        let backend = detect_backend_with(|| {
+            let n = call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n == 0 {
+                // First call: simulate Secret Service unavailable
+                Err(anyhow::anyhow!("secret service unavailable"))
+            } else {
+                // Second call: keyutils backend probe succeeds
+                KeychainStorage::new()
+            }
+        });
+        std::env::remove_var("PUP_CONFIG_DIR");
+        assert_eq!(backend.backend_type(), BackendType::Keychain);
     }
 
     // When DD_TOKEN_STORAGE=keychain is explicitly set but the backend is

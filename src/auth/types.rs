@@ -192,6 +192,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "logs_read_data",
         "logs_read_index_data",
         "logs_write_archives",
+        "logs_write_pipelines",
         // Metrics
         "metrics_read",
         // Monitors
@@ -335,6 +336,8 @@ mod tests {
         // Database Monitoring
         assert!(scopes.contains(&"dbm_read"));
         assert!(scopes.contains(&"built_in_features"));
+        // Logs
+        assert!(scopes.contains(&"logs_write_pipelines"));
     }
 
     #[test]
@@ -356,6 +359,7 @@ mod tests {
         assert!(!ro.contains(&"org_management"));
         assert!(!ro.contains(&"teams_manage"));
         assert!(!ro.contains(&"monitors_write"));
+        assert!(!ro.contains(&"logs_write_pipelines"));
     }
 
     #[test]

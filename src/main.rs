@@ -1814,7 +1814,7 @@ enum Commands {
     ///   list/get/roles-list work with default OAuth scopes. create/update/delete
     ///   and roles-add require the user_access_manage scope, which is not
     ///   requested by default -- opt in with:
-    ///     pup auth login --scopes "logs_read_config,user_access_manage,..."
+    ///     pup auth login --extra-scopes user_access_manage
     #[command(name = "logs-restriction", verbatim_doc_comment)]
     LogsRestriction {
         #[command(subcommand)]

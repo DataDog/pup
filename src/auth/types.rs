@@ -39,11 +39,6 @@ pub struct ClientCredentials {
     pub site: String,
 }
 
-/// All known valid OAuth scopes for validation.
-pub fn all_known_scopes() -> Vec<&'static str> {
-    default_scopes()
-}
-
 /// Read-only OAuth scopes for use with --read-only flag.
 /// Excludes write, manage, and org-level administrative scopes.
 pub fn read_only_scopes() -> Vec<&'static str> {
@@ -371,11 +366,6 @@ mod tests {
                 "read_only scope not in default_scopes: {scope}"
             );
         }
-    }
-
-    #[test]
-    fn test_all_known_scopes_matches_default() {
-        assert_eq!(all_known_scopes(), default_scopes());
     }
 
     #[test]

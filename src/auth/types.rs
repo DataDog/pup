@@ -39,11 +39,6 @@ pub struct ClientCredentials {
     pub site: String,
 }
 
-/// All known valid OAuth scopes for validation.
-pub fn all_known_scopes() -> Vec<&'static str> {
-    default_scopes()
-}
-
 /// Read-only OAuth scopes for use with --read-only flag.
 /// Excludes write, manage, and org-level administrative scopes.
 pub fn read_only_scopes() -> Vec<&'static str> {
@@ -192,6 +187,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "logs_read_data",
         "logs_read_index_data",
         "logs_write_archives",
+        "logs_write_pipelines",
         // Metrics
         "metrics_read",
         // Monitors
@@ -335,6 +331,8 @@ mod tests {
         // Database Monitoring
         assert!(scopes.contains(&"dbm_read"));
         assert!(scopes.contains(&"built_in_features"));
+        // Logs
+        assert!(scopes.contains(&"logs_write_pipelines"));
     }
 
     #[test]
@@ -356,6 +354,7 @@ mod tests {
         assert!(!ro.contains(&"org_management"));
         assert!(!ro.contains(&"teams_manage"));
         assert!(!ro.contains(&"monitors_write"));
+        assert!(!ro.contains(&"logs_write_pipelines"));
     }
 
     #[test]
@@ -367,11 +366,6 @@ mod tests {
                 "read_only scope not in default_scopes: {scope}"
             );
         }
-    }
-
-    #[test]
-    fn test_all_known_scopes_matches_default() {
-        assert_eq!(all_known_scopes(), default_scopes());
     }
 
     #[test]

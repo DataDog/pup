@@ -1811,6 +1811,10 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication or API keys.
+    ///   list/get/roles-list work with default OAuth scopes. create/update/delete
+    ///   and roles-add require the user_access_manage scope, which is not
+    ///   requested by default -- opt in with:
+    ///     pup auth login --extra-scopes user_access_manage
     #[command(name = "logs-restriction", verbatim_doc_comment)]
     LogsRestriction {
         #[command(subcommand)]
@@ -10107,9 +10111,21 @@ enum AuthActions {
     /// Login via OAuth2
     Login {
         /// Comma-separated OAuth scopes to request (e.g. dashboards_read,metrics_read).
-        /// Overrides profile and config file scopes. Unknown scopes are skipped with a warning.
-        #[arg(long, value_name = "SCOPES")]
+        /// Replaces the entire scope set -- profile/config/default scopes are not
+        /// included unless you list them too. Passed through as-is: pup does not
+        /// validate scope names, the OAuth server does (rejects unknown ones).
+        /// Conflicts with --extra-scopes. See also --extra-scopes to add to the
+        /// normal scope set instead of replacing it.
+        #[arg(long, value_name = "SCOPES", conflicts_with = "extra_scopes")]
         scopes: Option<String>,
+        /// Comma-separated OAuth scopes to add on top of the normal scope set
+        /// (defaults, or profile/config scopes, or read-only scopes with --read-only)
+        /// instead of replacing it. Useful for opting into a high-privilege scope pup
+        /// doesn't request by default (e.g. user_access_manage, needed for
+        /// `pup logs-restriction create/update/delete`) without typing out every
+        /// other scope you still want. Conflicts with --scopes.
+        #[arg(long, value_name = "SCOPES", conflicts_with = "scopes")]
+        extra_scopes: Option<String>,
         /// Request only read-only scopes (excludes write, manage, and org-level scopes).
         /// Shorthand: --ro
         #[arg(long, alias = "ro", visible_alias = "ro")]
@@ -11047,59 +11063,68 @@ pub(crate) fn get_top_level_subcommand_name(matches: &clap::ArgMatches) -> Optio
 
 /// Resolve OAuth scopes for `pup auth login`.
 ///
-/// Priority: CLI --scopes > config profile scopes > config top-level scopes > defaults.
-/// Unknown scopes (not in the known list) are warned and excluded.
-/// In --read-only mode, defaults/profile scopes are filtered to read-only-safe scopes;
-/// explicitly-provided --scopes are passed through as-is (user intent is explicit).
+/// Priority: CLI --scopes (full replacement) > config profile scopes > config
+/// top-level scopes > defaults, then --extra-scopes are appended on top of
+/// whichever of those was chosen (clap enforces --scopes and --extra-scopes
+/// are mutually exclusive, so this never has to reconcile both against a
+/// replacement).
+///
+/// All explicit scopes (--scopes, --extra-scopes, or config) are passed through
+/// as-is, unvalidated -- the OAuth server is the source of truth for which
+/// scopes this client can request and rejects the rest with `invalid_scope`.
+/// This is a deliberate escape hatch: it lets a user opt into a scope pup
+/// doesn't request by default (e.g. high-privilege scopes like
+/// user_access_manage, intentionally excluded from default_scopes()) the
+/// moment it's enabled server-side, without waiting on a pup release.
+///
+/// In --read-only mode, config/default scopes are filtered to read-only-safe
+/// scopes before --extra-scopes are appended; --scopes is passed through as-is
+/// regardless (user intent is explicit).
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_login_scopes(
     cli_scopes: Option<&str>,
+    extra_scopes: Option<&str>,
     org: Option<&str>,
     read_only: bool,
 ) -> Vec<String> {
-    use crate::auth::types::{all_known_scopes, default_scopes, read_only_scopes};
+    use crate::auth::types::{default_scopes, read_only_scopes};
 
     if let Some(raw) = cli_scopes {
-        // User explicitly specified scopes — validate against known list, warn on unknowns
-        let known: std::collections::HashSet<&str> = all_known_scopes().into_iter().collect();
-        let mut result = Vec::new();
-        for scope in crate::config::parse_scopes(raw) {
-            if known.contains(scope.as_str()) {
-                result.push(scope);
-            } else {
-                eprintln!("⚠️  Unknown scope ignored: {scope}");
-            }
-        }
-        return result;
+        return crate::config::parse_scopes(raw);
     }
 
     // Load from config file (per-org profile, then top-level scopes)
-    if let Some(configured) = crate::config::load_configured_scopes(org) {
-        let known: std::collections::HashSet<&str> = all_known_scopes().into_iter().collect();
-        let mut result = Vec::new();
-        for scope in &configured {
-            if known.contains(scope.as_str()) {
-                if !read_only || read_only_scopes().contains(&scope.as_str()) {
-                    result.push(scope.clone());
-                }
-            } else {
-                eprintln!("⚠️  Unknown scope in config ignored: {scope}");
-            }
+    let mut base = if let Some(configured) = crate::config::load_configured_scopes(org) {
+        if read_only {
+            configured
+                .into_iter()
+                .filter(|s| read_only_scopes().contains(&s.as_str()))
+                .collect()
+        } else {
+            configured
         }
-        return result;
-    }
-
-    // Default scopes, filtered for read-only if needed
-    if read_only {
+    } else if read_only {
+        // Default scopes, filtered for read-only if needed
         read_only_scopes().into_iter().map(String::from).collect()
     } else {
         default_scopes().into_iter().map(String::from).collect()
+    };
+
+    if let Some(raw) = extra_scopes {
+        for scope in crate::config::parse_scopes(raw) {
+            if !base.contains(&scope) {
+                base.push(scope);
+            }
+        }
     }
+
+    base
 }
 
 #[cfg(target_arch = "wasm32")]
 fn resolve_login_scopes(
     _cli_scopes: Option<&str>,
+    _extra_scopes: Option<&str>,
     _org: Option<&str>,
     _read_only: bool,
 ) -> Vec<String> {
@@ -11107,6 +11132,123 @@ fn resolve_login_scopes(
         .into_iter()
         .map(String::from)
         .collect()
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod resolve_login_scopes_tests {
+    use super::resolve_login_scopes;
+    use crate::test_utils::ENV_LOCK;
+
+    /// Points PUP_CONFIG_DIR at a directory with no config file, so
+    /// `load_configured_scopes` returns None and defaults/CLI scopes are exercised.
+    fn with_no_config_file<T>(f: impl FnOnce() -> T) -> T {
+        let _g = ENV_LOCK.blocking_lock();
+        std::env::set_var(
+            "PUP_CONFIG_DIR",
+            "/tmp/pup_test_resolve_login_scopes_nonexistent",
+        );
+        let result = f();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        result
+    }
+
+    #[test]
+    fn cli_scopes_pass_through_unfiltered() {
+        // Includes a scope pup doesn't know about -- the OAuth server validates,
+        // not pup, so it should NOT be dropped client-side.
+        let got = with_no_config_file(|| {
+            resolve_login_scopes(
+                Some("logs_read_config,user_access_manage,some_future_scope"),
+                None,
+                None,
+                false,
+            )
+        });
+        assert_eq!(
+            got,
+            vec![
+                "logs_read_config",
+                "user_access_manage",
+                "some_future_scope"
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>()
+        );
+    }
+
+    #[test]
+    fn cli_scopes_pass_through_even_in_read_only_mode() {
+        let got =
+            with_no_config_file(|| resolve_login_scopes(Some("monitors_write"), None, None, true));
+        assert_eq!(got, vec!["monitors_write".to_string()]);
+    }
+
+    #[test]
+    fn no_cli_or_config_scopes_falls_back_to_defaults() {
+        let got = with_no_config_file(|| resolve_login_scopes(None, None, None, false));
+        let want: Vec<String> = crate::auth::types::default_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn no_cli_or_config_scopes_read_only_falls_back_to_read_only_scopes() {
+        let got = with_no_config_file(|| resolve_login_scopes(None, None, None, true));
+        let want: Vec<String> = crate::auth::types::read_only_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn extra_scopes_append_to_defaults() {
+        let got = with_no_config_file(|| {
+            resolve_login_scopes(
+                None,
+                Some("user_access_manage,some_future_scope"),
+                None,
+                false,
+            )
+        });
+        let mut want: Vec<String> = crate::auth::types::default_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        want.push("user_access_manage".to_string());
+        want.push("some_future_scope".to_string());
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn extra_scopes_append_to_read_only_defaults() {
+        let got = with_no_config_file(|| {
+            resolve_login_scopes(None, Some("user_access_manage"), None, true)
+        });
+        let mut want: Vec<String> = crate::auth::types::read_only_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        want.push("user_access_manage".to_string());
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn extra_scopes_does_not_duplicate_scope_already_in_base() {
+        // logs_read_config is already a default scope -- adding it again via
+        // --extra-scopes should be a no-op, not a duplicate entry.
+        let got = with_no_config_file(|| {
+            resolve_login_scopes(None, Some("logs_read_config"), None, false)
+        });
+        let want: Vec<String> = crate::auth::types::default_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(got, want);
+    }
 }
 
 /// Resolve the OAuth callback port. CLI flag wins over `PUP_OAUTH_CALLBACK_PORT`;
@@ -15546,6 +15688,7 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Auth { action } => match action {
             AuthActions::Login {
                 scopes,
+                extra_scopes,
                 read_only,
                 site,
                 callback_port,
@@ -15561,8 +15704,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 #[cfg(not(feature = "browser"))]
                 cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 let is_read_only = read_only || cfg.read_only;
-                let resolved =
-                    resolve_login_scopes(scopes.as_deref(), cfg.org.as_deref(), is_read_only);
+                let resolved = resolve_login_scopes(
+                    scopes.as_deref(),
+                    extra_scopes.as_deref(),
+                    cfg.org.as_deref(),
+                    is_read_only,
+                );
                 let resolved_port = resolve_callback_port(callback_port)?;
                 // Coerce empty `--org-uuid ""` to no-hint so callees treat
                 // it the same as omitting the flag, not as `dd_oid=`.

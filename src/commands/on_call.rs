@@ -465,6 +465,57 @@ pub async fn pages_get(cfg: &Config, page_id: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+/// Lists on-call pages, optionally filtered by team handle (server-side) and/or
+/// responder user id (client-side).
+///
+/// Uses `client::raw_get` against the `unstable` endpoint: `datadog-api-client`
+/// exposes no list binding, and the stable `/api/v2/on-call/pages` GET returns an
+/// empty collection. The endpoint supports a `filter=team:<handle>` search but has
+/// no responder facet, so `--responder` is applied client-side against each page's
+/// `relationships.responders`.
+pub async fn pages_list(
+    cfg: &Config,
+    team: Option<&str>,
+    responder: Option<&str>,
+    page_size: u32,
+) -> Result<()> {
+    let size = page_size.to_string();
+    let team_filter = team.map(|t| format!("team:{t}"));
+    let mut query: Vec<(&str, &str)> = vec![("page[size]", size.as_str())];
+    if let Some(f) = team_filter.as_deref() {
+        query.push(("filter", f));
+    }
+
+    let mut resp = client::raw_get(cfg, "/api/unstable/on-call/pages", &query)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list pages: {e:?}"))?;
+
+    // The endpoint has no server-side responder facet, so filter client-side.
+    if let Some(rid) = responder {
+        if let Some(pages) = resp
+            .get_mut("data")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            pages.retain(|p| page_has_responder(p, rid));
+        }
+    }
+
+    formatter::output(cfg, &resp)
+}
+
+/// Returns true if `page`'s `relationships.responders` includes user id `rid`.
+fn page_has_responder(page: &serde_json::Value, rid: &str) -> bool {
+    page.get("relationships")
+        .and_then(|r| r.get("responders"))
+        .and_then(|r| r.get("data"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|users| {
+            users
+                .iter()
+                .any(|u| u.get("id").and_then(serde_json::Value::as_str) == Some(rid))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
@@ -955,5 +1006,49 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("invalid --role value"));
+    }
+
+    #[tokio::test]
+    async fn test_on_call_pages_list_by_team() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let result = super::pages_list(&cfg, Some("the-shadow-collective"), None, 1000).await;
+        assert!(result.is_ok());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_on_call_pages_list_bad_url_errors() {
+        // Unroutable base URL exercises the error path of the raw GET.
+        let cfg = test_config("http://127.0.0.1:1");
+        let result = super::pages_list(&cfg, None, None, 100).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to list pages"));
+    }
+
+    #[test]
+    fn test_page_has_responder_matches_and_rejects() {
+        let page = serde_json::json!({
+            "relationships": { "responders": { "data": [
+                { "id": "u-1", "type": "users" },
+                { "id": "u-2", "type": "users" }
+            ]}}
+        });
+        assert!(super::page_has_responder(&page, "u-2"));
+        assert!(!super::page_has_responder(&page, "u-3"));
+    }
+
+    #[test]
+    fn test_page_has_responder_missing_fields() {
+        assert!(!super::page_has_responder(&serde_json::json!({}), "u-1"));
+        assert!(!super::page_has_responder(
+            &serde_json::json!({ "relationships": { "responders": { "data": [] } } }),
+            "u-1"
+        ));
     }
 }

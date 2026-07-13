@@ -6582,6 +6582,19 @@ enum OnCallPagesActions {
     },
     /// Get an on-call page by ID
     Get { page_id: String },
+    /// List on-call pages, optionally filtered by team handle and/or responder id
+    List {
+        #[arg(long, help = "Filter by team handle (server-side)")]
+        team: Option<String>,
+        #[arg(long, help = "Filter by responder user id (client-side)")]
+        responder: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 1000,
+            help = "Results per page (max 1000; endpoint pagination is unsupported)"
+        )]
+        page_size: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -13848,6 +13861,19 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     OnCallPagesActions::Get { page_id } => {
                         commands::on_call::pages_get(&cfg, &page_id).await?;
+                    }
+                    OnCallPagesActions::List {
+                        team,
+                        responder,
+                        page_size,
+                    } => {
+                        commands::on_call::pages_list(
+                            &cfg,
+                            team.as_deref(),
+                            responder.as_deref(),
+                            page_size,
+                        )
+                        .await?;
                     }
                 },
             }

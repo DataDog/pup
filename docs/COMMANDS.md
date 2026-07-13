@@ -39,7 +39,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | downtime | list, get, cancel | src/commands/downtime.rs | ✅ |
 | tags | list, get, add, update, delete | src/commands/tags.rs | ✅ |
 | events | list, search, get | src/commands/events.rs | ✅ |
-| on-call | teams (CRUD, memberships) | src/commands/on_call.rs | ✅ |
+| on-call | teams (CRUD, memberships), pages (list, get, create) | src/commands/on_call.rs | ✅ |
 | audit-logs | list, search | src/commands/audit_logs.rs | ✅ |
 | api-keys | list, get, create, delete | src/commands/api_keys.rs | ✅ |
 | app-keys | list, get, create, update, delete | src/commands/app_keys.rs | ✅ |

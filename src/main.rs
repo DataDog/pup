@@ -9,6 +9,7 @@ mod config;
 mod extensions;
 mod filter;
 mod formatter;
+mod generated;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
 #[cfg(not(target_arch = "wasm32"))]
@@ -2859,6 +2860,8 @@ enum Commands {
         #[command(subcommand)]
         action: WorkflowActions,
     },
+    #[command(flatten)]
+    Generated(generated::GeneratedCommand),
 }
 
 // ---- Extensions ----
@@ -15802,6 +15805,11 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
             },
         },
+        // --- Generated ---
+        Commands::Generated(action) => {
+            cfg.validate_auth()?;
+            generated::run(&cfg, action).await?;
+        }
         // --- LLM Observability ---
         Commands::LlmObs { action } => {
             cfg.validate_auth()?;

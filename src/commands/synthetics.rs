@@ -29,23 +29,29 @@ fn synthetics_intake_base_url(cfg: &Config) -> String {
 #[cfg(not(target_arch = "wasm32"))]
 fn build_auth_headers(cfg: &Config) -> anyhow::Result<reqwest::header::HeaderMap> {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-    let api_key = cfg
-        .api_key
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("DD_API_KEY is required for 'synthetics tests run'"))?;
-    let app_key = cfg
-        .app_key
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("DD_APP_KEY is required for 'synthetics tests run'"))?;
     let mut headers = HeaderMap::new();
-    headers.insert(
-        HeaderName::from_static("dd-api-key"),
-        HeaderValue::from_str(api_key)?,
-    );
-    headers.insert(
-        HeaderName::from_static("dd-application-key"),
-        HeaderValue::from_str(app_key)?,
-    );
+
+    // Prefer OAuth2 bearer token, falling back to API + app keys.
+    if let Some(token) = cfg.access_token.as_ref() {
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}"))?,
+        );
+    } else if let (Some(api_key), Some(app_key)) = (cfg.api_key.as_ref(), cfg.app_key.as_ref()) {
+        headers.insert(
+            HeaderName::from_static("dd-api-key"),
+            HeaderValue::from_str(api_key)?,
+        );
+        headers.insert(
+            HeaderName::from_static("dd-application-key"),
+            HeaderValue::from_str(app_key)?,
+        );
+    } else {
+        anyhow::bail!(
+            "'synthetics tests run' requires authentication: run 'pup auth login' or set DD_API_KEY and DD_APP_KEY"
+        );
+    }
+
     headers.insert(
         reqwest::header::USER_AGENT,
         HeaderValue::from_str(&crate::useragent::get())?,
@@ -957,6 +963,41 @@ mod tests {
         let result = super::downtime_delete(&cfg, "nonexistent-dt").await;
         assert!(result.is_err(), "expected 404 error from downtime_delete");
         cleanup_env();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_build_auth_headers_prefers_bearer() {
+        let mut cfg = test_config("http://unused.local");
+        cfg.access_token = Some("tok-123".into());
+        let headers = super::build_auth_headers(&cfg).expect("bearer headers");
+        assert_eq!(headers.get("authorization").unwrap(), "Bearer tok-123");
+        assert!(headers.get("dd-api-key").is_none());
+        assert!(headers.get("dd-application-key").is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_build_auth_headers_falls_back_to_api_keys() {
+        let mut cfg = test_config("http://unused.local");
+        cfg.access_token = None;
+        cfg.api_key = Some("api-1".into());
+        cfg.app_key = Some("app-1".into());
+        let headers = super::build_auth_headers(&cfg).expect("api-key headers");
+        assert_eq!(headers.get("dd-api-key").unwrap(), "api-1");
+        assert_eq!(headers.get("dd-application-key").unwrap(), "app-1");
+        assert!(headers.get("authorization").is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_build_auth_headers_requires_some_auth() {
+        let mut cfg = test_config("http://unused.local");
+        cfg.access_token = None;
+        cfg.api_key = None;
+        cfg.app_key = None;
+        let err = super::build_auth_headers(&cfg).expect_err("should require auth");
+        assert!(err.to_string().contains("requires authentication"));
     }
 
     async fn server_mock_delete(s: &mut mockito::Server) -> mockito::Mock {

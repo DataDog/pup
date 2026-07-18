@@ -118,6 +118,7 @@ pup metrics query --query="avg:system.cpu.user{*}" --from="1h"
 pup metrics tags list system.cpu.user --window-seconds=3600
 pup metrics timeseries --file=request.json
 pup events search --query="@user.id:12345"
+pup events post --tags="version:1,application:web" --no_host --type=my_apps --aggregation_key=application:web --alert_type=info "Something big happened!" "And let me tell you all about it here!"
 ```
 
 ### Create/Update/Delete

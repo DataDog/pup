@@ -38,7 +38,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | static-analysis | custom-rulesets (get, update, delete), custom-rules (get, create, delete, revisions, revision) | src/commands/static_analysis.rs | ✅ |
 | downtime | list, get, cancel | src/commands/downtime.rs | ✅ |
 | tags | list, get, add, update, delete | src/commands/tags.rs | ✅ |
-| events | list, search, get | src/commands/events.rs | ✅ |
+| events | post, list, search, get | src/commands/events.rs | ✅ |
 | on-call | teams (CRUD, memberships) | src/commands/on_call.rs | ✅ |
 | audit-logs | list, search | src/commands/audit_logs.rs | ✅ |
 | api-keys | list, get, create, delete | src/commands/api_keys.rs | ✅ |
@@ -118,7 +118,6 @@ pup metrics query --query="avg:system.cpu.user{*}" --from="1h"
 pup metrics tags list system.cpu.user --window-seconds=3600
 pup metrics timeseries --file=request.json
 pup events search --query="@user.id:12345"
-pup events post --tags="version:1,application:web" --no_host --type=my_apps --aggregation_key=application:web --alert_type=info "Something big happened!" "And let me tell you all about it here!"
 ```
 
 ### Create/Update/Delete
@@ -126,6 +125,7 @@ pup events post --tags="version:1,application:web" --no_host --type=my_apps --ag
 pup <domain> create [--flags]
 pup <domain> update <id> [--flags]
 pup <domain> delete <id> [--yes]
+pup events post --tags="version:1,application:web" --no_host --type=my_apps --aggregation_key=application:web --alert_type=info "Something big happened!" "And let me tell you all about it here!"
 ```
 
 ### Nested Commands
@@ -145,7 +145,7 @@ pup infrastructure hosts list
 - **dbm** - Database Monitoring query samples (samples search)
 - **traces** - APM spans metrics (list, get, create, update, delete)
 - **rum** - Real User Monitoring (apps, metrics, retention-filters, sessions)
-- **events** - Infrastructure events (list, search, get)
+- **events** - Infrastructure events (post, list, search, get)
 - **ddsql** - DDSQL queries and discovery (table, time-series, spec, schema)
 - **symdb** - Symbol Database queries (search scopes, probe locations)
 

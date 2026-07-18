@@ -4080,7 +4080,7 @@ enum EventActions {
         #[arg(
             long,
             default_value = "",
-            help = "Host to associate with the event; defaults to the local hostname"
+            help = "Host to associate with the event; defaults to the local hostname when it can be determined"
         )]
         host: String,
         #[arg(
@@ -10654,6 +10654,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name.starts_with("create-")
         || name.ends_with("-create")
         || name == "submit"
+        || name == "post"
         || name == "send"
         || name == "import"
         || name == "register"
@@ -10827,6 +10828,18 @@ mod test_agent_schema {
     fn schema_has_commands_array() {
         let schema = get_schema();
         assert!(schema.get("commands").and_then(|v| v.as_array()).is_some());
+    }
+
+    #[test]
+    fn events_post_is_classified_as_write() {
+        // Regression: the "post" verb must count as a write so read-only mode
+        // blocks it and the agent schema does not advertise it as read-only.
+        assert!(is_write_command_name("post"));
+
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let cmd = find_command(commands, &["events", "post"]).expect("events post not found");
+        assert_eq!(cmd["read_only"].as_bool(), Some(false));
     }
 
     #[test]
@@ -12497,7 +12510,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             priority,
                             related_event_id,
                             tags,
-                            host: commands::events::resolve_host(host, no_host)?,
+                            host: commands::events::resolve_host(host, no_host),
                             device,
                             event_type,
                             aggregation_key,

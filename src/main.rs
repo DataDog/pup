@@ -1255,17 +1255,23 @@ enum Commands {
     },
     /// Manage Datadog events
     ///
-    /// Query and search Datadog events.
+    /// Post, query, and search Datadog events.
     ///
     /// Events represent important occurrences in your infrastructure such as
     /// deployments, configuration changes, alerts, and custom events.
     ///
     /// CAPABILITIES:
+    ///   • Post custom events
     ///   • List recent events
     ///   • Search events with queries
     ///   • Get event details
     ///
     /// EXAMPLES:
+    ///   # Post an event using dogshell-compatible flags
+    ///   pup events post --tags="version:1,application:web" --no_host --type=my_apps \
+    ///     --aggregation_key=application:web --alert_type=info \
+    ///     "Something big happened!" "And let me tell you all about it here!"
+    ///
     ///   # List recent events
     ///   pup events list
     ///
@@ -4051,6 +4057,56 @@ enum TestOptimizationFlakyTestsPoliciesActions {
 // ---- Events ----
 #[derive(Subcommand)]
 enum EventActions {
+    /// Post an event
+    Post {
+        #[arg(help = "Event title")]
+        title: String,
+        #[arg(help = "Event message body; reads from stdin when omitted")]
+        message: Option<String>,
+        #[arg(
+            long,
+            visible_alias = "date_happened",
+            help = "POSIX timestamp when the event occurred"
+        )]
+        date_happened: Option<i64>,
+        #[arg(long, help = "User to post the event as")]
+        handle: Option<String>,
+        #[arg(long, value_enum, default_value = "normal", help = "Event priority")]
+        priority: commands::events::EventPriorityArg,
+        #[arg(long, visible_alias = "related_event_id", help = "Parent event ID")]
+        related_event_id: Option<i64>,
+        #[arg(long, help = "Comma-separated event tags")]
+        tags: Option<String>,
+        #[arg(
+            long,
+            default_value = "",
+            help = "Host to associate with the event; defaults to the local hostname when it can be determined"
+        )]
+        host: String,
+        #[arg(
+            long,
+            visible_alias = "no_host",
+            help = "Do not associate a host with the event; overrides --host"
+        )]
+        no_host: bool,
+        #[arg(long, help = "Device to associate with the event")]
+        device: Option<String>,
+        #[arg(long = "type", help = "Event source type")]
+        event_type: Option<String>,
+        #[arg(
+            long,
+            visible_alias = "aggregation_key",
+            help = "Key used to aggregate related events"
+        )]
+        aggregation_key: Option<String>,
+        #[arg(
+            long,
+            visible_alias = "alert_type",
+            value_enum,
+            help = "Event alert type"
+        )]
+        alert_type: Option<commands::events::EventAlertTypeArg>,
+    },
     /// List recent events
     List {
         #[arg(
@@ -10598,6 +10654,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name.starts_with("create-")
         || name.ends_with("-create")
         || name == "submit"
+        || name == "post"
         || name == "send"
         || name == "import"
         || name == "register"
@@ -10771,6 +10828,18 @@ mod test_agent_schema {
     fn schema_has_commands_array() {
         let schema = get_schema();
         assert!(schema.get("commands").and_then(|v| v.as_array()).is_some());
+    }
+
+    #[test]
+    fn events_post_is_classified_as_write() {
+        // Regression: the "post" verb must count as a write so read-only mode
+        // blocks it and the agent schema does not advertise it as read-only.
+        assert!(is_write_command_name("post"));
+
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let cmd = find_command(commands, &["events", "post"]).expect("events post not found");
+        assert_eq!(cmd["read_only"].as_bool(), Some(false));
     }
 
     #[test]
@@ -12416,6 +12485,40 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Events { action } => {
             cfg.validate_auth()?;
             match action {
+                EventActions::Post {
+                    title,
+                    message,
+                    date_happened,
+                    handle,
+                    priority,
+                    related_event_id,
+                    tags,
+                    host,
+                    no_host,
+                    device,
+                    event_type,
+                    aggregation_key,
+                    alert_type,
+                } => {
+                    commands::events::post(
+                        &cfg,
+                        commands::events::PostOptions {
+                            title,
+                            message,
+                            date_happened,
+                            handle,
+                            priority,
+                            related_event_id,
+                            tags,
+                            host: commands::events::resolve_host(host, no_host),
+                            device,
+                            event_type,
+                            aggregation_key,
+                            alert_type,
+                        },
+                    )
+                    .await?;
+                }
                 EventActions::List { from, to, tags, .. } => {
                     let start = util::parse_time_to_unix_millis(&from)? / 1000;
                     let end = util::parse_time_to_unix_millis(&to)? / 1000;

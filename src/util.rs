@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use anyhow::{bail, Result};
 use chrono::Utc;
 use regex::Regex;
@@ -127,6 +129,19 @@ pub fn parse_duration_to_millis(input: &str) -> Result<i64> {
 
 pub fn now_millis() -> i64 {
     Utc::now().timestamp() * 1000
+}
+
+/// Read an entire reader into a `String`, attaching `err_context` on I/O failure.
+///
+/// Shared by commands that accept stdin input (e.g. `format::read_input` and
+/// `events::resolve_message`) so the read-and-contextualize pattern lives in one
+/// place instead of being duplicated per command.
+pub fn read_to_string(mut reader: impl Read, err_context: &str) -> Result<String> {
+    let mut buf = String::new();
+    reader
+        .read_to_string(&mut buf)
+        .map_err(|e| anyhow::anyhow!("{err_context}: {e}"))?;
+    Ok(buf)
 }
 
 /// Read a JSON file and deserialize into the specified type.

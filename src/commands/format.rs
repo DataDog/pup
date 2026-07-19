@@ -28,17 +28,11 @@ pub fn run(
 /// Read the JSON document from a file (`Some(path)` other than `"-"`) or from the
 /// provided reader (`None` or `"-"`, i.e. stdin). The reader is a parameter so the
 /// stdin path can be tested without touching the process's real stdin.
-fn read_input(input: Option<&str>, mut reader: impl Read) -> Result<String> {
+fn read_input(input: Option<&str>, reader: impl Read) -> Result<String> {
     match input {
         Some(path) if path != "-" => std::fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}")),
-        _ => {
-            let mut buf = String::new();
-            reader
-                .read_to_string(&mut buf)
-                .context("failed to read JSON from stdin")?;
-            Ok(buf)
-        }
+        _ => crate::util::read_to_string(reader, "failed to read JSON from stdin"),
     }
 }
 

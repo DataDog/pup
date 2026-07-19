@@ -724,6 +724,14 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
         path: "/api/ui/profiling/",
         method: "GET",
     },
+    // Events intake (1)
+    // Posting an event uses the V1 intake endpoint, which authenticates with the
+    // API key and does not accept OAuth2 bearer tokens. Listing/getting events
+    // (GET) is fine over OAuth, so only POST is excluded.
+    EndpointRequirement {
+        path: "/api/v1/events",
+        method: "POST",
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1289,6 +1297,13 @@ mod tests {
     }
 
     #[test]
+    fn test_fallback_for_events_post() {
+        // Posting an event (V1 intake) requires API keys; reading events does not.
+        assert!(requires_api_key_fallback("POST", "/api/v1/events"));
+        assert!(!requires_api_key_fallback("GET", "/api/v1/events"));
+    }
+
+    #[test]
     fn test_no_fallback_for_standard_endpoints() {
         assert!(!requires_api_key_fallback("GET", "/api/v1/monitor"));
         assert!(!requires_api_key_fallback("GET", "/api/v1/dashboard"));
@@ -1324,7 +1339,7 @@ mod tests {
 
     #[test]
     fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 54);
+        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 55);
     }
 
     #[test]

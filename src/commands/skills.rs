@@ -325,7 +325,7 @@ pub async fn catalog_get(
     cfg: &Config,
     name: String,
     intent: Option<String>,
-    session_id: Option<String>,
+    onboarding_run_id: Option<String>,
     org_id: Option<i64>,
 ) -> Result<()> {
     if let Some(intent) = &intent {
@@ -342,8 +342,8 @@ pub async fn catalog_get(
     if let Some(intent) = &intent {
         query.push(("intent", intent.as_str()));
     }
-    if let Some(session_id) = &session_id {
-        query.push(("session_id", session_id.as_str()));
+    if let Some(onboarding_run_id) = &onboarding_run_id {
+        query.push(("onboarding_run_id", onboarding_run_id.as_str()));
     }
     if let Some(org) = &org {
         query.push(("org_id", org.as_str()));
@@ -676,7 +676,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn catalog_get_forwards_intent_session_id_and_org_id() {
+    async fn catalog_get_forwards_intent_onboarding_run_id_and_org_id() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
@@ -684,7 +684,7 @@ mod tests {
             .mock("GET", "/api/v2/skills/dd-apm")
             .match_query(mockito::Matcher::AllOf(vec![
                 mockito::Matcher::UrlEncoded("intent".into(), "install".into()),
-                mockito::Matcher::UrlEncoded("session_id".into(), "session-123".into()),
+                mockito::Matcher::UrlEncoded("onboarding_run_id".into(), "run-123".into()),
                 mockito::Matcher::UrlEncoded("org_id".into(), "42".into()),
             ]))
             .with_status(200)
@@ -696,7 +696,7 @@ mod tests {
             &cfg,
             "dd-apm".to_string(),
             Some("install".to_string()),
-            Some("session-123".to_string()),
+            Some("run-123".to_string()),
             Some(42),
         )
         .await;

@@ -10006,16 +10006,16 @@ enum SkillsCatalogActions {
     /// EXAMPLES:
     ///   pup skills catalog get kubernetes-agent-install
     ///   pup skills catalog get kubernetes-agent-install --intent install
-    ///   pup skills catalog get kubernetes-agent-install --session-id <uuid> --org-id 42
+    ///   pup skills catalog get kubernetes-agent-install --onboarding-run-id <uuid> --org-id 42
     Get {
         /// Skill name (e.g. apm-k8s-ssi-agent-install)
         name: String,
         /// Why the skill is being fetched: explore, install, or reference
         #[arg(long)]
         intent: Option<String>,
-        /// Session UUID to associate this fetch with (for onboarding tracking)
+        /// Onboarding run UUID to associate this fetch with (for onboarding tracking)
         #[arg(long)]
-        session_id: Option<String>,
+        onboarding_run_id: Option<String>,
         /// Organization ID to scope the lookup to
         #[arg(long)]
         org_id: Option<i64>,
@@ -15810,11 +15810,17 @@ async fn main_inner() -> anyhow::Result<()> {
                     SkillsCatalogActions::Get {
                         name,
                         intent,
-                        session_id,
+                        onboarding_run_id,
                         org_id,
                     } => {
-                        commands::skills::catalog_get(&cfg, name, intent, session_id, org_id)
-                            .await?;
+                        commands::skills::catalog_get(
+                            &cfg,
+                            name,
+                            intent,
+                            onboarding_run_id,
+                            org_id,
+                        )
+                        .await?;
                     }
                     SkillsCatalogActions::Publish {
                         file,

@@ -1,9 +1,10 @@
 use anyhow::Result;
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 use crate::util;
+use crate::util_ext;
 
 // ---- Custom Costs ----
 
@@ -27,16 +28,16 @@ pub async fn custom_costs_list(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, "/api/v2/cost/custom_costs", &q).await?;
+    let value = raw_client::raw_get(cfg, "/api/v2/cost/custom_costs", &q).await?;
     formatter::output(cfg, &value)
 }
 
 pub async fn custom_costs_get(cfg: &Config, file_id: &str) -> Result<()> {
     let path = format!(
         "/api/v2/cost/custom_costs/{}",
-        util::percent_encode(file_id)
+        util_ext::percent_encode(file_id)
     );
-    let value = client::raw_get(cfg, &path, &[]).await?;
+    let value = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &value)
 }
 
@@ -72,7 +73,7 @@ pub async fn custom_costs_upload(cfg: &Config, file: &str, version: Option<Strin
 
     let content_type = format!("multipart/form-data; boundary={boundary}");
     // The API may return an empty body on success or a JSON status object.
-    let resp = client::raw_request(
+    let resp = raw_client::raw_request(
         cfg,
         "PUT",
         "/api/v2/cost/custom_costs",
@@ -96,9 +97,9 @@ pub async fn custom_costs_upload(cfg: &Config, file: &str, version: Option<Strin
 pub async fn custom_costs_delete(cfg: &Config, file_id: &str) -> Result<()> {
     let path = format!(
         "/api/v2/cost/custom_costs/{}",
-        util::percent_encode(file_id)
+        util_ext::percent_encode(file_id)
     );
-    client::raw_delete(cfg, &path).await?;
+    raw_client::raw_delete(cfg, &path).await?;
     eprintln!("Custom cost file '{file_id}' deleted.");
     Ok(())
 }
@@ -114,7 +115,7 @@ pub async fn tag_desc_list(cfg: &Config, cloud: Option<String>) -> Result<()> {
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, "/api/v2/cost/tag_descriptions", &q).await?;
+    let value = raw_client::raw_get(cfg, "/api/v2/cost/tag_descriptions", &q).await?;
     formatter::output(cfg, &value)
 }
 
@@ -127,13 +128,13 @@ pub async fn tag_desc_get(cfg: &Config, tag_key: &str, cloud: Option<String>) ->
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, "/api/v2/cost/tag_description", &q).await?;
+    let value = raw_client::raw_get(cfg, "/api/v2/cost/tag_description", &q).await?;
     formatter::output(cfg, &value)
 }
 
 pub async fn tag_desc_generate(cfg: &Config, tag_key: &str) -> Result<()> {
     let q = [("tag_key", tag_key)];
-    let value = client::raw_get(cfg, "/api/v2/cost/tag_description/generate", &q).await?;
+    let value = raw_client::raw_get(cfg, "/api/v2/cost/tag_description/generate", &q).await?;
     formatter::output(cfg, &value)
 }
 
@@ -154,7 +155,7 @@ pub async fn tag_desc_upsert(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let resp = client::raw_request(
+    let resp = raw_client::raw_request(
         cfg,
         "PUT",
         "/api/v2/cost/tag_descriptions",
@@ -183,7 +184,7 @@ pub async fn tag_desc_delete(cfg: &Config, tag_key: &str, cloud: Option<String>)
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let resp = client::raw_request(
+    let resp = raw_client::raw_request(
         cfg,
         "DELETE",
         "/api/v2/cost/tag_descriptions",
@@ -219,7 +220,7 @@ async fn tag_meta_get(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, sub_path, &q).await?;
+    let value = raw_client::raw_get(cfg, sub_path, &q).await?;
     formatter::output(cfg, &value)
 }
 
@@ -248,7 +249,7 @@ pub async fn tag_meta_list(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, "/api/v2/cost/tag_metadata", &q).await?;
+    let value = raw_client::raw_get(cfg, "/api/v2/cost/tag_metadata", &q).await?;
     formatter::output(cfg, &value)
 }
 
@@ -306,7 +307,7 @@ pub async fn tags_list(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, "/api/v2/cost/tags", &q).await?;
+    let value = raw_client::raw_get(cfg, "/api/v2/cost/tags", &q).await?;
     formatter::output(cfg, &value)
 }
 
@@ -324,12 +325,12 @@ pub async fn tag_keys_list(cfg: &Config, metric: Option<String>, tags: Vec<Strin
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, "/api/v2/cost/tag_keys", &q).await?;
+    let value = raw_client::raw_get(cfg, "/api/v2/cost/tag_keys", &q).await?;
     formatter::output(cfg, &value)
 }
 
 pub async fn tag_keys_get(cfg: &Config, key: &str, metric: Option<String>) -> Result<()> {
-    let path = format!("/api/v2/cost/tag_keys/{}", util::percent_encode(key));
+    let path = format!("/api/v2/cost/tag_keys/{}", util_ext::percent_encode(key));
     let mut params: Vec<(String, String)> = Vec::new();
     if let Some(m) = metric {
         params.push(("filter[metric]".into(), m));
@@ -338,14 +339,14 @@ pub async fn tag_keys_get(cfg: &Config, key: &str, metric: Option<String>) -> Re
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, &path, &q).await?;
+    let value = raw_client::raw_get(cfg, &path, &q).await?;
     formatter::output(cfg, &value)
 }
 
 // ---- Budgets ----
 
 pub async fn budgets_list(cfg: &Config) -> Result<()> {
-    let value = client::raw_get(cfg, "/api/v2/cost/budgets", &[]).await?;
+    let value = raw_client::raw_get(cfg, "/api/v2/cost/budgets", &[]).await?;
     formatter::output(cfg, &value)
 }
 
@@ -357,17 +358,20 @@ pub async fn budgets_get(
     actual: bool,
     forecast: bool,
 ) -> Result<()> {
-    let path = format!("/api/v2/cost/budget/{}", util::percent_encode(budget_id));
+    let path = format!(
+        "/api/v2/cost/budget/{}",
+        util_ext::percent_encode(budget_id)
+    );
     let mut params: Vec<(String, String)> = Vec::new();
     match (start, end) {
         (Some(s), Some(e)) => {
             params.push((
                 "start".into(),
-                util::parse_time_to_unix_millis(&s)?.to_string(),
+                util_ext::parse_time_to_unix_millis(&s)?.to_string(),
             ));
             params.push((
                 "end".into(),
-                util::parse_time_to_unix_millis(&e)?.to_string(),
+                util_ext::parse_time_to_unix_millis(&e)?.to_string(),
             ));
         }
         (None, None) => {}
@@ -384,7 +388,7 @@ pub async fn budgets_get(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, &path, &q).await?;
+    let value = raw_client::raw_get(cfg, &path, &q).await?;
     formatter::output(cfg, &value)
 }
 
@@ -392,7 +396,7 @@ pub async fn budgets_upsert(cfg: &Config, file: &str) -> Result<()> {
     let body: serde_json::Value = util::read_json_file(file)?;
     let body_bytes =
         serde_json::to_vec(&body).map_err(|e| anyhow::anyhow!("failed to serialize: {e}"))?;
-    let resp = client::raw_request(
+    let resp = raw_client::raw_request(
         cfg,
         "PUT",
         "/api/v2/cost/budget",
@@ -413,15 +417,18 @@ pub async fn budgets_upsert(cfg: &Config, file: &str) -> Result<()> {
 }
 
 pub async fn budgets_delete(cfg: &Config, budget_id: &str) -> Result<()> {
-    let path = format!("/api/v2/cost/budget/{}", util::percent_encode(budget_id));
-    client::raw_delete(cfg, &path).await?;
+    let path = format!(
+        "/api/v2/cost/budget/{}",
+        util_ext::percent_encode(budget_id)
+    );
+    raw_client::raw_delete(cfg, &path).await?;
     eprintln!("Budget '{budget_id}' deleted.");
     Ok(())
 }
 
 pub async fn budgets_validate(cfg: &Config, file: &str) -> Result<()> {
     let body: serde_json::Value = util::read_json_file(file)?;
-    let value = client::raw_post(cfg, "/api/v2/cost/budget/validate", body).await?;
+    let value = raw_client::raw_post(cfg, "/api/v2/cost/budget/validate", body).await?;
     formatter::output(cfg, &value)
 }
 
@@ -459,7 +466,7 @@ async fn commitment_call(cfg: &Config, path: &str, q: &CommitmentQuery<'_>) -> R
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let value = client::raw_get(cfg, path, &refs).await?;
+    let value = raw_client::raw_get(cfg, path, &refs).await?;
     formatter::output(cfg, &value)
 }
 
@@ -472,8 +479,8 @@ fn parse_commitment_query<'a>(
     commitment_type: &'a Option<String>,
     filter_by: &'a Option<String>,
 ) -> anyhow::Result<CommitmentQuery<'a>> {
-    let from_ms = util::parse_time_to_unix_millis(from)?;
-    let to_ms = util::parse_time_to_unix_millis(to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(to)?;
     Ok(CommitmentQuery {
         provider,
         product,

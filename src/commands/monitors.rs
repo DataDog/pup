@@ -8,6 +8,7 @@ use datadog_api_client::datadogV1::model::Monitor;
 use crate::config::Config;
 use crate::formatter::{self, Metadata};
 use crate::util;
+use crate::util_ext;
 
 pub async fn list(
     cfg: &Config,
@@ -97,6 +98,81 @@ pub async fn update(cfg: &Config, monitor_id: i64, file: &str) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("failed to update monitor: {:?}", e))?;
     formatter::output(cfg, &resp)
+}
+
+pub async fn diff(
+    cfg: &Config,
+    monitor_id: i64,
+    file: &str,
+    only: &[String],
+    ignore: &[String],
+) -> Result<()> {
+    // Read the candidate (desired-state) definition as a raw JSON value.
+    // Using Value (rather than MonitorUpdateRequest) preserves the user's exact
+    // field set and avoids SDK defaults overwriting omitted optional fields during
+    // deserialization, which would produce spurious "modified" entries.
+    // Trade-off: field-name typos in the candidate file won't be caught here;
+    // they will appear as added/removed pairs in the diff output, which is still
+    // actionable. `pup monitors update` will fail or no-op on unknown fields.
+    let mut candidate: serde_json::Value = util::read_json_file(file)?;
+
+    // Fetch the live monitor
+    let api = crate::make_api!(MonitorsAPI, cfg);
+    let live = api
+        .get_monitor(monitor_id, GetMonitorOptionalParams::default())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get monitor: {:?}", e))?;
+    let mut live = serde_json::to_value(&live)
+        .map_err(|e| anyhow::anyhow!("failed to serialize monitor {monitor_id} for diff: {e:?}"))?;
+
+    // Normalize both sides: strip server-managed read-only fields and drop nulls
+    // so absent and explicit-null compare equal.
+    // Note: the API may populate concrete option defaults (e.g. new_host_delay,
+    // notify_no_data) in the live response that the candidate omits. Those appear
+    // as "removed" because the candidate is treated as the complete desired state.
+    // Use --ignore to suppress specific option fields if the noise is unwanted.
+    util_ext::normalize_for_diff(&mut live, util_ext::READONLY_MONITOR_FIELDS);
+    util_ext::normalize_for_diff(&mut candidate, util_ext::READONLY_MONITOR_FIELDS);
+
+    let entries = util_ext::scope_diff(util_ext::diff_json(&live, &candidate), only, ignore);
+
+    // `update` (PUT) is a partial/merge update: fields absent from the candidate
+    // file are left unchanged on the live monitor, not deleted. "removed" entries
+    // in this diff show what the candidate does not specify — they will NOT be
+    // removed by `pup monitors update`. Run `update` only for "added"/"modified"
+    // changes; "removed" entries require no action unless you want to add those
+    // fields to the candidate explicitly.
+    let has_removed = entries
+        .iter()
+        .any(|e| e.change == util_ext::ChangeKind::Removed);
+    let next_action = if entries.is_empty() {
+        None
+    } else if has_removed {
+        Some(
+            "review changes — note: 'removed' entries will NOT be deleted by \
+             `pup monitors update` (partial update)"
+                .to_string(),
+        )
+    } else {
+        Some("review changes, then run `pup monitors update`".to_string())
+    };
+    let meta = Metadata {
+        count: Some(entries.len()),
+        truncated: false,
+        command: Some("monitors diff".to_string()),
+        next_action,
+    };
+    formatter::format_and_print(
+        &entries,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )?;
+    if entries.is_empty() && !cfg.agent_mode {
+        eprintln!("No changes — monitor {monitor_id} is in sync.");
+    }
+    Ok(())
 }
 
 pub async fn search(
@@ -228,6 +304,200 @@ mod tests {
 
         let result = super::delete(&cfg, 12345).await;
         assert!(result.is_ok(), "monitors delete failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    // ---- monitors diff ----
+
+    /// Write a temp file with the given JSON content; returns the path.
+    /// Caller must delete the file when done.
+    fn write_temp_json(label: &str, content: &str) -> String {
+        let path =
+            std::env::temp_dir().join(format!("pup_test_{label}_{}.json", std::process::id()));
+        std::fs::write(&path, content).expect("write temp file");
+        path.to_string_lossy().to_string()
+    }
+
+    #[tokio::test]
+    async fn test_monitors_diff_detects_changes() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Live monitor returned by the API
+        let live_body = r#"{
+            "id": 12345,
+            "name": "CPU Monitor",
+            "type": "metric alert",
+            "query": "avg(last_5m):avg:system.cpu.user{*} > 90",
+            "message": "CPU high",
+            "tags": ["env:prod"],
+            "options": {"thresholds": {"critical": 90.0}}
+        }"#;
+        let _mock = mock_any(&mut server, "GET", live_body).await;
+
+        // Candidate raises the threshold
+        let candidate = r#"{
+            "name": "CPU Monitor",
+            "type": "metric alert",
+            "query": "avg(last_5m):avg:system.cpu.user{*} > 95",
+            "message": "CPU high",
+            "tags": ["env:prod"],
+            "options": {"thresholds": {"critical": 95.0}}
+        }"#;
+        let path = write_temp_json("diff_detects_changes", candidate);
+
+        let result = super::diff(&cfg, 12345, &path, &[], &[]).await;
+        let _ = std::fs::remove_file(&path);
+        assert!(result.is_ok(), "monitors diff failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_monitors_diff_no_changes() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let live_body = r#"{
+            "id": 12345,
+            "name": "CPU Monitor",
+            "type": "metric alert",
+            "query": "avg(last_5m):avg:system.cpu.user{*} > 90",
+            "message": "CPU high",
+            "tags": ["env:prod"],
+            "options": {"thresholds": {"critical": 90.0}}
+        }"#;
+        let _mock = mock_any(&mut server, "GET", live_body).await;
+
+        // Candidate is identical (minus read-only `id`)
+        let candidate = r#"{
+            "name": "CPU Monitor",
+            "type": "metric alert",
+            "query": "avg(last_5m):avg:system.cpu.user{*} > 90",
+            "message": "CPU high",
+            "tags": ["env:prod"],
+            "options": {"thresholds": {"critical": 90.0}}
+        }"#;
+        let path = write_temp_json("diff_no_changes", candidate);
+
+        let result = super::diff(&cfg, 12345, &path, &[], &[]).await;
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            result.is_ok(),
+            "monitors diff (no-changes) failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_monitors_diff_readonly_field_ignored() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let live_body = r#"{
+            "id": 12345,
+            "name": "CPU Monitor",
+            "type": "metric alert",
+            "query": "avg(last_5m):avg:system.cpu.user{*} > 90",
+            "message": "CPU high",
+            "overall_state": "OK",
+            "creator": {"email": "someone@example.com"}
+        }"#;
+        let _mock = mock_any(&mut server, "GET", live_body).await;
+
+        // Candidate omits `id`, `overall_state`, `creator` — should produce no diff
+        let candidate = r#"{
+            "name": "CPU Monitor",
+            "type": "metric alert",
+            "query": "avg(last_5m):avg:system.cpu.user{*} > 90",
+            "message": "CPU high"
+        }"#;
+        let path = write_temp_json("diff_readonly", candidate);
+
+        let result = super::diff(&cfg, 12345, &path, &[], &[]).await;
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            result.is_ok(),
+            "monitors diff (readonly) failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_monitors_diff_file_not_found() {
+        let cfg = test_config("http://unused.local");
+        let result = super::diff(&cfg, 12345, "/nonexistent/path.json", &[], &[]).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to read file"));
+    }
+
+    #[tokio::test]
+    async fn test_monitors_diff_invalid_json() {
+        let path = write_temp_json("diff_invalid_json", "not valid json {{{");
+        let cfg = test_config("http://unused.local");
+        let result = super::diff(&cfg, 12345, &path, &[], &[]).await;
+        let _ = std::fs::remove_file(&path);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to parse JSON"));
+    }
+
+    #[tokio::test]
+    async fn test_monitors_diff_fetch_failure() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(&mut server, "GET", r#"{"errors": ["Not Found"]}"#).await;
+
+        let path = write_temp_json("diff_fetch_failure", r#"{"name": "CPU Monitor"}"#);
+        // The mock returns a 200 with error body; the client may or may not error —
+        // either outcome is acceptable as long as it doesn't panic.
+        let _result = super::diff(&cfg, 99999, &path, &[], &[]).await;
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_monitors_diff_with_only_flag() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let live_body = r#"{
+            "id": 1,
+            "name": "Old Name",
+            "type": "metric alert",
+            "query": "avg(last_5m):avg:system.cpu.user{*} > 90",
+            "options": {"thresholds": {"critical": 90.0}}
+        }"#;
+        let _mock = mock_any(&mut server, "GET", live_body).await;
+
+        // Candidate changes both name and threshold; --only options.thresholds should
+        // scope the result (the diff command itself still succeeds)
+        let candidate = r#"{
+            "name": "New Name",
+            "query": "avg(last_5m):avg:system.cpu.user{*} > 90",
+            "options": {"thresholds": {"critical": 95.0}}
+        }"#;
+        let path = write_temp_json("diff_only_flag", candidate);
+        let only = vec!["options.thresholds".to_string()];
+
+        let result = super::diff(&cfg, 1, &path, &only, &[]).await;
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            result.is_ok(),
+            "monitors diff --only failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 }

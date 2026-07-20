@@ -19,7 +19,7 @@ fn resolve_or_bail(input: Option<&str>) -> Result<Vec<String>> {
     if platforms.iter().any(|p| p.is_empty()) {
         bail!(
             "could not auto-detect AI assistant. Specify a platform: claude, \
-             cursor, codex, opencode, windsurf, gemini, pi, or `all`."
+             cursor, codex, opencode, windsurf, gemini, pi, devin, or `all`."
         );
     }
     for p in &platforms {
@@ -28,12 +28,12 @@ fn resolve_or_bail(input: Option<&str>) -> Result<Vec<String>> {
                 bail!(
                     "auto-detected '{p}' is not a supported platform. Specify \
                      one explicitly: claude, cursor, codex, opencode, windsurf, \
-                     gemini, pi, or `all`."
+                     gemini, pi, devin, or `all`."
                 );
             }
             bail!(
                 "unknown platform: '{p}'. Supported: claude, cursor, codex, \
-                 opencode, windsurf, gemini, pi, or `all`."
+                 opencode, windsurf, gemini, pi, devin, or `all`."
             );
         }
     }

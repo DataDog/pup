@@ -281,14 +281,23 @@ Note: `pup auth logout` (default session) also deletes the shared DCR client cre
 
 **Site selection rules** (when pup resolves a site for a non-auth command):
 1. `DD_SITE` env var (or `site:` in `~/.config/pup/config.yaml`), if set.
-2. The site recorded in `~/.config/pup/sessions.json` for the named `--org` / `DD_ORG`, when the lookup is unambiguous.
+2. The site recorded in `~/.config/pup/sessions.json` for the named `--org` / `DD_ORG`.
 3. Default: `datadoghq.com`.
 
 `pup auth login` and `pup auth status` additionally accept `--site`, which wins over the above for those two commands.
 
-If multiple sessions share the same org name on different sites, step 2 is skipped (ambiguous) and pup warns to stderr; pass `DD_SITE` to disambiguate. An unnamed (default) session can't be selected by `--org` at all -- it has no name to look up.
+Each org name maps to exactly one session, so step 2 is always unambiguous. An unnamed (default) session can't be selected by `--org` at all -- it has no name to look up.
 
-**Token Storage**: By default, OAuth tokens and DCR client credentials are stored in your platform's secure store: macOS Keychain (via Apple's Security framework, with Touch ID prompts), Linux Secret Service (via the `keyring` crate), or Windows Credential Manager (via the `keyring` crate; sharded across multiple WinCred entries to stay within WinCred's per-record size limit). When no secure store is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions; in file mode tokens and client credentials are kept in separate files (`tokens_<site>.json`, `client_<site>.json`). Set `DD_TOKEN_STORAGE=file` to force file storage. In either mode, all tokens for a given site share one tokens entry, keyed internally by org name.
+**Token Storage**: By default, OAuth tokens and DCR client credentials are stored in your platform's secure store: macOS Keychain (via Apple's Security framework), Linux Secret Service (via the `keyring` crate), or Windows Credential Manager (via the `keyring` crate; sharded across multiple WinCred entries to stay within WinCred's per-record size limit). When no secure store is available, pup falls back to JSON files under `~/.config/pup/` with `0600` permissions; in file mode tokens and client credentials are kept in separate files (`tokens_<site>.json`, `client_<site>.json`). In either mode, all tokens for a given site share one tokens entry, keyed internally by org name.
+
+Within a single command, the per-site entry is read at most once (reads are memoized for the process), so the OS keychain prompts at most once per site even when a command touches credentials several times.
+
+The storage backend can be overridden with `DD_TOKEN_STORAGE` (env var) or `token_storage` in the config file (env var takes precedence):
+
+| Value | macOS | Linux | Windows | Prompts |
+|---|---|---|---|---|
+| `keychain` (default) | Keychain via Security framework | Secret Service (GNOME Keyring / KWallet); falls back to `file` if unavailable | WinCred (chunked) | macOS may prompt once per stable app identity (signed Homebrew release); unsigned/dev builds may prompt on each new build |
+| `file` | Plaintext JSON under `~/.config/pup/`, `0600` perms | Same | Same | Never |
 
 **Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available yet, use API key authentication.
 
@@ -429,7 +438,7 @@ pup incidents get abc-123-def
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 - `PUP_TRUST_SITE`: Trust a non-Datadog `--site`/`DD_SITE` host for this invocation without a prompt (true/1). For durable trust, add the host to `trusted_sites` in the config file. See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#override-api-endpoint).
 - `DD_AUTO_APPROVE`: Auto-approve destructive operations (true/false)
-- `DD_TOKEN_STORAGE`: Token storage backend (keychain or file, default: auto-detect)
+- `DD_TOKEN_STORAGE`: Token storage backend (`keychain` (default) or `file`). Can also be set as `token_storage` in the config file.
 
 ## Agent Mode
 
@@ -564,6 +573,7 @@ pup skills install cursor
 pup skills install codex
 pup skills install opencode
 pup skills install pi
+pup skills install devin
 
 # Install for every supported platform at once
 pup skills install all
@@ -580,7 +590,7 @@ pup skills list --type=agent
 pup skills install claude --name dd-monitors
 ```
 
-For Claude Code, skills install to `~/.claude/skills/` (or `.claude/skills/` with `--project`) and agents install to `~/.claude/agents/` (native subagent format). For Cursor, Codex, and opencode, everything installs as `SKILL.md` under that tool's skills directory (e.g. `~/.cursor/skills/`, `~/.codex/skills/`, `~/.config/opencode/skills/`).
+For Claude Code, skills install to `~/.claude/skills/` (or `.claude/skills/` with `--project`) and agents install to `~/.claude/agents/` (native subagent format). If the `CLAUDE_CONFIG_DIR` environment variable is set, user-scope installs go to `$CLAUDE_CONFIG_DIR/skills/` and `$CLAUDE_CONFIG_DIR/agents/` instead of `~/.claude/`. For Cursor, Codex, opencode, and Devin, everything installs as `SKILL.md` under that tool's skills directory (e.g. `~/.cursor/skills/`, `~/.codex/skills/`, `~/.config/opencode/skills/`, and Devin's `~/.agents/skills/` — or `.agents/skills/` with `--project`).
 
 Pup ships plugin manifest files for several AI coding assistants:
 

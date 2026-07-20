@@ -10,6 +10,7 @@ use datadog_api_client::datadogV2::api_usage_metering::{
 use crate::config::Config;
 use crate::formatter;
 use crate::util;
+use crate::util_ext;
 
 fn make_usage_api(cfg: &Config) -> UsageMeteringV2API {
     crate::make_api!(UsageMeteringV2API, cfg)
@@ -27,11 +28,11 @@ pub async fn projected(cfg: &Config) -> Result<()> {
 pub async fn by_org(cfg: &Config, start_month: String, end_month: Option<String>) -> Result<()> {
     let api = make_usage_api(cfg);
 
-    let start_dt = util::parse_time_to_datetime(&start_month)?;
+    let start_dt = util_ext::parse_time_to_datetime(&start_month)?;
 
     let mut params = GetCostByOrgOptionalParams::default();
     if let Some(e) = end_month {
-        let end_dt = util::parse_time_to_datetime(&e)?;
+        let end_dt = util_ext::parse_time_to_datetime(&e)?;
         params = params.end_month(end_dt);
     }
 
@@ -45,7 +46,7 @@ pub async fn by_org(cfg: &Config, start_month: String, end_month: Option<String>
 pub async fn attribution(cfg: &Config, start: String, fields: Option<String>) -> Result<()> {
     let api = make_usage_api(cfg);
 
-    let start_dt = util::parse_time_to_datetime(&start)?;
+    let start_dt = util_ext::parse_time_to_datetime(&start)?;
 
     let fields_str = fields.unwrap_or_else(|| "*".to_string());
     let params = GetMonthlyCostAttributionOptionalParams::default();

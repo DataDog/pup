@@ -26,7 +26,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
-| monitors | list, get, delete, search | src/commands/monitors.rs | ✅ |
+| monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
 | dashboards | list, get, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
 | ddsql | table, time-series, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |
@@ -38,7 +38,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | static-analysis | custom-rulesets (get, update, delete), custom-rules (get, create, delete, revisions, revision) | src/commands/static_analysis.rs | ✅ |
 | downtime | list, get, cancel | src/commands/downtime.rs | ✅ |
 | tags | list, get, add, update, delete | src/commands/tags.rs | ✅ |
-| events | list, search, get | src/commands/events.rs | ✅ |
+| events | post, list, search, get | src/commands/events.rs | ✅ |
 | on-call | teams (CRUD, memberships) | src/commands/on_call.rs | ✅ |
 | audit-logs | list, search | src/commands/audit_logs.rs | ✅ |
 | api-keys | list, get, create, delete | src/commands/api_keys.rs | ✅ |
@@ -77,7 +77,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | code-coverage | branch-summary, commit-summary | src/commands/code_coverage.rs | ✅ |
 | hamr | connections (get, create) | src/commands/hamr.rs | ✅ |
 | fleet | agents (list, get, versions, tracers), deployments (list, get, configure, upgrade, cancel), schedules (list, get, create, update, delete, trigger), tracers (list), clusters (list), instrumented-pods (list) | src/commands/fleet.rs | ✅ |
-| skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/all; `--name`, `--type`, `--project` for project-local scope) | src/commands/skills.rs | ✅ |
+| skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/devin/all; `--name`, `--type`, `--project` for project-local scope) | src/commands/skills.rs | ✅ |
 | runbooks | list, describe, run, import, validate | src/commands/runbooks.rs | ✅ |
 | workflows | get, create, update, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
 | investigations | list, get, trigger | src/commands/investigations.rs | ✅ |
@@ -111,6 +111,7 @@ pup slos get abc-123-def
 ```bash
 pup logs search --query="status:error" --from="1h"
 pup logs search --query="service:api" --from="7d" --storage="flex"
+pup logs query --query="service:api" --index="main,security" --from="1h"
 pup dbm samples search --query="dbm_type:activity service:orders env:prod" --from="1h" --limit=10
 pup metrics search --query="avg:system.cpu.user{*}" --from="1h"
 pup metrics query --query="avg:system.cpu.user{*}" --from="1h"
@@ -124,6 +125,7 @@ pup events search --query="@user.id:12345"
 pup <domain> create [--flags]
 pup <domain> update <id> [--flags]
 pup <domain> delete <id> [--yes]
+pup events post --tags="version:1,application:web" --no_host --type=my_apps --aggregation_key=application:web --alert_type=info "Something big happened!" "And let me tell you all about it here!"
 ```
 
 ### Nested Commands
@@ -143,7 +145,7 @@ pup infrastructure hosts list
 - **dbm** - Database Monitoring query samples (samples search)
 - **traces** - APM spans metrics (list, get, create, update, delete)
 - **rum** - Real User Monitoring (apps, metrics, retention-filters, sessions)
-- **events** - Infrastructure events (list, search, get)
+- **events** - Infrastructure events (post, list, search, get)
 - **ddsql** - DDSQL queries and discovery (table, time-series, spec, schema)
 - **symdb** - Symbol Database queries (search scopes, probe locations)
 

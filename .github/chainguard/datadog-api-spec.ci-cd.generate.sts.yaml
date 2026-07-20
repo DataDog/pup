@@ -1,0 +1,14 @@
+# Policy for: .github/workflows/ci-cd.yml (generate-client job) in DataDog/datadog-api-spec
+# Allows that workflow to push a branch and open a PR against this repo.
+issuer: https://token.actions.githubusercontent.com
+subject: repo:DataDog/datadog-api-spec:pull_request
+
+claim_pattern:
+  event_name: pull_request
+  job_workflow_ref: DataDog/datadog-api-spec/\.github/workflows/ci-cd\.yml@.*
+  ref: refs/pull/[0-9]+/merge
+  repository: DataDog/datadog-api-spec
+
+permissions:
+  contents: write
+  pull_requests: write

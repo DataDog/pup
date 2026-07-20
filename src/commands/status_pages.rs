@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::formatter;
 use crate::util;
+use crate::util_ext;
 use anyhow::{bail, Result};
 use datadog_api_client::datadogV2::api_status_pages::{
     CreateComponentOptionalParams, CreateDegradationOptionalParams,
@@ -36,7 +37,7 @@ pub async fn pages_list(cfg: &Config) -> Result<()> {
 
 pub async fn pages_get(cfg: &Config, page_id: &str) -> Result<()> {
     let api = make_api(cfg);
-    let uuid = util::parse_uuid(page_id, "page")?;
+    let uuid = util_ext::parse_uuid(page_id, "page")?;
     let resp = api
         .get_status_page(uuid, GetStatusPageOptionalParams::default())
         .await
@@ -46,7 +47,7 @@ pub async fn pages_get(cfg: &Config, page_id: &str) -> Result<()> {
 
 pub async fn pages_delete(cfg: &Config, page_id: &str) -> Result<()> {
     let api = make_api(cfg);
-    let uuid = util::parse_uuid(page_id, "page")?;
+    let uuid = util_ext::parse_uuid(page_id, "page")?;
     api.delete_status_page(uuid)
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete status page: {e:?}"))?;
@@ -55,7 +56,7 @@ pub async fn pages_delete(cfg: &Config, page_id: &str) -> Result<()> {
 }
 
 pub async fn pages_update(cfg: &Config, page_id: &str, file: &str) -> Result<()> {
-    let page_uuid = util::parse_uuid(page_id, "page")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
     let body: PatchStatusPageRequest = util::read_json_file(file)?;
     let api = make_api(cfg);
     let resp = api
@@ -67,7 +68,7 @@ pub async fn pages_update(cfg: &Config, page_id: &str, file: &str) -> Result<()>
 
 pub async fn components_list(cfg: &Config, page_id: &str) -> Result<()> {
     let api = make_api(cfg);
-    let uuid = util::parse_uuid(page_id, "page")?;
+    let uuid = util_ext::parse_uuid(page_id, "page")?;
     let resp = api
         .list_components(uuid, ListComponentsOptionalParams::default())
         .await
@@ -77,8 +78,8 @@ pub async fn components_list(cfg: &Config, page_id: &str) -> Result<()> {
 
 pub async fn components_get(cfg: &Config, page_id: &str, component_id: &str) -> Result<()> {
     let api = make_api(cfg);
-    let page_uuid = util::parse_uuid(page_id, "page")?;
-    let component_uuid = util::parse_uuid(component_id, "component")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
+    let component_uuid = util_ext::parse_uuid(component_id, "component")?;
     let resp = api
         .get_component(
             page_uuid,
@@ -96,8 +97,8 @@ pub async fn components_update(
     component_id: &str,
     file: &str,
 ) -> Result<()> {
-    let page_uuid = util::parse_uuid(page_id, "page")?;
-    let component_uuid = util::parse_uuid(component_id, "component")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
+    let component_uuid = util_ext::parse_uuid(component_id, "component")?;
     let body: PatchComponentRequest = util::read_json_file(file)?;
     let api = make_api(cfg);
     let resp = api
@@ -123,8 +124,8 @@ pub async fn degradations_list(cfg: &Config) -> Result<()> {
 
 pub async fn degradations_get(cfg: &Config, page_id: &str, degradation_id: &str) -> Result<()> {
     let api = make_api(cfg);
-    let page_uuid = util::parse_uuid(page_id, "page")?;
-    let degradation_uuid = util::parse_uuid(degradation_id, "degradation")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
+    let degradation_uuid = util_ext::parse_uuid(degradation_id, "degradation")?;
     let resp = api
         .get_degradation(
             page_uuid,
@@ -137,7 +138,7 @@ pub async fn degradations_get(cfg: &Config, page_id: &str, degradation_id: &str)
 }
 
 pub async fn degradations_create(cfg: &Config, page_id: &str, file: &str) -> Result<()> {
-    let page_uuid = util::parse_uuid(page_id, "page")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
     let body: CreateDegradationRequest = util::read_json_file(file)?;
     let api = make_api(cfg);
     let resp = api
@@ -153,8 +154,8 @@ pub async fn degradations_update(
     degradation_id: &str,
     file: &str,
 ) -> Result<()> {
-    let page_uuid = util::parse_uuid(page_id, "page")?;
-    let degradation_uuid = util::parse_uuid(degradation_id, "degradation")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
+    let degradation_uuid = util_ext::parse_uuid(degradation_id, "degradation")?;
     let body: PatchDegradationRequest = util::read_json_file(file)?;
     let api = make_api(cfg);
     let resp = api
@@ -171,8 +172,8 @@ pub async fn degradations_update(
 
 pub async fn components_delete(cfg: &Config, page_id: &str, component_id: &str) -> Result<()> {
     let api = make_api(cfg);
-    let page_uuid = util::parse_uuid(page_id, "page")?;
-    let component_uuid = util::parse_uuid(component_id, "component")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
+    let component_uuid = util_ext::parse_uuid(component_id, "component")?;
     api.delete_component(page_uuid, component_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete component: {e:?}"))?;
@@ -182,8 +183,8 @@ pub async fn components_delete(cfg: &Config, page_id: &str, component_id: &str) 
 
 pub async fn degradations_delete(cfg: &Config, page_id: &str, degradation_id: &str) -> Result<()> {
     let api = make_api(cfg);
-    let page_uuid = util::parse_uuid(page_id, "page")?;
-    let degradation_uuid = util::parse_uuid(degradation_id, "degradation")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
+    let degradation_uuid = util_ext::parse_uuid(degradation_id, "degradation")?;
     api.delete_degradation(page_uuid, degradation_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete degradation: {e:?}"))?;
@@ -210,7 +211,7 @@ pub async fn pages_create(cfg: &Config, file: &str) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 pub async fn components_create(cfg: &Config, page_id: &str, file: &str) -> Result<()> {
-    let page_uuid = util::parse_uuid(page_id, "page")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
     let body: CreateComponentRequest = util::read_json_file(file)?;
     let api = make_api(cfg);
     let resp = api
@@ -235,8 +236,8 @@ pub async fn maintenances_list(cfg: &Config) -> Result<()> {
 
 pub async fn maintenances_get(cfg: &Config, page_id: &str, maintenance_id: &str) -> Result<()> {
     let api = make_api(cfg);
-    let page_uuid = util::parse_uuid(page_id, "page")?;
-    let maintenance_uuid = util::parse_uuid(maintenance_id, "maintenance")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
+    let maintenance_uuid = util_ext::parse_uuid(maintenance_id, "maintenance")?;
     let resp = api
         .get_maintenance(
             page_uuid,
@@ -249,7 +250,7 @@ pub async fn maintenances_get(cfg: &Config, page_id: &str, maintenance_id: &str)
 }
 
 pub async fn maintenances_create(cfg: &Config, page_id: &str, file: &str) -> Result<()> {
-    let page_uuid = util::parse_uuid(page_id, "page")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
     let body: CreateMaintenanceRequest = util::read_json_file(file)?;
     let api = make_api(cfg);
     let resp = api
@@ -265,8 +266,8 @@ pub async fn maintenances_update(
     maintenance_id: &str,
     file: &str,
 ) -> Result<()> {
-    let page_uuid = util::parse_uuid(page_id, "page")?;
-    let maintenance_uuid = util::parse_uuid(maintenance_id, "maintenance")?;
+    let page_uuid = util_ext::parse_uuid(page_id, "page")?;
+    let maintenance_uuid = util_ext::parse_uuid(maintenance_id, "maintenance")?;
     let body: PatchMaintenanceRequest = util::read_json_file(file)?;
     let api = make_api(cfg);
     let resp = api

@@ -199,7 +199,10 @@ impl Config {
                 || env_bool("DD_CLI_READ_ONLY")
                 || env_bool("PUP_READ_ONLY")
                 || file_cfg.read_only.unwrap_or(false),
-            jq: None, // set by caller from --jq flag
+            // `PUP_FILTER` is injected into extension subprocesses (like
+            // `PUP_OUTPUT` above) so a child `pup` call inherits the parent's
+            // --jq expression; an explicit --jq flag still overrides it.
+            jq: env_or("PUP_FILTER", None),
         };
 
         Ok(cfg)
@@ -1665,6 +1668,7 @@ mod tests {
             "DD_AUTO_APPROVE",
             "DD_CLI_AUTO_APPROVE",
             "PUP_AUTO_APPROVE",
+            "PUP_FILTER",
         ] {
             std::env::remove_var(var);
         }
@@ -1680,6 +1684,15 @@ mod tests {
         assert_eq!(cfg.output_format, OutputFormat::Yaml);
         std::env::remove_var("DD_OUTPUT");
         std::env::remove_var("PUP_OUTPUT");
+
+        // PUP_FILTER drives cfg.jq so a nested `pup` call spawned by an extension
+        // (e.g. `pup api` invoked from inside a `pup-<ext>` process) inherits the
+        // outer --jq expression, the same way it inherits --output.
+        assert_eq!(Config::from_env().unwrap().jq, None);
+        std::env::set_var("PUP_FILTER", ".[] | .id");
+        let cfg = Config::from_env().unwrap();
+        assert_eq!(cfg.jq.as_deref(), Some(".[] | .id"));
+        std::env::remove_var("PUP_FILTER");
 
         // PUP_READ_ONLY / PUP_AUTO_APPROVE flip the mode flags.
         std::env::set_var("PUP_READ_ONLY", "true");

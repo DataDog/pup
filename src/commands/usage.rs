@@ -6,16 +6,16 @@ use datadog_api_client::datadogV1::model::HourlyUsageAttributionUsageType;
 
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::util_ext;
 
 pub async fn summary(cfg: &Config, start: String, end: Option<String>) -> Result<()> {
     let api = crate::make_api!(UsageMeteringAPI, cfg);
 
-    let start_dt = util::parse_time_to_datetime(&start)?;
+    let start_dt = util_ext::parse_time_to_datetime(&start)?;
 
     let mut params = GetUsageSummaryOptionalParams::default();
     if let Some(e) = end {
-        let end_dt = util::parse_time_to_datetime(&e)?;
+        let end_dt = util_ext::parse_time_to_datetime(&e)?;
         params = params.end_month(end_dt);
     }
 
@@ -29,11 +29,11 @@ pub async fn summary(cfg: &Config, start: String, end: Option<String>) -> Result
 pub async fn hourly(cfg: &Config, start: String, end: Option<String>) -> Result<()> {
     let api = crate::make_api!(UsageMeteringAPI, cfg);
 
-    let start_dt = util::parse_time_to_datetime(&start)?;
+    let start_dt = util_ext::parse_time_to_datetime(&start)?;
 
     let mut params = GetHourlyUsageAttributionOptionalParams::default();
     if let Some(e) = end {
-        let end_dt = util::parse_time_to_datetime(&e)?;
+        let end_dt = util_ext::parse_time_to_datetime(&e)?;
         params = params.end_hr(end_dt);
     }
 

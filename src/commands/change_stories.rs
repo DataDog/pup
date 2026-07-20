@@ -1,9 +1,9 @@
 use anyhow::Result;
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::raw_client;
+use crate::util_ext;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn list(
@@ -16,10 +16,10 @@ pub async fn list(
     filter_tags: Option<String>,
     token_limit: Option<i64>,
 ) -> Result<()> {
-    let from_ms = util::parse_time_to_unix_millis(&from)
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)
         .map_err(|e| anyhow::anyhow!("invalid --from: {e}"))?;
-    let to_ms =
-        util::parse_time_to_unix_millis(&to).map_err(|e| anyhow::anyhow!("invalid --to: {e}"))?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)
+        .map_err(|e| anyhow::anyhow!("invalid --to: {e}"))?;
     let from_ms_str = from_ms.to_string();
     let to_ms_str = to_ms.to_string();
 
@@ -46,7 +46,7 @@ pub async fn list(
     }
 
     let q_refs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    let data = client::raw_get(cfg, "/api/unstable/change-stories/cli", &q_refs).await?;
+    let data = raw_client::raw_get(cfg, "/api/unstable/change-stories/cli", &q_refs).await?;
 
     let count = data
         .get("stories")

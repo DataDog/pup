@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::util_ext;
 use anyhow::Result;
 use datadog_api_client::datadogV1::api_slack_integration::SlackIntegrationAPI;
 use datadog_api_client::datadogV1::api_webhooks_integration::WebhooksIntegrationAPI;
@@ -34,7 +34,7 @@ pub async fn jira_templates_list(cfg: &Config) -> Result<()> {
 
 pub async fn jira_templates_get(cfg: &Config, template_id: &str) -> Result<()> {
     let api = crate::make_api!(JiraIntegrationAPI, cfg);
-    let uuid = util::parse_uuid(template_id, "template")?;
+    let uuid = util_ext::parse_uuid(template_id, "template")?;
     let resp = api
         .get_jira_issue_template(uuid)
         .await
@@ -44,7 +44,7 @@ pub async fn jira_templates_get(cfg: &Config, template_id: &str) -> Result<()> {
 
 pub async fn jira_accounts_delete(cfg: &Config, account_id: &str) -> Result<()> {
     let api = crate::make_api!(JiraIntegrationAPI, cfg);
-    let uuid = util::parse_uuid(account_id, "account")?;
+    let uuid = util_ext::parse_uuid(account_id, "account")?;
     api.delete_jira_account(uuid)
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete Jira account: {e:?}"))?;
@@ -64,7 +64,7 @@ pub async fn jira_templates_create(cfg: &Config, file: &str) -> Result<()> {
 
 pub async fn jira_templates_update(cfg: &Config, template_id: &str, file: &str) -> Result<()> {
     let api = crate::make_api!(JiraIntegrationAPI, cfg);
-    let uuid = util::parse_uuid(template_id, "template")?;
+    let uuid = util_ext::parse_uuid(template_id, "template")?;
     let body: JiraIssueTemplateUpdateRequest = crate::util::read_json_file(file)?;
     let resp = api
         .update_jira_issue_template(uuid, body)
@@ -75,7 +75,7 @@ pub async fn jira_templates_update(cfg: &Config, template_id: &str, file: &str) 
 
 pub async fn jira_templates_delete(cfg: &Config, template_id: &str) -> Result<()> {
     let api = crate::make_api!(JiraIntegrationAPI, cfg);
-    let uuid = util::parse_uuid(template_id, "template")?;
+    let uuid = util_ext::parse_uuid(template_id, "template")?;
     api.delete_jira_issue_template(uuid)
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete Jira template: {e:?}"))?;
@@ -105,7 +105,7 @@ pub async fn servicenow_templates_list(cfg: &Config) -> Result<()> {
 
 pub async fn servicenow_templates_get(cfg: &Config, template_id: &str) -> Result<()> {
     let api = crate::make_api!(ServiceNowIntegrationAPI, cfg);
-    let uuid = util::parse_uuid(template_id, "template")?;
+    let uuid = util_ext::parse_uuid(template_id, "template")?;
     let resp = api
         .get_service_now_template(uuid)
         .await
@@ -129,7 +129,7 @@ pub async fn servicenow_templates_update(
     file: &str,
 ) -> Result<()> {
     let api = crate::make_api!(ServiceNowIntegrationAPI, cfg);
-    let uuid = util::parse_uuid(template_id, "template")?;
+    let uuid = util_ext::parse_uuid(template_id, "template")?;
     let body: ServiceNowTemplateUpdateRequest = crate::util::read_json_file(file)?;
     let resp = api
         .update_service_now_template(uuid, body)
@@ -140,7 +140,7 @@ pub async fn servicenow_templates_update(
 
 pub async fn servicenow_templates_delete(cfg: &Config, template_id: &str) -> Result<()> {
     let api = crate::make_api!(ServiceNowIntegrationAPI, cfg);
-    let uuid = util::parse_uuid(template_id, "template")?;
+    let uuid = util_ext::parse_uuid(template_id, "template")?;
     api.delete_service_now_template(uuid)
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete ServiceNow template: {e:?}"))?;
@@ -151,7 +151,7 @@ pub async fn servicenow_templates_delete(cfg: &Config, template_id: &str) -> Res
 pub async fn servicenow_users_list(cfg: &Config, instance_name: &str) -> Result<()> {
     let api = crate::make_api!(ServiceNowIntegrationAPI, cfg);
     let resp = api
-        .list_service_now_users(util::parse_uuid(instance_name, "instance")?)
+        .list_service_now_users(util_ext::parse_uuid(instance_name, "instance")?)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list ServiceNow users: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -160,7 +160,7 @@ pub async fn servicenow_users_list(cfg: &Config, instance_name: &str) -> Result<
 pub async fn servicenow_assignment_groups_list(cfg: &Config, instance_name: &str) -> Result<()> {
     let api = crate::make_api!(ServiceNowIntegrationAPI, cfg);
     let resp = api
-        .list_service_now_assignment_groups(util::parse_uuid(instance_name, "instance")?)
+        .list_service_now_assignment_groups(util_ext::parse_uuid(instance_name, "instance")?)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list ServiceNow assignment groups: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -169,7 +169,7 @@ pub async fn servicenow_assignment_groups_list(cfg: &Config, instance_name: &str
 pub async fn servicenow_business_services_list(cfg: &Config, instance_name: &str) -> Result<()> {
     let api = crate::make_api!(ServiceNowIntegrationAPI, cfg);
     let resp = api
-        .list_service_now_business_services(util::parse_uuid(instance_name, "instance")?)
+        .list_service_now_business_services(util_ext::parse_uuid(instance_name, "instance")?)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list ServiceNow business services: {e:?}"))?;
     formatter::output(cfg, &resp)

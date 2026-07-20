@@ -39,6 +39,7 @@ use datadog_api_client::datadogV2::model::MetricPayload;
 use crate::config::Config;
 use crate::formatter;
 use crate::util;
+use crate::util_ext;
 
 pub async fn list(
     cfg: &Config,
@@ -48,7 +49,7 @@ pub async fn list(
 ) -> Result<()> {
     let api = crate::make_api!(MetricsV1API, cfg);
 
-    let from_ts = util::parse_time_to_unix(&from)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
     let mut params = ListActiveMetricsOptionalParams::default();
     if let Some(tf) = tag_filter {
         params = params.tag_filter(tf);
@@ -81,8 +82,8 @@ pub async fn list(
 pub async fn search(cfg: &Config, query: String, from: String, to: String) -> Result<()> {
     let api = crate::make_api!(MetricsV1API, cfg);
 
-    let from_ts = util::parse_time_to_unix(&from)?;
-    let to_ts = util::parse_time_to_unix(&to)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
+    let to_ts = util_ext::parse_time_to_unix(&to)?;
 
     let resp = api
         .query_metrics(from_ts, to_ts, query)
@@ -103,8 +104,8 @@ pub async fn metadata_get(cfg: &Config, metric_name: &str) -> Result<()> {
 pub async fn query(cfg: &Config, query: String, from: String, to: String) -> Result<()> {
     let api = crate::make_api!(MetricsV1API, cfg);
 
-    let from_ts = util::parse_time_to_unix(&from)?;
-    let to_ts = util::parse_time_to_unix(&to)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
+    let to_ts = util_ext::parse_time_to_unix(&to)?;
 
     let resp = api
         .query_metrics(from_ts, to_ts, query)

@@ -86,6 +86,27 @@ pup monitors delete 12345678
 pup monitors delete 12345678 --yes
 ```
 
+### Diff Monitor (preview changes before update)
+```bash
+# Compare a candidate JSON file against the live monitor
+pup monitors diff 12345678 candidate.json
+
+# Scope the diff to a specific field subtree
+pup monitors diff 12345678 candidate.json --only options.thresholds
+
+# Exclude noisy fields from the diff
+pup monitors diff 12345678 candidate.json --ignore message
+
+# Combine --only and --ignore; both accept comma-separated or repeated flags
+pup monitors diff 12345678 candidate.json --only options.thresholds --ignore options.thresholds.warning
+```
+
+> **"removed" entries:** `pup monitors update` is a partial/merge update — fields absent
+> from the candidate are left unchanged on the live monitor, not deleted. `"removed"` entries
+> in the diff show fields the candidate does not specify; they will **not** be deleted by
+> `update`. Use `--ignore` to hide specific live-only fields from the output.
+> Example: `pup monitors diff 12345678 candidate.json --ignore options`
+
 ## Logs
 
 ### Search Logs
@@ -104,6 +125,10 @@ pup logs search \
   --query="service:api" \
   --from="2024-02-04T10:00:00Z" \
   --to="2024-02-04T11:00:00Z"
+
+# Search specific indexes (comma-separated or repeated)
+pup logs query --query="service:api" --index="main,security" --from="1h"
+pup logs query --query="service:api" --index="main" --index="security" --from="1h"
 ```
 
 ### Aggregate Logs
@@ -135,6 +160,14 @@ pup logs aggregate \
   --from="1h" \
   --compute="count,avg(@duration),percentile(@duration, 95)" \
   --group-by="service,status"
+
+# Aggregate a specific index
+pup logs aggregate \
+  --query="service:web-app" \
+  --index="main" \
+  --from="1h" \
+  --compute="count" \
+  --group-by="status"
 ```
 
 ### Search Logs in Specific Storage Tier

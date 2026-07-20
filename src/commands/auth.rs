@@ -6,12 +6,22 @@ use crate::config::Config;
 /// Helper to run a closure with the storage lock held (non-async to avoid holding lock across await).
 fn with_storage<F, R>(f: F) -> Result<R>
 where
-    F: FnOnce(&mut dyn storage::Storage) -> Result<R>,
+    F: FnOnce(&mut dyn storage::Storage) -> Result<R> + Send,
+    R: Send,
 {
-    let guard = storage::get_storage()?;
-    let mut lock = guard.lock().unwrap();
-    let store = lock.as_mut().unwrap();
-    f(&mut **store)
+    // Keep keyring I/O off tokio runtime threads so the keyring crate's
+    // sync wrappers can safely drive async secret-service internals.
+    std::thread::scope(|scope| {
+        let handle = scope.spawn(|| {
+            let guard = storage::get_storage()?;
+            let mut lock = guard.lock().unwrap();
+            let store = lock.as_mut().unwrap();
+            f(&mut **store)
+        });
+        handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("storage worker thread panicked"))?
+    })
 }
 
 /// Parse a token's space-delimited scope claim and return scopes sorted
@@ -44,9 +54,9 @@ pub async fn login(
     let org = cfg.org.as_deref();
 
     // Resolve effective org_uuid: CLI flag wins; otherwise recall the UUID
-    // stored on the matching `(site, org)` session so re-auth keeps emitting
+    // stored on the matching org session so re-auth keeps emitting
     // `dd_oid` without re-passing the flag.
-    let stored_session = storage::find_session(site, org);
+    let stored_session = storage::find_session(org);
     let effective_org_uuid: Option<String> = org_uuid
         .map(String::from)
         .or_else(|| stored_session.as_ref().and_then(|s| s.org_uuid.clone()));
@@ -366,18 +376,32 @@ pub async fn login(
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn logout(cfg: &Config) -> Result<()> {
-    let site = &cfg.site;
     let org = cfg.org.as_deref();
+    // Collect all sessions matching this org name before removing them. Under
+    // the one-per-name invariant there is normally only one, but legacy
+    // sessions.json files may have two rows for the same org on different sites.
+    // Delete tokens for each so none are orphaned in keychain/file storage.
+    let sessions_to_remove: Vec<_> = storage::list_sessions()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| s.org.as_deref() == org)
+        .collect();
     with_storage(|store| {
-        store.delete_tokens(site, org)?;
-        // Only delete client credentials when logging out the default (no-org) session;
-        // client credentials are site-scoped and shared across orgs
-        if org.is_none() {
-            store.delete_client_credentials(site)?;
+        for s in &sessions_to_remove {
+            store.delete_tokens(&s.site, org)?;
+            // Client credentials are site-scoped and shared across orgs; only
+            // delete them when logging out the default (no-org) session.
+            if org.is_none() {
+                store.delete_client_credentials(&s.site)?;
+            }
         }
         Ok(())
     })?;
-    storage::remove_session(site, org)?;
+    storage::remove_session(&cfg.site, org)?;
+    let site = sessions_to_remove
+        .first()
+        .map(|s| s.site.as_str())
+        .unwrap_or(&cfg.site);
     let org_label = org_suffix(org);
     eprintln!("Logged out from {site}{org_label}. Tokens removed.");
     Ok(())
@@ -451,10 +475,10 @@ pub fn status(cfg: &Config) -> Result<()> {
 /// OAuth2 tokens are stored. API-key and bearer-token credentials are
 /// surfaced as authenticated so agents that wrap pup don't conclude auth is
 /// broken when API keys are working fine. Auth-type precedence is delegated
-/// to `client::get_auth_type` so this command can never disagree with the
+/// to `raw_raw_client::get_auth_type` so this command can never disagree with the
 /// auth headers the client actually sends.
 fn build_non_oauth_status(cfg: &Config) -> (String, serde_json::Value) {
-    use crate::client::{get_auth_type, AuthType};
+    use crate::raw_client::{get_auth_type, AuthType};
 
     let site = &cfg.site;
     let org = cfg.org.as_deref();
@@ -846,7 +870,7 @@ mod tests {
     #[test]
     fn test_build_non_oauth_status_bearer_takes_precedence_over_api_keys() {
         // When DD_ACCESS_TOKEN and DD_API_KEY/DD_APP_KEY are both set, the
-        // client uses the bearer token (see client::get_auth_type). Status
+        // client uses the bearer token (see raw_client::get_auth_type). Status
         // should reflect the same precedence so the reported auth method
         // matches what's actually being sent on the wire.
         let mut cfg = base_config();

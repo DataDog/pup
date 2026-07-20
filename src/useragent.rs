@@ -74,6 +74,10 @@ fn is_env_truthy(key: &str) -> bool {
     }
 }
 
+fn is_env_present(key: &str) -> bool {
+    std::env::var(key).is_ok_and(|val| !val.is_empty())
+}
+
 pub fn detect_agent_info() -> AgentInfo {
     for detector in AGENT_DETECTORS {
         for env_var in detector.env_vars {
@@ -84,6 +88,12 @@ pub fn detect_agent_info() -> AgentInfo {
                 };
             }
         }
+    }
+    if is_env_present("DEVIN_SESSION_ID") {
+        return AgentInfo {
+            name: "devin".to_string(),
+            detected: true,
+        };
     }
     AgentInfo {
         name: String::new(),
@@ -169,6 +179,7 @@ mod tests {
         }
         std::env::remove_var("FORCE_AGENT_MODE");
         std::env::remove_var("PUP_AGENT_MODE");
+        std::env::remove_var("DEVIN_SESSION_ID");
     }
 
     #[test]
@@ -184,6 +195,18 @@ mod tests {
         std::env::remove_var("__PUP_TEST_TRUE__");
         std::env::remove_var("__PUP_TEST_ONE__");
         std::env::remove_var("__PUP_TEST_FALSE__");
+    }
+
+    #[test]
+    fn test_is_env_present() {
+        let _guard = ENV_LOCK.blocking_lock();
+        std::env::set_var("__PUP_TEST_PRESENT__", "some-session-id");
+        assert!(is_env_present("__PUP_TEST_PRESENT__"));
+        std::env::set_var("__PUP_TEST_PRESENT_EMPTY__", "");
+        assert!(!is_env_present("__PUP_TEST_PRESENT_EMPTY__"));
+        assert!(!is_env_present("__PUP_TEST_PRESENT_MISSING__"));
+        std::env::remove_var("__PUP_TEST_PRESENT__");
+        std::env::remove_var("__PUP_TEST_PRESENT_EMPTY__");
     }
 
     #[test]
@@ -372,6 +395,27 @@ mod tests {
         let info = detect_agent_info();
         assert!(!info.detected);
         std::env::remove_var("PI_CODING_AGENT");
+    }
+
+    #[test]
+    fn test_detect_agent_info_devin() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("DEVIN_SESSION_ID", "devin-run-abc123");
+        let info = detect_agent_info();
+        assert!(info.detected);
+        assert_eq!(info.name, "devin");
+        std::env::remove_var("DEVIN_SESSION_ID");
+    }
+
+    #[test]
+    fn test_detect_agent_info_devin_empty_not_detected() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("DEVIN_SESSION_ID", "");
+        let info = detect_agent_info();
+        assert!(!info.detected);
+        std::env::remove_var("DEVIN_SESSION_ID");
     }
 
     #[test]

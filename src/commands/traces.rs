@@ -11,6 +11,7 @@ use datadog_api_client::datadogV2::model::{
 use crate::config::Config;
 use crate::formatter;
 use crate::util;
+use crate::util_ext;
 
 // ---------------------------------------------------------------------------
 // Spans Metrics
@@ -76,7 +77,7 @@ fn validate_sort(sort: &str) -> Result<()> {
 
 /// Parse a compute string into (SpansAggregationFunction, Option<metric>).
 fn parse_compute(input: &str) -> Result<(SpansAggregationFunction, Option<String>)> {
-    let (func, metric) = util::parse_compute_raw(input)?;
+    let (func, metric) = util_ext::parse_compute_raw(input)?;
     let agg = match func.as_str() {
         "count" => SpansAggregationFunction::COUNT,
         "avg" => SpansAggregationFunction::AVG,
@@ -107,8 +108,8 @@ pub async fn search(
 
     let api = crate::make_api!(SpansAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
 
     if !(1..=1000).contains(&limit) {
         anyhow::bail!("--limit must be between 1 and 1000, got {limit}");
@@ -181,8 +182,8 @@ pub async fn aggregate(
 
     let api = crate::make_api!(SpansAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
 
     let mut spans_compute = SpansCompute::new(agg_fn);
     if let Some(m) = metric {

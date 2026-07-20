@@ -475,10 +475,10 @@ pub fn status(cfg: &Config) -> Result<()> {
 /// OAuth2 tokens are stored. API-key and bearer-token credentials are
 /// surfaced as authenticated so agents that wrap pup don't conclude auth is
 /// broken when API keys are working fine. Auth-type precedence is delegated
-/// to `client::get_auth_type` so this command can never disagree with the
+/// to `raw_raw_client::get_auth_type` so this command can never disagree with the
 /// auth headers the client actually sends.
 fn build_non_oauth_status(cfg: &Config) -> (String, serde_json::Value) {
-    use crate::client::{get_auth_type, AuthType};
+    use crate::raw_client::{get_auth_type, AuthType};
 
     let site = &cfg.site;
     let org = cfg.org.as_deref();
@@ -870,7 +870,7 @@ mod tests {
     #[test]
     fn test_build_non_oauth_status_bearer_takes_precedence_over_api_keys() {
         // When DD_ACCESS_TOKEN and DD_API_KEY/DD_APP_KEY are both set, the
-        // client uses the bearer token (see client::get_auth_type). Status
+        // client uses the bearer token (see raw_client::get_auth_type). Status
         // should reflect the same precedence so the reported auth method
         // matches what's actually being sent on the wire.
         let mut cfg = base_config();

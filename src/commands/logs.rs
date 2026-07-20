@@ -7,10 +7,10 @@ use datadog_api_client::datadogV2::model::{
     LogsListRequest, LogsListRequestPage, LogsQueryFilter, LogsSort, LogsStorageTier,
 };
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::raw_client;
+use crate::util_ext;
 
 pub struct AggregateArgs {
     pub query: String,
@@ -152,7 +152,7 @@ fn build_aggregate_body(
     let compute_arr: Vec<serde_json::Value> = computes
         .iter()
         .map(|c| {
-            let (aggregation, metric) = util::parse_compute_raw(c)?;
+            let (aggregation, metric) = util_ext::parse_compute_raw(c)?;
             let mut obj = serde_json::json!({ "aggregation": aggregation });
             if let Some(m) = metric {
                 obj["metric"] = serde_json::Value::String(m);
@@ -203,8 +203,8 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
     } = args;
     let api = crate::make_api!(LogsAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
 
     let storage_tier = parse_storage_tier(storage)?;
 
@@ -285,12 +285,12 @@ pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
     if compute.is_empty() {
         compute.push("count".into());
     }
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
     let body = build_aggregate_body(
         query, from_ms, to_ms, compute, group_by, limit, index, storage, &sort,
     )?;
-    let data = client::raw_post(cfg, "/api/v2/logs/analytics/aggregate", body).await?;
+    let data = raw_client::raw_post(cfg, "/api/v2/logs/analytics/aggregate", body).await?;
     formatter::output(cfg, &data)?;
     Ok(())
 }
@@ -394,13 +394,13 @@ pub async fn metrics_delete(cfg: &Config, metric_id: &str) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 pub async fn restriction_queries_list(cfg: &Config) -> Result<()> {
-    let data = client::raw_get(cfg, "/api/v2/logs/config/restriction_queries", &[]).await?;
+    let data = raw_client::raw_get(cfg, "/api/v2/logs/config/restriction_queries", &[]).await?;
     formatter::output(cfg, &data)
 }
 
 pub async fn restriction_queries_get(cfg: &Config, query_id: &str) -> Result<()> {
     let path = format!("/api/v2/logs/config/restriction_queries/{query_id}");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 

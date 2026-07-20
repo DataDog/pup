@@ -16,7 +16,7 @@ use datadog_api_client::datadogV2::model::{
 
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::util_ext;
 
 #[derive(Clone, Debug, clap::ValueEnum)]
 pub(crate) enum EventAlertTypeArg {
@@ -153,7 +153,7 @@ fn resolve_message(
                     "no event message provided: pass it as an argument or pipe it via stdin"
                 );
             }
-            let buf = util::read_to_string(reader, "failed to read event message from stdin")?;
+            let buf = util_ext::read_to_string(reader, "failed to read event message from stdin")?;
             // Drop the trailing newline shells add to piped input so stdin and
             // argument messages produce the same event text.
             buf.trim_end().to_owned()
@@ -236,8 +236,8 @@ pub async fn search(
 ) -> Result<()> {
     let api = crate::make_api!(EventsV2API, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
 
     let from_str = chrono::DateTime::from_timestamp_millis(from_ms)
         .unwrap()

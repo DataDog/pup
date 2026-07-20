@@ -6,11 +6,11 @@ use datadog_api_client::datadogV2::model::{
     LogsListRequest, LogsListRequestPage, LogsQueryFilter, LogsSort,
 };
 
-use crate::client;
+use crate::raw_client;
 use crate::{config::Config, formatter};
 
 async fn post(cfg: &Config, path: &str, body: serde_json::Value) -> Result<serde_json::Value> {
-    client::raw_post(cfg, path, body).await
+    raw_client::raw_post(cfg, path, body).await
 }
 
 async fn post_lenient(
@@ -18,15 +18,15 @@ async fn post_lenient(
     path: &str,
     body: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    client::raw_post_lenient(cfg, path, body).await
+    raw_client::raw_post_lenient(cfg, path, body).await
 }
 
 async fn delete(cfg: &Config, path: &str) -> Result<()> {
-    client::raw_delete(cfg, path).await
+    raw_client::raw_delete(cfg, path).await
 }
 
 async fn get(cfg: &Config, path: &str, query: &[(&str, &str)]) -> Result<serde_json::Value> {
-    client::raw_get(cfg, path, query).await
+    raw_client::raw_get(cfg, path, query).await
 }
 
 fn extract_api_errors(resp: &serde_json::Value) -> Option<String> {
@@ -286,7 +286,7 @@ pub async fn probes_create(cfg: &Config, params: ProbeCreateParams<'_>) -> Resul
         fields,
     } = params;
     let expires_ms = if let Some(ttl_str) = ttl {
-        Some(crate::util::now_millis() + crate::util::parse_duration_to_millis(ttl_str)?)
+        Some(crate::util_ext::now_millis() + crate::util_ext::parse_duration_to_millis(ttl_str)?)
     } else {
         None
     };
@@ -455,7 +455,7 @@ pub async fn probes_watch(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(wait);
     let mut found = false;
     loop {
-        if let Ok(data) = client::raw_get(cfg, &status_path, &[]).await {
+        if let Ok(data) = raw_client::raw_get(cfg, &status_path, &[]).await {
             if data["data"].as_array().and_then(|a| a.first()).is_some() {
                 found = true;
                 break;
@@ -477,7 +477,7 @@ pub async fn probes_watch(
     }
 
     let from_ms_init = if let Some(f) = from {
-        crate::util::parse_time_to_unix_millis(f)?
+        crate::util_ext::parse_time_to_unix_millis(f)?
     } else {
         chrono::Utc::now().timestamp_millis()
     };
@@ -510,7 +510,7 @@ pub async fn probes_watch(
                 return Ok(());
             }
             _ = status_interval.tick() => {
-                match client::raw_get(cfg, &status_path, &[]).await {
+                match raw_client::raw_get(cfg, &status_path, &[]).await {
                     Ok(data) => {
                         consecutive_errors = 0;
                         if let Some(entry) = data["data"].as_array().and_then(|a| a.first()) {

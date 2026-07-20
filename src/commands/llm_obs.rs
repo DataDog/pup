@@ -11,10 +11,11 @@ use datadog_api_client::datadogV2::model::{
     LLMObsProjectRequest,
 };
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 use crate::util;
+use crate::util_ext;
 
 fn make_api(cfg: &Config) -> LLMObservabilityAPI {
     crate::make_api!(LLMObservabilityAPI, cfg)
@@ -33,7 +34,7 @@ pub async fn projects_create(cfg: &Config, file: &str) -> Result<()> {
 }
 
 pub async fn projects_list(cfg: &Config) -> Result<()> {
-    let resp = client::raw_get(cfg, "/api/v2/llm-obs/v1/projects", &[])
+    let resp = raw_client::raw_get(cfg, "/api/v2/llm-obs/v1/projects", &[])
         .await
         .map_err(|e| anyhow::anyhow!("failed to list LLM obs projects: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -64,7 +65,7 @@ pub async fn experiments_list(
         query.push(("filter[dataset_id]", did.clone()));
     }
     let query_refs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    let resp = client::raw_get(cfg, "/api/v2/llm-obs/v1/experiments", &query_refs)
+    let resp = raw_client::raw_get(cfg, "/api/v2/llm-obs/v1/experiments", &query_refs)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list LLM obs experiments: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -104,7 +105,7 @@ pub async fn datasets_create(cfg: &Config, project_id: &str, file: &str) -> Resu
 
 pub async fn datasets_list(cfg: &Config, project_id: &str) -> Result<()> {
     let path = format!("/api/v2/llm-obs/v1/{project_id}/datasets");
-    let resp = client::raw_get(cfg, &path, &[])
+    let resp = raw_client::raw_get(cfg, &path, &[])
         .await
         .map_err(|e| anyhow::anyhow!("failed to list LLM obs datasets: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -159,7 +160,7 @@ pub async fn datasets_restore(
 
 pub async fn experiments_summary(cfg: &Config, experiment_id: &str) -> Result<()> {
     let body = serde_json::json!({ "experiment_id": experiment_id });
-    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/experiment/summary", body)
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/experiment/summary", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get experiment summary: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -195,7 +196,7 @@ pub async fn experiments_events_list(
     if let Some(m) = sort_by_metric {
         body["sort_by_metric_label"] = serde_json::json!(m);
     }
-    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/experiment/events", body)
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/experiment/events", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list experiment events: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -207,7 +208,7 @@ pub async fn experiments_events_get(
     event_id: &str,
 ) -> Result<()> {
     let body = serde_json::json!({ "experiment_id": experiment_id, "event_id": event_id });
-    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/experiment/event", body)
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/experiment/event", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get experiment event: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -228,7 +229,7 @@ pub async fn experiments_metric_values(
     if let Some(v) = segment_dimension_value {
         body["segment_dimension_value"] = serde_json::json!(v);
     }
-    let resp = client::raw_post(
+    let resp = raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/experiment/metric-values",
         body,
@@ -245,7 +246,7 @@ pub async fn experiments_dimension_values(
 ) -> Result<()> {
     let body =
         serde_json::json!({ "experiment_id": experiment_id, "dimension_key": dimension_key });
-    let resp = client::raw_post(
+    let resp = raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/experiment/dimension-values",
         body,
@@ -378,7 +379,7 @@ pub async fn eval_config_delete(cfg: &Config, eval_name: &str) -> Result<()> {
 // ---- Evals (no typed equivalent — unstable MCP endpoint) ----
 
 pub async fn evals_list(cfg: &Config) -> Result<()> {
-    let resp = client::raw_post(
+    let resp = raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/eval/list-for-org",
         serde_json::json!({}),
@@ -389,7 +390,7 @@ pub async fn evals_list(cfg: &Config) -> Result<()> {
 }
 
 pub async fn evals_list_by_ml_app(cfg: &Config, ml_app: &str) -> Result<()> {
-    let resp = client::raw_post(
+    let resp = raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/eval/list",
         serde_json::json!({ "ml_app": ml_app }),
@@ -400,7 +401,7 @@ pub async fn evals_list_by_ml_app(cfg: &Config, ml_app: &str) -> Result<()> {
 }
 
 pub async fn evals_get_evaluator(cfg: &Config, eval_name: &str) -> Result<()> {
-    let resp = client::raw_post(
+    let resp = raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/custom-evaluator/get",
         serde_json::json!({ "eval_name": eval_name }),
@@ -421,13 +422,13 @@ pub async fn evals_get_aggregate_stats(
     if let Some(a) = ml_app {
         body["ml_app"] = serde_json::json!(a);
     }
-    let from_ms = util::parse_time_to_unix_millis(&from)
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)
         .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
     body["from"] = serde_json::json!(from_ms.to_string());
-    let to_ms = util::parse_time_to_unix_millis(&to)
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)
         .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
     body["to"] = serde_json::json!(to_ms.to_string());
-    let resp = client::raw_post(
+    let resp = raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/eval/aggregate-stats",
         body,
@@ -440,7 +441,7 @@ pub async fn evals_get_aggregate_stats(
 pub async fn evals_create_or_update(cfg: &Config, eval_name: &str, file: &str) -> Result<()> {
     let mut body: serde_json::Value = util::read_json_file(file)?;
     body["eval_name"] = serde_json::json!(eval_name);
-    client::raw_post(
+    raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/custom-evaluator/create-or-update",
         body,
@@ -452,7 +453,7 @@ pub async fn evals_create_or_update(cfg: &Config, eval_name: &str, file: &str) -
 }
 
 pub async fn evals_delete(cfg: &Config, eval_name: &str) -> Result<()> {
-    client::raw_post(
+    raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/custom-evaluator/delete",
         serde_json::json!({ "eval_name": eval_name }),
@@ -503,17 +504,17 @@ pub async fn spans_search(
     if let Some(a) = ml_app {
         body["ml_app"] = serde_json::json!(a);
     }
-    let from_ms = crate::util::parse_time_to_unix_millis(&from)
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)
         .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
     body["from"] = serde_json::json!(from_ms.to_string());
 
-    let to_ms = crate::util::parse_time_to_unix_millis(&to)
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)
         .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
     body["to"] = serde_json::json!(to_ms.to_string());
     if let Some(c) = cursor {
         body["cursor"] = serde_json::json!(c);
     }
-    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/search-spans", body)
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/search-spans", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to search spans: {e:?}"))?;
     if summary {
@@ -556,13 +557,13 @@ pub async fn spans_get_trace(
     if include_tree {
         body["include_tree"] = serde_json::json!(true);
     }
-    let from_ms = util::parse_time_to_unix_millis(&from)
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)
         .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
     body["from"] = serde_json::json!(from_ms.to_string());
-    let to_ms = util::parse_time_to_unix_millis(&to)
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)
         .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
     body["to"] = serde_json::json!(to_ms.to_string());
-    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/get-trace", body)
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/get-trace", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get trace: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -576,14 +577,14 @@ pub async fn spans_get_span_details(
     to: String,
 ) -> Result<()> {
     let mut body = serde_json::json!({ "trace_id": trace_id, "span_ids": span_ids });
-    let from_ms = util::parse_time_to_unix_millis(&from)
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)
         .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
     body["from"] = serde_json::json!(from_ms.to_string());
-    let to_ms = util::parse_time_to_unix_millis(&to)
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)
         .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
     body["to"] = serde_json::json!(to_ms.to_string());
     let requested = span_ids.len();
-    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/span-details", body)
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/span-details", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get span details: {e:?}"))?;
     let returned = resp["spans"].as_array().map(|a| a.len()).unwrap_or(0);
@@ -616,13 +617,13 @@ pub async fn spans_get_span_content(
     if let Some(m) = max_tokens {
         body["max_tokens"] = serde_json::json!(m);
     }
-    let from_ms = util::parse_time_to_unix_millis(&from)
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)
         .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
     body["from"] = serde_json::json!(from_ms.to_string());
-    let to_ms = util::parse_time_to_unix_millis(&to)
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)
         .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
     body["to"] = serde_json::json!(to_ms.to_string());
-    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/span-content", body)
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/span-content", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get span content: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -635,13 +636,13 @@ pub async fn spans_find_error_spans(
     to: String,
 ) -> Result<()> {
     let mut body = serde_json::json!({ "trace_id": trace_id });
-    let from_ms = util::parse_time_to_unix_millis(&from)
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)
         .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
     body["from"] = serde_json::json!(from_ms.to_string());
-    let to_ms = util::parse_time_to_unix_millis(&to)
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)
         .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
     body["to"] = serde_json::json!(to_ms.to_string());
-    let resp = client::raw_post(
+    let resp = raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/trace/find-error-spans",
         body,
@@ -668,13 +669,13 @@ pub async fn spans_expand_spans(
     if let Some(k) = filter_kind {
         body["filter_kind"] = serde_json::json!(k);
     }
-    let from_ms = util::parse_time_to_unix_millis(&from)
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)
         .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
     body["from"] = serde_json::json!(from_ms.to_string());
-    let to_ms = util::parse_time_to_unix_millis(&to)
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)
         .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
     body["to"] = serde_json::json!(to_ms.to_string());
-    let resp = client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/expand-spans", body)
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/trace/expand-spans", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to expand spans: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -695,13 +696,13 @@ pub async fn spans_get_agent_loop(
     if let Some(m) = max_content_length {
         body["max_content_length"] = serde_json::json!(m);
     }
-    let from_ms = util::parse_time_to_unix_millis(&from)
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)
         .map_err(|e| anyhow::anyhow!("invalid --from value: {e}"))?;
     body["from"] = serde_json::json!(from_ms.to_string());
-    let to_ms = util::parse_time_to_unix_millis(&to)
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)
         .map_err(|e| anyhow::anyhow!("invalid --to value: {e}"))?;
     body["to"] = serde_json::json!(to_ms.to_string());
-    let resp = client::raw_post(
+    let resp = raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/trace/get-agent-loop",
         body,

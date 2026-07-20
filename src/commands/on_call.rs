@@ -20,10 +20,11 @@ use datadog_api_client::datadogV2::model::{
     UserTeamType, UserTeamUpdate, UserTeamUpdateRequest, UserTeamUserType,
 };
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 use crate::util;
+use crate::util_ext;
 
 fn is_uuid(s: &str) -> bool {
     uuid::Uuid::parse_str(s).is_ok()
@@ -455,11 +456,14 @@ pub async fn pages_create(cfg: &Config, file: &str) -> Result<()> {
 
 /// Fetches a single on-call page by ID.
 ///
-/// Uses `client::raw_get` because `datadog-api-client` does not yet
+/// Uses `raw_client::raw_get` because `datadog-api-client` does not yet
 /// expose a `get_on_call_page` binding.
 pub async fn pages_get(cfg: &Config, page_id: &str) -> Result<()> {
-    let path = format!("/api/v2/on-call/pages/{}", util::percent_encode(page_id));
-    let resp = client::raw_get(cfg, &path, &[])
+    let path = format!(
+        "/api/v2/on-call/pages/{}",
+        util_ext::percent_encode(page_id)
+    );
+    let resp = raw_client::raw_get(cfg, &path, &[])
         .await
         .map_err(|e| anyhow::anyhow!("failed to get page: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -843,7 +847,7 @@ mod tests {
     }
 
     // Uses an ID with reserved URL characters ('/' and '?') so the mock's
-    // path-exact matcher only succeeds if `util::percent_encode` is actually
+    // path-exact matcher only succeeds if `util_ext::percent_encode` is actually
     // applied. A refactor that drops the encoder would fail this test.
     #[tokio::test]
     async fn test_on_call_pages_get_percent_encodes_id() {

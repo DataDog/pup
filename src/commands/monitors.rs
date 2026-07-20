@@ -8,6 +8,7 @@ use datadog_api_client::datadogV1::model::Monitor;
 use crate::config::Config;
 use crate::formatter::{self, Metadata};
 use crate::util;
+use crate::util_ext;
 
 pub async fn list(
     cfg: &Config,
@@ -130,10 +131,10 @@ pub async fn diff(
     // notify_no_data) in the live response that the candidate omits. Those appear
     // as "removed" because the candidate is treated as the complete desired state.
     // Use --ignore to suppress specific option fields if the noise is unwanted.
-    util::normalize_for_diff(&mut live, util::READONLY_MONITOR_FIELDS);
-    util::normalize_for_diff(&mut candidate, util::READONLY_MONITOR_FIELDS);
+    util_ext::normalize_for_diff(&mut live, util_ext::READONLY_MONITOR_FIELDS);
+    util_ext::normalize_for_diff(&mut candidate, util_ext::READONLY_MONITOR_FIELDS);
 
-    let entries = util::scope_diff(util::diff_json(&live, &candidate), only, ignore);
+    let entries = util_ext::scope_diff(util_ext::diff_json(&live, &candidate), only, ignore);
 
     // `update` (PUT) is a partial/merge update: fields absent from the candidate
     // file are left unchanged on the live monitor, not deleted. "removed" entries
@@ -143,7 +144,7 @@ pub async fn diff(
     // fields to the candidate explicitly.
     let has_removed = entries
         .iter()
-        .any(|e| e.change == util::ChangeKind::Removed);
+        .any(|e| e.change == util_ext::ChangeKind::Removed);
     let next_action = if entries.is_empty() {
         None
     } else if has_removed {

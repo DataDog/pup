@@ -5041,7 +5041,7 @@ enum SecurityRuleActions {
             help = "Sort order (name, -name, creation_date, -creation_date, update_date, -update_date, enabled, -enabled, type, -type, highest_severity, -highest_severity, source, -source)"
         )]
         sort: Option<String>,
-        #[arg(long, default_value_t = 25, help = "Results per page (max 100)")]
+        #[arg(long, default_value_t = 10, help = "Results per page (max 100)")]
         page_size: i64,
         #[arg(long, default_value_t = 0, help = "Page number (0-indexed)")]
         page_number: i64,

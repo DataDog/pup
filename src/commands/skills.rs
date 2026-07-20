@@ -1,8 +1,8 @@
 use anyhow::{bail, Result};
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 use crate::skills;
 use std::path::Path;
 
@@ -315,7 +315,7 @@ pub async fn catalog_list(cfg: &Config, tags: Vec<String>) -> Result<()> {
     } else {
         format!("/api/v2/skills?{query}")
     };
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -350,7 +350,7 @@ pub async fn catalog_get(
     }
 
     let path = format!("/api/v2/skills/{name}");
-    let data = client::raw_get(cfg, &path, &query).await?;
+    let data = raw_client::raw_get(cfg, &path, &query).await?;
     formatter::output(cfg, &data)
 }
 
@@ -375,7 +375,7 @@ pub async fn catalog_publish(
             }
         }
     });
-    let data = client::raw_post(cfg, "/api/v2/skills", body).await?;
+    let data = raw_client::raw_post(cfg, "/api/v2/skills", body).await?;
     formatter::output(cfg, &data)
 }
 
@@ -402,7 +402,7 @@ pub async fn catalog_update(
         }
     });
     let path = format!("/api/v2/skills/{}", name.replace('/', "%2F"));
-    let data = client::raw_put(cfg, &path, body).await?;
+    let data = raw_client::raw_put(cfg, &path, body).await?;
     formatter::output(cfg, &data)
 }
 
@@ -424,7 +424,7 @@ pub async fn session_record(
             }
         }
     });
-    let data = client::raw_post(cfg, "/api/v2/onboarding/sessions", body).await?;
+    let data = raw_client::raw_post(cfg, "/api/v2/onboarding/sessions", body).await?;
     formatter::output(cfg, &data)
 }
 

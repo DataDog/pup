@@ -12798,8 +12798,14 @@ async fn main_inner() -> anyhow::Result<()> {
             cfg.validate_auth()?;
             match action {
                 SecurityActions::Rules { action } => match action {
-                    SecurityRuleActions::List { filter, sort, page_size, page_number } => {
-                        commands::security::rules_list(&cfg, filter, sort, page_size, page_number).await?
+                    SecurityRuleActions::List {
+                        filter,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::security::rules_list(&cfg, filter, sort, page_size, page_number)
+                            .await?
                     }
                     SecurityRuleActions::Get { rule_id } => {
                         commands::security::rules_get(&cfg, &rule_id).await?;

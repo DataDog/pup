@@ -776,7 +776,14 @@ mod tests {
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": []}"#).await;
-        let _ = super::rules_list(&cfg, Some("test".to_string()), Some("name".to_string()), 50, 2).await;
+        let _ = super::rules_list(
+            &cfg,
+            Some("test".to_string()),
+            Some("name".to_string()),
+            50,
+            2,
+        )
+        .await;
         cleanup_env();
     }
 

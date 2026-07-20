@@ -8,13 +8,13 @@ use datadog_api_client::datadogV2::model::{
 
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::util_ext;
 
 pub async fn list(cfg: &Config, from: String, to: String, limit: i32) -> Result<()> {
     let api = crate::make_api!(AuditAPI, cfg);
 
-    let from_dt = util::parse_time_to_datetime(&from)?;
-    let to_dt = util::parse_time_to_datetime(&to)?;
+    let from_dt = util_ext::parse_time_to_datetime(&from)?;
+    let to_dt = util_ext::parse_time_to_datetime(&to)?;
 
     let params = ListAuditLogsOptionalParams::default()
         .filter_from(from_dt)
@@ -37,8 +37,8 @@ pub async fn search(
 ) -> Result<()> {
     let api = crate::make_api!(AuditAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
 
     let from_str = chrono::DateTime::from_timestamp_millis(from_ms)
         .unwrap()

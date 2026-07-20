@@ -2,6 +2,7 @@ use crate::commands::ddsql;
 use crate::config::Config;
 use crate::formatter;
 use crate::util;
+use crate::util_ext;
 use anyhow::Result;
 use datadog_api_client::datadogV2::api_application_security::ApplicationSecurityAPI;
 use datadog_api_client::datadogV2::api_entity_risk_scores::{
@@ -224,8 +225,8 @@ pub async fn signals_search(
 ) -> Result<()> {
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
 
-    let from_dt = util::parse_time_to_datetime(&from)?;
-    let to_dt = util::parse_time_to_datetime(&to)?;
+    let from_dt = util_ext::parse_time_to_datetime(&from)?;
+    let to_dt = util_ext::parse_time_to_datetime(&to)?;
 
     let sort_val = match sort.as_deref().unwrap_or("-timestamp") {
         "timestamp" | "asc" => SecurityMonitoringSignalsSort::TIMESTAMP_ASCENDING,

@@ -10,6 +10,7 @@ mod extensions;
 mod filter;
 mod formatter;
 mod generated;
+mod raw_client;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,6 +19,7 @@ mod skills;
 mod tunnel;
 mod useragent;
 mod util;
+mod util_ext;
 mod version;
 
 #[cfg(test)]
@@ -12246,8 +12248,8 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 SloActions::Delete { id } => commands::slos::delete(&cfg, &id).await?,
                 SloActions::Status { id, from, to } => {
-                    let from_ts = util::parse_time_to_unix_millis(&from)? / 1000;
-                    let to_ts = util::parse_time_to_unix_millis(&to)? / 1000;
+                    let from_ts = util_ext::parse_time_to_unix_millis(&from)? / 1000;
+                    let to_ts = util_ext::parse_time_to_unix_millis(&to)? / 1000;
                     commands::slos::status(&cfg, &id, from_ts, to_ts).await?;
                 }
             }
@@ -12523,8 +12525,8 @@ async fn main_inner() -> anyhow::Result<()> {
                     .await?;
                 }
                 EventActions::List { from, to, tags, .. } => {
-                    let start = util::parse_time_to_unix_millis(&from)? / 1000;
-                    let end = util::parse_time_to_unix_millis(&to)? / 1000;
+                    let start = util_ext::parse_time_to_unix_millis(&from)? / 1000;
+                    let end = util_ext::parse_time_to_unix_millis(&to)? / 1000;
                     commands::events::list(&cfg, start, end, tags).await?;
                 }
                 EventActions::Search {

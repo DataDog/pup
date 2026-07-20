@@ -1,39 +1,39 @@
 use anyhow::Result;
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::raw_client;
+use crate::util_ext;
 
 pub async fn services_list(cfg: &Config, env: String, from: String, to: String) -> Result<()> {
-    let from_ts = util::parse_time_to_unix(&from)?;
-    let to_ts = util::parse_time_to_unix(&to)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
+    let to_ts = util_ext::parse_time_to_unix(&to)?;
     let path = format!("/api/v2/apm/services?start={from_ts}&end={to_ts}&filter[env]={env}");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
 pub async fn services_stats(cfg: &Config, env: String, from: String, to: String) -> Result<()> {
-    let from_ts = util::parse_time_to_unix(&from)?;
-    let to_ts = util::parse_time_to_unix(&to)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
+    let to_ts = util_ext::parse_time_to_unix(&to)?;
     let path = format!("/api/v2/apm/services/stats?start={from_ts}&end={to_ts}&filter[env]={env}");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
 pub async fn entities_list(cfg: &Config, from: String, to: String) -> Result<()> {
-    let from_ts = util::parse_time_to_unix(&from)?;
-    let to_ts = util::parse_time_to_unix(&to)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
+    let to_ts = util_ext::parse_time_to_unix(&to)?;
     let path = format!("/api/unstable/apm/entities?start={from_ts}&end={to_ts}");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
 pub async fn dependencies_list(cfg: &Config, env: String, from: String, to: String) -> Result<()> {
-    let from_ts = util::parse_time_to_unix(&from)?;
-    let to_ts = util::parse_time_to_unix(&to)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
+    let to_ts = util_ext::parse_time_to_unix(&to)?;
     let path = format!("/api/v1/service_dependencies?start={from_ts}&end={to_ts}&env={env}");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -44,11 +44,11 @@ pub async fn services_operations(
     from: String,
     to: String,
 ) -> Result<()> {
-    let from_ts = util::parse_time_to_unix(&from)?;
-    let to_ts = util::parse_time_to_unix(&to)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
+    let to_ts = util_ext::parse_time_to_unix(&to)?;
     let path =
         format!("/api/v1/trace/operation_names/{service}?env={env}&start={from_ts}&end={to_ts}");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -60,12 +60,12 @@ pub async fn services_resources(
     from: String,
     to: String,
 ) -> Result<()> {
-    let from_ts = util::parse_time_to_unix(&from)?;
-    let to_ts = util::parse_time_to_unix(&to)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
+    let to_ts = util_ext::parse_time_to_unix(&to)?;
     let path = format!(
         "/api/ui/apm/resources?service={service}&name={name}&env={env}&from={from_ts}&to={to_ts}"
     );
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -76,11 +76,11 @@ pub async fn flow_map(
     from: String,
     to: String,
 ) -> Result<()> {
-    let from_ts = util::parse_time_to_unix(&from)?;
-    let to_ts = util::parse_time_to_unix(&to)?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?;
+    let to_ts = util_ext::parse_time_to_unix(&to)?;
     let path =
         format!("/api/ui/apm/flow-map?query={query}&limit={limit}&start={from_ts}&end={to_ts}");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -105,12 +105,12 @@ pub async fn troubleshooting_list(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let data = client::raw_get(cfg, path, &query).await?;
+    let data = raw_client::raw_get(cfg, path, &query).await?;
     formatter::output(cfg, &data)
 }
 
 pub async fn service_remapping_list(cfg: &Config) -> Result<()> {
-    let data = client::raw_get(cfg, "/api/v2/service-naming-rules", &[]).await?;
+    let data = raw_client::raw_get(cfg, "/api/v2/service-naming-rules", &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -132,12 +132,12 @@ pub async fn service_remapping_create(
             }
         }
     });
-    let data = client::raw_post(cfg, "/api/v2/service-naming-rules", body).await?;
+    let data = raw_client::raw_post(cfg, "/api/v2/service-naming-rules", body).await?;
     formatter::output(cfg, &data)
 }
 
 pub async fn service_remapping_get(cfg: &Config, id: String) -> Result<()> {
-    let data = client::raw_get(cfg, &format!("/api/v2/service-naming-rules/{id}"), &[]).await?;
+    let data = raw_client::raw_get(cfg, &format!("/api/v2/service-naming-rules/{id}"), &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -162,12 +162,13 @@ pub async fn service_remapping_update(
             }
         }
     });
-    let data = client::raw_put(cfg, &format!("/api/v2/service-naming-rules/{id}"), body).await?;
+    let data =
+        raw_client::raw_put(cfg, &format!("/api/v2/service-naming-rules/{id}"), body).await?;
     formatter::output(cfg, &data)
 }
 
 pub async fn service_remapping_delete(cfg: &Config, id: String, version: i64) -> Result<()> {
-    client::raw_delete(cfg, &format!("/api/v2/service-naming-rules/{id}/{version}")).await
+    raw_client::raw_delete(cfg, &format!("/api/v2/service-naming-rules/{id}/{version}")).await
 }
 
 // =============================================================================
@@ -186,15 +187,15 @@ pub async fn sampling_rules_list(
     // If service + env are both given, prefer the narrowed by_target endpoint.
     if let (Some(svc), Some(e)) = (service.as_deref(), env.as_deref()) {
         let path = format!("{SAMPLING_RULES_BASE}/by_target");
-        let data = client::raw_get(cfg, &path, &[("service", svc), ("env", e)]).await?;
+        let data = raw_client::raw_get(cfg, &path, &[("service", svc), ("env", e)]).await?;
         return formatter::output(cfg, &data);
     }
-    let data = client::raw_get(cfg, SAMPLING_RULES_BASE, &[]).await?;
+    let data = raw_client::raw_get(cfg, SAMPLING_RULES_BASE, &[]).await?;
     formatter::output(cfg, &data)
 }
 
 pub async fn sampling_rules_get(cfg: &Config, id: String) -> Result<()> {
-    let data = client::raw_get(cfg, &format!("{SAMPLING_RULES_BASE}/{id}"), &[]).await?;
+    let data = raw_client::raw_get(cfg, &format!("{SAMPLING_RULES_BASE}/{id}"), &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -229,7 +230,7 @@ pub async fn sampling_rules_create(
             }
         }
     });
-    let data = client::raw_post(cfg, SAMPLING_RULES_BASE, body).await?;
+    let data = raw_client::raw_post(cfg, SAMPLING_RULES_BASE, body).await?;
     formatter::output(cfg, &data)
 }
 
@@ -266,12 +267,12 @@ pub async fn sampling_rules_update(
             }
         }
     });
-    let data = client::raw_put(cfg, &format!("{SAMPLING_RULES_BASE}/{id}"), body).await?;
+    let data = raw_client::raw_put(cfg, &format!("{SAMPLING_RULES_BASE}/{id}"), body).await?;
     formatter::output(cfg, &data)
 }
 
 pub async fn sampling_rules_delete(cfg: &Config, id: String) -> Result<()> {
-    client::raw_delete(cfg, &format!("{SAMPLING_RULES_BASE}/{id}")).await
+    raw_client::raw_delete(cfg, &format!("{SAMPLING_RULES_BASE}/{id}")).await
 }
 
 // =============================================================================
@@ -315,7 +316,7 @@ pub async fn adaptive_sampling_onboarding_status(
     if let Some(e) = env.as_deref() {
         params.push(("env", e));
     }
-    let data = client::raw_get(cfg, &path, &params).await?;
+    let data = raw_client::raw_get(cfg, &path, &params).await?;
     formatter::output(cfg, &data)
 }
 
@@ -336,7 +337,7 @@ async fn post_onboarding(
             }
         }
     });
-    let data = client::raw_post(
+    let data = raw_client::raw_post(
         cfg,
         &format!("{ADAPTIVE_SAMPLING_BASE}/onboarding_status"),
         body,
@@ -355,7 +356,7 @@ pub async fn adaptive_sampling_offboard(cfg: &Config, service: String, env: Stri
 
 pub async fn adaptive_sampling_get_allotment(cfg: &Config) -> Result<()> {
     let path = format!("{ADAPTIVE_SAMPLING_BASE}/allotment_config");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -372,7 +373,7 @@ pub async fn adaptive_sampling_set_allotment(
             "attributes": attrs,
         }
     });
-    let data = client::raw_post(
+    let data = raw_client::raw_post(
         cfg,
         &format!("{ADAPTIVE_SAMPLING_BASE}/allotment_config"),
         body,
@@ -383,7 +384,7 @@ pub async fn adaptive_sampling_set_allotment(
 
 pub async fn adaptive_sampling_check(cfg: &Config) -> Result<()> {
     let path = format!("{ADAPTIVE_SAMPLING_BASE}/allotment_check");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
     formatter::output(cfg, &data)
 }
 
@@ -400,7 +401,8 @@ pub async fn adaptive_sampling_preview(
             "attributes": attrs,
         }
     });
-    let data = client::raw_post(cfg, &format!("{ADAPTIVE_SAMPLING_BASE}/preview"), body).await?;
+    let data =
+        raw_client::raw_post(cfg, &format!("{ADAPTIVE_SAMPLING_BASE}/preview"), body).await?;
     formatter::output(cfg, &data)
 }
 
@@ -421,7 +423,7 @@ pub async fn service_config_get(
         ids_owned = ids.clone();
         query.push(("service_instance_ids", ids_owned.as_str()));
     }
-    let data = client::raw_get(cfg, "/api/unstable/apm/service-config", &query).await?;
+    let data = raw_client::raw_get(cfg, "/api/unstable/apm/service-config", &query).await?;
     formatter::output(cfg, &data)
 }
 
@@ -446,7 +448,7 @@ pub async fn service_library_config_get(
     if mixed {
         query.push(("is_mixed", "true"));
     }
-    let data = client::raw_get(cfg, "/api/unstable/apm/service-library-config", &query).await?;
+    let data = raw_client::raw_get(cfg, "/api/unstable/apm/service-library-config", &query).await?;
     formatter::output(cfg, &data)
 }
 

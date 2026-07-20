@@ -1,10 +1,10 @@
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::raw_client;
+use crate::util_ext;
 
 mod migrate;
 pub use migrate::migrate_schema;
@@ -206,7 +206,7 @@ async fn fetch_on_call(cfg: &Config, team_id: &str) -> Option<OnCallInfo> {
     let path = format!(
         "/api/v2/on-call/teams/{team_id}/on-call?include=responders,escalations.responders"
     );
-    let data = client::raw_get(cfg, &path, &[]).await.ok()?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await.ok()?;
     let included = data.get("included")?.as_array()?;
 
     // Primary responders come from data.relationships.responders
@@ -432,7 +432,7 @@ fn parse_dependencies(deps_data: &serde_json::Value, entity: &str) -> (Vec<Strin
 // ---------------------------------------------------------------------------
 
 fn entity_query_url(entity: &str, include: &str) -> String {
-    let query = util::percent_encode(&format!("kind:service AND name:{entity}"));
+    let query = util_ext::percent_encode(&format!("kind:service AND name:{entity}"));
     let mut url = format!("/api/v2/idp/entity_graph/entities?query={query}&page%5Blimit%5D=1");
     if !include.is_empty() {
         url.push_str(&format!("&include={include}"));
@@ -451,8 +451,8 @@ pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
     let deps_path = "/api/v1/service_dependencies?env=prod";
 
     let (entity_res, deps_res) = tokio::join!(
-        client::raw_get(cfg, &entity_path, &[]),
-        client::raw_get(cfg, deps_path, &[]),
+        raw_client::raw_get(cfg, &entity_path, &[]),
+        raw_client::raw_get(cfg, deps_path, &[]),
     );
 
     let entity_data = entity_res?;
@@ -534,9 +534,9 @@ pub async fn find(cfg: &Config, query: &str) -> Result<()> {
     } else {
         format!("kind:service AND name:*{query}*")
     };
-    let encoded = util::percent_encode(&full_query);
+    let encoded = util_ext::percent_encode(&full_query);
     let path = format!("/api/v2/idp/entity_graph/entities?query={encoded}&page%5Blimit%5D=10");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
 
     let meta = formatter::Metadata {
         count: data.get("data").and_then(|d| d.as_array()).map(|a| a.len()),
@@ -559,7 +559,7 @@ pub async fn find(cfg: &Config, query: &str) -> Result<()> {
 /// Resolve owner, team, and on-call context for an entity.
 pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
     let path = entity_query_url(entity, "owner_teams");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
 
     let entities = data
         .get("data")
@@ -611,7 +611,7 @@ pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
 /// Show dependency and relationship context for an entity.
 pub async fn deps(cfg: &Config, entity: &str) -> Result<()> {
     let deps_path = "/api/v1/service_dependencies?env=prod";
-    let deps_data = client::raw_get(cfg, deps_path, &[]).await?;
+    let deps_data = raw_client::raw_get(cfg, deps_path, &[]).await?;
     let (upstream, downstream) = parse_dependencies(&deps_data, entity);
 
     let response = serde_json::json!({
@@ -647,7 +647,7 @@ pub async fn register(cfg: &Config, file: &str) -> Result<()> {
     let yaml_value: serde_json::Value = serde_norway::from_str(&content)
         .map_err(|e| anyhow::anyhow!("failed to parse YAML in {file}: {e}"))?;
 
-    let data = client::raw_post(cfg, "/api/v2/services/definitions", yaml_value).await?;
+    let data = raw_client::raw_post(cfg, "/api/v2/services/definitions", yaml_value).await?;
 
     let service_name = content
         .lines()

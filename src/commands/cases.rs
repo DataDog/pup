@@ -16,9 +16,9 @@ use datadog_api_client::datadogV2::model::{
     ServiceNowTicketCreateRequest,
 };
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -164,7 +164,7 @@ pub async fn comments_update(
         }
     });
     let payload_bytes = serde_json::to_vec(&payload)?;
-    client::raw_request(
+    raw_client::raw_request(
         cfg,
         "PUT",
         &path,
@@ -214,7 +214,7 @@ pub async fn timeline(cfg: &Config, case_id: &str) -> Result<()> {
 
 async fn fetch_timeline(cfg: &Config, case_id: &str) -> Result<serde_json::Value> {
     let path = format!("/api/v2/cases/{case_id}/timelines");
-    client::raw_get(cfg, &path, &[])
+    raw_client::raw_get(cfg, &path, &[])
         .await
         .map_err(|e| anyhow::anyhow!("failed to get case timeline: {e:?}"))
 }

@@ -32,7 +32,7 @@ fn read_input(input: Option<&str>, reader: impl Read) -> Result<String> {
     match input {
         Some(path) if path != "-" => std::fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}")),
-        _ => crate::util::read_to_string(reader, "failed to read JSON from stdin"),
+        _ => crate::util_ext::read_to_string(reader, "failed to read JSON from stdin"),
     }
 }
 

@@ -349,7 +349,7 @@ async fn execute_datadog_workflow(
 
     // Trigger the workflow
     let path = format!("/api/v2/workflows/{workflow_id}/instances");
-    let trigger_resp = crate::client::raw_post(cfg, &path, body)
+    let trigger_resp = crate::raw_client::raw_post(cfg, &path, body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to trigger workflow: {e}"))?;
 
@@ -399,7 +399,7 @@ async fn execute_datadog_workflow(
         tokio::time::sleep(Duration::from_secs(15)).await;
 
         let status_path = format!("/api/v2/workflows/{workflow_id}/instances/{instance_id}");
-        let status_resp = crate::client::raw_get(cfg, &status_path, &[])
+        let status_resp = crate::raw_client::raw_get(cfg, &status_path, &[])
             .await
             .map_err(|e| anyhow::anyhow!("failed to poll workflow: {e}"))?;
 
@@ -504,7 +504,7 @@ async fn execute_http(cfg: &Config, step: &Step, vars: &HashMap<String, String>)
 
     let http_resp = if rendered_url.starts_with('/') {
         // Datadog API path — use authenticated client helper.
-        crate::client::raw_request(
+        crate::raw_client::raw_request(
             cfg,
             &method,
             &rendered_url,
@@ -551,7 +551,7 @@ async fn execute_http(cfg: &Config, step: &Step, vars: &HashMap<String, String>)
         } else {
             resp.bytes().await?.to_vec()
         };
-        crate::client::HttpResponse {
+        crate::raw_client::HttpResponse {
             content_type: resp_ct,
             bytes,
         }
@@ -569,7 +569,7 @@ async fn execute_http(cfg: &Config, step: &Step, vars: &HashMap<String, String>)
 /// - Unrecognised binary responses that cannot be decoded as UTF-8 require
 ///   `output_file` to be set; otherwise an error is returned.
 fn decode_http_response(
-    resp: crate::client::HttpResponse,
+    resp: crate::raw_client::HttpResponse,
     step: &Step,
     vars: &HashMap<String, String>,
 ) -> Result<String> {

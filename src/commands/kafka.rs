@@ -10,9 +10,9 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 
 const TOPIC_CONFIGS_PATH: &str = "/api/ui/data_streams/kafka_topic_configs";
 const BROKER_CONFIGS_PATH: &str = "/api/ui/data_streams/kafka_broker_configs";
@@ -22,7 +22,7 @@ const SUBJECT_SCHEMAS_PATH: &str = "/api/ui/data_streams/subject_kafka_schemas";
 
 pub async fn topic_configs(cfg: &Config, kafka_cluster_id: &str, topic: &str) -> Result<()> {
     let query = [("kafka_cluster_id", kafka_cluster_id), ("topic", topic)];
-    let resp = client::raw_get(cfg, TOPIC_CONFIGS_PATH, &query)
+    let resp = raw_client::raw_get(cfg, TOPIC_CONFIGS_PATH, &query)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get kafka topic configs: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -33,7 +33,7 @@ pub async fn broker_configs(cfg: &Config, kafka_cluster_id: &str, broker_id: &st
         ("kafka_cluster_id", kafka_cluster_id),
         ("broker_id", broker_id),
     ];
-    let resp = client::raw_get(cfg, BROKER_CONFIGS_PATH, &query)
+    let resp = raw_client::raw_get(cfg, BROKER_CONFIGS_PATH, &query)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get kafka broker configs: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -57,7 +57,7 @@ pub async fn client_configs(
         "kafka_cluster_id": kafka_cluster_id,
         "services": services_json,
     });
-    let resp = client::raw_post(cfg, CLIENT_CONFIGS_PATH, body)
+    let resp = raw_client::raw_post(cfg, CLIENT_CONFIGS_PATH, body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get kafka client configs: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -101,7 +101,7 @@ pub async fn read_messages(
     }
 
     let resp =
-        client::raw_post_jsonapi(cfg, READ_MESSAGES_PATH, "kafka_action_read_messages", attrs)
+        raw_client::raw_post_jsonapi(cfg, READ_MESSAGES_PATH, "kafka_action_read_messages", attrs)
             .await
             .map_err(|e| anyhow::anyhow!("failed to read kafka messages: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -110,7 +110,7 @@ pub async fn read_messages(
 /// All version history of a single Schema Registry subject on a Kafka cluster.
 pub async fn subject_schemas(cfg: &Config, kafka_cluster_id: &str, subject: &str) -> Result<()> {
     let query = [("kafka_cluster_id", kafka_cluster_id), ("subject", subject)];
-    let resp = client::raw_get(cfg, SUBJECT_SCHEMAS_PATH, &query)
+    let resp = raw_client::raw_get(cfg, SUBJECT_SCHEMAS_PATH, &query)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get subject kafka schemas: {e:?}"))?;
     formatter::output(cfg, &resp)

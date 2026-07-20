@@ -10,7 +10,7 @@ use datadog_api_client::datadogV2::model::{
 
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::util_ext;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn issues_search(
@@ -28,8 +28,8 @@ pub async fn issues_search(
 ) -> Result<()> {
     let api = crate::make_api!(ErrorTrackingAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
 
     let order_by_val = match order_by.to_uppercase().as_str() {
         "TOTAL_COUNT" => IssuesSearchRequestDataAttributesOrderBy::TOTAL_COUNT,

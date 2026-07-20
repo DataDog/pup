@@ -19,7 +19,7 @@ use datadog_api_client::datadogV2::model::{
 
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::util_ext;
 
 pub async fn pipelines_list(
     cfg: &Config,
@@ -32,8 +32,8 @@ pub async fn pipelines_list(
 ) -> Result<()> {
     let api = crate::make_api!(CIVisibilityPipelinesAPI, cfg);
 
-    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
-    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
+    let from_str = util_ext::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util_ext::parse_time_to_datetime(&to)?.to_rfc3339();
 
     let mut query_parts: Vec<String> = Vec::new();
     if let Some(q) = query {
@@ -73,8 +73,8 @@ pub async fn tests_list(
 ) -> Result<()> {
     let api = crate::make_api!(CIVisibilityTestsAPI, cfg);
 
-    let from_dt = util::parse_time_to_datetime(&from)?;
-    let to_dt = util::parse_time_to_datetime(&to)?;
+    let from_dt = util_ext::parse_time_to_datetime(&from)?;
+    let to_dt = util_ext::parse_time_to_datetime(&to)?;
 
     let mut params = ListCIAppTestEventsOptionalParams::default()
         .filter_from(from_dt)
@@ -102,8 +102,8 @@ pub async fn events_search(
 ) -> Result<()> {
     let api = crate::make_api!(CIVisibilityPipelinesAPI, cfg);
 
-    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
-    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
+    let from_str = util_ext::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util_ext::parse_time_to_datetime(&to)?.to_rfc3339();
 
     let sort_val = match sort.as_str() {
         "asc" | "timestamp" => CIAppSort::TIMESTAMP_ASCENDING,
@@ -154,8 +154,8 @@ pub async fn events_aggregate(
 ) -> Result<()> {
     let api = crate::make_api!(CIVisibilityPipelinesAPI, cfg);
 
-    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
-    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
+    let from_str = util_ext::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util_ext::parse_time_to_datetime(&to)?.to_rfc3339();
     let compute_spec = build_ci_compute_spec(&compute)?;
 
     let filter = CIAppPipelinesQueryFilter::new()
@@ -187,8 +187,8 @@ pub async fn tests_search(
 ) -> Result<()> {
     let api = crate::make_api!(CIVisibilityTestsAPI, cfg);
 
-    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
-    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
+    let from_str = util_ext::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util_ext::parse_time_to_datetime(&to)?.to_rfc3339();
 
     let filter = CIAppTestsQueryFilter::new()
         .from(from_str)
@@ -219,8 +219,8 @@ pub async fn tests_aggregate(
 ) -> Result<()> {
     let api = crate::make_api!(CIVisibilityTestsAPI, cfg);
 
-    let from_str = util::parse_time_to_datetime(&from)?.to_rfc3339();
-    let to_str = util::parse_time_to_datetime(&to)?.to_rfc3339();
+    let from_str = util_ext::parse_time_to_datetime(&from)?.to_rfc3339();
+    let to_str = util_ext::parse_time_to_datetime(&to)?.to_rfc3339();
     let compute_spec = build_ci_compute_spec(&compute)?;
 
     let filter = CIAppTestsQueryFilter::new()
@@ -339,7 +339,7 @@ pub async fn flaky_tests_update(cfg: &Config, file: &str) -> Result<()> {
 }
 
 fn parse_ci_agg(compute: &str) -> Result<(CIAppAggregationFunction, Option<String>)> {
-    let (func, metric) = util::parse_compute_raw(compute)?;
+    let (func, metric) = util_ext::parse_compute_raw(compute)?;
     let agg = match func.as_str() {
         "count" => CIAppAggregationFunction::COUNT,
         "avg" => CIAppAggregationFunction::AVG,

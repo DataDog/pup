@@ -120,7 +120,7 @@ pub async fn run(
 
     // Path used for per-endpoint auth routing. For relative endpoints this is the
     // normalized API path; for absolute URLs on the Datadog host we use the URL's
-    // path component so the OAuth-exclusion table (client::requires_api_key_fallback)
+    // path component so the OAuth-exclusion table (raw_client::requires_api_key_fallback)
     // still applies.
     let auth_path = if is_absolute {
         reqwest::Url::parse(&url)
@@ -179,7 +179,7 @@ pub async fn run(
     // Datadog credentials are never sent to an arbitrary host (see above); the
     // request is sent unauthenticated and the caller may add headers via -H.
     if credentials_allowed {
-        req = crate::client::apply_auth(req, cfg, &method_upper, &auth_path)?;
+        req = crate::raw_client::apply_auth(req, cfg, &method_upper, &auth_path)?;
     } else if cfg.access_token.is_some() || cfg.api_key.is_some() {
         eprintln!(
             "warning: not sending Datadog credentials to non-Datadog host {:?}; \
@@ -614,7 +614,7 @@ mod tests {
 
     /// OAuth-excluded endpoints (e.g. GET /api/v2/api_keys) must use API-key auth
     /// even when a bearer token is present. This exercises the reuse of
-    /// client::apply_auth's per-endpoint fallback table.
+    /// raw_client::apply_auth's per-endpoint fallback table.
     #[tokio::test]
     async fn test_api_oauth_excluded_uses_api_keys() {
         let _lock = lock_env().await;

@@ -319,9 +319,38 @@ pub async fn catalog_list(cfg: &Config, tags: Vec<String>) -> Result<()> {
     formatter::output(cfg, &data)
 }
 
-pub async fn catalog_get(cfg: &Config, name: String) -> Result<()> {
+const VALID_CATALOG_INTENTS: &[&str] = &["explore", "install", "reference"];
+
+pub async fn catalog_get(
+    cfg: &Config,
+    name: String,
+    intent: Option<String>,
+    session_id: Option<String>,
+    org_id: Option<i64>,
+) -> Result<()> {
+    if let Some(intent) = &intent {
+        if !VALID_CATALOG_INTENTS.contains(&intent.as_str()) {
+            bail!(
+                "invalid intent '{intent}'; expected one of: {}",
+                VALID_CATALOG_INTENTS.join(", ")
+            );
+        }
+    }
+
+    let org = org_id.map(|o| o.to_string());
+    let mut query: Vec<(&str, &str)> = Vec::new();
+    if let Some(intent) = &intent {
+        query.push(("intent", intent.as_str()));
+    }
+    if let Some(session_id) = &session_id {
+        query.push(("session_id", session_id.as_str()));
+    }
+    if let Some(org) = &org {
+        query.push(("org_id", org.as_str()));
+    }
+
     let path = format!("/api/v2/skills/{name}");
-    let data = client::raw_get(cfg, &path, &[]).await?;
+    let data = client::raw_get(cfg, &path, &query).await?;
     formatter::output(cfg, &data)
 }
 
@@ -403,7 +432,7 @@ pub async fn session_record(
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::test_support::TempDir;
+    use crate::test_support::*;
 
     fn base_cfg() -> Config {
         Config {
@@ -625,5 +654,90 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("skill not found"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn catalog_get_ok_without_query_params() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/v2/skills/dd-apm")
+            .match_query(mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"id":"dd-apm"}}"#)
+            .create_async()
+            .await;
+        let result = catalog_get(&cfg, "dd-apm".to_string(), None, None, None).await;
+        assert!(result.is_ok(), "catalog get failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn catalog_get_forwards_intent_session_id_and_org_id() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/v2/skills/dd-apm")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("intent".into(), "install".into()),
+                mockito::Matcher::UrlEncoded("session_id".into(), "session-123".into()),
+                mockito::Matcher::UrlEncoded("org_id".into(), "42".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"id":"dd-apm"}}"#)
+            .create_async()
+            .await;
+        let result = catalog_get(
+            &cfg,
+            "dd-apm".to_string(),
+            Some("install".to_string()),
+            Some("session-123".to_string()),
+            Some(42),
+        )
+        .await;
+        assert!(result.is_ok(), "catalog get failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn catalog_get_rejects_invalid_intent() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let result = catalog_get(
+            &cfg,
+            "dd-apm".to_string(),
+            Some("bogus".to_string()),
+            None,
+            None,
+        )
+        .await;
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("invalid intent"), "got: {err}");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn catalog_get_surfaces_not_found() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .with_status(404)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":[{"detail":"Skill not found: nope"}]}"#)
+            .create_async()
+            .await;
+        let result = catalog_get(&cfg, "nope".to_string(), None, None, None).await;
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("404"), "expected 404 in error, got: {err}");
+        cleanup_env();
     }
 }

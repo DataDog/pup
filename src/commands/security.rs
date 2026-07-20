@@ -170,9 +170,17 @@ pub async fn findings_analyze(
     }
 }
 
-pub async fn rules_list(cfg: &Config, filter: Option<String>, sort: Option<String>) -> Result<()> {
+pub async fn rules_list(
+    cfg: &Config,
+    filter: Option<String>,
+    sort: Option<String>,
+    page_size: i64,
+    page_number: i64,
+) -> Result<()> {
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
-    let mut params = ListSecurityMonitoringRulesOptionalParams::default();
+    let mut params = ListSecurityMonitoringRulesOptionalParams::default()
+        .page_size(page_size)
+        .page_number(page_number);
     if let Some(s) = sort {
         params = params.sort(parse_rule_sort(&s));
     }
@@ -758,7 +766,17 @@ mod tests {
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": []}"#).await;
-        let _ = super::rules_list(&cfg, None, None).await;
+        let _ = super::rules_list(&cfg, None, None, 25, 0).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_security_rules_list_with_pagination() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let _ = super::rules_list(&cfg, Some("test".to_string()), Some("name".to_string()), 50, 2).await;
         cleanup_env();
     }
 

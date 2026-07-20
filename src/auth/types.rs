@@ -235,7 +235,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "slos_read",
         "slos_write",
         // Status Pages
-        "status_pages_notice_write",
+        "status_pages_incident_write",
         "status_pages_settings_read",
         "status_pages_settings_write",
         // Synthetics

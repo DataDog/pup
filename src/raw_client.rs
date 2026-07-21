@@ -87,6 +87,11 @@ pub fn requires_api_key_fallback(method: &str, path: &str) -> bool {
     find_endpoint_requirement(method, path).is_some()
 }
 
+/// Returns true if the endpoint accepts an API key without an application key.
+pub(crate) fn requires_api_key_only(method: &str, path: &str) -> bool {
+    method == "POST" && path == "/api/v1/events"
+}
+
 fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static EndpointRequirement> {
     OAUTH_EXCLUDED_ENDPOINTS.iter().find(|req| {
         if req.method != method {
@@ -565,17 +570,29 @@ async fn raw_post_impl(
 
 /// Apply Datadog authentication headers to a request builder.
 ///
-/// Chooses between OAuth bearer and API-key/App-key auth based on `cfg` and the
-/// per-endpoint requirements in [`requires_api_key_fallback`]: endpoints that do
-/// not accept OAuth (see `OAUTH_EXCLUDED_ENDPOINTS`) force API-key auth even when
-/// a bearer token is present. Exposed so the generic `pup api` passthrough reuses
-/// the same auth routing as the typed clients.
+/// Chooses between OAuth bearer and API-key auth based on `cfg` and the
+/// per-endpoint requirements in [`requires_api_key_fallback`]. OAuth-excluded
+/// endpoints require both API and application keys except for the V1 event
+/// intake endpoint, which requires only the API key. Exposed so the generic
+/// `pup api` passthrough reuses the same auth routing as the typed clients.
 pub fn apply_auth(
     mut req: reqwest::RequestBuilder,
     cfg: &Config,
     method: &str,
     path: &str,
 ) -> anyhow::Result<reqwest::RequestBuilder> {
+    // Events post is also in the broader OAuth-excluded table, so handle its
+    // API-key-only requirement before the fallback branch that adds both keys.
+    if requires_api_key_only(method, path) {
+        if let Some(api_key) = &cfg.api_key {
+            return Ok(req.header("DD-API-KEY", api_key.as_str()));
+        }
+
+        anyhow::bail!(
+            "{method} {path} requires DD_API_KEY; OAuth2 bearer tokens are not supported"
+        );
+    }
+
     if requires_api_key_fallback(method, path) {
         if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
             req = req
@@ -810,9 +827,13 @@ mod tests {
 
     #[test]
     fn test_fallback_for_events_post() {
-        // Posting an event (V1 intake) requires API keys; reading events does not.
+        // Posting an event (V1 intake) requires only the API key; reading events
+        // does not require API-key fallback.
         assert!(requires_api_key_fallback("POST", "/api/v1/events"));
+        assert!(requires_api_key_only("POST", "/api/v1/events"));
         assert!(!requires_api_key_fallback("GET", "/api/v1/events"));
+        assert!(!requires_api_key_only("GET", "/api/v1/events"));
+        assert!(!requires_api_key_only("POST", "/api/v1/events/12345"));
     }
 
     #[test]
@@ -948,6 +969,53 @@ mod tests {
             err.to_string().contains("no authentication configured"),
             "expected auth error, got: {err}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_raw_events_post_sends_only_api_key() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/v1/events")
+            .match_header("DD-API-KEY", "test-api-key")
+            .match_header("DD-APPLICATION-KEY", mockito::Matcher::Missing)
+            .match_header("Authorization", mockito::Matcher::Missing)
+            .with_status(202)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"ok"}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = raw_request(
+            &cfg,
+            "POST",
+            "/api/v1/events",
+            &[],
+            Some(br#"{"title":"test","text":"test"}"#.to_vec()),
+            Some("application/json"),
+            "application/json",
+            &[],
+        )
+        .await;
+
+        assert!(result.is_ok(), "raw event post failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_other_oauth_excluded_endpoints_still_require_both_keys() {
+        let mut cfg = test_cfg();
+        cfg.app_key = None;
+        let req = reqwest::Client::new().post("https://api.datadoghq.com/api/v2/api_keys");
+
+        let err = match apply_auth(req, &cfg, "POST", "/api/v2/api_keys") {
+            Ok(_) => panic!("API key management should require both keys"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("DD_API_KEY and DD_APP_KEY"));
     }
 
     #[test]

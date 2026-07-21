@@ -9956,6 +9956,77 @@ enum SkillsActions {
         #[arg(long)]
         project: bool,
     },
+    /// Interact with Datadog's hosted skills over the onboarding API
+    ///
+    /// Unlike the other `skills` subcommands (which install the statically
+    /// bundled skills onto a local assistant), `remote` fetches skills live
+    /// from Datadog and records onboarding sessions — an assistant runs `pup`
+    /// instead of raw HTTP calls. `list` and `get` are public and work
+    /// unauthenticated; `sessions create` requires authentication.
+    ///
+    /// EXAMPLES:
+    ///   pup skills remote list --tag aws
+    ///   pup skills remote get aws-integration-setup --intent install
+    ///   pup skills remote sessions create --session-id run-123 \
+    ///     --skill-id aws-integration-setup --summary "Set up AWS" --status completed
+    #[command(verbatim_doc_comment)]
+    Remote {
+        #[command(subcommand)]
+        action: SkillsRemoteActions,
+    },
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Subcommand)]
+enum SkillsRemoteActions {
+    /// List the hosted skills
+    List {
+        /// Only list skills carrying this tag (repeat to require multiple tags)
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        /// Org ID hint for feature-flag evaluation
+        #[arg(long)]
+        org_id: Option<i64>,
+    },
+    /// Fetch a skill's instructions as markdown
+    Get {
+        /// Skill ID (as returned by `skills remote list`)
+        skill_id: String,
+        /// Caller intent: explore, install, or reference
+        #[arg(long)]
+        intent: Option<String>,
+        /// Session ID to correlate this fetch with a recorded session
+        #[arg(long)]
+        session_id: Option<String>,
+        /// Org ID hint for feature-flag evaluation
+        #[arg(long)]
+        org_id: Option<i64>,
+    },
+    /// Record session outcomes
+    Sessions {
+        #[command(subcommand)]
+        action: SkillsRemoteSessionsActions,
+    },
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Subcommand)]
+enum SkillsRemoteSessionsActions {
+    /// Record a session outcome
+    Create {
+        /// Session (run) ID
+        #[arg(long)]
+        session_id: String,
+        /// Skill ID touched in this session (repeat for multiple; required unless status is in_progress)
+        #[arg(long = "skill-id")]
+        skill_ids: Vec<String>,
+        /// Short summary of the session outcome
+        #[arg(long)]
+        summary: String,
+        /// Session status: in_progress, completed, failed, or abandoned
+        #[arg(long)]
+        status: String,
+    },
 }
 
 // ---- Product Analytics ----
@@ -11135,6 +11206,21 @@ pub(crate) fn get_top_level_subcommand_name(matches: &clap::ArgMatches) -> Optio
     matches.subcommand().map(|(name, _)| name.to_string())
 }
 
+/// Whether a command is exempt from the read-only write guard because it only
+/// touches local state, never the Datadog API. `auth`/`alias` are always local.
+/// `skills` installs bundled files locally and is exempt too — except
+/// `skills remote`, which calls the onboarding API and can write.
+pub(crate) fn is_read_only_exempt(matches: &clap::ArgMatches) -> bool {
+    match get_top_level_subcommand_name(matches).as_deref() {
+        Some("auth") | Some("alias") => true,
+        Some("skills") => !matches!(
+            matches.subcommand().and_then(|(_, m)| m.subcommand()),
+            Some(("remote", _))
+        ),
+        _ => false,
+    }
+}
+
 /// Resolve OAuth scopes for `pup auth login`.
 ///
 /// Priority: CLI --scopes (full replacement) > config profile scopes > config
@@ -11717,22 +11803,15 @@ async fn main_inner() -> anyhow::Result<()> {
     if cli.jq.is_some() {
         cfg.jq = cli.jq;
     }
-    if cfg.read_only {
-        let top = get_top_level_subcommand_name(&matches);
-        let is_local_only = matches!(
-            top.as_deref(),
-            Some("auth") | Some("alias") | Some("skills")
-        );
-        if !is_local_only {
-            if let Some(leaf) = get_leaf_subcommand_name(&matches) {
-                if is_write_command_name(&leaf) {
-                    anyhow::bail!(
-                        "write operation '{}' is blocked in read-only mode \
-                         (--read-only flag, DD_READ_ONLY / DD_CLI_READ_ONLY env var, \
-                         or read_only: true in config file)",
-                        leaf
-                    );
-                }
+    if cfg.read_only && !is_read_only_exempt(&matches) {
+        if let Some(leaf) = get_leaf_subcommand_name(&matches) {
+            if is_write_command_name(&leaf) {
+                anyhow::bail!(
+                    "write operation '{}' is blocked in read-only mode \
+                     (--read-only flag, DD_READ_ONLY / DD_CLI_READ_ONLY env var, \
+                     or read_only: true in config file)",
+                    leaf
+                );
             }
         }
     }
@@ -15702,6 +15781,45 @@ async fn main_inner() -> anyhow::Result<()> {
             SkillsActions::Path { platform, project } => {
                 commands::skills::path(platform.map(|p| p.as_canonical().to_string()), project)?
             }
+            // list/get hit public routes (no validate_auth here); sessions create
+            // requires auth and validates it itself.
+            SkillsActions::Remote { action } => match action {
+                SkillsRemoteActions::List { tags, org_id } => {
+                    commands::skills_remote::list(&cfg, org_id, &tags).await?;
+                }
+                SkillsRemoteActions::Get {
+                    skill_id,
+                    intent,
+                    session_id,
+                    org_id,
+                } => {
+                    commands::skills_remote::get(
+                        &cfg,
+                        &skill_id,
+                        intent.as_deref(),
+                        session_id.as_deref(),
+                        org_id,
+                    )
+                    .await?;
+                }
+                SkillsRemoteActions::Sessions { action } => match action {
+                    SkillsRemoteSessionsActions::Create {
+                        session_id,
+                        skill_ids,
+                        summary,
+                        status,
+                    } => {
+                        commands::skills_remote::sessions_create(
+                            &cfg,
+                            &session_id,
+                            &skill_ids,
+                            &summary,
+                            &status,
+                        )
+                        .await?;
+                    }
+                },
+            },
         },
         // --- Product Analytics ---
         Commands::ProductAnalytics { action } => {

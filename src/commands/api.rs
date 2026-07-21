@@ -110,6 +110,8 @@ pub async fn run(
     } else {
         format!("{}{}", cfg.api_base_url(), normalize_path(endpoint))
     };
+    let parsed_url = reqwest::Url::parse(&url)
+        .map_err(|e| anyhow::anyhow!("invalid API endpoint {endpoint:?}: {e}"))?;
 
     // Only relative paths and absolute URLs that point at the configured Datadog
     // host may carry Datadog credentials. An absolute URL to any other host is an
@@ -118,17 +120,15 @@ pub async fn run(
     // and leak the long-lived API keys to an arbitrary host.
     let credentials_allowed = !is_absolute || targets_configured_host(&url, cfg);
 
-    // Path used for per-endpoint auth routing. For relative endpoints this is the
-    // normalized API path; for absolute URLs on the Datadog host we use the URL's
-    // path component so the OAuth-exclusion table (raw_client::requires_api_key_fallback)
-    // still applies.
-    let auth_path = if is_absolute {
-        reqwest::Url::parse(&url)
-            .map(|u| u.path().to_string())
-            .unwrap_or_else(|_| normalize_path(endpoint))
+    // Route authentication by URL path so query strings and fragments cannot
+    // bypass endpoint-specific requirements.
+    let auth_path = parsed_url.path().to_string();
+
+    if credentials_allowed && crate::raw_client::requires_api_key_only(&method_upper, &auth_path) {
+        cfg.validate_api_key_only()?;
     } else {
-        normalize_path(endpoint)
-    };
+        cfg.validate_auth()?;
+    }
 
     // POST, PUT, PATCH carry a body; GET/HEAD/DELETE use query params.
     let is_body_method = matches!(method_upper.as_str(), "POST" | "PUT" | "PATCH");
@@ -267,6 +267,22 @@ mod tests {
     use crate::test_support::*;
 
     use super::*;
+
+    async fn run_events_post(cfg: &Config, endpoint: &str) -> Result<()> {
+        super::run(
+            cfg,
+            endpoint,
+            "POST",
+            &[],
+            &["title=test".to_string(), "text=test".to_string()],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await
+    }
 
     #[test]
     fn test_normalize_path_v2_prefix() {
@@ -467,6 +483,92 @@ mod tests {
             "api POST with fields failed: {:?}",
             result.err()
         );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_api_events_post_accepts_api_key_without_app_key() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.app_key = None;
+        let _mock = server
+            .mock("POST", "/api/v1/events")
+            .match_header("DD-API-KEY", "test-api-key")
+            .match_header("DD-APPLICATION-KEY", mockito::Matcher::Missing)
+            .match_header("Authorization", mockito::Matcher::Missing)
+            .with_status(202)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"ok"}"#)
+            .create_async()
+            .await;
+
+        let result = run_events_post(&cfg, "v1/events").await;
+
+        assert!(
+            result.is_ok(),
+            "API-key-only event post failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_api_events_post_auth_ignores_query_and_fragment() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.app_key = None;
+        let mock = server
+            .mock("POST", "/api/v1/events")
+            .match_query(mockito::Matcher::UrlEncoded("source".into(), "test".into()))
+            .match_header("DD-API-KEY", "test-api-key")
+            .match_header("DD-APPLICATION-KEY", mockito::Matcher::Missing)
+            .match_header("Authorization", mockito::Matcher::Missing)
+            .with_status(202)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"ok"}"#)
+            .create_async()
+            .await;
+
+        let result = run_events_post(&cfg, "/v1/events?source=test#ignored").await;
+
+        assert!(
+            result.is_ok(),
+            "decorated event endpoint bypassed API-key-only auth: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_api_events_post_rejects_bearer_only() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.api_key = None;
+        cfg.app_key = None;
+        cfg.access_token = Some("test-token".into());
+
+        let result = run_events_post(&cfg, "v1/events#ignored").await;
+
+        let err = result.expect_err("bearer-only event post should fail");
+        assert!(err.to_string().contains("DD_API_KEY"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_api_events_post_rejects_missing_api_key() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.api_key = None;
+
+        let result = run_events_post(&cfg, "v1/events").await;
+
+        let err = result.expect_err("event post without API key should fail");
+        assert!(err.to_string().contains("DD_API_KEY"));
         cleanup_env();
     }
 

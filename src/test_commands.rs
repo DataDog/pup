@@ -523,6 +523,34 @@ fn test_logs_list_sort_accepts_hyphen_timestamp() {
 }
 
 #[test]
+fn test_logs_saved_views_create_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "saved-views",
+        "create",
+        "--file",
+        "view.json",
+    ])
+    .expect("logs saved-views create --file should parse");
+
+    match cli.command {
+        crate::Commands::Logs { action } => match action {
+            crate::LogActions::SavedViews { action } => match action {
+                crate::LogSavedViewActions::Create { file } => {
+                    assert_eq!(file, "view.json");
+                }
+                _ => panic!("expected LogSavedViewActions::Create"),
+            },
+            _ => panic!("expected LogActions::SavedViews"),
+        },
+        _ => panic!("expected Commands::Logs"),
+    }
+}
+
+#[test]
 fn test_traces_search_sort_accepts_hyphen_timestamp() {
     use clap::Parser;
 

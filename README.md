@@ -123,7 +123,7 @@ list of commands as built.
 | API Domain | Status | Pup Commands | Notes |
 |------------|--------|--------------|-------|
 | Incidents | ✅ | `incidents list`, `incidents get`, `incidents attachments`, `incidents settings`, `incidents handles`, `incidents postmortem-templates` | Incident management with settings, handles, and postmortem templates |
-| On-Call (Teams) | ✅ | `on-call teams` (CRUD, memberships with roles) | Full team management system with admin/member roles |
+| On-Call | ✅ | `on-call teams` (CRUD, memberships with roles), `on-call pages` (list, get, create) | Team management and on-call page access |
 | Case Management | ✅ | `cases` (create, search, assign, archive, projects, jira, servicenow, move) | Complete case management with Jira/ServiceNow linking |
 | Error Tracking | ✅ | `error-tracking issues search`, `error-tracking issues get` | Error issue search and details |
 | Service Catalog | ✅ | `service-catalog list`, `service-catalog get` | Service registry management |

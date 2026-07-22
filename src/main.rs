@@ -6648,6 +6648,20 @@ enum OnCallNotificationRulesActions {
 
 #[derive(Subcommand)]
 enum OnCallPagesActions {
+    /// List on-call pages, optionally filtered by team handle and/or responder user id
+    List {
+        #[arg(long, help = "Filter by team handle (server-side)")]
+        team: Option<String>,
+        #[arg(long, help = "Filter by responder user id (client-side)")]
+        responder: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 1000,
+            value_parser = clap::value_parser!(u32).range(1..=1000),
+            help = "Results per page (1-1000; endpoint pagination is unsupported)"
+        )]
+        page_size: u32,
+    },
     /// Create an on-call page from a JSON file
     Create {
         #[arg(long, help = "Path to JSON file")]
@@ -14050,6 +14064,19 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                 },
                 OnCallActions::Pages { action } => match action {
+                    OnCallPagesActions::List {
+                        team,
+                        responder,
+                        page_size,
+                    } => {
+                        commands::on_call::pages_list(
+                            &cfg,
+                            team.as_deref(),
+                            responder.as_deref(),
+                            page_size,
+                        )
+                        .await?;
+                    }
                     OnCallPagesActions::Create { file } => {
                         commands::on_call::pages_create(&cfg, &file).await?;
                     }

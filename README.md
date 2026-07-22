@@ -599,6 +599,8 @@ Pup ships plugin manifest files for several AI coding assistants:
 /plugin marketplace add DataDog/pup
 
 # Codex (reads .codex-plugin/plugin.json from the repo, or marketplace.json from ~/.agents/plugins/)
+
+# Cursor (reads .cursor-plugin/plugin.json from the repo)
 ```
 
 ## ACP Server

@@ -13,7 +13,7 @@ use crate::formatter;
 pub async fn branch_summary(cfg: &Config, repo: String, branch: String) -> Result<()> {
     let api = crate::make_api!(CodeCoverageAPI, cfg);
     let body = BranchCoverageSummaryRequest::new(BranchCoverageSummaryRequestData::new(
-        BranchCoverageSummaryRequestAttributes::new(branch, repo),
+        BranchCoverageSummaryRequestAttributes::new(branch).repository_url(repo),
         BranchCoverageSummaryRequestType::CI_APP_COVERAGE_BRANCH_SUMMARY_REQUEST,
     ));
     let resp = api
@@ -26,7 +26,7 @@ pub async fn branch_summary(cfg: &Config, repo: String, branch: String) -> Resul
 pub async fn commit_summary(cfg: &Config, repo: String, commit: String) -> Result<()> {
     let api = crate::make_api!(CodeCoverageAPI, cfg);
     let body = CommitCoverageSummaryRequest::new(CommitCoverageSummaryRequestData::new(
-        CommitCoverageSummaryRequestAttributes::new(commit, repo),
+        CommitCoverageSummaryRequestAttributes::new(commit).repository_url(repo),
         CommitCoverageSummaryRequestType::CI_APP_COVERAGE_COMMIT_SUMMARY_REQUEST,
     ));
     let resp = api

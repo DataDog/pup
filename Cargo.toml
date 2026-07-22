@@ -133,9 +133,9 @@ flate2 = { version = "1", optional = true }
 tar = { version = "0.4", optional = true }
 zip = { version = "8", default-features = false, features = ["deflate"], optional = true }
 
-# Datadog API client — pinned to 0.32.0 tag
+# Datadog API client — pinned to 0.33.0 tag
 # Use default-features = false; feature sets are activated per-target via features above
-datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "b769778d0c58806b615165fb444e6f02dc2e86c0", optional = true, default-features = false }
+datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "192bab111da84a83968b12528e4bc6bab7ac94a9", optional = true, default-features = false }
 
 # HTTP middleware (version-matched to DD client; compiles on all targets)
 reqwest-middleware = "0.5"

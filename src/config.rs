@@ -371,6 +371,17 @@ impl Config {
         Ok(())
     }
 
+    /// Validate that DD_API_KEY is configured for API-key-only endpoints.
+    pub fn validate_api_key_only(&self) -> Result<()> {
+        if self.api_key.is_none() {
+            bail!(
+                "this command requires DD_API_KEY — \
+                 OAuth2 bearer tokens are not supported here"
+            );
+        }
+        Ok(())
+    }
+
     pub fn has_api_keys(&self) -> bool {
         self.api_key.is_some() && self.app_key.is_some()
     }
@@ -977,6 +988,24 @@ mod tests {
     fn test_validate_api_and_app_keys_missing_app_key_fails() {
         let cfg = make_cfg(Some("key"), None, None);
         assert!(cfg.validate_api_and_app_keys().is_err());
+    }
+
+    #[test]
+    fn test_validate_api_key_only_accepts_api_key_without_app_key() {
+        let cfg = make_cfg(Some("key"), None, None);
+        assert!(cfg.validate_api_key_only().is_ok());
+    }
+
+    #[test]
+    fn test_validate_api_key_only_rejects_bearer_only() {
+        let cfg = make_cfg(None, None, Some("token"));
+        assert!(cfg.validate_api_key_only().is_err());
+    }
+
+    #[test]
+    fn test_validate_api_key_only_rejects_missing_api_key() {
+        let cfg = make_cfg(None, Some("app"), None);
+        assert!(cfg.validate_api_key_only().is_err());
     }
 
     #[test]

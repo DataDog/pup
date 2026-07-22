@@ -4094,9 +4094,17 @@ enum EventActions {
             help = "Do not associate a host with the event; overrides --host"
         )]
         no_host: bool,
-        #[arg(long, help = "Device to associate with the event")]
+        #[arg(
+            long = "device-name",
+            visible_aliases = ["device_name", "device"],
+            help = "Device name to associate with the event"
+        )]
         device: Option<String>,
-        #[arg(long = "type", help = "Event source type")]
+        #[arg(
+            long = "source-type-name",
+            visible_aliases = ["source_type_name", "type"],
+            help = "Event source type name"
+        )]
         event_type: Option<String>,
         #[arg(
             long,
@@ -12571,7 +12579,9 @@ async fn main_inner() -> anyhow::Result<()> {
         }
         // --- Events ---
         Commands::Events { action } => {
-            cfg.validate_auth()?;
+            if !matches!(&action, EventActions::Post { .. }) {
+                cfg.validate_auth()?;
+            }
             match action {
                 EventActions::Post {
                     title,
@@ -15744,7 +15754,6 @@ async fn main_inner() -> anyhow::Result<()> {
             silent,
             verbose,
         } => {
-            cfg.validate_auth()?;
             commands::api::run(
                 &cfg,
                 &endpoint,

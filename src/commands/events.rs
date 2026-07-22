@@ -18,12 +18,20 @@ use crate::config::Config;
 use crate::formatter;
 use crate::util_ext;
 
+const MAX_AGGREGATION_KEY_CHARS: usize = 100;
+const MAX_EVENT_TEXT_CHARS: usize = 4000;
+const MAX_EVENT_AGE_SECONDS: i64 = 18 * 60 * 60;
+
 #[derive(Clone, Debug, clap::ValueEnum)]
 pub(crate) enum EventAlertTypeArg {
     Error,
     Warning,
     Info,
     Success,
+    #[value(name = "user_update")]
+    UserUpdate,
+    Recommendation,
+    Snapshot,
 }
 
 impl From<EventAlertTypeArg> for EventAlertType {
@@ -33,6 +41,9 @@ impl From<EventAlertTypeArg> for EventAlertType {
             EventAlertTypeArg::Warning => Self::WARNING,
             EventAlertTypeArg::Info => Self::INFO,
             EventAlertTypeArg::Success => Self::SUCCESS,
+            EventAlertTypeArg::UserUpdate => Self::USER_UPDATE,
+            EventAlertTypeArg::Recommendation => Self::RECOMMENDATION,
+            EventAlertTypeArg::Snapshot => Self::SNAPSHOT,
         }
     }
 }
@@ -69,9 +80,8 @@ pub(crate) struct PostOptions {
 
 pub async fn post(cfg: &Config, mut options: PostOptions) -> Result<()> {
     // The V1 events intake endpoint (POST /api/v1/events) authenticates with the
-    // API key and does not accept OAuth2 bearer tokens, so require API+APP keys up
-    // front and skip bearer auth on the request.
-    cfg.validate_api_and_app_keys()?;
+    // API key alone and does not accept OAuth2 bearer tokens.
+    cfg.validate_api_key_only()?;
     if options.title.trim().is_empty() {
         anyhow::bail!("event title is empty");
     }
@@ -81,6 +91,7 @@ pub async fn post(cfg: &Config, mut options: PostOptions) -> Result<()> {
         std::io::stdin().is_terminal(),
         std::io::stdin().lock(),
     )?;
+    validate_post_request(&options, &message, chrono::Utc::now().timestamp())?;
     let body = build_post_request(options, message);
     let resp = api
         .create_event(body)
@@ -154,8 +165,7 @@ fn resolve_message(
                 );
             }
             let buf = util_ext::read_to_string(reader, "failed to read event message from stdin")?;
-            // Drop the trailing newline shells add to piped input so stdin and
-            // argument messages produce the same event text.
+            // Match argument input by dropping trailing whitespace added by shell pipelines.
             buf.trim_end().to_owned()
         }
     };
@@ -164,6 +174,25 @@ fn resolve_message(
         anyhow::bail!("event message is empty");
     }
     Ok(message)
+}
+
+fn validate_post_request(options: &PostOptions, message: &str, now: i64) -> Result<()> {
+    if let Some(aggregation_key) = &options.aggregation_key {
+        if aggregation_key.chars().count() > MAX_AGGREGATION_KEY_CHARS {
+            anyhow::bail!(
+                "event aggregation key must be at most {MAX_AGGREGATION_KEY_CHARS} characters"
+            );
+        }
+    }
+    if message.chars().count() > MAX_EVENT_TEXT_CHARS {
+        anyhow::bail!("event text must be at most {MAX_EVENT_TEXT_CHARS} characters");
+    }
+    if let Some(date_happened) = options.date_happened {
+        if date_happened < now - MAX_EVENT_AGE_SECONDS {
+            anyhow::bail!("event date_happened cannot be more than 18 hours in the past");
+        }
+    }
+    Ok(())
 }
 
 fn build_post_request(options: PostOptions, message: String) -> EventCreateRequest {
@@ -284,7 +313,7 @@ mod tests {
         super::PostOptions {
             title: "Test title".into(),
             message: Some("Test message".into()),
-            date_happened: Some(1_700_000_000),
+            date_happened: None,
             handle: Some("test-user".into()),
             priority: super::EventPriorityArg::Low,
             related_event_id: Some(42),
@@ -297,17 +326,42 @@ mod tests {
         }
     }
 
+    fn auth_config(
+        api_key: Option<&str>,
+        app_key: Option<&str>,
+        access_token: Option<&str>,
+    ) -> Config {
+        Config {
+            api_key: api_key.map(String::from),
+            app_key: app_key.map(String::from),
+            access_token: access_token.map(String::from),
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+            jq: None,
+        }
+    }
+
     #[tokio::test]
-    async fn test_events_post_sends_dogshell_fields_without_host() {
+    async fn test_events_post_sends_only_api_key_and_post_fields() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
-        let cfg = test_config(&server.url());
+        std::env::set_var("PUP_MOCK_SERVER", server.url());
+        let cfg = auth_config(Some("test-api-key"), None, None);
+        let date_happened = chrono::Utc::now().timestamp();
         let _mock = server
             .mock("POST", "/api/v1/events")
+            .match_header("DD-API-KEY", "test-api-key")
+            .match_header("DD-APPLICATION-KEY", mockito::Matcher::Missing)
+            .match_header("Authorization", mockito::Matcher::Missing)
             .match_body(mockito::Matcher::Json(serde_json::json!({
                 "aggregation_key": "test-group",
                 "alert_type": "warning",
-                "date_happened": 1_700_000_000,
+                "date_happened": date_happened,
                 "device_name": "test-device",
                 "handle": "test-user",
                 "priority": "low",
@@ -323,7 +377,9 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::post(&cfg, post_options()).await;
+        let mut options = post_options();
+        options.date_happened = Some(date_happened);
+        let result = super::post(&cfg, options).await;
         assert!(result.is_ok(), "events post failed: {:?}", result.err());
         cleanup_env();
     }
@@ -376,53 +432,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_events_post_requires_api_keys() {
+    async fn test_events_post_rejects_bearer_only() {
         // The V1 events intake endpoint rejects OAuth2 bearer tokens, so posting
-        // must fail fast when only an access token is configured. This is caught
-        // before any request, so no mock server or env setup is needed.
-        let cfg = Config {
-            api_key: None,
-            app_key: None,
-            access_token: Some("token".into()),
-            site: "datadoghq.com".into(),
-            site_explicit: false,
-            org: None,
-            output_format: OutputFormat::Json,
-            auto_approve: false,
-            agent_mode: false,
-            read_only: false,
-            jq: None,
-        };
+        // must fail fast when only an access token is configured.
+        let cfg = auth_config(None, None, Some("token"));
 
         let result = super::post(&cfg, post_options()).await;
-        assert!(result.is_err(), "events post should require API keys");
+        let err = result.expect_err("events post should reject bearer-only auth");
+        assert!(err.to_string().contains("DD_API_KEY"));
+    }
+
+    #[tokio::test]
+    async fn test_events_post_rejects_missing_api_key() {
+        let cfg = auth_config(None, Some("test-app-key"), None);
+
+        let result = super::post(&cfg, post_options()).await;
+        let err = result.expect_err("events post should require an API key");
+        assert!(err.to_string().contains("DD_API_KEY"));
     }
 
     #[tokio::test]
     async fn test_events_post_rejects_empty_title() {
-        // Title emptiness is checked before any request, so no server is needed.
-        let cfg = Config {
-            api_key: Some("test-api-key".into()),
-            app_key: Some("test-app-key".into()),
-            access_token: None,
-            site: "datadoghq.com".into(),
-            site_explicit: false,
-            org: None,
-            output_format: OutputFormat::Json,
-            auto_approve: false,
-            agent_mode: false,
-            read_only: false,
-            jq: None,
-        };
-
+        let cfg = auth_config(Some("test-api-key"), None, None);
         let mut options = post_options();
         options.title = "   ".into();
+
         let result = super::post(&cfg, options).await;
         assert!(result.is_err(), "empty title should be rejected");
     }
 
     #[test]
-    fn test_events_post_accepts_dogshell_flag_names() {
+    fn test_events_post_accepts_legacy_flag_aliases() {
         let result = crate::Cli::try_parse_from([
             "pup",
             "events",
@@ -451,22 +491,75 @@ mod tests {
             "Test title",
         ]);
 
-        assert!(result.is_ok(), "dogshell flags should parse");
+        assert!(result.is_ok(), "legacy flag aliases should parse");
     }
 
     #[test]
-    fn test_events_post_rejects_invalid_alert_type() {
+    fn test_events_post_accepts_v1_field_flag_names() {
+        for (device_flag, source_type_flag) in [
+            ("--device-name", "--source-type-name"),
+            ("--device_name", "--source_type_name"),
+        ] {
+            let result = crate::Cli::try_parse_from([
+                "pup",
+                "events",
+                "post",
+                device_flag,
+                "test-device",
+                source_type_flag,
+                "test-source",
+                "Test title",
+                "Test message",
+            ]);
+
+            assert!(
+                result.is_ok(),
+                "V1 field flags {device_flag} and {source_type_flag} should parse"
+            );
+        }
+    }
+
+    #[test]
+    fn test_events_post_accepts_openapi_alert_types() {
+        for alert_type in [
+            "error",
+            "warning",
+            "info",
+            "success",
+            "user_update",
+            "recommendation",
+            "snapshot",
+        ] {
+            let result = crate::Cli::try_parse_from([
+                "pup",
+                "events",
+                "post",
+                "--alert_type",
+                alert_type,
+                "Test title",
+                "Test message",
+            ]);
+
+            assert!(
+                result.is_ok(),
+                "alert type {alert_type:?} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn test_events_post_rejects_non_openapi_alert_type() {
         let result = crate::Cli::try_parse_from([
             "pup",
             "events",
             "post",
             "--alert_type",
-            "critical",
+            "custom_alert",
             "Test title",
             "Test message",
         ]);
 
-        assert!(result.is_err(), "invalid alert type should be rejected");
+        assert!(result.is_err(), "non-OpenAPI alert type should be rejected");
     }
 
     #[test]
@@ -527,6 +620,64 @@ mod tests {
         options.tags = Some("a,, b ,".into());
         let body = super::build_post_request(options, "msg".into());
         assert_eq!(body.tags, Some(vec!["a".to_string(), "b".to_string()]));
+    }
+
+    #[test]
+    fn test_events_post_serializes_openapi_alert_types() {
+        for (alert_type, expected) in [
+            (super::EventAlertTypeArg::Error, "error"),
+            (super::EventAlertTypeArg::Warning, "warning"),
+            (super::EventAlertTypeArg::Info, "info"),
+            (super::EventAlertTypeArg::Success, "success"),
+            (super::EventAlertTypeArg::UserUpdate, "user_update"),
+            (super::EventAlertTypeArg::Recommendation, "recommendation"),
+            (super::EventAlertTypeArg::Snapshot, "snapshot"),
+        ] {
+            let mut options = post_options();
+            options.alert_type = Some(alert_type);
+            let body = super::build_post_request(options, "msg".into());
+            let value = serde_json::to_value(body).unwrap();
+            assert_eq!(value["alert_type"], expected);
+        }
+    }
+
+    #[test]
+    fn test_events_post_accepts_openapi_request_limits() {
+        let now = chrono::Utc::now().timestamp();
+        let mut options = post_options();
+        options.aggregation_key = Some("a".repeat(super::MAX_AGGREGATION_KEY_CHARS));
+        options.date_happened = Some(now - super::MAX_EVENT_AGE_SECONDS);
+        let message = "m".repeat(super::MAX_EVENT_TEXT_CHARS);
+
+        assert!(super::validate_post_request(&options, &message, now).is_ok());
+    }
+
+    #[test]
+    fn test_events_post_rejects_aggregation_key_over_openapi_limit() {
+        let mut options = post_options();
+        options.aggregation_key = Some("a".repeat(super::MAX_AGGREGATION_KEY_CHARS + 1));
+
+        let err = super::validate_post_request(&options, "message", 0).unwrap_err();
+        assert!(err.to_string().contains("aggregation key"));
+    }
+
+    #[test]
+    fn test_events_post_rejects_text_over_openapi_limit() {
+        let options = post_options();
+        let message = "m".repeat(super::MAX_EVENT_TEXT_CHARS + 1);
+
+        let err = super::validate_post_request(&options, &message, 0).unwrap_err();
+        assert!(err.to_string().contains("event text"));
+    }
+
+    #[test]
+    fn test_events_post_rejects_date_older_than_openapi_limit() {
+        let now = chrono::Utc::now().timestamp();
+        let mut options = post_options();
+        options.date_happened = Some(now - super::MAX_EVENT_AGE_SECONDS - 1);
+
+        let err = super::validate_post_request(&options, "message", now).unwrap_err();
+        assert!(err.to_string().contains("18 hours"));
     }
 
     #[test]

@@ -830,6 +830,29 @@ mod tests {
         cleanup_env();
     }
 
+    // Regression test for #638: the on-call pages GET endpoint can return a 200
+    // with an empty body (content-length: 0). pages_get must succeed instead of
+    // failing with "EOF while parsing value at line 1 column 0".
+    #[tokio::test]
+    async fn test_on_call_pages_get_empty_body() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        s.mock("GET", "/api/v2/on-call/pages/12345")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("")
+            .create_async()
+            .await;
+        let result = super::pages_get(&cfg, "12345").await;
+        assert!(
+            result.is_ok(),
+            "pages_get with empty body failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
     #[tokio::test]
     async fn test_on_call_pages_get_not_found() {
         let _lock = lock_env().await;

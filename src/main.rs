@@ -9172,9 +9172,15 @@ enum LlmObsExperimentsEventsActions {
         experiment_id: String,
         #[arg(
             long,
-            help = "JSON file with the events body: {\"metrics\": [...], \"tags\": [...]} (required)"
+            help = "JSON array of eval-metric events, e.g. '[{\"label\":\"accuracy\",\"metric_type\":\"score\",\"score_value\":0.9}]' (required)"
         )]
-        file: String,
+        metrics: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Optional \"key:value\" tags applied to every submitted metric (comma-separated)"
+        )]
+        tags: Option<Vec<String>>,
     },
 }
 
@@ -16180,12 +16186,14 @@ async fn main_inner() -> anyhow::Result<()> {
                         }
                         LlmObsExperimentsEventsActions::Submit {
                             experiment_id,
-                            file,
+                            metrics,
+                            tags,
                         } => {
                             commands::llm_obs::experiments_events_submit(
                                 &cfg,
                                 &experiment_id,
-                                &file,
+                                &metrics,
+                                tags,
                             )
                             .await?;
                         }

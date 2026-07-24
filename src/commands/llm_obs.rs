@@ -282,16 +282,21 @@ pub async fn experiments_events_get(
 pub async fn experiments_events_submit(
     cfg: &Config,
     experiment_id: &str,
-    file: &str,
+    metrics: &str,
+    tags: Option<Vec<String>>,
 ) -> Result<()> {
-    let mut body: serde_json::Value = util::read_json_file(file)?;
-    if !body.is_object() {
-        return Err(anyhow::anyhow!(
-            "events file must contain a JSON object with a \"metrics\" array (and optional \"tags\")"
-        ));
+    // Mirrors the submit_llmobs_experiment_events MCP tool: experiment_id + metrics
+    // (array) + optional tags. metrics is passed through as-is; the server validates it.
+    let metrics: serde_json::Value = serde_json::from_str(metrics).map_err(|e| {
+        anyhow::anyhow!("--metrics must be a JSON array of eval-metric events: {e}")
+    })?;
+    let mut body = serde_json::json!({
+        "experiment_id": experiment_id,
+        "metrics": metrics,
+    });
+    if let Some(t) = tags {
+        body["tags"] = serde_json::json!(t);
     }
-    // The experiment_id is taken from the positional arg; it overrides any value in the file.
-    body["experiment_id"] = serde_json::json!(experiment_id);
     let resp = raw_client::raw_post(
         cfg,
         "/api/unstable/llm-obs-mcp/v1/experiment/ingest-events",
@@ -3058,10 +3063,6 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
-        let tmp = write_temp_json(
-            "pup_test_exp_ingest_events.json",
-            r#"{"metrics":[{"label":"accuracy","metric_type":"score","score_value":0.9}],"tags":["run:1"]}"#,
-        );
         let resp_body = r#"{"status":"success","data":{"accepted":1}}"#;
         let _mock = mock_post(
             &mut server,
@@ -3071,13 +3072,18 @@ mod tests {
         )
         .await;
 
-        let result = super::experiments_events_submit(&cfg, "exp-1", tmp.to_str().unwrap()).await;
+        let result = super::experiments_events_submit(
+            &cfg,
+            "exp-1",
+            r#"[{"label":"accuracy","metric_type":"score","score_value":0.9}]"#,
+            Some(vec!["run:1".to_string()]),
+        )
+        .await;
         assert!(
             result.is_ok(),
             "experiments_events_submit failed: {:?}",
             result.err()
         );
-        let _ = std::fs::remove_file(tmp);
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
@@ -3089,10 +3095,6 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
-        let tmp = write_temp_json(
-            "pup_test_exp_ingest_events_400.json",
-            r#"{"metrics":[{"label":"accuracy","metric_type":"score","score_value":0.9}]}"#,
-        );
         let _mock = server
             .mock("POST", mockito::Matcher::Any)
             .match_query(mockito::Matcher::Any)
@@ -3102,9 +3104,28 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::experiments_events_submit(&cfg, "exp-1", tmp.to_str().unwrap()).await;
+        let result = super::experiments_events_submit(
+            &cfg,
+            "exp-1",
+            r#"[{"label":"accuracy","metric_type":"score","score_value":0.9}]"#,
+            None,
+        )
+        .await;
         assert!(result.is_err(), "should fail on 400");
-        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_events_submit_invalid_json() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Malformed --metrics should fail locally before any request is made.
+        let result = super::experiments_events_submit(&cfg, "exp-1", "not-json", None).await;
+        assert!(result.is_err(), "should fail on invalid metrics JSON");
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }

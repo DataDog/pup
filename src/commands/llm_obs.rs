@@ -156,6 +156,71 @@ pub async fn datasets_restore(
     Ok(())
 }
 
+// ---- Dataset records (no typed equivalent — unstable MCP endpoints) ----
+
+#[allow(clippy::too_many_arguments)]
+pub async fn datasets_records(
+    cfg: &Config,
+    project_id: &str,
+    dataset_id: &str,
+    record_ids: Option<Vec<String>>,
+    tags: Option<Vec<String>>,
+    canonical_id: Option<String>,
+    dataset_version: Option<i64>,
+    limit: u32,
+    cursor: Option<String>,
+    compute_schema: Option<bool>,
+) -> Result<()> {
+    let mut body = serde_json::json!({
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "limit": limit,
+    });
+    if let Some(ids) = record_ids {
+        body["record_ids"] = serde_json::json!(ids);
+    }
+    if let Some(t) = tags {
+        body["tags"] = serde_json::json!(t);
+    }
+    if let Some(c) = canonical_id {
+        body["canonical_id"] = serde_json::json!(c);
+    }
+    if let Some(v) = dataset_version {
+        body["dataset_version"] = serde_json::json!(v);
+    }
+    if let Some(c) = cursor {
+        body["cursor"] = serde_json::json!(c);
+    }
+    if let Some(cs) = compute_schema {
+        body["compute_schema"] = serde_json::json!(cs);
+    }
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/dataset/records", body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get dataset records: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn datasets_records_full(
+    cfg: &Config,
+    project_id: &str,
+    dataset_id: &str,
+    record_ids: Vec<String>,
+) -> Result<()> {
+    let body = serde_json::json!({
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "record_ids": record_ids,
+    });
+    let resp = raw_client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/dataset/records-full",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to get full dataset records: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
 // ---- Experiment analytics (no typed equivalent — unstable MCP endpoints) ----
 
 pub async fn experiments_summary(cfg: &Config, experiment_id: &str) -> Result<()> {
@@ -211,6 +276,29 @@ pub async fn experiments_events_get(
     let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/experiment/event", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get experiment event: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn experiments_events_submit(
+    cfg: &Config,
+    experiment_id: &str,
+    file: &str,
+) -> Result<()> {
+    let mut body: serde_json::Value = util::read_json_file(file)?;
+    if !body.is_object() {
+        return Err(anyhow::anyhow!(
+            "events file must contain a JSON object with a \"metrics\" array (and optional \"tags\")"
+        ));
+    }
+    // The experiment_id is taken from the positional arg; it overrides any value in the file.
+    body["experiment_id"] = serde_json::json!(experiment_id);
+    let resp = raw_client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/experiment/ingest-events",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to submit experiment events: {e:?}"))?;
     formatter::output(cfg, &resp)
 }
 
@@ -2846,6 +2934,175 @@ mod tests {
             .await;
 
         let result = super::datasets_restore(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"records":[{"id":"rec-1"}],"schema_summary":{},"returned":1,"truncated":false,"next_cursor":null}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::datasets_records(
+            &cfg, "proj-1", "ds-1", None, None, None, None, 10, None, None,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "datasets_records failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_filtered() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"records":[],"returned":0,"truncated":false,"next_cursor":null}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::datasets_records(
+            &cfg,
+            "proj-1",
+            "ds-1",
+            Some(vec!["rec-1".into(), "rec-2".into()]),
+            Some(vec!["env:prod".into()]),
+            Some("canon-1".into()),
+            Some(3),
+            5,
+            Some("cursor-abc".into()),
+            Some(false),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "datasets_records filtered failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::datasets_records(
+            &cfg, "proj-1", "ds-1", None, None, None, None, 10, None, None,
+        )
+        .await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_full() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"records":[{"id":"rec-1","input":{"prompt":"hello"},"expected_output":"world"}]}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records-full",
+            200,
+            body,
+        )
+        .await;
+
+        let result =
+            super::datasets_records_full(&cfg, "proj-1", "ds-1", vec!["rec-1".into()]).await;
+        assert!(
+            result.is_ok(),
+            "datasets_records_full failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_events_submit() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_exp_ingest_events.json",
+            r#"{"metrics":[{"label":"accuracy","metric_type":"score","score_value":0.9}],"tags":["run:1"]}"#,
+        );
+        let resp_body = r#"{"status":"success","data":{"accepted":1}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/experiment/ingest-events",
+            200,
+            resp_body,
+        )
+        .await;
+
+        let result = super::experiments_events_submit(&cfg, "exp-1", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "experiments_events_submit failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_events_submit_400() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_exp_ingest_events_400.json",
+            r#"{"metrics":[{"label":"accuracy","metric_type":"score","score_value":0.9}]}"#,
+        );
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["bad request"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::experiments_events_submit(&cfg, "exp-1", tmp.to_str().unwrap()).await;
         assert!(result.is_err(), "should fail on 400");
         let _ = std::fs::remove_file(tmp);
         cleanup_env();

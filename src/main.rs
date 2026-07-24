@@ -9167,6 +9167,15 @@ enum LlmObsExperimentsEventsActions {
         experiment_id: String,
         event_id: String,
     },
+    /// Submit evaluation-metric events to an experiment
+    Submit {
+        experiment_id: String,
+        #[arg(
+            long,
+            help = "JSON file with the events body: {\"metrics\": [...], \"tags\": [...]} (required)"
+        )]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -9394,6 +9403,49 @@ enum LlmObsDatasetsActions {
         dataset_id: String,
         #[arg(long, help = "JSON file with restore version body (required)")]
         file: String,
+    },
+    /// Read dataset records (structure-preserving previews + schema summary)
+    Records {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Fetch specific record IDs (comma-separated)"
+        )]
+        record_ids: Option<Vec<String>>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Filter by key:value tags (comma-separated, AND)"
+        )]
+        tags: Option<Vec<String>>,
+        #[arg(long, help = "Canonical record ID (all versions of one record)")]
+        canonical_id: Option<String>,
+        #[arg(long, help = "Historical dataset version (defaults to current)")]
+        dataset_version: Option<i64>,
+        #[arg(long, default_value = "10", help = "Max records per page")]
+        limit: u32,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
+        #[arg(long, help = "Compute the schema summary aggregate (default true)")]
+        compute_schema: Option<bool>,
+    },
+    /// Fetch up to 3 records with untrimmed input/expected_output/metadata
+    #[command(name = "records-full")]
+    RecordsFull {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "1-3 record IDs to fetch (comma-separated, required)"
+        )]
+        record_ids: Vec<String>,
     },
 }
 
@@ -16126,6 +16178,17 @@ async fn main_inner() -> anyhow::Result<()> {
                             )
                             .await?;
                         }
+                        LlmObsExperimentsEventsActions::Submit {
+                            experiment_id,
+                            file,
+                        } => {
+                            commands::llm_obs::experiments_events_submit(
+                                &cfg,
+                                &experiment_id,
+                                &file,
+                            )
+                            .await?;
+                        }
                     },
                     LlmObsExperimentsActions::MetricValues {
                         experiment_id,
@@ -16189,6 +16252,44 @@ async fn main_inner() -> anyhow::Result<()> {
                     } => {
                         commands::llm_obs::datasets_restore(&cfg, &project_id, &dataset_id, &file)
                             .await?;
+                    }
+                    LlmObsDatasetsActions::Records {
+                        project_id,
+                        dataset_id,
+                        record_ids,
+                        tags,
+                        canonical_id,
+                        dataset_version,
+                        limit,
+                        cursor,
+                        compute_schema,
+                    } => {
+                        commands::llm_obs::datasets_records(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            record_ids,
+                            tags,
+                            canonical_id,
+                            dataset_version,
+                            limit,
+                            cursor,
+                            compute_schema,
+                        )
+                        .await?;
+                    }
+                    LlmObsDatasetsActions::RecordsFull {
+                        project_id,
+                        dataset_id,
+                        record_ids,
+                    } => {
+                        commands::llm_obs::datasets_records_full(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            record_ids,
+                        )
+                        .await?;
                     }
                 },
                 LlmObsActions::Spans { action } => match action {

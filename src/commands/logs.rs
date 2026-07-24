@@ -22,6 +22,7 @@ pub struct AggregateArgs {
     pub index: Vec<String>,
     pub storage: Option<String>,
     pub sort: String,
+    pub interval: Option<String>,
 }
 
 pub struct SearchArgs {
@@ -134,8 +135,13 @@ fn build_aggregate_body(
     index: Vec<String>,
     storage: Option<String>,
     sort: &str,
+    interval: Option<String>,
 ) -> Result<serde_json::Value> {
     let storage_tier = normalize_storage_tier(storage)?;
+    let interval = match interval {
+        Some(iv) => Some(util_ext::parse_duration_to_millis(&iv)?.to_string()),
+        None => None,
+    };
 
     let mut filter = serde_json::json!({
         "query": query,
@@ -156,6 +162,10 @@ fn build_aggregate_body(
             let mut obj = serde_json::json!({ "aggregation": aggregation });
             if let Some(m) = metric {
                 obj["metric"] = serde_json::Value::String(m);
+            }
+            if let Some(iv) = &interval {
+                obj["type"] = serde_json::Value::String("timeseries".into());
+                obj["interval"] = serde_json::Value::String(iv.clone());
             }
             Ok(obj)
         })
@@ -281,6 +291,7 @@ pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
         index,
         storage,
         sort,
+        interval,
     } = args;
     if compute.is_empty() {
         compute.push("count".into());
@@ -288,7 +299,7 @@ pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
     let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
     let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
     let body = build_aggregate_body(
-        query, from_ms, to_ms, compute, group_by, limit, index, storage, &sort,
+        query, from_ms, to_ms, compute, group_by, limit, index, storage, &sort, interval,
     )?;
     let data = raw_client::raw_post(cfg, "/api/v2/logs/analytics/aggregate", body).await?;
     formatter::output(cfg, &data)?;
@@ -441,6 +452,7 @@ mod tests {
             vec![],
             Some("flex".into()),
             "count",
+            None,
         )
         .unwrap();
 
@@ -482,6 +494,7 @@ mod tests {
             vec![],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -516,6 +529,7 @@ mod tests {
             vec![],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -548,6 +562,7 @@ mod tests {
             vec![],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -608,6 +623,7 @@ mod tests {
             vec![],
             None,
             "pc95",
+            None,
         )
         .unwrap();
 
@@ -633,6 +649,7 @@ mod tests {
             vec![],
             None,
             "pc95",
+            None,
         )
         .unwrap();
 
@@ -651,6 +668,7 @@ mod tests {
             vec![],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -669,6 +687,7 @@ mod tests {
             vec!["main".into(), "web".into()],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -676,6 +695,49 @@ mod tests {
             body["filter"]["indexes"],
             serde_json::json!(["main", "web"])
         );
+    }
+
+    #[test]
+    fn test_build_aggregate_body_timeseries_interval() {
+        let body = build_aggregate_body(
+            "*".into(),
+            1,
+            2,
+            vec!["count".into(), "avg(@duration)".into()],
+            vec![],
+            10,
+            vec![],
+            None,
+            "count",
+            Some("5m".into()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            body["compute"],
+            serde_json::json!([
+                { "aggregation": "count", "type": "timeseries", "interval": "300000" },
+                { "aggregation": "avg", "metric": "@duration", "type": "timeseries", "interval": "300000" }
+            ])
+        );
+    }
+
+    #[test]
+    fn test_build_aggregate_body_invalid_interval() {
+        let err = build_aggregate_body(
+            "*".into(),
+            1,
+            2,
+            vec!["count".into()],
+            vec![],
+            10,
+            vec![],
+            None,
+            "count",
+            Some("bogus".into()),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("unable to parse duration"));
     }
 
     #[test]
@@ -800,6 +862,7 @@ mod tests {
                 index: vec![],
                 storage: None,
                 sort: "count".into(),
+                interval: None,
             },
         )
         .await;
@@ -828,6 +891,7 @@ mod tests {
                 index: vec![],
                 storage: None,
                 sort: "count".into(),
+                interval: None,
             },
         )
         .await;
@@ -916,6 +980,7 @@ mod tests {
                 index: vec![],
                 storage: Some("flex".into()),
                 sort: "count".into(),
+                interval: None,
             },
         )
         .await;

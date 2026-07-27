@@ -163,7 +163,7 @@ serde-wasm-bindgen = { version = "0.6", optional = true }
 
 # RNG support in browser WASM (getrandom 0.4 — wasm_js feature enables JS crypto API)
 getrandom = { version = "0.4", features = ["wasm_js"], optional = true }
-jsonschema = { version = "0.46.5", default-features = false }
+jsonschema = { version = "0.49.1", default-features = false }
 jaq-core = "3.1.0"
 jaq-std = "3.0.1"
 jaq-json = { version = "2.0.1", features = ["serde"] }

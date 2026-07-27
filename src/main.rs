@@ -7,7 +7,10 @@ mod commands;
 mod config;
 #[cfg(not(target_arch = "wasm32"))]
 mod extensions;
+mod filter;
 mod formatter;
+mod generated;
+mod raw_client;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
 #[cfg(not(target_arch = "wasm32"))]
@@ -16,6 +19,7 @@ mod skills;
 mod tunnel;
 mod useragent;
 mod util;
+mod util_ext;
 mod version;
 
 #[cfg(test)]
@@ -37,6 +41,8 @@ pub(crate) mod test_utils {
 }
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::IsTerminal;
 
 #[derive(Parser)]
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
@@ -59,6 +65,13 @@ pub(crate) struct Cli {
     /// Named org session (see 'pup auth login --org')
     #[arg(long, global = true)]
     org: Option<String>,
+    /// Filter command output through a jq expression (applied before formatting)
+    #[arg(long, global = true)]
+    jq: Option<String>,
+    /// Trust a non-Datadog `--site`/`DD_SITE` host for this invocation (skip the
+    /// trust prompt). For durable trust, use `trusted_sites` in config instead.
+    #[arg(long, global = true)]
+    trust_site: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -700,6 +713,29 @@ enum Commands {
         #[command(subcommand)]
         action: ChangeManagementActions,
     },
+    /// Retrieve change events for an APM service over a time range.
+    /// Use to correlate changes with anomalies, performance issues or incidents.
+    ///
+    /// Tracked change types: deployment (code/version), feature_flag, traffic_anomaly,
+    /// watchdog (Datadog anomaly detection), kubernetes (k8s deployment manifest updates),
+    /// scale (manual k8s scale events), crashloopbackoff (k8s crashloops),
+    /// database (DB schema or setting changes), schema (data stream schemas only; not DB/API schema),
+    /// configuration (limited to specific tracked sources — absence does not imply no config changed).
+    ///
+    /// COMMANDS:
+    ///   list   List change stories for a service over a time window
+    ///
+    /// EXAMPLES:
+    ///   pup change-stories list --service api --from 2024-01-15T00:00:00Z --to 2024-01-15T01:00:00Z
+    ///   pup change-stories list --service api --env prod --story-types deployment --from 1h --to now
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication (pup auth login) or API keys.
+    #[command(name = "change-stories", verbatim_doc_comment)]
+    ChangeStories {
+        #[command(subcommand)]
+        action: ChangeStoriesActions,
+    },
     /// Manage CI/CD visibility
     ///
     /// Manage Datadog CI/CD visibility for pipeline and test monitoring.
@@ -1074,7 +1110,7 @@ enum Commands {
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips LIMIT 5"
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips" -o csv > results.csv
     ///   cat query.sql | pup ddsql table --query - -o table
-    ///   pup ddsql time-series --query "SELECT avg(system.cpu.user) FROM metrics GROUP BY host" --from 1h --interval 300000
+    ///   pup ddsql time-series --query "SELECT timestamp, value, tags->'host' AS host FROM dd.metrics_timeseries('avg:system.cpu.user{*} by {host}')" --from 1h
     ///   pup ddsql spec
     ///   pup ddsql schema tables --query ec2 --limit 100
     ///   pup ddsql schema columns --table-id public.aws.ec2_instance
@@ -1222,17 +1258,23 @@ enum Commands {
     },
     /// Manage Datadog events
     ///
-    /// Query and search Datadog events.
+    /// Post, query, and search Datadog events.
     ///
     /// Events represent important occurrences in your infrastructure such as
     /// deployments, configuration changes, alerts, and custom events.
     ///
     /// CAPABILITIES:
+    ///   • Post custom events
     ///   • List recent events
     ///   • Search events with queries
     ///   • Get event details
     ///
     /// EXAMPLES:
+    ///   # Post an event using dogshell-compatible flags
+    ///   pup events post --tags="version:1,application:web" --no_host --type=my_apps \
+    ///     --aggregation_key=application:web --alert_type=info \
+    ///     "Something big happened!" "And let me tell you all about it here!"
+    ///
     ///   # List recent events
     ///   pup events list
     ///
@@ -1778,6 +1820,10 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication or API keys.
+    ///   list/get/roles-list work with default OAuth scopes. create/update/delete
+    ///   and roles-add require the user_access_manage scope, which is not
+    ///   requested by default -- opt in with:
+    ///     pup auth login --extra-scopes user_access_manage
     #[command(name = "logs-restriction", verbatim_doc_comment)]
     LogsRestriction {
         #[command(subcommand)]
@@ -1868,6 +1914,30 @@ enum Commands {
     Misc {
         #[command(subcommand)]
         action: MiscActions,
+    },
+    /// Explore Model Lab projects and runs
+    ///
+    /// Browse ML experiment projects and their training runs in Datadog Model Lab.
+    ///
+    /// SUBCOMMANDS:
+    ///   projects    Manage Model Lab projects
+    ///   runs        Manage Model Lab runs
+    ///
+    /// EXAMPLES:
+    ///   pup model-lab projects list
+    ///   pup model-lab projects get 123
+    ///   pup model-lab projects star 123
+    ///   pup model-lab runs list --filter-project-id 123
+    ///   pup model-lab runs get 456
+    ///   pup model-lab runs delete 456
+    ///   pup model-lab runs pin 456
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "model-lab", verbatim_doc_comment)]
+    ModelLab {
+        #[command(subcommand)]
+        action: ModelLabActions,
     },
     /// Manage monitors
     ///
@@ -2385,7 +2455,7 @@ enum Commands {
     ///   extension   Multi-file bundle for a coding-agent platform (e.g. pi)
     ///
     /// PLATFORMS:
-    ///   claude (or claude-code), cursor, codex, opencode, windsurf, gemini, pi
+    ///   claude (or claude-code), cursor, codex, opencode, windsurf, gemini, pi, devin
     ///   Pass `all` to install for every supported platform.
     ///   If omitted, pup auto-detects the platform from the environment.
     ///
@@ -2624,6 +2694,35 @@ enum Commands {
         #[command(subcommand)]
         action: SyntheticsActions,
     },
+    /// Manage tag policies for governance and compliance
+    ///
+    /// Create, list, get, update, and delete tag policies. Tag policies enforce
+    /// required tag keys and allowed values across your Datadog resources, and
+    /// provide compliance scoring to measure adherence.
+    ///
+    /// COMMANDS:
+    ///   list              List all tag policies
+    ///   get <id>          Get a tag policy by ID
+    ///   create --file     Create a tag policy from JSON
+    ///   update <id> -f    Update a tag policy
+    ///   delete <id>       Delete a tag policy
+    ///   score             Get the overall tag policy compliance score
+    ///
+    /// EXAMPLES:
+    ///   pup tag-policies list
+    ///   pup tag-policies list --include-score
+    ///   pup tag-policies list --filter-source api
+    ///   pup tag-policies get pol-abc123 --include-score
+    ///   pup tag-policies create --file policy.json
+    ///   pup tag-policies score pol-abc123
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(name = "tag-policies", verbatim_doc_comment)]
+    TagPolicies {
+        #[command(subcommand)]
+        action: TagPoliciesActions,
+    },
     /// Manage host tags
     ///
     /// Manage tags for hosts in your infrastructure.
@@ -2800,6 +2899,8 @@ enum Commands {
         #[command(subcommand)]
         action: WorkflowActions,
     },
+    #[command(flatten)]
+    Generated(generated::GeneratedCommand),
 }
 
 // ---- Extensions ----
@@ -2812,6 +2913,12 @@ enum ExtensionActions {
     Install {
         /// Source: local file path (with --local) or GitHub owner/repo
         source: String,
+        /// Install one extension from a GitHub release archive (without pup- prefix)
+        #[arg(long, conflicts_with_all = ["local", "name", "all"])]
+        extension: Option<String>,
+        /// Install all extensions found in a GitHub release archive
+        #[arg(long, conflicts_with_all = ["local", "extension", "name", "description"])]
+        all: bool,
         /// Install a specific release tag (GitHub only)
         #[arg(long, conflicts_with = "local")]
         tag: Option<String>,
@@ -2830,6 +2937,14 @@ enum ExtensionActions {
         /// Short description shown in `pup help`
         #[arg(long)]
         description: Option<String>,
+    },
+    /// List extensions available from a remote GitHub repository
+    ListRemote {
+        /// Source: GitHub owner/repo
+        source: String,
+        /// Filter to one extension (without pup- prefix)
+        #[arg(long)]
+        extension: Option<String>,
     },
     /// Remove an installed extension
     Remove {
@@ -2888,11 +3003,28 @@ enum MonitorActions {
         page: i64,
         #[arg(long, default_value_t = 30, help = "Results per page")]
         per_page: i64,
-        #[arg(long, help = "Sort order")]
+        #[arg(long, allow_hyphen_values = true, help = "Sort order")]
         sort: Option<String>,
     },
     /// Delete a monitor
     Delete { monitor_id: i64 },
+    /// Diff a candidate JSON definition against the live monitor
+    Diff {
+        monitor_id: i64,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
+    },
 }
 
 // ---- MS Teams ----
@@ -2982,8 +3114,12 @@ enum LogActions {
         limit: i32,
         #[arg(long, help = "Sort order: asc or desc", default_value = "desc")]
         sort: String,
-        #[arg(long, help = "Comma-separated log indexes")]
-        index: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Log indexes to aggregate, comma-separated or repeated"
+        )]
+        index: Vec<String>,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
     },
@@ -3001,10 +3137,21 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 10, help = "Number of logs")]
         limit: i32,
-        #[arg(long, default_value = "-timestamp", help = "Sort order")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            default_value = "-timestamp",
+            help = "Sort order"
+        )]
         sort: String,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Log indexes to search, comma-separated or repeated"
+        )]
+        index: Vec<String>,
     },
     /// Query logs (v2 API)
     Query {
@@ -3020,10 +3167,21 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 50, help = "Maximum results")]
         limit: i32,
-        #[arg(long, default_value = "-timestamp", help = "Sort order")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            default_value = "-timestamp",
+            help = "Sort order"
+        )]
         sort: String,
         #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
         storage: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Log indexes to search, comma-separated or repeated"
+        )]
+        index: Vec<String>,
         #[arg(long, help = "Timezone for timestamps")]
         timezone: Option<String>,
     },
@@ -3056,6 +3214,13 @@ enum LogActions {
         storage: Option<String>,
         #[arg(
             long,
+            value_delimiter = ',',
+            help = "Log indexes to search, comma-separated or repeated"
+        )]
+        index: Vec<String>,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
             default_value = "count",
             help = "Sort groups by aggregation (count,cardinality,pc75,pc90,pc95,pc98,pc99,sum,min,max)"
         )]
@@ -3157,37 +3322,11 @@ enum IncidentActions {
         #[command(subcommand)]
         action: IncidentPostmortemActions,
     },
-    /// Manage incident services
-    Services {
-        #[command(subcommand)]
-        action: IncidentServiceActions,
-    },
     /// Import an incident
     Import {
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
     },
-}
-
-#[derive(Subcommand)]
-enum IncidentServiceActions {
-    /// List incident services
-    List,
-    /// Get incident service details
-    Get { service_id: String },
-    /// Create an incident service from JSON
-    Create {
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Update an incident service
-    Update {
-        service_id: String,
-        #[arg(long, help = "JSON file with service data (required)")]
-        file: String,
-    },
-    /// Delete an incident service
-    Delete { service_id: String },
 }
 
 #[derive(Subcommand)]
@@ -3771,7 +3910,7 @@ enum SyntheticsTestActions {
             help = "Offset from which to start returning results"
         )]
         start: i64,
-        #[arg(long, help = "Sort order")]
+        #[arg(long, allow_hyphen_values = true, help = "Sort order")]
         sort: Option<String>,
     },
     /// Run synthetic tests (requires DD_API_KEY + DD_APP_KEY)
@@ -4021,6 +4160,64 @@ enum TestOptimizationFlakyTestsPoliciesActions {
 // ---- Events ----
 #[derive(Subcommand)]
 enum EventActions {
+    /// Post an event
+    Post {
+        #[arg(help = "Event title")]
+        title: String,
+        #[arg(help = "Event message body; reads from stdin when omitted")]
+        message: Option<String>,
+        #[arg(
+            long,
+            visible_alias = "date_happened",
+            help = "POSIX timestamp when the event occurred"
+        )]
+        date_happened: Option<i64>,
+        #[arg(long, help = "User to post the event as")]
+        handle: Option<String>,
+        #[arg(long, value_enum, default_value = "normal", help = "Event priority")]
+        priority: commands::events::EventPriorityArg,
+        #[arg(long, visible_alias = "related_event_id", help = "Parent event ID")]
+        related_event_id: Option<i64>,
+        #[arg(long, help = "Comma-separated event tags")]
+        tags: Option<String>,
+        #[arg(
+            long,
+            default_value = "",
+            help = "Host to associate with the event; defaults to the local hostname when it can be determined"
+        )]
+        host: String,
+        #[arg(
+            long,
+            visible_alias = "no_host",
+            help = "Do not associate a host with the event; overrides --host"
+        )]
+        no_host: bool,
+        #[arg(
+            long = "device-name",
+            visible_aliases = ["device_name", "device"],
+            help = "Device name to associate with the event"
+        )]
+        device: Option<String>,
+        #[arg(
+            long = "source-type-name",
+            visible_aliases = ["source_type_name", "type"],
+            help = "Event source type name"
+        )]
+        event_type: Option<String>,
+        #[arg(
+            long,
+            visible_alias = "aggregation_key",
+            help = "Key used to aggregate related events"
+        )]
+        aggregation_key: Option<String>,
+        #[arg(
+            long,
+            visible_alias = "alert_type",
+            value_enum,
+            help = "Event alert type"
+        )]
+        alert_type: Option<commands::events::EventAlertTypeArg>,
+    },
     /// List recent events
     List {
         #[arg(
@@ -4103,6 +4300,7 @@ enum DbmSamplesActions {
         limit: i32,
         #[arg(
             long,
+            allow_hyphen_values = true,
             default_value = "desc",
             help = "Sort order: asc, desc, timestamp, or -timestamp"
         )]
@@ -4213,6 +4411,65 @@ enum TagActions {
     Update { hostname: String, tags: Vec<String> },
     /// Delete all tags from a host
     Delete { hostname: String },
+}
+
+// ---- Tag Policies ----
+#[derive(Subcommand)]
+enum TagPoliciesActions {
+    /// List all tag policies
+    List {
+        #[arg(long, default_value_t = false, help = "Include disabled policies")]
+        include_disabled: bool,
+        #[arg(long, default_value_t = false, help = "Include soft-deleted policies")]
+        include_deleted: bool,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Include compliance score in response"
+        )]
+        include_score: bool,
+        #[arg(long, help = "Filter by policy source: api, terraform, ui")]
+        filter_source: Option<String>,
+    },
+    /// Get a tag policy by ID
+    Get {
+        policy_id: String,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Include compliance score in response"
+        )]
+        include_score: bool,
+    },
+    /// Create a tag policy from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with TagPolicyCreateRequest body")]
+        file: String,
+    },
+    /// Update a tag policy from a JSON file
+    Update {
+        policy_id: String,
+        #[arg(long, short, help = "JSON file with TagPolicyUpdateRequest body")]
+        file: String,
+    },
+    /// Delete a tag policy
+    Delete {
+        policy_id: String,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Permanently delete (default: soft delete)"
+        )]
+        hard_delete: bool,
+    },
+    /// Get the compliance score for a tag policy
+    Score {
+        policy_id: String,
+        #[arg(long, help = "Start of scoring window (Unix ms timestamp)")]
+        ts_start: Option<i64>,
+        #[arg(long, help = "End of scoring window (Unix ms timestamp)")]
+        ts_end: Option<i64>,
+    },
 }
 
 // ---- Users ----
@@ -4370,6 +4627,7 @@ enum WidgetActions {
         filter_tags: Option<String>,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort field (title, created_at, modified_at; prefix with - for descending)"
         )]
         sort: Option<String>,
@@ -4518,7 +4776,12 @@ enum InfraHostActions {
     List {
         #[arg(long, help = "Filter hosts")]
         filter: Option<String>,
-        #[arg(long, default_value = "status", help = "Sort field")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            default_value = "status",
+            help = "Sort field"
+        )]
         sort: String,
         #[arg(long, default_value_t = 100, help = "Maximum hosts")]
         count: i64,
@@ -4880,9 +5143,14 @@ enum SecurityRuleActions {
         filter: Option<String>,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort order (name, -name, creation_date, -creation_date, update_date, -update_date, enabled, -enabled, type, -type, highest_severity, -highest_severity, source, -source)"
         )]
         sort: Option<String>,
+        #[arg(long, default_value_t = 10, help = "Results per page (max 100)")]
+        page_size: i64,
+        #[arg(long, default_value_t = 0, help = "Page number (0-indexed)")]
+        page_number: i64,
     },
     /// Get rule details
     Get { rule_id: String },
@@ -4923,6 +5191,7 @@ enum SecuritySignalActions {
         limit: i32,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort order: timestamp (ascending) or -timestamp (descending)"
         )]
         sort: Option<String>,
@@ -5036,6 +5305,7 @@ enum SecuritySuppressionActions {
     List {
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort order (name, -name, start_date, -start_date, expiration_date, -expiration_date, update_date, -update_date, -creation_date, enabled, -enabled)"
         )]
         sort: Option<String>,
@@ -5158,6 +5428,44 @@ enum ChangeRequestDecisionActions {
         decision_id: String,
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
+    },
+}
+
+// ---- Change Stories ----
+#[derive(Subcommand)]
+enum ChangeStoriesActions {
+    /// List change stories for a service over a time window
+    List {
+        #[arg(long, help = "APM service name (required) - no wildcards (*)")]
+        service: String,
+        #[arg(
+            long,
+            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        from: String,
+        #[arg(
+            long,
+            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        to: String,
+        #[arg(
+            long,
+            help = "Environment filter (e.g. prod). Omit to include all environments"
+        )]
+        env: Option<String>,
+        #[arg(
+            long = "story-types",
+            value_delimiter = ',',
+            help = "Filter by type(s), comma-separated or repeated. Allowed: deployment, feature_flag, configuration, database, kubernetes, scale, crashloopbackoff, traffic_anomaly, schema, watchdog. Omit for all."
+        )]
+        story_types: Vec<String>,
+        #[arg(
+            long = "filter-tags",
+            help = "Primary tag (key:value, e.g. datacenter:us1.prod.dog)"
+        )]
+        filter_tags: Option<String>,
+        #[arg(long = "token-limit", help = "Max response tokens (default: 10000)")]
+        token_limit: Option<i64>,
     },
 }
 
@@ -5825,6 +6133,7 @@ enum AppKeyActions {
         /// Sort field (name, -name, created_at, -created_at)
         #[arg(
             long,
+            allow_hyphen_values = true,
             default_value = "",
             help = "Sort field (name, -name, created_at, -created_at)"
         )]
@@ -6311,6 +6620,7 @@ enum CicdFlakyTestActions {
         limit: i64,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort order (fqn, -fqn, first_flaked, -first_flaked, last_flaked, -last_flaked, failure_rate, -failure_rate, pipelines_failed, -pipelines_failed, pipelines_duration_lost, -pipelines_duration_lost)"
         )]
         sort: Option<String>,
@@ -6436,6 +6746,20 @@ enum OnCallNotificationRulesActions {
 
 #[derive(Subcommand)]
 enum OnCallPagesActions {
+    /// List on-call pages, optionally filtered by team handle and/or responder user id
+    List {
+        #[arg(long, help = "Filter by team handle (server-side)")]
+        team: Option<String>,
+        #[arg(long, help = "Filter by responder user id (client-side)")]
+        responder: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 1000,
+            value_parser = clap::value_parser!(u32).range(1..=1000),
+            help = "Results per page (1-1000; endpoint pagination is unsupported)"
+        )]
+        page_size: u32,
+    },
     /// Create an on-call page from a JSON file
     Create {
         #[arg(long, help = "Path to JSON file")]
@@ -6492,6 +6816,7 @@ enum OnCallMembershipActions {
         page_number: i64,
         #[arg(
             long,
+            allow_hyphen_values = true,
             default_value = "name",
             help = "Sort: name, -name, email, -email, handle, -handle, manager_name, -manager_name"
         )]
@@ -6750,21 +7075,10 @@ enum FleetActions {
         #[command(subcommand)]
         action: FleetScheduleActions,
     },
-    /// Manage fleet clusters
-    Clusters {
-        #[command(subcommand)]
-        action: FleetClusterActions,
-    },
     /// Manage fleet tracers
     Tracers {
         #[command(subcommand)]
         action: FleetTracerActions,
-    },
-    /// Manage fleet instrumented pods
-    #[command(name = "instrumented-pods")]
-    InstrumentedPods {
-        #[command(subcommand)]
-        action: FleetInstrumentedPodsActions,
     },
 }
 
@@ -6865,38 +7179,6 @@ enum FleetTracerActions {
         sort_attribute: Option<String>,
         #[arg(long, default_value_t = false, help = "Sort descending")]
         sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetClusterActions {
-    /// List Kubernetes clusters in the fleet.
-    ///
-    /// Returns clusters with node counts, agent versions, enabled products, and services.
-    /// Use this to discover cluster names for use with instrumented-pods.
-    List {
-        #[arg(long, help = "Filter query (e.g. cluster_name:production, env:prod)")]
-        filter: Option<String>,
-        #[arg(long)]
-        page_size: Option<i64>,
-        #[arg(long, help = "Page number (0-indexed)")]
-        page_number: Option<i64>,
-        #[arg(long, help = "Sort by attribute (e.g. cluster_name, node_count)")]
-        sort_attribute: Option<String>,
-        #[arg(long, default_value_t = false, help = "Sort descending")]
-        sort_descending: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum FleetInstrumentedPodsActions {
-    /// List instrumented pods in a Kubernetes cluster.
-    ///
-    /// Returns pod groups with namespace, owner, injection annotations, and pod names.
-    /// Use this to verify the Admission Controller targeted pods for SSI injection.
-    List {
-        #[arg(help = "Kubernetes cluster name (required)")]
-        cluster_name: String,
     },
 }
 
@@ -7863,6 +8145,7 @@ enum CostCcmCustomCostsActions {
         status: Option<String>,
         #[arg(
             long,
+            allow_hyphen_values = true,
             help = "Sort key (prefix with '-' for descending, e.g. '-created_at')"
         )]
         sort: Option<String>,
@@ -8191,6 +8474,123 @@ enum MiscActions {
     Status,
 }
 
+// ---- Model Lab ----
+#[derive(Subcommand)]
+enum ModelLabActions {
+    /// Manage Model Lab projects
+    Projects {
+        #[command(subcommand)]
+        action: ModelLabProjectActions,
+    },
+    /// Manage Model Lab runs
+    Runs {
+        #[command(subcommand)]
+        action: ModelLabRunActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelLabProjectActions {
+    /// List Model Lab projects
+    List {
+        #[arg(long, help = "Filter query string")]
+        filter: Option<String>,
+        #[arg(long, help = "Filter by tags (comma-separated)")]
+        filter_tags: Option<String>,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Sort field (e.g. name, created_at)"
+        )]
+        sort: Option<String>,
+        #[arg(long)]
+        page_size: Option<i64>,
+        #[arg(long, help = "Page number (0-indexed)")]
+        page_number: Option<i64>,
+    },
+    /// Get a Model Lab project by ID
+    Get { project_id: i64 },
+    /// Star a Model Lab project
+    Star { project_id: i64 },
+    /// Unstar a Model Lab project
+    Unstar { project_id: i64 },
+    /// List artifacts for a Model Lab project
+    Artifacts { project_id: i64 },
+    /// List facet keys for Model Lab projects
+    #[command(name = "facet-keys")]
+    FacetKeys,
+    /// List facet values for a Model Lab project facet
+    #[command(name = "facet-values")]
+    FacetValues {
+        #[arg(help = "Facet type (tag)")]
+        facet_type: String,
+        #[arg(help = "Facet name")]
+        facet_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelLabRunActions {
+    /// List Model Lab runs
+    List {
+        #[arg(long, help = "Filter query string")]
+        filter: Option<String>,
+        #[arg(long, help = "Filter by project ID")]
+        filter_project_id: Option<i64>,
+        #[arg(
+            long,
+            help = "Filter by status: pending, running, completed, failed, killed, unresponsive, paused"
+        )]
+        filter_status: Option<String>,
+        #[arg(long, help = "Filter by tags (comma-separated)")]
+        filter_tags: Option<String>,
+        #[arg(long, help = "Filter by params")]
+        filter_params: Option<String>,
+        #[arg(long, help = "Filter by parent run ID")]
+        filter_parent_run_id: Option<String>,
+        #[arg(long, default_value_t = false, help = "Show pinned runs first")]
+        pinned_first: bool,
+        #[arg(long, default_value_t = false, help = "Include pinned runs")]
+        include_pinned: bool,
+        #[arg(long, allow_hyphen_values = true, help = "Sort field")]
+        sort: Option<String>,
+        #[arg(long)]
+        page_size: Option<i64>,
+        #[arg(long, help = "Page number (0-indexed)")]
+        page_number: Option<i64>,
+    },
+    /// Get a Model Lab run by ID
+    Get { run_id: i64 },
+    /// Delete a Model Lab run
+    Delete { run_id: i64 },
+    /// Pin a Model Lab run
+    Pin { run_id: i64 },
+    /// Unpin a Model Lab run
+    Unpin { run_id: i64 },
+    /// List artifacts for a Model Lab run
+    Artifacts {
+        run_id: i64,
+        #[arg(long, help = "Filter by artifact path prefix")]
+        path: Option<String>,
+    },
+    /// List facet keys for Model Lab runs
+    #[command(name = "facet-keys")]
+    FacetKeys {
+        #[arg(long, help = "Project ID to scope facet keys")]
+        filter_project_id: i64,
+    },
+    /// List facet values for a Model Lab run facet
+    #[command(name = "facet-values")]
+    FacetValues {
+        #[arg(long, help = "Project ID to scope facet values")]
+        filter_project_id: i64,
+        #[arg(help = "Facet type (parameter, attribute, tag, metric)")]
+        facet_type: String,
+        #[arg(help = "Facet name")]
+        facet_name: String,
+    },
+}
+
 // ---- APM ----
 #[derive(Subcommand)]
 enum ApmActions {
@@ -8233,6 +8633,22 @@ enum ApmActions {
     ServiceRemapping {
         #[command(subcommand)]
         action: ApmServiceRemappingActions,
+    },
+    /// Manage APM customer sampling rules (per-service per-resource head-based sampling rates).
+    /// Backed by Remote Config product APM_TRACING with provenance=customer.
+    /// Rules show on traces with `_dd.p.dm:-11` and `ingestion_reason:remote_rule`.
+    #[command(name = "sampling-rules")]
+    SamplingRules {
+        #[command(subcommand)]
+        action: ApmSamplingRulesActions,
+    },
+    /// Manage APM adaptive sampling — onboard services and configure the monthly allotment.
+    /// Datadog auto-tunes per-resource sampling rates to fit the configured byte/percent budget.
+    /// Generated rules show on traces with `_dd.p.dm:-12` and `ingestion_reason:adaptive_rule`.
+    #[command(name = "adaptive-sampling")]
+    AdaptiveSampling {
+        #[command(subcommand)]
+        action: ApmAdaptiveSamplingActions,
     },
     /// View APM service instance configuration
     #[command(name = "service-config")]
@@ -8346,12 +8762,17 @@ enum ApmDependencyActions {
 
 #[derive(Subcommand)]
 enum ApmTroubleshootingActions {
-    /// List instrumentation errors for a host
+    /// List instrumentation errors for a host or org-wide
     List {
-        #[arg(long, help = "Hostname to query (required)")]
-        hostname: String,
+        #[arg(long, help = "Hostname to query (omit for org-wide results)")]
+        hostname: Option<String>,
         #[arg(long, help = "Time window (e.g. 4h, 24h, 1h30m)")]
         timeframe: Option<String>,
+        #[arg(
+            long,
+            help = "Filter by result (success, error, abort, unknown; comma-separated)"
+        )]
+        result: Option<String>,
     },
 }
 
@@ -8416,6 +8837,121 @@ enum ApmServiceRemappingActions {
         id: String,
         #[arg(help = "Rule version (from list output)")]
         version: i64,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApmSamplingRulesActions {
+    /// List sampling rules. With `--service` + `--env`, narrows to that target.
+    List {
+        #[arg(long, help = "Filter by service name (must be combined with --env)")]
+        service: Option<String>,
+        #[arg(long, help = "Filter by environment (must be combined with --service)")]
+        env: Option<String>,
+    },
+    /// Get a sampling rule config by ID
+    Get {
+        #[arg(help = "Config ID")]
+        id: String,
+    },
+    /// Create a customer sampling rule for (service, env, resource).
+    /// Rate is between 0.0 and 1.0. Anything > 1e-6 is honored.
+    Create {
+        #[arg(long, help = "Service name (required)")]
+        service: String,
+        #[arg(
+            long,
+            help = "Environment (required, must match DD_ENV on the service)"
+        )]
+        env: String,
+        #[arg(
+            long,
+            help = "Resource glob — `*` matches all resources for the service, or e.g. 'GET /api/users'"
+        )]
+        resource: String,
+        #[arg(long, help = "Sample rate between 0.0 and 1.0", value_parser = parse_sample_rate)]
+        sample_rate: f64,
+    },
+    /// Update an existing sampling rule by ID (replaces all attributes)
+    Update {
+        #[arg(help = "Config ID")]
+        id: String,
+        #[arg(long, help = "Service name")]
+        service: String,
+        #[arg(long, help = "Environment")]
+        env: String,
+        #[arg(long, help = "Resource glob")]
+        resource: String,
+        #[arg(long, help = "Sample rate between 0.0 and 1.0", value_parser = parse_sample_rate)]
+        sample_rate: f64,
+    },
+    /// Delete a sampling rule by ID
+    Delete {
+        #[arg(help = "Config ID")]
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApmAdaptiveSamplingActions {
+    /// Get the onboarding status. With `--service` and `--env`, returns one entry; otherwise lists all.
+    #[command(name = "onboarding-status")]
+    OnboardingStatus {
+        #[arg(long, help = "Filter by service name (optional)")]
+        service: Option<String>,
+        #[arg(long, help = "Filter by environment (optional)")]
+        env: Option<String>,
+    },
+    /// Onboard a (service, env) pair to adaptive sampling
+    Onboard {
+        #[arg(long, help = "Service name (required)")]
+        service: String,
+        #[arg(long, help = "Environment (required)")]
+        env: String,
+    },
+    /// Offboard a (service, env) pair from adaptive sampling
+    Offboard {
+        #[arg(long, help = "Service name (required)")]
+        service: String,
+        #[arg(long, help = "Environment (required)")]
+        env: String,
+    },
+    /// Read the org's adaptive sampling allotment configuration
+    #[command(name = "get-allotment")]
+    GetAllotment,
+    /// Set the org's adaptive sampling allotment. Provide exactly one of --bytes or --percent.
+    #[command(name = "set-allotment")]
+    SetAllotment {
+        #[arg(
+            long,
+            conflicts_with = "percent",
+            help = "Monthly target in bytes (strategy=fixed_target)"
+        )]
+        bytes: Option<i64>,
+        #[arg(
+            long,
+            conflicts_with = "bytes",
+            help = "Percent of total monthly allotment (strategy=percent_total)"
+        )]
+        percent: Option<f64>,
+    },
+    /// Check whether the configured allotment is sufficient for current ingestion
+    Check,
+    /// Preview the allotment Datadog would compute for a strategy without applying it.
+    /// Provide exactly one of --bytes or --percent.
+    Preview {
+        #[arg(
+            long,
+            conflicts_with = "percent",
+            help = "Monthly target in bytes (strategy=fixed_target)"
+        )]
+        bytes: Option<i64>,
+        #[arg(
+            long,
+            conflicts_with = "bytes",
+            help = "Percent of total monthly allotment (strategy=percent_total)"
+        )]
+        percent: Option<f64>,
     },
 }
 
@@ -8650,6 +9186,79 @@ enum LlmObsActions {
         #[command(subcommand)]
         action: LlmObsEvalsActions,
     },
+    /// Explore Topic Discovery (Patterns): span clusters and their topic hierarchy
+    Patterns {
+        #[command(subcommand)]
+        action: LlmObsPatternsActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsPatternsActions {
+    /// Manage Topic Discovery configurations
+    Configs {
+        #[command(subcommand)]
+        action: LlmObsPatternConfigsActions,
+    },
+    /// Inspect Topic Discovery runs for a config
+    Runs {
+        #[command(subcommand)]
+        action: LlmObsPatternRunsActions,
+    },
+    /// Get the topic hierarchy discovered by a run
+    Topics {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+        #[arg(long, help = "Specific run ID (defaults to the latest completed run)")]
+        run_id: Option<String>,
+    },
+    /// Get the topic hierarchy with clustering point span IDs inlined on leaf topics
+    #[command(name = "topics-with-points")]
+    TopicsWithPoints {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+        #[arg(long, help = "Specific run ID (defaults to the latest completed run)")]
+        run_id: Option<String>,
+        #[arg(
+            long,
+            help = "Inline per-span duration, cost, token counts, and evaluations (heavier response)"
+        )]
+        include_metrics: bool,
+    },
+    /// Get a page of clustering points (spans) for a single topic
+    Points {
+        #[arg(long, help = "Topic ID (required)")]
+        topic_id: String,
+        #[arg(
+            long,
+            help = "Max points per page (server default applies when omitted)"
+        )]
+        page_size: Option<u32>,
+        #[arg(long, help = "Pagination cursor (next_page_token) from a prior call")]
+        page_token: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsPatternConfigsActions {
+    /// List all Topic Discovery configs for the org
+    List,
+    /// Get the most-recently-modified Topic Discovery config for the org
+    Get,
+}
+
+#[derive(Subcommand)]
+enum LlmObsPatternRunsActions {
+    /// List completed runs for a config, newest first
+    List {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+    },
+    /// Get status and per-activity progress of the most recent run for a config
+    Status {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -8659,8 +9268,17 @@ enum LlmObsProjectsActions {
         #[arg(long, help = "JSON file with project body (required)")]
         file: String,
     },
-    /// List LLM Obs projects
-    List,
+    /// List LLM Obs projects (filter by ID or name to resolve a single project)
+    List {
+        #[arg(long, help = "Filter by project ID")]
+        filter_id: Option<String>,
+        #[arg(long, help = "Filter by project name")]
+        filter_name: Option<String>,
+        #[arg(long, help = "Maximum number of projects to return per page")]
+        limit: Option<u32>,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -8743,6 +9361,21 @@ enum LlmObsExperimentsEventsActions {
         experiment_id: String,
         event_id: String,
     },
+    /// Submit evaluation-metric events to an experiment
+    Submit {
+        experiment_id: String,
+        #[arg(
+            long,
+            help = "JSON array of eval-metric events, e.g. '[{\"label\":\"accuracy\",\"metric_type\":\"score\",\"score_value\":0.9}]' (required)"
+        )]
+        metrics: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Optional \"key:value\" tags applied to every submitted metric (comma-separated)"
+        )]
+        tags: Option<Vec<String>>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -8751,8 +9384,16 @@ enum LlmObsSpansActions {
     Search {
         #[arg(long, help = "Search query string")]
         query: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Filter by \"key:value\" tags (comma-separated, AND)"
+        )]
+        tags: Option<Vec<String>>,
         #[arg(long, help = "Filter by trace ID")]
         trace_id: Option<String>,
+        #[arg(long, help = "Filter by APM trace ID")]
+        apm_trace_id: Option<String>,
         #[arg(long, help = "Filter by span ID")]
         span_id: Option<String>,
         #[arg(
@@ -8939,10 +9580,18 @@ enum LlmObsDatasetsActions {
         #[arg(long, help = "JSON file with dataset body (required)")]
         file: String,
     },
-    /// List LLM Obs datasets for a project
+    /// List LLM Obs datasets for a project (filter by ID or name to resolve one dataset)
     List {
         #[arg(long, help = "Project ID (required)")]
         project_id: String,
+        #[arg(long, help = "Filter by dataset ID")]
+        filter_id: Option<String>,
+        #[arg(long, help = "Filter by dataset name")]
+        filter_name: Option<String>,
+        #[arg(long, help = "Maximum number of datasets to return per page")]
+        limit: Option<u32>,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
     },
     /// Batch insert, update, and delete records in a dataset
     BatchUpdate {
@@ -8970,6 +9619,79 @@ enum LlmObsDatasetsActions {
         dataset_id: String,
         #[arg(long, help = "JSON file with restore version body (required)")]
         file: String,
+    },
+    /// Read ALL dataset records, paging past the preview endpoint's response-size cap
+    RecordsAll {
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(long, help = "Records per page (default 100)")]
+        limit: Option<u32>,
+    },
+    /// Read dataset records (structure-preserving previews + schema summary)
+    Records {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Fetch specific record IDs (comma-separated)"
+        )]
+        record_ids: Option<Vec<String>>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Filter by key:value tags (comma-separated, AND)"
+        )]
+        tags: Option<Vec<String>>,
+        #[arg(long, help = "Canonical record ID (all versions of one record)")]
+        canonical_id: Option<String>,
+        #[arg(long, help = "Historical dataset version (defaults to current)")]
+        dataset_version: Option<i64>,
+        #[arg(long, default_value = "10", help = "Max records per page")]
+        limit: u32,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
+        #[arg(long, help = "Compute the schema summary aggregate (default true)")]
+        compute_schema: Option<bool>,
+    },
+    /// Add records to a dataset (previews by default; pass --confirm to write)
+    #[command(name = "records-add")]
+    RecordsAdd {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(
+            long,
+            help = "JSON file with an array of records, each with optional input, expected_output, metadata, tags (required)"
+        )]
+        file: String,
+        #[arg(
+            long,
+            help = "Actually insert the records; without this the endpoint returns a preview and writes nothing"
+        )]
+        confirm: bool,
+        #[arg(
+            long,
+            help = "Bump the dataset version on insert (default true; set false for in-place edits)"
+        )]
+        create_new_version: Option<bool>,
+    },
+    /// Fetch up to 3 records with untrimmed input/expected_output/metadata
+    #[command(name = "records-full")]
+    RecordsFull {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "1-3 record IDs to fetch (comma-separated, required)"
+        )]
+        record_ids: Vec<String>,
     },
 }
 
@@ -9260,6 +9982,7 @@ enum TracesActions {
         limit: i32,
         #[arg(
             long,
+            allow_hyphen_values = true,
             default_value = "-timestamp",
             help = "Sort order: timestamp or -timestamp"
         )]
@@ -9543,6 +10266,77 @@ enum SkillsActions {
         #[arg(long)]
         project: bool,
     },
+    /// Interact with Datadog's hosted skills over the onboarding API
+    ///
+    /// Unlike the other `skills` subcommands (which install the statically
+    /// bundled skills onto a local assistant), `remote` fetches skills live
+    /// from Datadog and records onboarding sessions — an assistant runs `pup`
+    /// instead of raw HTTP calls. `list` and `get` are public and work
+    /// unauthenticated; `sessions create` requires authentication.
+    ///
+    /// EXAMPLES:
+    ///   pup skills remote list --tag aws
+    ///   pup skills remote get aws-integration-setup --intent install
+    ///   pup skills remote sessions create --session-id run-123 \
+    ///     --skill-id aws-integration-setup --summary "Set up AWS" --status completed
+    #[command(verbatim_doc_comment)]
+    Remote {
+        #[command(subcommand)]
+        action: SkillsRemoteActions,
+    },
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Subcommand)]
+enum SkillsRemoteActions {
+    /// List the hosted skills
+    List {
+        /// Only list skills carrying this tag (repeat to require multiple tags)
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        /// Org ID hint for feature-flag evaluation
+        #[arg(long)]
+        org_id: Option<i64>,
+    },
+    /// Fetch a skill's instructions as markdown
+    Get {
+        /// Skill ID (as returned by `skills remote list`)
+        skill_id: String,
+        /// Caller intent: explore, install, or reference
+        #[arg(long)]
+        intent: Option<String>,
+        /// Session ID to correlate this fetch with a recorded session
+        #[arg(long)]
+        session_id: Option<String>,
+        /// Org ID hint for feature-flag evaluation
+        #[arg(long)]
+        org_id: Option<i64>,
+    },
+    /// Record session outcomes
+    Sessions {
+        #[command(subcommand)]
+        action: SkillsRemoteSessionsActions,
+    },
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Subcommand)]
+enum SkillsRemoteSessionsActions {
+    /// Record a session outcome
+    Create {
+        /// Session (run) ID
+        #[arg(long)]
+        session_id: String,
+        /// Skill ID touched in this session (repeat for multiple; required unless status is in_progress)
+        #[arg(long = "skill-id")]
+        skill_ids: Vec<String>,
+        /// Short summary of the session outcome
+        #[arg(long)]
+        summary: String,
+        /// Session status: in_progress, completed, failed, or abandoned
+        #[arg(long)]
+        status: String,
+    },
 }
 
 // ---- Product Analytics ----
@@ -9759,23 +10553,32 @@ enum AuthActions {
     /// Login via OAuth2
     Login {
         /// Comma-separated OAuth scopes to request (e.g. dashboards_read,metrics_read).
-        /// Overrides profile and config file scopes. Unknown scopes are skipped with a warning.
-        #[arg(long, value_name = "SCOPES")]
+        /// Replaces the entire scope set -- profile/config/default scopes are not
+        /// included unless you list them too. Passed through as-is: pup does not
+        /// validate scope names, the OAuth server does (rejects unknown ones).
+        /// Conflicts with --extra-scopes. See also --extra-scopes to add to the
+        /// normal scope set instead of replacing it.
+        #[arg(long, value_name = "SCOPES", conflicts_with = "extra_scopes")]
         scopes: Option<String>,
+        /// Comma-separated OAuth scopes to add on top of the normal scope set
+        /// (defaults, or profile/config scopes, or read-only scopes with --read-only)
+        /// instead of replacing it. Useful for opting into a high-privilege scope pup
+        /// doesn't request by default (e.g. user_access_manage, needed for
+        /// `pup logs-restriction create/update/delete`) without typing out every
+        /// other scope you still want. Conflicts with --scopes.
+        #[arg(long, value_name = "SCOPES", conflicts_with = "scopes")]
+        extra_scopes: Option<String>,
         /// Request only read-only scopes (excludes write, manage, and org-level scopes).
         /// Shorthand: --ro
         #[arg(long, alias = "ro", visible_alias = "ro")]
         read_only: bool,
-        /// Datadog site to authenticate against (e.g. datadoghq.eu, us3.datadoghq.com).
+        /// Datadog site or literal host to authenticate against.
+        /// Standard sites: datadoghq.eu, us3.datadoghq.com, etc.
+        /// Vanity/SAML SSO host: mycompany.datadoghq.com (replaces the old --subdomain flag).
+        /// Custom gateway: mygateway.example.com or mygateway.example.com:8443.
         /// Overrides DD_SITE env var and config file. Defaults to datadoghq.com.
         #[arg(long, value_name = "SITE")]
         site: Option<String>,
-        /// Organization subdomain for SAML/SSO login (e.g. mycompany for mycompany.datadoghq.com).
-        /// Composed against --site, so `--site datad0g.com --subdomain dd` routes to dd.datad0g.com.
-        /// Whether the consent page narrows to a single org depends on per-tenant SAML routing on
-        /// the Datadog side; some subdomains still show the org switcher.
-        #[arg(long, value_name = "SUBDOMAIN")]
-        subdomain: Option<String>,
         /// Pin the OAuth callback to one specific port from the DCR redirect allowlist
         /// [8000, 8080, 8888, 9000] instead of scanning. Useful when forwarding a single port
         /// over SSH. If the chosen port is busy login fails — no fallback. Other values are
@@ -10220,6 +11023,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "trigger"
         || name == "set"
         || name == "add"
+        || name.ends_with("-add")
         || name == "remove"
         || name == "install"
         || name == "assign"
@@ -10237,6 +11041,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name.starts_with("create-")
         || name.ends_with("-create")
         || name == "submit"
+        || name == "post"
         || name == "send"
         || name == "import"
         || name == "register"
@@ -10410,6 +11215,38 @@ mod test_agent_schema {
     fn schema_has_commands_array() {
         let schema = get_schema();
         assert!(schema.get("commands").and_then(|v| v.as_array()).is_some());
+    }
+
+    #[test]
+    fn events_post_is_classified_as_write() {
+        // Regression: the "post" verb must count as a write so read-only mode
+        // blocks it and the agent schema does not advertise it as read-only.
+        assert!(is_write_command_name("post"));
+
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let cmd = find_command(commands, &["events", "post"]).expect("events post not found");
+        assert_eq!(cmd["read_only"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn records_add_is_classified_as_write() {
+        // "records-add" inserts dataset records, so read-only mode must block it
+        // and the agent schema must not advertise it as read-only.
+        assert!(is_write_command_name("records-add"));
+        // Read-only siblings must stay read-only.
+        assert!(!is_write_command_name("records"));
+        assert!(!is_write_command_name("records-all"));
+        assert!(!is_write_command_name("records-full"));
+
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let cmd = find_command(commands, &["llm-obs", "datasets", "records-add"])
+            .expect("llm-obs datasets records-add not found");
+        assert_eq!(cmd["read_only"].as_bool(), Some(false));
+        let full = find_command(commands, &["llm-obs", "datasets", "records-full"])
+            .expect("llm-obs datasets records-full not found");
+        assert_eq!(full["read_only"].as_bool(), Some(true));
     }
 
     #[test]
@@ -10700,61 +11537,85 @@ pub(crate) fn get_top_level_subcommand_name(matches: &clap::ArgMatches) -> Optio
     matches.subcommand().map(|(name, _)| name.to_string())
 }
 
+/// Whether a command is exempt from the read-only write guard because it only
+/// touches local state, never the Datadog API. `auth`/`alias` are always local.
+/// `skills` installs bundled files locally and is exempt too — except
+/// `skills remote`, which calls the onboarding API and can write.
+pub(crate) fn is_read_only_exempt(matches: &clap::ArgMatches) -> bool {
+    match get_top_level_subcommand_name(matches).as_deref() {
+        Some("auth") | Some("alias") => true,
+        Some("skills") => !matches!(
+            matches.subcommand().and_then(|(_, m)| m.subcommand()),
+            Some(("remote", _))
+        ),
+        _ => false,
+    }
+}
+
 /// Resolve OAuth scopes for `pup auth login`.
 ///
-/// Priority: CLI --scopes > config profile scopes > config top-level scopes > defaults.
-/// Unknown scopes (not in the known list) are warned and excluded.
-/// In --read-only mode, defaults/profile scopes are filtered to read-only-safe scopes;
-/// explicitly-provided --scopes are passed through as-is (user intent is explicit).
+/// Priority: CLI --scopes (full replacement) > config profile scopes > config
+/// top-level scopes > defaults, then --extra-scopes are appended on top of
+/// whichever of those was chosen (clap enforces --scopes and --extra-scopes
+/// are mutually exclusive, so this never has to reconcile both against a
+/// replacement).
+///
+/// All explicit scopes (--scopes, --extra-scopes, or config) are passed through
+/// as-is, unvalidated -- the OAuth server is the source of truth for which
+/// scopes this client can request and rejects the rest with `invalid_scope`.
+/// This is a deliberate escape hatch: it lets a user opt into a scope pup
+/// doesn't request by default (e.g. high-privilege scopes like
+/// user_access_manage, intentionally excluded from default_scopes()) the
+/// moment it's enabled server-side, without waiting on a pup release.
+///
+/// In --read-only mode, config/default scopes are filtered to read-only-safe
+/// scopes before --extra-scopes are appended; --scopes is passed through as-is
+/// regardless (user intent is explicit).
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_login_scopes(
     cli_scopes: Option<&str>,
+    extra_scopes: Option<&str>,
     org: Option<&str>,
     read_only: bool,
 ) -> Vec<String> {
-    use crate::auth::types::{all_known_scopes, default_scopes, read_only_scopes};
+    use crate::auth::types::{default_scopes, read_only_scopes};
 
     if let Some(raw) = cli_scopes {
-        // User explicitly specified scopes — validate against known list, warn on unknowns
-        let known: std::collections::HashSet<&str> = all_known_scopes().into_iter().collect();
-        let mut result = Vec::new();
-        for scope in crate::config::parse_scopes(raw) {
-            if known.contains(scope.as_str()) {
-                result.push(scope);
-            } else {
-                eprintln!("⚠️  Unknown scope ignored: {scope}");
-            }
-        }
-        return result;
+        return crate::config::parse_scopes(raw);
     }
 
     // Load from config file (per-org profile, then top-level scopes)
-    if let Some(configured) = crate::config::load_configured_scopes(org) {
-        let known: std::collections::HashSet<&str> = all_known_scopes().into_iter().collect();
-        let mut result = Vec::new();
-        for scope in &configured {
-            if known.contains(scope.as_str()) {
-                if !read_only || read_only_scopes().contains(&scope.as_str()) {
-                    result.push(scope.clone());
-                }
-            } else {
-                eprintln!("⚠️  Unknown scope in config ignored: {scope}");
-            }
+    let mut base = if let Some(configured) = crate::config::load_configured_scopes(org) {
+        if read_only {
+            configured
+                .into_iter()
+                .filter(|s| read_only_scopes().contains(&s.as_str()))
+                .collect()
+        } else {
+            configured
         }
-        return result;
-    }
-
-    // Default scopes, filtered for read-only if needed
-    if read_only {
+    } else if read_only {
+        // Default scopes, filtered for read-only if needed
         read_only_scopes().into_iter().map(String::from).collect()
     } else {
         default_scopes().into_iter().map(String::from).collect()
+    };
+
+    if let Some(raw) = extra_scopes {
+        for scope in crate::config::parse_scopes(raw) {
+            if !base.contains(&scope) {
+                base.push(scope);
+            }
+        }
     }
+
+    base
 }
 
 #[cfg(target_arch = "wasm32")]
 fn resolve_login_scopes(
     _cli_scopes: Option<&str>,
+    _extra_scopes: Option<&str>,
     _org: Option<&str>,
     _read_only: bool,
 ) -> Vec<String> {
@@ -10762,6 +11623,123 @@ fn resolve_login_scopes(
         .into_iter()
         .map(String::from)
         .collect()
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod resolve_login_scopes_tests {
+    use super::resolve_login_scopes;
+    use crate::test_utils::ENV_LOCK;
+
+    /// Points PUP_CONFIG_DIR at a directory with no config file, so
+    /// `load_configured_scopes` returns None and defaults/CLI scopes are exercised.
+    fn with_no_config_file<T>(f: impl FnOnce() -> T) -> T {
+        let _g = ENV_LOCK.blocking_lock();
+        std::env::set_var(
+            "PUP_CONFIG_DIR",
+            "/tmp/pup_test_resolve_login_scopes_nonexistent",
+        );
+        let result = f();
+        std::env::remove_var("PUP_CONFIG_DIR");
+        result
+    }
+
+    #[test]
+    fn cli_scopes_pass_through_unfiltered() {
+        // Includes a scope pup doesn't know about -- the OAuth server validates,
+        // not pup, so it should NOT be dropped client-side.
+        let got = with_no_config_file(|| {
+            resolve_login_scopes(
+                Some("logs_read_config,user_access_manage,some_future_scope"),
+                None,
+                None,
+                false,
+            )
+        });
+        assert_eq!(
+            got,
+            vec![
+                "logs_read_config",
+                "user_access_manage",
+                "some_future_scope"
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>()
+        );
+    }
+
+    #[test]
+    fn cli_scopes_pass_through_even_in_read_only_mode() {
+        let got =
+            with_no_config_file(|| resolve_login_scopes(Some("monitors_write"), None, None, true));
+        assert_eq!(got, vec!["monitors_write".to_string()]);
+    }
+
+    #[test]
+    fn no_cli_or_config_scopes_falls_back_to_defaults() {
+        let got = with_no_config_file(|| resolve_login_scopes(None, None, None, false));
+        let want: Vec<String> = crate::auth::types::default_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn no_cli_or_config_scopes_read_only_falls_back_to_read_only_scopes() {
+        let got = with_no_config_file(|| resolve_login_scopes(None, None, None, true));
+        let want: Vec<String> = crate::auth::types::read_only_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn extra_scopes_append_to_defaults() {
+        let got = with_no_config_file(|| {
+            resolve_login_scopes(
+                None,
+                Some("user_access_manage,some_future_scope"),
+                None,
+                false,
+            )
+        });
+        let mut want: Vec<String> = crate::auth::types::default_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        want.push("user_access_manage".to_string());
+        want.push("some_future_scope".to_string());
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn extra_scopes_append_to_read_only_defaults() {
+        let got = with_no_config_file(|| {
+            resolve_login_scopes(None, Some("user_access_manage"), None, true)
+        });
+        let mut want: Vec<String> = crate::auth::types::read_only_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        want.push("user_access_manage".to_string());
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn extra_scopes_does_not_duplicate_scope_already_in_base() {
+        // logs_read_config is already a default scope -- adding it again via
+        // --extra-scopes should be a no-op, not a duplicate entry.
+        let got = with_no_config_file(|| {
+            resolve_login_scopes(None, Some("logs_read_config"), None, false)
+        });
+        let want: Vec<String> = crate::auth::types::default_scopes()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(got, want);
+    }
 }
 
 /// Resolve the OAuth callback port. CLI flag wins over `PUP_OAUTH_CALLBACK_PORT`;
@@ -10804,22 +11782,14 @@ fn validate_callback_port(port: u16, source: &str) -> anyhow::Result<u16> {
     Ok(port)
 }
 
-/// Validate a SAML/SSO subdomain string before it's composed into the auth URL.
-/// Non-empty input must be alphanumeric plus `-` so that a value like `evil.com#`
-/// can't smuggle a different host into the URL via fragment/path tricks. The
-/// empty case is accepted because `build_authorization_url` already coerces it
-/// to "fall back to app.{site}".
-fn validate_subdomain(s: &str) -> anyhow::Result<()> {
-    if s.is_empty() {
-        return Ok(());
+fn parse_sample_rate(s: &str) -> anyhow::Result<f64> {
+    let rate: f64 = s
+        .parse()
+        .map_err(|_| anyhow::anyhow!("--sample-rate must be a number between 0.0 and 1.0"))?;
+    if !(0.0..=1.0).contains(&rate) {
+        anyhow::bail!("--sample-rate {rate} is out of range; must be between 0.0 and 1.0");
     }
-    if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        anyhow::bail!(
-            "--subdomain {s:?} contains invalid characters; \
-             expected ASCII letters, digits, and `-` only"
-        );
-    }
-    Ok(())
+    Ok(rate)
 }
 
 #[cfg(test)]
@@ -10921,34 +11891,39 @@ mod resolve_callback_port_tests {
     }
 
     #[test]
-    fn subdomain_accepts_alphanumeric_and_hyphen() {
-        use super::validate_subdomain;
-        assert!(validate_subdomain("").is_ok());
-        assert!(validate_subdomain("acme").is_ok());
-        assert!(validate_subdomain("dd-staging").is_ok());
-        assert!(validate_subdomain("ab123").is_ok());
+    fn site_flag_accepts_valid_hosts() {
+        use crate::config::validate_site;
+        for good in [
+            "datadoghq.com",
+            "us3.datadoghq.com",
+            "mycompany.datadoghq.com",
+            "mygateway.example.com",
+            "gw.example.com:8443",
+            "host-1.example.com",
+        ] {
+            assert!(validate_site(good).is_ok(), "{good:?} should be accepted");
+        }
     }
 
     #[test]
-    fn subdomain_rejects_url_smuggling_attempts() {
-        use super::validate_subdomain;
-        // The hash/dot/slash/at/space cases would each let a hand-crafted
-        // value redirect the OAuth flow to an attacker-controlled host. Pin
-        // them all as rejections rather than relying on the URL builder.
+    fn site_flag_rejects_url_smuggling_attempts() {
+        use crate::config::validate_site;
+        // These values would redirect API or OAuth calls to an attacker-controlled
+        // host if allowed through URL construction unchecked.
         for bad in [
-            "evil.com#",
-            "evil.com",
-            "evil/path",
-            "user@evil",
+            "evil.com/path",
+            "a#b",
+            "user@host",
             "dd staging",
             "dd_staging", // underscore not in DNS label charset
             "../../etc",
+            "",
         ] {
-            let err = validate_subdomain(bad).unwrap_err();
+            let err = validate_site(bad).unwrap_err();
             let msg = format!("{err}");
             assert!(
-                msg.contains("invalid characters"),
-                "{bad:?} should be rejected with invalid-characters error, got: {msg}"
+                msg.contains("invalid characters") || msg.contains("empty") || msg.contains("dot"),
+                "{bad:?} should be rejected, got: {msg}"
             );
         }
     }
@@ -11059,7 +12034,17 @@ async fn main_inner() -> anyhow::Result<()> {
             if !extensions::is_builtin_command(candidate) {
                 if let Some(ext_path) = extensions::extension_path(candidate) {
                     let mut cfg = config::Config::from_env()?;
-                    parsed.globals.apply_to(&mut cfg);
+                    parsed.globals.apply_to(&mut cfg)?;
+                    #[cfg(not(feature = "browser"))]
+                    {
+                        let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+                        let trusted_sites = config::configured_trusted_sites();
+                        cfg.ensure_site_trusted(
+                            parsed.globals.trust_site,
+                            interactive,
+                            &trusted_sites,
+                        )?;
+                    }
                     let exit_code = extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
                     std::process::exit(exit_code);
                 }
@@ -11136,7 +12121,7 @@ async fn main_inner() -> anyhow::Result<()> {
     // Site for this org and access token are also resolved here.
     if let Some(org) = cli.org {
         #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-        config::apply_org_override(&mut cfg, org);
+        config::apply_org_override(&mut cfg, org)?;
         #[cfg(any(feature = "browser", target_arch = "wasm32"))]
         {
             cfg.org = Some(org);
@@ -11146,24 +12131,38 @@ async fn main_inner() -> anyhow::Result<()> {
     if cli.read_only {
         cfg.read_only = true;
     }
-    if cfg.read_only {
-        let top = get_top_level_subcommand_name(&matches);
-        let is_local_only = matches!(
-            top.as_deref(),
-            Some("auth") | Some("alias") | Some("skills")
-        );
-        if !is_local_only {
-            if let Some(leaf) = get_leaf_subcommand_name(&matches) {
-                if is_write_command_name(&leaf) {
-                    anyhow::bail!(
-                        "write operation '{}' is blocked in read-only mode \
-                         (--read-only flag, DD_READ_ONLY / DD_CLI_READ_ONLY env var, \
-                         or read_only: true in config file)",
-                        leaf
-                    );
-                }
+    if cli.jq.is_some() {
+        cfg.jq = cli.jq;
+    }
+    if cfg.read_only && !is_read_only_exempt(&matches) {
+        if let Some(leaf) = get_leaf_subcommand_name(&matches) {
+            if is_write_command_name(&leaf) {
+                anyhow::bail!(
+                    "write operation '{}' is blocked in read-only mode \
+                     (--read-only flag, DD_READ_ONLY / DD_CLI_READ_ONLY env var, \
+                     or read_only: true in config file)",
+                    leaf
+                );
             }
         }
+    }
+
+    // Compute once, after agent_mode is resolved (agent mode is always non-interactive).
+    #[cfg(not(target_arch = "wasm32"))]
+    let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+    #[cfg(target_arch = "wasm32")]
+    let interactive = false;
+
+    // Durable trust allowlist from the config file, sourced once for all gate calls.
+    #[cfg(not(feature = "browser"))]
+    let trusted_sites = config::configured_trusted_sites();
+
+    // Gate credential dispatch to non-Datadog hosts before any command dispatches.
+    // Auth subcommands resolve their own site late (after --site is applied in-arm),
+    // so they gate themselves; skip here to avoid a double prompt.
+    #[cfg(not(feature = "browser"))]
+    if !matches!(cli.command, Commands::Auth { .. }) {
+        cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
     }
 
     match cli.command {
@@ -11199,6 +12198,14 @@ async fn main_inner() -> anyhow::Result<()> {
                 MonitorActions::Delete { monitor_id } => {
                     commands::monitors::delete(&cfg, monitor_id).await?;
                 }
+                MonitorActions::Diff {
+                    monitor_id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::monitors::diff(&cfg, monitor_id, &file, &only, &ignore).await?;
+                }
             }
         }
         // --- Logs ---
@@ -11211,10 +12218,22 @@ async fn main_inner() -> anyhow::Result<()> {
                     to,
                     limit,
                     sort,
-                    index: _,
+                    index,
                     storage,
                 } => {
-                    commands::logs::search(&cfg, query, from, to, limit, sort, storage).await?;
+                    commands::logs::search(
+                        &cfg,
+                        commands::logs::SearchArgs {
+                            query,
+                            from,
+                            to,
+                            limit,
+                            sort,
+                            storage,
+                            index,
+                        },
+                    )
+                    .await?;
                 }
                 LogActions::List {
                     query,
@@ -11223,8 +12242,21 @@ async fn main_inner() -> anyhow::Result<()> {
                     limit,
                     sort,
                     storage,
+                    index,
                 } => {
-                    commands::logs::list(&cfg, query, from, to, limit, sort, storage).await?;
+                    commands::logs::list(
+                        &cfg,
+                        commands::logs::SearchArgs {
+                            query,
+                            from,
+                            to,
+                            limit,
+                            sort,
+                            storage,
+                            index,
+                        },
+                    )
+                    .await?;
                 }
                 LogActions::Query {
                     query,
@@ -11233,9 +12265,22 @@ async fn main_inner() -> anyhow::Result<()> {
                     limit,
                     sort,
                     storage,
+                    index,
                     timezone: _,
                 } => {
-                    commands::logs::query(&cfg, query, from, to, limit, sort, storage).await?;
+                    commands::logs::query(
+                        &cfg,
+                        commands::logs::SearchArgs {
+                            query,
+                            from,
+                            to,
+                            limit,
+                            sort,
+                            storage,
+                            index,
+                        },
+                    )
+                    .await?;
                 }
                 LogActions::Aggregate {
                     query,
@@ -11245,6 +12290,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     group_by,
                     limit,
                     storage,
+                    index,
                     sort,
                 } => {
                     commands::logs::aggregate(
@@ -11263,6 +12309,7 @@ async fn main_inner() -> anyhow::Result<()> {
                                 })
                                 .unwrap_or_default(),
                             limit,
+                            index,
                             storage,
                             sort,
                         },
@@ -11366,23 +12413,6 @@ async fn main_inner() -> anyhow::Result<()> {
                     IncidentPostmortemActions::Delete { template_id } => {
                         commands::incidents::postmortem_templates_delete(&cfg, &template_id)
                             .await?;
-                    }
-                },
-                IncidentActions::Services { action } => match action {
-                    IncidentServiceActions::List => {
-                        commands::incidents::services_list(&cfg).await?;
-                    }
-                    IncidentServiceActions::Get { service_id } => {
-                        commands::incidents::services_get(&cfg, &service_id).await?;
-                    }
-                    IncidentServiceActions::Create { file } => {
-                        commands::incidents::services_create(&cfg, &file).await?;
-                    }
-                    IncidentServiceActions::Update { service_id, file } => {
-                        commands::incidents::services_update(&cfg, &service_id, &file).await?;
-                    }
-                    IncidentServiceActions::Delete { service_id } => {
-                        commands::incidents::services_delete(&cfg, &service_id).await?;
                     }
                 },
                 IncidentActions::Import { file } => {
@@ -11615,8 +12645,8 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 SloActions::Delete { id } => commands::slos::delete(&cfg, &id).await?,
                 SloActions::Status { id, from, to } => {
-                    let from_ts = util::parse_time_to_unix_millis(&from)? / 1000;
-                    let to_ts = util::parse_time_to_unix_millis(&to)? / 1000;
+                    let from_ts = util_ext::parse_time_to_unix_millis(&from)? / 1000;
+                    let to_ts = util_ext::parse_time_to_unix_millis(&to)? / 1000;
                     commands::slos::status(&cfg, &id, from_ts, to_ts).await?;
                 }
             }
@@ -11855,11 +12885,47 @@ async fn main_inner() -> anyhow::Result<()> {
         }
         // --- Events ---
         Commands::Events { action } => {
-            cfg.validate_auth()?;
+            if !matches!(&action, EventActions::Post { .. }) {
+                cfg.validate_auth()?;
+            }
             match action {
+                EventActions::Post {
+                    title,
+                    message,
+                    date_happened,
+                    handle,
+                    priority,
+                    related_event_id,
+                    tags,
+                    host,
+                    no_host,
+                    device,
+                    event_type,
+                    aggregation_key,
+                    alert_type,
+                } => {
+                    commands::events::post(
+                        &cfg,
+                        commands::events::PostOptions {
+                            title,
+                            message,
+                            date_happened,
+                            handle,
+                            priority,
+                            related_event_id,
+                            tags,
+                            host: commands::events::resolve_host(host, no_host),
+                            device,
+                            event_type,
+                            aggregation_key,
+                            alert_type,
+                        },
+                    )
+                    .await?;
+                }
                 EventActions::List { from, to, tags, .. } => {
-                    let start = util::parse_time_to_unix_millis(&from)? / 1000;
-                    let end = util::parse_time_to_unix_millis(&to)? / 1000;
+                    let start = util_ext::parse_time_to_unix_millis(&from)? / 1000;
+                    let end = util_ext::parse_time_to_unix_millis(&to)? / 1000;
                     commands::events::list(&cfg, start, end, tags).await?;
                 }
                 EventActions::Search {
@@ -11901,6 +12967,52 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 TagActions::Delete { hostname } => {
                     commands::tags::delete(&cfg, &hostname).await?;
+                }
+            }
+        }
+        // --- Tag Policies ---
+        Commands::TagPolicies { action } => {
+            cfg.validate_auth()?;
+            match action {
+                TagPoliciesActions::List {
+                    include_disabled,
+                    include_deleted,
+                    include_score,
+                    filter_source,
+                } => {
+                    commands::tag_policies::list(
+                        &cfg,
+                        include_disabled,
+                        include_deleted,
+                        include_score,
+                        filter_source,
+                    )
+                    .await?;
+                }
+                TagPoliciesActions::Get {
+                    policy_id,
+                    include_score,
+                } => {
+                    commands::tag_policies::get(&cfg, &policy_id, include_score).await?;
+                }
+                TagPoliciesActions::Create { file } => {
+                    commands::tag_policies::create(&cfg, &file).await?;
+                }
+                TagPoliciesActions::Update { policy_id, file } => {
+                    commands::tag_policies::update(&cfg, &policy_id, &file).await?;
+                }
+                TagPoliciesActions::Delete {
+                    policy_id,
+                    hard_delete,
+                } => {
+                    commands::tag_policies::delete(&cfg, &policy_id, hard_delete).await?;
+                }
+                TagPoliciesActions::Score {
+                    policy_id,
+                    ts_start,
+                    ts_end,
+                } => {
+                    commands::tag_policies::score(&cfg, &policy_id, ts_start, ts_end).await?;
                 }
             }
         }
@@ -12081,8 +13193,14 @@ async fn main_inner() -> anyhow::Result<()> {
             cfg.validate_auth()?;
             match action {
                 SecurityActions::Rules { action } => match action {
-                    SecurityRuleActions::List { filter, sort } => {
-                        commands::security::rules_list(&cfg, filter, sort).await?
+                    SecurityRuleActions::List {
+                        filter,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::security::rules_list(&cfg, filter, sort, page_size, page_number)
+                            .await?
                     }
                     SecurityRuleActions::Get { rule_id } => {
                         commands::security::rules_get(&cfg, &rule_id).await?;
@@ -12437,6 +13555,33 @@ async fn main_inner() -> anyhow::Result<()> {
                         .await?;
                     }
                 },
+            }
+        }
+        // --- Change Stories ---
+        Commands::ChangeStories { action } => {
+            cfg.validate_auth()?;
+            match action {
+                ChangeStoriesActions::List {
+                    service,
+                    env,
+                    from,
+                    to,
+                    story_types,
+                    filter_tags,
+                    token_limit,
+                } => {
+                    commands::change_stories::list(
+                        &cfg,
+                        service,
+                        env,
+                        from,
+                        to,
+                        story_types,
+                        filter_tags,
+                        token_limit,
+                    )
+                    .await?;
+                }
             }
         }
         // --- Cloud ---
@@ -13211,6 +14356,19 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                 },
                 OnCallActions::Pages { action } => match action {
+                    OnCallPagesActions::List {
+                        team,
+                        responder,
+                        page_size,
+                    } => {
+                        commands::on_call::pages_list(
+                            &cfg,
+                            team.as_deref(),
+                            responder.as_deref(),
+                            page_size,
+                        )
+                        .await?;
+                    }
                     OnCallPagesActions::Create { file } => {
                         commands::on_call::pages_create(&cfg, &file).await?;
                     }
@@ -13285,25 +14443,6 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::fleet::schedules_trigger(&cfg, &schedule_id).await?;
                     }
                 },
-                FleetActions::Clusters { action } => match action {
-                    FleetClusterActions::List {
-                        filter,
-                        page_size,
-                        page_number,
-                        sort_attribute,
-                        sort_descending,
-                    } => {
-                        commands::fleet::clusters_list(
-                            &cfg,
-                            filter,
-                            page_size,
-                            page_number,
-                            sort_attribute,
-                            sort_descending,
-                        )
-                        .await?;
-                    }
-                },
                 FleetActions::Tracers { action } => match action {
                     FleetTracerActions::List {
                         filter,
@@ -13321,11 +14460,6 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort_descending,
                         )
                         .await?;
-                    }
-                },
-                FleetActions::InstrumentedPods { action } => match action {
-                    FleetInstrumentedPodsActions::List { cluster_name } => {
-                        commands::fleet::instrumented_pods_list(&cfg, cluster_name).await?;
                     }
                 },
             }
@@ -14349,6 +15483,115 @@ async fn main_inner() -> anyhow::Result<()> {
                 MiscActions::Status => commands::misc::status(&cfg).await?,
             }
         }
+        // --- Model Lab ---
+        Commands::ModelLab { action } => {
+            cfg.validate_auth()?;
+            match action {
+                ModelLabActions::Projects { action } => match action {
+                    ModelLabProjectActions::List {
+                        filter,
+                        filter_tags,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::model_lab::projects_list(
+                            &cfg,
+                            filter,
+                            filter_tags,
+                            sort,
+                            page_size,
+                            page_number,
+                        )
+                        .await?;
+                    }
+                    ModelLabProjectActions::Get { project_id } => {
+                        commands::model_lab::projects_get(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Star { project_id } => {
+                        commands::model_lab::projects_star(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Unstar { project_id } => {
+                        commands::model_lab::projects_unstar(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::Artifacts { project_id } => {
+                        commands::model_lab::projects_artifacts(&cfg, project_id).await?;
+                    }
+                    ModelLabProjectActions::FacetKeys => {
+                        commands::model_lab::projects_facet_keys(&cfg).await?;
+                    }
+                    ModelLabProjectActions::FacetValues {
+                        facet_type,
+                        facet_name,
+                    } => {
+                        commands::model_lab::projects_facet_values(&cfg, &facet_type, facet_name)
+                            .await?;
+                    }
+                },
+                ModelLabActions::Runs { action } => match action {
+                    ModelLabRunActions::List {
+                        filter,
+                        filter_project_id,
+                        filter_status,
+                        filter_tags,
+                        filter_params,
+                        filter_parent_run_id,
+                        pinned_first,
+                        include_pinned,
+                        sort,
+                        page_size,
+                        page_number,
+                    } => {
+                        commands::model_lab::runs_list(
+                            &cfg,
+                            filter,
+                            filter_project_id,
+                            filter_status,
+                            filter_tags,
+                            filter_params,
+                            filter_parent_run_id,
+                            pinned_first,
+                            include_pinned,
+                            sort,
+                            page_size,
+                            page_number,
+                        )
+                        .await?;
+                    }
+                    ModelLabRunActions::Get { run_id } => {
+                        commands::model_lab::runs_get(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Delete { run_id } => {
+                        commands::model_lab::runs_delete(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Pin { run_id } => {
+                        commands::model_lab::runs_pin(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Unpin { run_id } => {
+                        commands::model_lab::runs_unpin(&cfg, run_id).await?;
+                    }
+                    ModelLabRunActions::Artifacts { run_id, path } => {
+                        commands::model_lab::runs_artifacts(&cfg, run_id, path).await?;
+                    }
+                    ModelLabRunActions::FacetKeys { filter_project_id } => {
+                        commands::model_lab::runs_facet_keys(&cfg, filter_project_id).await?;
+                    }
+                    ModelLabRunActions::FacetValues {
+                        filter_project_id,
+                        facet_type,
+                        facet_name,
+                    } => {
+                        commands::model_lab::runs_facet_values(
+                            &cfg,
+                            filter_project_id,
+                            &facet_type,
+                            facet_name,
+                        )
+                        .await?;
+                    }
+                },
+            }
+        }
         // --- APM ---
         Commands::Apm { action } => {
             cfg.validate_auth()?;
@@ -14404,8 +15647,10 @@ async fn main_inner() -> anyhow::Result<()> {
                     ApmTroubleshootingActions::List {
                         hostname,
                         timeframe,
+                        result,
                     } => {
-                        commands::apm::troubleshooting_list(&cfg, hostname, timeframe).await?;
+                        commands::apm::troubleshooting_list(&cfg, hostname, timeframe, result)
+                            .await?;
                     }
                 },
                 ApmActions::ServiceRemapping { action } => match action {
@@ -14441,6 +15686,80 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     ApmServiceRemappingActions::Delete { id, version } => {
                         commands::apm::service_remapping_delete(&cfg, id, version).await?;
+                    }
+                },
+                ApmActions::SamplingRules { action } => match action {
+                    ApmSamplingRulesActions::List { service, env } => {
+                        commands::apm::sampling_rules_list(&cfg, service, env).await?;
+                    }
+                    ApmSamplingRulesActions::Get { id } => {
+                        commands::apm::sampling_rules_get(&cfg, id).await?;
+                    }
+                    ApmSamplingRulesActions::Create {
+                        service,
+                        env,
+                        resource,
+                        sample_rate,
+                    } => {
+                        commands::apm::sampling_rules_create(
+                            &cfg,
+                            service,
+                            env,
+                            resource,
+                            sample_rate,
+                        )
+                        .await?;
+                    }
+                    ApmSamplingRulesActions::Update {
+                        id,
+                        service,
+                        env,
+                        resource,
+                        sample_rate,
+                    } => {
+                        commands::apm::sampling_rules_update(
+                            &cfg,
+                            id,
+                            service,
+                            env,
+                            resource,
+                            sample_rate,
+                        )
+                        .await?;
+                    }
+                    ApmSamplingRulesActions::Delete { id } => {
+                        commands::apm::sampling_rules_delete(&cfg, id).await?;
+                    }
+                },
+                ApmActions::AdaptiveSampling { action } => match action {
+                    ApmAdaptiveSamplingActions::OnboardingStatus { service, env } => {
+                        commands::apm::adaptive_sampling_onboarding_status(&cfg, service, env)
+                            .await?;
+                    }
+                    ApmAdaptiveSamplingActions::Onboard { service, env } => {
+                        commands::apm::adaptive_sampling_onboard(&cfg, service, env).await?;
+                    }
+                    ApmAdaptiveSamplingActions::Offboard { service, env } => {
+                        commands::apm::adaptive_sampling_offboard(&cfg, service, env).await?;
+                    }
+                    ApmAdaptiveSamplingActions::GetAllotment => {
+                        commands::apm::adaptive_sampling_get_allotment(&cfg).await?;
+                    }
+                    ApmAdaptiveSamplingActions::SetAllotment { bytes, percent } => {
+                        if bytes.is_none() && percent.is_none() {
+                            anyhow::bail!("must provide --bytes or --percent");
+                        }
+                        commands::apm::adaptive_sampling_set_allotment(&cfg, bytes, percent)
+                            .await?;
+                    }
+                    ApmAdaptiveSamplingActions::Check => {
+                        commands::apm::adaptive_sampling_check(&cfg).await?;
+                    }
+                    ApmAdaptiveSamplingActions::Preview { bytes, percent } => {
+                        if bytes.is_none() && percent.is_none() {
+                            anyhow::bail!("must provide --bytes or --percent");
+                        }
+                        commands::apm::adaptive_sampling_preview(&cfg, bytes, percent).await?;
                     }
                 },
                 ApmActions::ServiceConfig { action } => match action {
@@ -14754,7 +16073,6 @@ async fn main_inner() -> anyhow::Result<()> {
             silent,
             verbose,
         } => {
-            cfg.validate_auth()?;
             commands::api::run(
                 &cfg,
                 &endpoint,
@@ -14801,6 +16119,45 @@ async fn main_inner() -> anyhow::Result<()> {
             SkillsActions::Path { platform, project } => {
                 commands::skills::path(platform.map(|p| p.as_canonical().to_string()), project)?
             }
+            // list/get hit public routes (no validate_auth here); sessions create
+            // requires auth and validates it itself.
+            SkillsActions::Remote { action } => match action {
+                SkillsRemoteActions::List { tags, org_id } => {
+                    commands::skills_remote::list(&cfg, org_id, &tags).await?;
+                }
+                SkillsRemoteActions::Get {
+                    skill_id,
+                    intent,
+                    session_id,
+                    org_id,
+                } => {
+                    commands::skills_remote::get(
+                        &cfg,
+                        &skill_id,
+                        intent.as_deref(),
+                        session_id.as_deref(),
+                        org_id,
+                    )
+                    .await?;
+                }
+                SkillsRemoteActions::Sessions { action } => match action {
+                    SkillsRemoteSessionsActions::Create {
+                        session_id,
+                        skill_ids,
+                        summary,
+                        status,
+                    } => {
+                        commands::skills_remote::sessions_create(
+                            &cfg,
+                            &session_id,
+                            &skill_ids,
+                            &summary,
+                            &status,
+                        )
+                        .await?;
+                    }
+                },
+            },
         },
         // --- Product Analytics ---
         Commands::ProductAnalytics { action } => {
@@ -14895,45 +16252,55 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Auth { action } => match action {
             AuthActions::Login {
                 scopes,
+                extra_scopes,
                 read_only,
                 site,
-                subdomain,
                 callback_port,
                 org_uuid,
             } => {
                 if let Some(s) = site {
-                    cfg.set_site_explicit(s);
+                    cfg.set_site_explicit(s)?;
                 }
-                if let Some(sub) = subdomain.as_deref() {
-                    validate_subdomain(sub)?;
-                }
+                // Gate here rather than pre-match: --site is applied above and
+                // login opens a browser carrying the real SSO cookie plus DCR
+                // client credentials to this host, so it must be checked even
+                // when --site was not passed (the from_env site is still the target).
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 let is_read_only = read_only || cfg.read_only;
-                let resolved =
-                    resolve_login_scopes(scopes.as_deref(), cfg.org.as_deref(), is_read_only);
+                let resolved = resolve_login_scopes(
+                    scopes.as_deref(),
+                    extra_scopes.as_deref(),
+                    cfg.org.as_deref(),
+                    is_read_only,
+                );
                 let resolved_port = resolve_callback_port(callback_port)?;
                 // Coerce empty `--org-uuid ""` to no-hint so callees treat
                 // it the same as omitting the flag, not as `dd_oid=`.
                 let org_uuid_hint = org_uuid.as_deref().filter(|s| !s.is_empty());
-                commands::auth::login(
-                    &cfg,
-                    resolved,
-                    subdomain.as_deref(),
-                    resolved_port,
-                    org_uuid_hint,
-                )
-                .await?
+                commands::auth::login(&cfg, resolved, resolved_port, org_uuid_hint).await?
             }
             AuthActions::Logout => commands::auth::logout(&cfg).await?,
             AuthActions::Status { site } => {
                 if let Some(s) = site {
-                    cfg.set_site_explicit(s);
+                    cfg.set_site_explicit(s)?;
                 }
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 commands::auth::status(&cfg)?
             }
             #[cfg(debug_assertions)]
             AuthActions::Token => commands::auth::token(&cfg)?,
-            AuthActions::Refresh => commands::auth::refresh(&cfg).await?,
+            AuthActions::Refresh => {
+                // Refresh POSTs the stored refresh token to cfg.site; gate it like
+                // login/status (the pre-match gate skips all Auth subcommands).
+                #[cfg(not(feature = "browser"))]
+                cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
+                commands::auth::refresh(&cfg).await?
+            }
             AuthActions::List => commands::auth::list(&cfg)?,
+            // `auth test` only prints local config (masked keys, no network call),
+            // so it sends nothing to the host and needs no trust gate.
             AuthActions::Test => commands::test::run(&cfg)?,
         },
         // --- SavedWidgets (top-level saved/reporting widgets) ---
@@ -15055,6 +16422,11 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
             },
         },
+        // --- Generated ---
+        Commands::Generated(action) => {
+            cfg.validate_auth()?;
+            generated::run(&cfg, action).await?;
+        }
         // --- LLM Observability ---
         Commands::LlmObs { action } => {
             cfg.validate_auth()?;
@@ -15063,8 +16435,20 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsProjectsActions::Create { file } => {
                         commands::llm_obs::projects_create(&cfg, &file).await?;
                     }
-                    LlmObsProjectsActions::List => {
-                        commands::llm_obs::projects_list(&cfg).await?;
+                    LlmObsProjectsActions::List {
+                        filter_id,
+                        filter_name,
+                        limit,
+                        cursor,
+                    } => {
+                        commands::llm_obs::projects_list(
+                            &cfg,
+                            filter_id,
+                            filter_name,
+                            limit,
+                            cursor,
+                        )
+                        .await?;
                     }
                 },
                 LlmObsActions::Experiments { action } => match action {
@@ -15129,6 +16513,19 @@ async fn main_inner() -> anyhow::Result<()> {
                             )
                             .await?;
                         }
+                        LlmObsExperimentsEventsActions::Submit {
+                            experiment_id,
+                            metrics,
+                            tags,
+                        } => {
+                            commands::llm_obs::experiments_events_submit(
+                                &cfg,
+                                &experiment_id,
+                                &metrics,
+                                tags,
+                            )
+                            .await?;
+                        }
                     },
                     LlmObsExperimentsActions::MetricValues {
                         experiment_id,
@@ -15161,8 +16558,22 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsDatasetsActions::Create { project_id, file } => {
                         commands::llm_obs::datasets_create(&cfg, &project_id, &file).await?;
                     }
-                    LlmObsDatasetsActions::List { project_id } => {
-                        commands::llm_obs::datasets_list(&cfg, &project_id).await?;
+                    LlmObsDatasetsActions::List {
+                        project_id,
+                        filter_id,
+                        filter_name,
+                        limit,
+                        cursor,
+                    } => {
+                        commands::llm_obs::datasets_list(
+                            &cfg,
+                            &project_id,
+                            filter_id,
+                            filter_name,
+                            limit,
+                            cursor,
+                        )
+                        .await?;
                     }
                     LlmObsDatasetsActions::BatchUpdate {
                         project_id,
@@ -15193,11 +16604,71 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::llm_obs::datasets_restore(&cfg, &project_id, &dataset_id, &file)
                             .await?;
                     }
+                    LlmObsDatasetsActions::RecordsAll { dataset_id, limit } => {
+                        commands::llm_obs::datasets_records_all(&cfg, &dataset_id, limit).await?;
+                    }
+                    LlmObsDatasetsActions::Records {
+                        project_id,
+                        dataset_id,
+                        record_ids,
+                        tags,
+                        canonical_id,
+                        dataset_version,
+                        limit,
+                        cursor,
+                        compute_schema,
+                    } => {
+                        commands::llm_obs::datasets_records(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            record_ids,
+                            tags,
+                            canonical_id,
+                            dataset_version,
+                            limit,
+                            cursor,
+                            compute_schema,
+                        )
+                        .await?;
+                    }
+                    LlmObsDatasetsActions::RecordsAdd {
+                        project_id,
+                        dataset_id,
+                        file,
+                        confirm,
+                        create_new_version,
+                    } => {
+                        commands::llm_obs::datasets_records_add(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            &file,
+                            confirm,
+                            create_new_version,
+                        )
+                        .await?;
+                    }
+                    LlmObsDatasetsActions::RecordsFull {
+                        project_id,
+                        dataset_id,
+                        record_ids,
+                    } => {
+                        commands::llm_obs::datasets_records_full(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            record_ids,
+                        )
+                        .await?;
+                    }
                 },
                 LlmObsActions::Spans { action } => match action {
                     LlmObsSpansActions::Search {
                         query,
+                        tags,
                         trace_id,
+                        apm_trace_id,
                         span_id,
                         span_kind,
                         span_name,
@@ -15212,7 +16683,9 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::llm_obs::spans_search(
                             &cfg,
                             query,
+                            tags,
                             trace_id,
+                            apm_trace_id,
                             span_id,
                             span_kind,
                             span_name,
@@ -15376,6 +16849,48 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::llm_obs::evals_delete(&cfg, &eval_name).await?;
                     }
                 },
+                LlmObsActions::Patterns { action } => match action {
+                    LlmObsPatternsActions::Configs { action } => match action {
+                        LlmObsPatternConfigsActions::List => {
+                            commands::llm_obs::patterns_configs_list(&cfg).await?;
+                        }
+                        LlmObsPatternConfigsActions::Get => {
+                            commands::llm_obs::patterns_configs_get(&cfg).await?;
+                        }
+                    },
+                    LlmObsPatternsActions::Runs { action } => match action {
+                        LlmObsPatternRunsActions::List { config_id } => {
+                            commands::llm_obs::patterns_runs_list(&cfg, &config_id).await?;
+                        }
+                        LlmObsPatternRunsActions::Status { config_id } => {
+                            commands::llm_obs::patterns_runs_status(&cfg, &config_id).await?;
+                        }
+                    },
+                    LlmObsPatternsActions::Topics { config_id, run_id } => {
+                        commands::llm_obs::patterns_topics(&cfg, &config_id, run_id).await?;
+                    }
+                    LlmObsPatternsActions::TopicsWithPoints {
+                        config_id,
+                        run_id,
+                        include_metrics,
+                    } => {
+                        commands::llm_obs::patterns_topics_with_points(
+                            &cfg,
+                            &config_id,
+                            run_id,
+                            include_metrics,
+                        )
+                        .await?;
+                    }
+                    LlmObsPatternsActions::Points {
+                        topic_id,
+                        page_size,
+                        page_token,
+                    } => {
+                        commands::llm_obs::patterns_points(&cfg, &topic_id, page_size, page_token)
+                            .await?;
+                    }
+                },
             }
         }
         // --- Profiling ---
@@ -15408,6 +16923,8 @@ async fn main_inner() -> anyhow::Result<()> {
             ExtensionActions::List => commands::extension::list(&cfg)?,
             ExtensionActions::Install {
                 source,
+                extension,
+                all,
                 tag,
                 local,
                 link,
@@ -15419,6 +16936,8 @@ async fn main_inner() -> anyhow::Result<()> {
                     &cfg,
                     commands::extension::InstallOptions {
                         source,
+                        extension,
+                        all,
                         tag,
                         local,
                         link,
@@ -15427,6 +16946,9 @@ async fn main_inner() -> anyhow::Result<()> {
                         description,
                     },
                 )?;
+            }
+            ExtensionActions::ListRemote { source, extension } => {
+                commands::extension::list_remote(&cfg, source, extension)?;
             }
             ExtensionActions::Remove { name } => commands::extension::remove(&cfg, name)?,
             ExtensionActions::Upgrade { name, all } => {

@@ -9,6 +9,7 @@ use datadog_api_client::datadogV2::api_workflow_automation::{
 use crate::config::Config;
 use crate::formatter::{self, Metadata};
 use crate::util;
+use crate::util_ext;
 
 // ---------------------------------------------------------------------------
 // Helper: build a WorkflowAutomationAPI
@@ -119,7 +120,7 @@ pub async fn run(
     eprintln!("Instance {instance_id} started, waiting for completion...");
 
     let timeout_duration =
-        std::time::Duration::from_millis(crate::util::parse_duration_to_millis(timeout)? as u64);
+        std::time::Duration::from_millis(util_ext::parse_duration_to_millis(timeout)? as u64);
     let start = std::time::Instant::now();
 
     loop {
@@ -189,7 +190,13 @@ pub async fn instance_list(cfg: &Config, workflow_id: &str, limit: i64, page: i6
         command: Some("workflows instances list".to_string()),
         next_action: None,
     };
-    formatter::format_and_print(&resp, &cfg.output_format, cfg.agent_mode, Some(&meta))
+    formatter::format_and_print(
+        &resp,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 pub async fn instance_get(cfg: &Config, workflow_id: &str, instance_id: &str) -> Result<()> {

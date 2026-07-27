@@ -642,6 +642,17 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         user_extensions: ".pi/agent/extensions",
         uses_agent_md: false,
     },
+    PlatformSpec {
+        name: "devin",
+        aliases: &[],
+        project_skills: ".agents/skills",
+        user_skills: ".agents/skills",
+        project_agents: "",
+        user_agents: "",
+        project_extensions: "",
+        user_extensions: "",
+        uses_agent_md: false,
+    },
 ];
 
 /// CLI-typed selector for `pup skills install <platform>` and `pup skills
@@ -666,6 +677,7 @@ pub enum SkillsPlatform {
     GeminiCode,
     #[clap(alias = "pi-dev")]
     Pi,
+    Devin,
     All,
 }
 
@@ -683,6 +695,7 @@ impl SkillsPlatform {
             SkillsPlatform::Windsurf => "windsurf",
             SkillsPlatform::GeminiCode => "gemini-code",
             SkillsPlatform::Pi => "pi",
+            SkillsPlatform::Devin => "devin",
             SkillsPlatform::All => "all",
         }
     }
@@ -726,6 +739,22 @@ pub fn resolve_platform_list(input: Option<&str>) -> Vec<String> {
     vec![resolve_platform_name(input)]
 }
 
+/// Read the `CLAUDE_CONFIG_DIR` environment variable.
+///
+/// Claude Code honours this variable to override the default `~/.claude`
+/// configuration directory, allowing multiple accounts to run side-by-side
+/// (e.g. `CLAUDE_CONFIG_DIR=~/.claude-work claude`). Pup respects it when
+/// resolving **user-scope** install paths for the `claude-code` platform so
+/// that skills and agents land in the same place Claude Code expects.
+///
+/// Returns `None` when the variable is unset or empty. Project-scope installs
+/// are never affected — they always resolve relative to the project root.
+pub fn claude_code_config_dir_from_env() -> Option<PathBuf> {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+}
+
 /// Determine the extensions install directory for a platform.
 pub fn extensions_dir(platform: &str, project_root: &Path, user_scope: bool) -> Option<PathBuf> {
     extensions_dir_with_home(
@@ -733,16 +762,20 @@ pub fn extensions_dir(platform: &str, project_root: &Path, user_scope: bool) -> 
         dirs::home_dir().as_deref(),
         project_root,
         user_scope,
+        claude_code_config_dir_from_env().as_deref(),
     )
 }
 
 /// Same as [`extensions_dir`] but takes an explicit `home` directory, so tests
-/// don't have to mutate the process-global `HOME` env var.
+/// don't have to mutate the process-global `HOME` env var. The
+/// `claude_config_dir` parameter mirrors [`claude_code_config_dir_from_env`]
+/// for the same testability reason.
 pub fn extensions_dir_with_home(
     platform: &str,
     home: Option<&Path>,
     project_root: &Path,
     user_scope: bool,
+    claude_config_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     let spec = lookup_platform(platform)?;
     let sub = if user_scope {
@@ -750,7 +783,7 @@ pub fn extensions_dir_with_home(
     } else {
         spec.project_extensions
     };
-    resolve_relative(sub, home, project_root, user_scope)
+    resolve_relative(sub, home, project_root, user_scope, claude_config_dir)
 }
 
 /// Determine the skills install directory for a platform.
@@ -760,15 +793,19 @@ pub fn skills_dir(platform: &str, project_root: &Path, user_scope: bool) -> Opti
         dirs::home_dir().as_deref(),
         project_root,
         user_scope,
+        claude_code_config_dir_from_env().as_deref(),
     )
 }
 
-/// Same as [`skills_dir`] but takes an explicit `home` directory.
+/// Same as [`skills_dir`] but takes an explicit `home` directory. The
+/// `claude_config_dir` parameter mirrors [`claude_code_config_dir_from_env`]
+/// for testability.
 pub fn skills_dir_with_home(
     platform: &str,
     home: Option<&Path>,
     project_root: &Path,
     user_scope: bool,
+    claude_config_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     let spec = lookup_platform(platform)?;
     let sub = if user_scope {
@@ -776,7 +813,7 @@ pub fn skills_dir_with_home(
     } else {
         spec.project_skills
     };
-    resolve_relative(sub, home, project_root, user_scope)
+    resolve_relative(sub, home, project_root, user_scope, claude_config_dir)
 }
 
 /// Determine the agents (subagents) install directory for a platform.
@@ -788,15 +825,19 @@ pub fn agents_dir(platform: &str, project_root: &Path, user_scope: bool) -> Opti
         dirs::home_dir().as_deref(),
         project_root,
         user_scope,
+        claude_code_config_dir_from_env().as_deref(),
     )
 }
 
-/// Same as [`agents_dir`] but takes an explicit `home` directory.
+/// Same as [`agents_dir`] but takes an explicit `home` directory. The
+/// `claude_config_dir` parameter mirrors [`claude_code_config_dir_from_env`]
+/// for testability.
 pub fn agents_dir_with_home(
     platform: &str,
     home: Option<&Path>,
     project_root: &Path,
     user_scope: bool,
+    claude_config_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     let spec = lookup_platform(platform)?;
     let sub = if user_scope {
@@ -806,24 +847,44 @@ pub fn agents_dir_with_home(
     };
     if sub.is_empty() {
         // Empty sentinel means "share the skills dir for this scope."
-        return skills_dir_with_home(platform, home, project_root, user_scope);
+        return skills_dir_with_home(platform, home, project_root, user_scope, claude_config_dir);
     }
-    resolve_relative(sub, home, project_root, user_scope)
+    resolve_relative(sub, home, project_root, user_scope, claude_config_dir)
 }
 
 /// Resolve a forward-slash-separated relative subpath against either the home
 /// directory (user scope) or the project root (project scope). Returns `None`
 /// when the subpath is empty (the sentinel for "not applicable") or when user
 /// scope is requested but `home` is unavailable.
+///
+/// When `claude_config_dir` is `Some` and the subpath begins with `.claude/`,
+/// the `.claude` prefix is replaced by the config dir. This honours the
+/// `CLAUDE_CONFIG_DIR` environment variable for user-scope `claude-code`
+/// installs. Project scope is never affected.
 fn resolve_relative(
     sub: &str,
     home: Option<&Path>,
     project_root: &Path,
     user_scope: bool,
+    claude_config_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     if sub.is_empty() {
         return None;
     }
+
+    // Honour CLAUDE_CONFIG_DIR for user-scope paths that start with .claude/.
+    if user_scope {
+        if let Some(cfg) = claude_config_dir {
+            if let Some(rest) = sub.strip_prefix(".claude/") {
+                let mut base = cfg.to_path_buf();
+                for part in rest.split('/') {
+                    base.push(part);
+                }
+                return Some(base);
+            }
+        }
+    }
+
     let mut base = if user_scope {
         home?.to_path_buf()
     } else {
@@ -1111,7 +1172,7 @@ mod tests {
     fn test_skills_dir_claude_code_project() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            skills_dir_with_home("claude-code", None, &root, false),
+            skills_dir_with_home("claude-code", None, &root, false, None),
             Some(root.join(".claude/skills"))
         );
     }
@@ -1120,7 +1181,7 @@ mod tests {
     fn test_skills_dir_cursor_project() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            skills_dir_with_home("cursor", None, &root, false),
+            skills_dir_with_home("cursor", None, &root, false, None),
             Some(root.join(".cursor/skills"))
         );
     }
@@ -1129,7 +1190,7 @@ mod tests {
     fn test_skills_dir_codex_project() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            skills_dir_with_home("codex", None, &root, false),
+            skills_dir_with_home("codex", None, &root, false, None),
             Some(root.join(".codex/skills"))
         );
     }
@@ -1138,7 +1199,7 @@ mod tests {
     fn test_skills_dir_opencode_project() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            skills_dir_with_home("opencode", None, &root, false),
+            skills_dir_with_home("opencode", None, &root, false, None),
             Some(root.join(".opencode/skills"))
         );
     }
@@ -1147,7 +1208,13 @@ mod tests {
     fn test_skills_dir_opencode_user() {
         let home = PathBuf::from("/tmp/fake-home");
         assert_eq!(
-            skills_dir_with_home("opencode", Some(&home), &PathBuf::from("/unused"), true),
+            skills_dir_with_home(
+                "opencode",
+                Some(&home),
+                &PathBuf::from("/unused"),
+                true,
+                None
+            ),
             Some(home.join(".config/opencode/skills"))
         );
     }
@@ -1156,7 +1223,13 @@ mod tests {
     fn test_skills_dir_claude_user() {
         let home = PathBuf::from("/tmp/fake-home");
         assert_eq!(
-            skills_dir_with_home("claude-code", Some(&home), &PathBuf::from("/unused"), true),
+            skills_dir_with_home(
+                "claude-code",
+                Some(&home),
+                &PathBuf::from("/unused"),
+                true,
+                None
+            ),
             Some(home.join(".claude/skills"))
         );
     }
@@ -1165,7 +1238,7 @@ mod tests {
     fn test_skills_dir_pi_project_scope() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            skills_dir_with_home("pi", None, &root, false),
+            skills_dir_with_home("pi", None, &root, false, None),
             Some(root.join(".pi/skills"))
         );
     }
@@ -1174,22 +1247,40 @@ mod tests {
     fn test_skills_dir_pi_user_scope() {
         let home = PathBuf::from("/tmp/fake-home");
         assert_eq!(
-            skills_dir_with_home("pi", Some(&home), &PathBuf::from("/unused"), true),
+            skills_dir_with_home("pi", Some(&home), &PathBuf::from("/unused"), true, None),
             Some(home.join(".pi/agent/skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_devin_project_scope() {
+        let root = PathBuf::from("/tmp/test-project");
+        assert_eq!(
+            skills_dir_with_home("devin", None, &root, false, None),
+            Some(root.join(".agents/skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_devin_user_scope() {
+        let home = PathBuf::from("/tmp/fake-home");
+        assert_eq!(
+            skills_dir_with_home("devin", Some(&home), &PathBuf::from("/unused"), true, None),
+            Some(home.join(".agents/skills"))
         );
     }
 
     #[test]
     fn test_skills_dir_unknown_returns_none() {
         let root = PathBuf::from("/tmp/test-project");
-        assert_eq!(skills_dir_with_home("nope", None, &root, false), None);
+        assert_eq!(skills_dir_with_home("nope", None, &root, false, None), None);
     }
 
     #[test]
     fn test_agents_dir_claude_code_project() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            agents_dir_with_home("claude-code", None, &root, false),
+            agents_dir_with_home("claude-code", None, &root, false, None),
             Some(root.join(".claude/agents"))
         );
     }
@@ -1198,7 +1289,13 @@ mod tests {
     fn test_agents_dir_claude_code_user() {
         let home = PathBuf::from("/tmp/fake-home");
         assert_eq!(
-            agents_dir_with_home("claude-code", Some(&home), &PathBuf::from("/unused"), true),
+            agents_dir_with_home(
+                "claude-code",
+                Some(&home),
+                &PathBuf::from("/unused"),
+                true,
+                None
+            ),
             Some(home.join(".claude/agents"))
         );
     }
@@ -1207,9 +1304,106 @@ mod tests {
     fn test_agents_dir_cursor_falls_back_to_skills() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(
-            agents_dir_with_home("cursor", None, &root, false),
+            agents_dir_with_home("cursor", None, &root, false, None),
             Some(root.join(".cursor/skills"))
         );
+    }
+
+    // ---- CLAUDE_CONFIG_DIR support ------------------------------------------
+
+    #[test]
+    fn test_skills_dir_claude_user_with_config_dir() {
+        let home = PathBuf::from("/tmp/fake-home");
+        let cfg = PathBuf::from("/tmp/claude-config");
+        assert_eq!(
+            skills_dir_with_home(
+                "claude-code",
+                Some(&home),
+                &PathBuf::from("/unused"),
+                true,
+                Some(&cfg),
+            ),
+            Some(cfg.join("skills"))
+        );
+    }
+
+    #[test]
+    fn test_agents_dir_claude_user_with_config_dir() {
+        let home = PathBuf::from("/tmp/fake-home");
+        let cfg = PathBuf::from("/tmp/claude-config");
+        assert_eq!(
+            agents_dir_with_home(
+                "claude-code",
+                Some(&home),
+                &PathBuf::from("/unused"),
+                true,
+                Some(&cfg),
+            ),
+            Some(cfg.join("agents"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_claude_user_config_dir_overrides_home() {
+        // When CLAUDE_CONFIG_DIR is set, home is irrelevant for claude-code
+        // user-scope paths — the config dir wins.
+        let cfg = PathBuf::from("/custom/claude");
+        assert_eq!(
+            skills_dir_with_home(
+                "claude-code",
+                None,
+                &PathBuf::from("/unused"),
+                true,
+                Some(&cfg),
+            ),
+            Some(cfg.join("skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_claude_project_scope_ignores_config_dir() {
+        // Project scope must never be affected by CLAUDE_CONFIG_DIR.
+        let root = PathBuf::from("/tmp/test-project");
+        let cfg = PathBuf::from("/custom/claude");
+        assert_eq!(
+            skills_dir_with_home("claude-code", None, &root, false, Some(&cfg)),
+            Some(root.join(".claude/skills"))
+        );
+    }
+
+    #[test]
+    fn test_agents_dir_claude_project_scope_ignores_config_dir() {
+        let root = PathBuf::from("/tmp/test-project");
+        let cfg = PathBuf::from("/custom/claude");
+        assert_eq!(
+            agents_dir_with_home("claude-code", None, &root, false, Some(&cfg)),
+            Some(root.join(".claude/agents"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_other_platform_ignores_config_dir() {
+        // CLAUDE_CONFIG_DIR only applies to claude-code, not other platforms.
+        let home = PathBuf::from("/tmp/fake-home");
+        let cfg = PathBuf::from("/custom/claude");
+        assert_eq!(
+            skills_dir_with_home(
+                "cursor",
+                Some(&home),
+                &PathBuf::from("/unused"),
+                true,
+                Some(&cfg),
+            ),
+            Some(home.join(".cursor/skills"))
+        );
+    }
+
+    #[test]
+    fn test_claude_code_config_dir_from_env_unset() {
+        // We can't fully control env vars in a concurrent test runner, but we
+        // can at least verify the function returns Option<PathBuf> without
+        // panicking. The actual value depends on the test environment.
+        let _ = claude_code_config_dir_from_env();
     }
 
     fn entry(name: &'static str, entry_type: &'static str, content: &'static str) -> SkillEntry {
@@ -1256,6 +1450,16 @@ mod tests {
         let e = entry("logs", "agent", "");
         let (path, fmt) = install_path(&e, "codex", &root, None, false).unwrap();
         assert_eq!(path, root.join(".codex/skills/logs/SKILL.md"));
+        assert_eq!(fmt, InstallFormat::SkillMd);
+    }
+
+    #[test]
+    fn test_install_path_agent_devin_as_skill() {
+        let root = PathBuf::from("/tmp/test-project");
+        let e = entry("logs", "agent", "");
+        let (path, fmt) = install_path(&e, "devin", &root, None, false).unwrap();
+        assert_eq!(path, root.join(".agents/skills/logs/SKILL.md"));
+        assert_ne!(path, root.join(".agents/skills/logs.md"));
         assert_eq!(fmt, InstallFormat::SkillMd);
     }
 
@@ -1334,6 +1538,15 @@ mod tests {
             Some("opencode")
         );
         assert_eq!(lookup_platform("pi").map(|p| p.name), Some("pi"));
+    }
+
+    #[test]
+    fn test_lookup_platform_devin() {
+        let spec = lookup_platform("devin").expect("devin must be a known platform");
+        assert_eq!(spec.name, "devin");
+        assert!(spec.aliases.is_empty());
+        assert!(!spec.uses_agent_md);
+        assert!(!spec.is_extension_only());
     }
 
     #[test]
@@ -1474,7 +1687,7 @@ mod tests {
         // env var (set_var is `unsafe` and races with parallel test threads).
         let home = PathBuf::from("/tmp/fake-home");
         assert_eq!(
-            extensions_dir_with_home("pi", Some(&home), &PathBuf::from("/unused"), true),
+            extensions_dir_with_home("pi", Some(&home), &PathBuf::from("/unused"), true, None),
             Some(PathBuf::from("/tmp/fake-home/.pi/agent/extensions"))
         );
     }
@@ -1482,7 +1695,7 @@ mod tests {
     #[test]
     fn test_extensions_dir_pi_user_scope_without_home_returns_none() {
         assert_eq!(
-            extensions_dir_with_home("pi", None, &PathBuf::from("/unused"), true),
+            extensions_dir_with_home("pi", None, &PathBuf::from("/unused"), true, None),
             None,
         );
     }

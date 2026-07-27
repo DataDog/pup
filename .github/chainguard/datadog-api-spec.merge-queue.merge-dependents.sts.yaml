@@ -1,0 +1,16 @@
+# Policy for: .github/workflows/merge-queue.yml (pipeline merge-dependents step) in DataDog/datadog-api-spec.
+# Sibling to datadog-api-spec.ci-cd.generate: that policy trusts the PR-time generation workflow
+# (ci-cd.yml on pull_request); this one trusts the merge-queue workflow that, at merge time, repoints
+# pup's Cargo.toml at the just-merged Rust client commit and merges pup's generated PR.
+issuer: https://token.actions.githubusercontent.com
+subject_pattern: repo:DataDog/datadog-api-spec:ref:refs/heads/mq-working-branch-.*
+
+claim_pattern:
+  event_name: push
+  ref: refs/heads/mq-working-branch-.*
+  job_workflow_ref: DataDog/datadog-api-spec/\.github/workflows/merge-queue\.yml@.*
+  repository: DataDog/datadog-api-spec
+
+permissions:
+  contents: write
+  pull_requests: write

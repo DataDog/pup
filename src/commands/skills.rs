@@ -15,7 +15,7 @@ fn resolve_or_bail(input: Option<&str>) -> Result<Vec<String>> {
     if platforms.iter().any(|p| p.is_empty()) {
         bail!(
             "could not auto-detect AI assistant. Specify a platform: claude, \
-             cursor, codex, opencode, windsurf, gemini, pi, or `all`."
+             cursor, codex, opencode, windsurf, gemini, pi, devin, or `all`."
         );
     }
     for p in &platforms {
@@ -24,12 +24,12 @@ fn resolve_or_bail(input: Option<&str>) -> Result<Vec<String>> {
                 bail!(
                     "auto-detected '{p}' is not a supported platform. Specify \
                      one explicitly: claude, cursor, codex, opencode, windsurf, \
-                     gemini, pi, or `all`."
+                     gemini, pi, devin, or `all`."
                 );
             }
             bail!(
                 "unknown platform: '{p}'. Supported: claude, cursor, codex, \
-                 opencode, windsurf, gemini, pi, or `all`."
+                 opencode, windsurf, gemini, pi, devin, or `all`."
             );
         }
     }
@@ -68,7 +68,13 @@ pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<(
         })
         .collect();
 
-    crate::formatter::format_and_print(&items, &cfg.output_format, cfg.agent_mode, None)?;
+    crate::formatter::format_and_print(
+        &items,
+        &cfg.output_format,
+        cfg.agent_mode,
+        None,
+        cfg.jq.as_deref(),
+    )?;
     Ok(())
 }
 
@@ -246,7 +252,13 @@ pub fn install(
             "directories": directories,
             "platforms": platforms_hit.iter().collect::<Vec<_>>(),
         });
-        crate::formatter::format_and_print(&result, &cfg.output_format, cfg.agent_mode, None)?;
+        crate::formatter::format_and_print(
+            &result,
+            &cfg.output_format,
+            cfg.agent_mode,
+            None,
+            cfg.jq.as_deref(),
+        )?;
     } else {
         for d in &dirs_used {
             println!("  {d}");
@@ -306,6 +318,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         }
     }
 

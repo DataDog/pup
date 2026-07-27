@@ -2,6 +2,7 @@ use crate::commands::ddsql;
 use crate::config::Config;
 use crate::formatter;
 use crate::util;
+use crate::util_ext;
 use anyhow::Result;
 use datadog_api_client::datadogV2::api_application_security::ApplicationSecurityAPI;
 use datadog_api_client::datadogV2::api_entity_risk_scores::{
@@ -11,8 +12,9 @@ use datadog_api_client::datadogV2::api_restriction_policies::{
     RestrictionPoliciesAPI, UpdateRestrictionPolicyOptionalParams,
 };
 use datadog_api_client::datadogV2::api_security_monitoring::{
-    ListFindingsOptionalParams, ListIndicatorsOfCompromiseOptionalParams,
-    ListSecurityMonitoringRulesOptionalParams, ListSecurityMonitoringSuppressionsOptionalParams,
+    GetIndicatorOfCompromiseOptionalParams, ListFindingsOptionalParams,
+    ListIndicatorsOfCompromiseOptionalParams, ListSecurityMonitoringRulesOptionalParams,
+    ListSecurityMonitoringSuppressionsOptionalParams,
     SearchSecurityMonitoringSignalsOptionalParams, SecurityMonitoringAPI,
 };
 use datadog_api_client::datadogV2::model::{
@@ -168,9 +170,17 @@ pub async fn findings_analyze(
     }
 }
 
-pub async fn rules_list(cfg: &Config, filter: Option<String>, sort: Option<String>) -> Result<()> {
+pub async fn rules_list(
+    cfg: &Config,
+    filter: Option<String>,
+    sort: Option<String>,
+    page_size: i64,
+    page_number: i64,
+) -> Result<()> {
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
-    let mut params = ListSecurityMonitoringRulesOptionalParams::default();
+    let mut params = ListSecurityMonitoringRulesOptionalParams::default()
+        .page_size(page_size)
+        .page_number(page_number);
     if let Some(s) = sort {
         params = params.sort(parse_rule_sort(&s));
     }
@@ -223,8 +233,8 @@ pub async fn signals_search(
 ) -> Result<()> {
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
 
-    let from_dt = util::parse_time_to_datetime(&from)?;
-    let to_dt = util::parse_time_to_datetime(&to)?;
+    let from_dt = util_ext::parse_time_to_datetime(&from)?;
+    let to_dt = util_ext::parse_time_to_datetime(&to)?;
 
     let sort_val = match sort.as_deref().unwrap_or("-timestamp") {
         "timestamp" | "asc" => SecurityMonitoringSignalsSort::TIMESTAMP_ASCENDING,
@@ -471,7 +481,10 @@ pub async fn iocs_list(
 pub async fn iocs_get(cfg: &Config, indicator: &str) -> Result<()> {
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
     let resp = api
-        .get_indicator_of_compromise(indicator.to_string())
+        .get_indicator_of_compromise(
+            indicator.to_string(),
+            GetIndicatorOfCompromiseOptionalParams::default(),
+        )
         .await
         .map_err(|e| anyhow::anyhow!("failed to get indicator of compromise: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -753,7 +766,24 @@ mod tests {
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": []}"#).await;
-        let _ = super::rules_list(&cfg, None, None).await;
+        let _ = super::rules_list(&cfg, None, None, 10, 0).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_security_rules_list_with_pagination() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let _ = super::rules_list(
+            &cfg,
+            Some("test".to_string()),
+            Some("name".to_string()),
+            50,
+            2,
+        )
+        .await;
         cleanup_env();
     }
 

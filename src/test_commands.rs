@@ -88,6 +88,38 @@ fn test_read_only_guard_nested_read() {
 }
 
 #[test]
+fn test_read_only_guard_on_call_pages_list() {
+    let matches = crate::Cli::command()
+        .try_get_matches_from([
+            "pup",
+            "on-call",
+            "pages",
+            "list",
+            "--team",
+            "core-platform",
+            "--responder",
+            "user-1",
+        ])
+        .unwrap();
+    let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
+    assert_eq!(leaf, "list");
+    assert!(!crate::is_write_command_name(&leaf));
+}
+
+#[test]
+fn test_on_call_pages_list_rejects_invalid_page_size() {
+    let result = crate::Cli::command().try_get_matches_from([
+        "pup",
+        "on-call",
+        "pages",
+        "list",
+        "--page-size",
+        "0",
+    ]);
+    assert!(result.is_err());
+}
+
+#[test]
 fn test_read_only_guard_nested_write() {
     let matches = crate::Cli::command()
         .try_get_matches_from([
@@ -120,6 +152,59 @@ fn test_read_only_guard_exempts_auth() {
         .unwrap();
     let top = crate::get_top_level_subcommand_name(&matches);
     assert_eq!(top.as_deref(), Some("auth"));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_read_only_exempts_local_skills_install() {
+    // `skills install` writes local files only — must stay exempt from the guard.
+    let matches = crate::Cli::command()
+        .try_get_matches_from(["pup", "skills", "install", "claude"])
+        .unwrap();
+    assert!(crate::is_read_only_exempt(&matches));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_read_only_blocks_skills_remote_sessions_create() {
+    // `skills remote sessions create` writes to the onboarding API, so it must
+    // NOT be exempt, and its leaf verb must classify as a write.
+    let matches = crate::Cli::command()
+        .try_get_matches_from([
+            "pup",
+            "skills",
+            "remote",
+            "sessions",
+            "create",
+            "--session-id",
+            "run-1",
+            "--skill-id",
+            "aws-integration-setup",
+            "--summary",
+            "s",
+            "--status",
+            "completed",
+        ])
+        .unwrap();
+    assert!(!crate::is_read_only_exempt(&matches));
+    let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
+    assert!(crate::is_write_command_name(&leaf));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_read_only_allows_skills_remote_reads() {
+    // `skills remote list`/`get` are reads: not exempt, but not write verbs, so
+    // the guard lets them through.
+    for args in [
+        vec!["pup", "skills", "remote", "list"],
+        vec!["pup", "skills", "remote", "get", "orchestrator"],
+    ] {
+        let matches = crate::Cli::command().try_get_matches_from(args).unwrap();
+        assert!(!crate::is_read_only_exempt(&matches));
+        let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
+        assert!(!crate::is_write_command_name(&leaf));
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -159,6 +244,118 @@ fn test_auth_status_site_flag_is_optional() {
             _ => panic!("expected AuthActions::Status"),
         },
         _ => panic!("expected Commands::Auth"),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_install_accepts_remote_extension_selector() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "extension",
+        "install",
+        "owner/repo",
+        "--extension",
+        "foo",
+    ])
+    .expect("extension install --extension should parse");
+
+    match cli.command {
+        crate::Commands::Extension { action } => match action {
+            crate::ExtensionActions::Install {
+                source, extension, ..
+            } => {
+                assert_eq!(source, "owner/repo");
+                assert_eq!(extension.as_deref(), Some("foo"));
+            }
+            _ => panic!("expected ExtensionActions::Install"),
+        },
+        _ => panic!("expected Commands::Extension"),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_install_accepts_all_remote_extensions() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "extension", "install", "owner/repo", "--all"])
+        .expect("extension install --all should parse");
+
+    match cli.command {
+        crate::Commands::Extension { action } => match action {
+            crate::ExtensionActions::Install { all, .. } => {
+                assert!(all);
+            }
+            _ => panic!("expected ExtensionActions::Install"),
+        },
+        _ => panic!("expected Commands::Extension"),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_install_rejects_remote_extension_with_name_override() {
+    use clap::Parser;
+
+    let result = crate::Cli::try_parse_from([
+        "pup",
+        "extension",
+        "install",
+        "owner/repo",
+        "--extension",
+        "foo",
+        "--name",
+        "bar",
+    ]);
+
+    assert!(result.is_err());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_install_rejects_all_with_description() {
+    use clap::Parser;
+
+    let result = crate::Cli::try_parse_from([
+        "pup",
+        "extension",
+        "install",
+        "owner/repo",
+        "--all",
+        "--description",
+        "example",
+    ]);
+
+    assert!(result.is_err());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_extension_list_remote_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "extension",
+        "list-remote",
+        "owner/repo",
+        "--extension",
+        "foo",
+    ])
+    .expect("extension list-remote should parse");
+
+    match cli.command {
+        crate::Commands::Extension { action } => match action {
+            crate::ExtensionActions::ListRemote { source, extension } => {
+                assert_eq!(source, "owner/repo");
+                assert_eq!(extension.as_deref(), Some("foo"));
+            }
+            _ => panic!("expected ExtensionActions::ListRemote"),
+        },
+        _ => panic!("expected Commands::Extension"),
     }
 }
 
@@ -282,6 +479,126 @@ fn test_ddsql_table_query_requires_explicit_value() {
         result.is_err(),
         "expected ddsql table --query to require a value"
     );
+}
+
+// -------------------------------------------------------------------------
+// --sort with hyphen-prefixed values (e.g. -failure_rate, -timestamp)
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_cicd_flaky_tests_search_sort_accepts_hyphen_value() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "cicd",
+        "flaky-tests",
+        "search",
+        "--query",
+        "*",
+        "--sort",
+        "-failure_rate",
+    ])
+    .expect("cicd flaky-tests search --sort -failure_rate should parse");
+
+    match cli.command {
+        crate::Commands::Cicd { action } => match action {
+            crate::CicdActions::FlakyTests { action } => match action {
+                crate::CicdFlakyTestActions::Search { sort, .. } => {
+                    assert_eq!(sort.as_deref(), Some("-failure_rate"));
+                }
+                _ => panic!("expected CicdFlakyTestActions::Search"),
+            },
+            _ => panic!("expected CicdActions::FlakyTests"),
+        },
+        _ => panic!("expected Commands::Cicd"),
+    }
+}
+
+#[test]
+fn test_cicd_flaky_tests_search_sort_accepts_positive_value() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "cicd", "flaky-tests", "search", "--sort", "fqn"])
+        .expect("cicd flaky-tests search --sort fqn should parse");
+
+    match cli.command {
+        crate::Commands::Cicd { action } => match action {
+            crate::CicdActions::FlakyTests { action } => match action {
+                crate::CicdFlakyTestActions::Search { sort, .. } => {
+                    assert_eq!(sort.as_deref(), Some("fqn"));
+                }
+                _ => panic!("expected CicdFlakyTestActions::Search"),
+            },
+            _ => panic!("expected CicdActions::FlakyTests"),
+        },
+        _ => panic!("expected Commands::Cicd"),
+    }
+}
+
+#[test]
+fn test_logs_list_sort_accepts_hyphen_timestamp() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "logs", "list", "--sort", "-timestamp"])
+        .expect("logs list --sort -timestamp should parse");
+
+    match cli.command {
+        crate::Commands::Logs { action } => match action {
+            crate::LogActions::List { sort, .. } => {
+                assert_eq!(sort, "-timestamp");
+            }
+            _ => panic!("expected LogActions::List"),
+        },
+        _ => panic!("expected Commands::Logs"),
+    }
+}
+
+#[test]
+fn test_traces_search_sort_accepts_hyphen_timestamp() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "traces",
+        "search",
+        "--query",
+        "*",
+        "--sort",
+        "-timestamp",
+    ])
+    .expect("traces search --sort -timestamp should parse");
+
+    match cli.command {
+        crate::Commands::Traces { action } => match action {
+            crate::TracesActions::Search { sort, .. } => {
+                assert_eq!(sort, "-timestamp");
+            }
+            _ => panic!("expected TracesActions::Search"),
+        },
+        _ => panic!("expected Commands::Traces"),
+    }
+}
+
+#[test]
+fn test_security_rules_list_sort_accepts_hyphen_name() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "security", "rules", "list", "--sort", "-name"])
+        .expect("security rules list --sort -name should parse");
+
+    match cli.command {
+        crate::Commands::Security { action } => match action {
+            crate::SecurityActions::Rules { action } => match action {
+                crate::SecurityRuleActions::List { sort, .. } => {
+                    assert_eq!(sort.as_deref(), Some("-name"));
+                }
+                _ => panic!("expected SecurityRuleActions::List"),
+            },
+            _ => panic!("expected SecurityActions::Rules"),
+        },
+        _ => panic!("expected Commands::Security"),
+    }
 }
 
 // -------------------------------------------------------------------------

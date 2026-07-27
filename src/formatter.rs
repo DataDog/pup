@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::config::OutputFormat;
+use crate::filter;
 
 /// Agent mode metadata envelope.
 #[derive(Serialize)]
@@ -25,6 +26,13 @@ pub const AGENT_ENVELOPE_NOTE: &str = "This envelope (status/data/metadata) \
     only appears in agent mode. If you are writing a script the user will \
     run outside this agent session, append --no-agent so the output format \
     matches what they will see.";
+
+/// Appended to `metadata.note` when `--jq` ran, so an agent reading the
+/// enveloped output knows to write jq expressions against the raw payload
+/// (the value under `.data`), not against the envelope itself.
+pub const JQ_FILTER_NOTE: &str = "This output was filtered by --jq, which runs on \
+    the response payload (the value shown under .data), not on this envelope. \
+    Write jq expressions against the payload (e.g. .[]), not .data[].";
 
 /// Recursively sort all JSON object keys alphabetically.
 fn sort_json_value(v: serde_json::Value) -> serde_json::Value {
@@ -52,15 +60,40 @@ fn go_html_escape(json: &str) -> String {
         .replace('>', "\\u003e")
 }
 
+/// After a `--jq` filter rewrites the payload, the caller's `count`/`truncated`
+/// describe the pre-filter data and would mislead agents. Drop them, keeping
+/// `command`/`next_action`. `None` in → `None` out (envelope behaves as for a
+/// command that supplies no metadata). `Metadata`'s `skip_serializing_if` on
+/// both fields makes them disappear from the JSON.
+fn strip_counts_after_filter(meta: Option<&Metadata>) -> Option<Metadata> {
+    let m = meta?;
+    Some(Metadata {
+        count: None,
+        truncated: false,
+        command: m.command.clone(),
+        next_action: m.next_action.clone(),
+    })
+}
+
+/// Append `JQ_FILTER_NOTE` to the `metadata.note` field of an agent envelope.
+/// Called only when `--jq` ran so agents learn the filter targets the payload,
+/// not the envelope.
+fn append_jq_note(envelope: &mut serde_json::Value) {
+    if let Some(serde_json::Value::String(note)) = envelope.pointer_mut("/metadata/note") {
+        note.push(' ');
+        note.push_str(JQ_FILTER_NOTE);
+    }
+}
+
 /// Build the agent-mode envelope as a JSON value. Always sets `status`,
 /// `data`, and `metadata` — `metadata.note` is always present so an LLM
 /// authoring a script for the user is reminded to pass `--no-agent`.
 /// Extracted from `format_and_print` for unit-testability.
-pub fn build_agent_envelope<T: Serialize>(
-    data: &T,
+pub fn build_agent_envelope(
+    data: &serde_json::Value,
     meta: Option<&Metadata>,
 ) -> Result<serde_json::Value> {
-    let sorted_data = sort_json_value(serde_json::to_value(data)?);
+    let sorted_data = sort_json_value(data.clone());
     // Hoist: when the API wraps its list/object in a nested "data" key,
     // use that inner value directly so agents see .data[*] instead of .data.data[*].
     let effective_data = match &sorted_data {
@@ -88,42 +121,74 @@ pub fn build_agent_envelope<T: Serialize>(
 }
 
 /// Format and print data to stdout.
+///
+/// The `jq` parameter, when `Some`, applies a jq expression to the serialized
+/// data **before** envelope wrapping or format rendering. The filter runs on
+/// the raw API payload regardless of `--agent`/`-o`, so the same expression
+/// works consistently across all output modes.
 pub fn format_and_print<T: Serialize>(
     data: &T,
     format: &OutputFormat,
     agent_mode: bool,
     meta: Option<&Metadata>,
+    jq: Option<&str>,
 ) -> Result<()> {
+    // Serialize once; all renderers and the filter operate on this Value.
+    let mut value = serde_json::to_value(data)?;
+    if let Some(expr) = jq {
+        value = filter::apply_jq(value, expr)?;
+    }
+
     if agent_mode && *format == OutputFormat::Json {
-        let envelope = build_agent_envelope(data, meta)?;
+        // A --jq filter rewrites the payload, so the caller's count/truncated
+        // (computed on the pre-filter data) no longer describe .data. Drop them;
+        // keep command/next_action.
+        let stripped_meta;
+        let meta = if jq.is_some() {
+            stripped_meta = strip_counts_after_filter(meta);
+            stripped_meta.as_ref()
+        } else {
+            meta
+        };
+        let mut envelope = build_agent_envelope(&value, meta)?;
+        if jq.is_some() {
+            // Extend the inline note so agents learn --jq targets the payload.
+            append_jq_note(&mut envelope);
+        }
         let json = go_html_escape(&serde_json::to_string_pretty(&envelope)?);
         println!("{json}");
         return Ok(());
     }
 
     match format {
-        OutputFormat::Json => print_json(data),
-        OutputFormat::Yaml => print_yaml(data),
-        OutputFormat::Table => print_table(data),
-        OutputFormat::Csv => print_csv(data),
-        OutputFormat::Tsv => print_tsv(data),
+        OutputFormat::Json => print_json(&value),
+        OutputFormat::Yaml => print_yaml(&value),
+        OutputFormat::Table => print_table(&value),
+        OutputFormat::Csv => print_csv(&value),
+        OutputFormat::Tsv => print_tsv(&value),
     }
 }
 
-/// Convenience: format and print using config settings (respects -o flag and agent mode).
+/// Convenience: format and print using config settings (respects -o flag, agent mode, and --jq).
 pub fn output<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
-    format_and_print(data, &cfg.output_format, cfg.agent_mode, None)
+    format_and_print(
+        data,
+        &cfg.output_format,
+        cfg.agent_mode,
+        None,
+        cfg.jq.as_deref(),
+    )
 }
 
-pub fn print_json<T: Serialize>(data: &T) -> Result<()> {
-    let sorted_data = sort_json_value(serde_json::to_value(data)?);
+pub fn print_json(data: &serde_json::Value) -> Result<()> {
+    let sorted_data = sort_json_value(data.clone());
     let json = go_html_escape(&serde_json::to_string_pretty(&sorted_data)?);
     println!("{json}");
     Ok(())
 }
 
-fn print_yaml<T: Serialize>(data: &T) -> Result<()> {
-    let sorted_data = sort_json_value(serde_json::to_value(data)?);
+fn print_yaml(data: &serde_json::Value) -> Result<()> {
+    let sorted_data = sort_json_value(data.clone());
     let yaml = serde_norway::to_string(&sorted_data)?;
     print!("{yaml}");
     Ok(())
@@ -156,10 +221,8 @@ fn flatten_row(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
-fn print_table<T: Serialize>(data: &T) -> Result<()> {
-    // Convert to serde_json::Value to inspect structure
-    let value = serde_json::to_value(data)?;
-    let raw_rows = extract_rows(&value);
+fn print_table(data: &serde_json::Value) -> Result<()> {
+    let raw_rows = extract_rows(data);
     let owned_rows: Vec<serde_json::Value> = raw_rows.iter().map(|r| flatten_row(r)).collect();
     let rows: Vec<&serde_json::Value> = owned_rows.iter().collect();
 
@@ -281,9 +344,8 @@ fn csv_cell(value: Option<&serde_json::Value>) -> String {
     }
 }
 
-fn print_csv<T: Serialize>(data: &T) -> Result<()> {
-    let value = serde_json::to_value(data)?;
-    let raw_rows = extract_rows(&value);
+fn print_csv(data: &serde_json::Value) -> Result<()> {
+    let raw_rows = extract_rows(data);
 
     if raw_rows.is_empty() {
         return Ok(());
@@ -340,9 +402,8 @@ fn tsv_escape(s: &str) -> String {
     s.replace('\t', "\\t")
 }
 
-fn print_tsv<T: Serialize>(data: &T) -> Result<()> {
-    let value = serde_json::to_value(data)?;
-    let raw_rows = extract_rows(&value);
+fn print_tsv(data: &serde_json::Value) -> Result<()> {
+    let raw_rows = extract_rows(data);
 
     if raw_rows.is_empty() {
         return Ok(());
@@ -409,17 +470,24 @@ fn extract_rows(value: &serde_json::Value) -> Vec<&serde_json::Value> {
     }
 }
 
+/// Truncate `s` to at most `max` characters, appending "..." when shortened.
+/// Cuts on character boundaries so multi-byte UTF-8 text never panics.
+fn truncate_ellipsis(s: &str, max: usize) -> String {
+    if s.chars().count() > max {
+        let keep: String = s.chars().take(max.saturating_sub(3)).collect();
+        format!("{keep}...")
+    } else {
+        s.to_string()
+    }
+}
+
 /// Compact label for a single array element, used when previewing arrays in table cells.
 /// For objects, tries id/name/title/type in order; falls back to format_cell for primitives.
 fn format_array_item(value: &serde_json::Value) -> String {
     if let serde_json::Value::Object(map) = value {
         for key in &["name", "title", "id", "type"] {
             if let Some(serde_json::Value::String(s)) = map.get(*key) {
-                return if s.len() > 16 {
-                    format!("{}...", &s[..13])
-                } else {
-                    s.clone()
-                };
+                return truncate_ellipsis(s, 16);
             }
         }
         return format!("{{{} fields}}", map.len());
@@ -430,13 +498,7 @@ fn format_array_item(value: &serde_json::Value) -> String {
 fn format_cell(value: Option<&serde_json::Value>) -> String {
     match value {
         None | Some(serde_json::Value::Null) => String::new(),
-        Some(serde_json::Value::String(s)) => {
-            if s.len() > 50 {
-                format!("{}...", &s[..47])
-            } else {
-                s.clone()
-            }
-        }
+        Some(serde_json::Value::String(s)) => truncate_ellipsis(s, 50),
         Some(serde_json::Value::Number(n)) => n.to_string(),
         Some(serde_json::Value::Bool(b)) => b.to_string(),
         Some(serde_json::Value::Array(arr)) => {
@@ -448,11 +510,7 @@ fn format_cell(value: Option<&serde_json::Value>) -> String {
                 parts.push(format!("+{} more", arr.len() - 4));
             }
             let result = format!("[{}]", parts.join(", "));
-            if result.len() > 50 {
-                format!("{}...", &result[..47])
-            } else {
-                result
-            }
+            truncate_ellipsis(&result, 50)
         }
         Some(serde_json::Value::Object(map)) => format!("{{{} fields}}", map.len()),
     }
@@ -506,6 +564,27 @@ mod tests {
         let result = format_cell(Some(&serde_json::json!(long)));
         assert_eq!(result.len(), 50);
         assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_format_cell_long_multibyte_string_char_boundary() {
+        // Regression: truncating by byte index used to panic when the cut point
+        // landed inside a multi-byte UTF-8 character (issue #676).
+        let name = "Resx V4 ;-) (vérifier que c'est bien un problème de resx avant de recycler)";
+        let result = format_cell(Some(&serde_json::json!(name)));
+        // 47 kept chars + the ellipsis, counted by characters not bytes.
+        let expected: String = name.chars().take(47).collect();
+        assert_eq!(result, format!("{expected}..."));
+        assert_eq!(result.chars().count(), 50, "got: {result}");
+    }
+
+    #[test]
+    fn test_format_array_item_multibyte_no_panic() {
+        // The array-preview path (16-char cap) is also char-boundary safe.
+        let arr = serde_json::json!([{"name": "problème récurrent de résolution"}]);
+        let result = format_cell(Some(&arr));
+        assert!(result.contains("..."), "got: {result}");
+        assert!(result.starts_with("[problème réc"), "got: {result}");
     }
 
     #[test]
@@ -814,21 +893,21 @@ mod tests {
     #[test]
     fn test_format_and_print_json() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Json, false, None);
+        let result = format_and_print(&data, &OutputFormat::Json, false, None, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_format_and_print_yaml() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Yaml, false, None);
+        let result = format_and_print(&data, &OutputFormat::Yaml, false, None, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_format_and_print_table() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Table, false, None);
+        let result = format_and_print(&data, &OutputFormat::Table, false, None, None);
         assert!(result.is_ok());
     }
 
@@ -841,7 +920,7 @@ mod tests {
             command: Some("test".into()),
             next_action: None,
         };
-        let result = format_and_print(&data, &OutputFormat::Json, true, Some(&meta));
+        let result = format_and_print(&data, &OutputFormat::Json, true, Some(&meta), None);
         assert!(result.is_ok());
     }
 
@@ -902,7 +981,7 @@ mod tests {
     #[test]
     fn test_format_and_print_agent_mode_no_meta() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Json, true, None);
+        let result = format_and_print(&data, &OutputFormat::Json, true, None, None);
         assert!(result.is_ok());
     }
 
@@ -910,7 +989,7 @@ mod tests {
     fn test_format_and_print_agent_mode_respects_yaml_flag() {
         // In agent mode, -o yaml should bypass the agent envelope and use YAML output.
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Yaml, true, None);
+        let result = format_and_print(&data, &OutputFormat::Yaml, true, None, None);
         assert!(result.is_ok());
     }
 
@@ -918,7 +997,7 @@ mod tests {
     fn test_format_and_print_agent_mode_respects_table_flag() {
         // In agent mode, -o table should bypass the agent envelope and use table output.
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Table, true, None);
+        let result = format_and_print(&data, &OutputFormat::Table, true, None, None);
         assert!(result.is_ok());
     }
 
@@ -1051,7 +1130,7 @@ mod tests {
     #[test]
     fn test_format_and_print_csv() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Csv, false, None);
+        let result = format_and_print(&data, &OutputFormat::Csv, false, None, None);
         assert!(result.is_ok());
     }
 
@@ -1068,6 +1147,7 @@ mod tests {
             auto_approve: false,
             agent_mode: false,
             read_only: false,
+            jq: None,
         };
         let data = serde_json::json!({"hello": "world"});
         assert!(output(&cfg, &data).is_ok());
@@ -1129,7 +1209,126 @@ mod tests {
     #[test]
     fn test_format_and_print_tsv() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Tsv, false, None);
+        let result = format_and_print(&data, &OutputFormat::Tsv, false, None, None);
         assert!(result.is_ok());
+    }
+
+    // --- strip_counts_after_filter -------------------------------------------
+
+    #[test]
+    fn test_strip_counts_none_meta_returns_none() {
+        assert!(strip_counts_after_filter(None).is_none());
+    }
+
+    #[test]
+    fn test_strip_counts_drops_count_and_truncated() {
+        let meta = Metadata {
+            count: Some(10),
+            truncated: true,
+            command: Some("monitors list".into()),
+            next_action: Some("next".into()),
+        };
+        let stripped = strip_counts_after_filter(Some(&meta)).unwrap();
+        assert!(stripped.count.is_none(), "count should be dropped");
+        assert!(!stripped.truncated, "truncated should be cleared");
+        assert_eq!(stripped.command.as_deref(), Some("monitors list"));
+        assert_eq!(stripped.next_action.as_deref(), Some("next"));
+    }
+
+    // --- append_jq_note ------------------------------------------------------
+
+    #[test]
+    fn test_append_jq_note_extends_note_field() {
+        let data = serde_json::json!({"id": 1});
+        let mut envelope = build_agent_envelope(&data, None).unwrap();
+        // Before: note contains only AGENT_ENVELOPE_NOTE.
+        let before = envelope["metadata"]["note"].as_str().unwrap().to_string();
+        assert!(before.contains("agent mode"), "pre-condition: {before}");
+
+        append_jq_note(&mut envelope);
+
+        let after = envelope["metadata"]["note"].as_str().unwrap();
+        assert!(
+            after.contains(AGENT_ENVELOPE_NOTE),
+            "original note must be preserved: {after}"
+        );
+        assert!(
+            after.contains(JQ_FILTER_NOTE),
+            "jq note must be appended: {after}"
+        );
+        assert!(
+            after.contains(".data"),
+            "jq note must mention .data: {after}"
+        );
+    }
+
+    // --- integration: strip + append through the real builder ----------------
+
+    #[test]
+    fn test_jq_filter_path_drops_count_and_appends_note() {
+        let filtered = serde_json::json!({"id": 1, "name": "foo"});
+        let meta = Metadata {
+            count: Some(10),
+            truncated: false,
+            command: Some("monitors list".into()),
+            next_action: None,
+        };
+
+        let stripped = strip_counts_after_filter(Some(&meta));
+        let mut env = build_agent_envelope(&filtered, stripped.as_ref()).unwrap();
+        append_jq_note(&mut env);
+
+        assert!(
+            env["metadata"]["count"].is_null(),
+            "count must be omitted after filter: {}",
+            env["metadata"]["count"]
+        );
+        assert!(
+            env["metadata"]["truncated"].is_null(),
+            "truncated must be omitted after filter"
+        );
+        assert_eq!(
+            env["metadata"]["command"],
+            serde_json::json!("monitors list"),
+            "command must be preserved"
+        );
+        let note = env["metadata"]["note"].as_str().unwrap();
+        assert!(
+            note.contains(AGENT_ENVELOPE_NOTE),
+            "original note must survive: {note}"
+        );
+        assert!(
+            note.contains(JQ_FILTER_NOTE),
+            "jq note must be appended: {note}"
+        );
+        assert_eq!(env["status"], "success");
+    }
+
+    #[test]
+    fn test_no_jq_path_keeps_count_and_note_unchanged() {
+        // Regression: when --jq is NOT used, the envelope must be byte-for-byte
+        // identical to pre-change behavior: count stays, only AGENT_ENVELOPE_NOTE.
+        let data = serde_json::json!([{"id": 1}, {"id": 2}]);
+        let meta = Metadata {
+            count: Some(2),
+            truncated: false,
+            command: Some("monitors list".into()),
+            next_action: None,
+        };
+        let env = build_agent_envelope(&data, Some(&meta)).unwrap();
+        assert_eq!(
+            env["metadata"]["count"],
+            serde_json::json!(2),
+            "count must survive without --jq"
+        );
+        let note = env["metadata"]["note"].as_str().unwrap();
+        assert!(
+            !note.contains(JQ_FILTER_NOTE),
+            "jq note must NOT appear without --jq: {note}"
+        );
+        assert!(
+            note.contains(AGENT_ENVELOPE_NOTE),
+            "original note must be present: {note}"
+        );
     }
 }

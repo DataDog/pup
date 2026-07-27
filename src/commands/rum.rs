@@ -15,10 +15,10 @@ use datadog_api_client::datadogV2::model::{
     RumRetentionFilterCreateRequest, RumRetentionFilterUpdateRequest,
 };
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::raw_client;
+use crate::util_ext;
 
 pub async fn apps_list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(RUMAPI, cfg);
@@ -71,8 +71,8 @@ pub async fn events_list(
 ) -> Result<()> {
     let api = crate::make_api!(RUMAPI, cfg);
 
-    let from_dt = util::parse_time_to_datetime(&from)?;
-    let to_dt = util::parse_time_to_datetime(&to)?;
+    let from_dt = util_ext::parse_time_to_datetime(&from)?;
+    let to_dt = util_ext::parse_time_to_datetime(&to)?;
 
     let mut params = ListRUMEventsOptionalParams::default()
         .filter_from(from_dt)
@@ -98,8 +98,8 @@ pub async fn sessions_search(
 ) -> Result<()> {
     let api = crate::make_api!(RUMAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
     let from_str = chrono::DateTime::from_timestamp_millis(from_ms)
         .ok_or_else(|| anyhow::anyhow!("--from value {from_ms}ms is out of representable range"))?
         .to_rfc3339();
@@ -242,8 +242,8 @@ pub async fn retention_filters_delete(cfg: &Config, app_id: &str, filter_id: &st
 pub async fn sessions_list(cfg: &Config, from: String, to: String, limit: i32) -> Result<()> {
     let api = crate::make_api!(RUMAPI, cfg);
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
     let from_str = chrono::DateTime::from_timestamp_millis(from_ms)
         .ok_or_else(|| anyhow::anyhow!("--from value {from_ms}ms is out of representable range"))?
         .to_rfc3339();
@@ -282,7 +282,7 @@ pub async fn playlists_list(cfg: &Config) -> Result<()> {
 pub async fn playlists_get(cfg: &Config, playlist_id: i32) -> Result<()> {
     let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
     let resp = api
-        .get_rum_replay_playlist(playlist_id)
+        .get_rum_replay_playlist(playlist_id as i64)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get RUM playlist: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -370,8 +370,8 @@ pub async fn aggregate(cfg: &Config, args: RumAggregateArgs) -> Result<()> {
     if compute.is_empty() {
         compute.push("count".into());
     }
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
 
     let compute_arr: Vec<serde_json::Value> = compute
         .iter()
@@ -410,7 +410,7 @@ pub async fn aggregate(cfg: &Config, args: RumAggregateArgs) -> Result<()> {
         body["group_by"] = serde_json::json!(group_by_arr);
     }
 
-    let data = client::raw_post(cfg, "/api/v2/rum/analytics/aggregate", body).await?;
+    let data = raw_client::raw_post(cfg, "/api/v2/rum/analytics/aggregate", body).await?;
     formatter::output(cfg, &data)?;
     Ok(())
 }

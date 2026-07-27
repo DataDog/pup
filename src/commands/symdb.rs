@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 
 #[derive(Clone, clap::ValueEnum)]
 pub enum SymdbView {
@@ -30,11 +30,11 @@ const RETRY_BASE_MS: u64 = 1000;
 /// Fetch with retries for transient server errors (502, 503, 504).
 async fn fetch(cfg: &Config, path: &str, query: &[(&str, &str)]) -> Result<serde_json::Value> {
     for attempt in 0..=MAX_RETRIES {
-        match client::raw_get(cfg, path, query).await {
+        match raw_client::raw_get(cfg, path, query).await {
             Ok(v) => return Ok(v),
             Err(e) => {
                 let retryable = e
-                    .downcast_ref::<client::HttpError>()
+                    .downcast_ref::<raw_client::HttpError>()
                     .is_some_and(|h| matches!(h.status, 502..=504));
                 if !retryable || attempt == MAX_RETRIES {
                     return Err(e);

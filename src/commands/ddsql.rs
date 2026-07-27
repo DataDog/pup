@@ -4,11 +4,11 @@ use serde_json::{json, Value};
 use std::io::{self, Read};
 use std::time::Duration;
 
-use crate::client;
 use crate::config::{Config, OutputFormat};
 use crate::formatter;
+use crate::raw_client;
 use crate::useragent;
-use crate::util;
+use crate::util_ext;
 use crate::version;
 
 fn client_id() -> String {
@@ -219,7 +219,13 @@ fn output_items<T: Serialize>(
         command: None,
         next_action,
     };
-    formatter::format_and_print(items, &cfg.output_format, cfg.agent_mode, Some(&meta))
+    formatter::format_and_print(
+        items,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )
 }
 
 fn parse_ddsql_docs(resp: Value) -> Result<DdsqlDocsResponse> {
@@ -342,12 +348,12 @@ fn build_public_table_items(table_names: &[String], query: Option<&str>) -> Vec<
 }
 
 async fn get_ddsql_docs(cfg: &Config) -> Result<DdsqlDocsResponse> {
-    let resp = client::raw_get(cfg, DDSQL_DOCS_PATH, &[]).await?;
+    let resp = raw_client::raw_get(cfg, DDSQL_DOCS_PATH, &[]).await?;
     parse_ddsql_docs(resp)
 }
 
 async fn get_public_table_names(cfg: &Config) -> Result<Vec<String>> {
-    let resp = client::raw_get(cfg, DDSQL_TABLE_NAMES_PATH, &[]).await?;
+    let resp = raw_client::raw_get(cfg, DDSQL_TABLE_NAMES_PATH, &[]).await?;
     parse_table_names(resp)
 }
 
@@ -374,7 +380,7 @@ async fn search_reference_tables(
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
-        let resp = client::raw_get(cfg, REFERENCE_TABLES_PATH, &refs).await?;
+        let resp = raw_client::raw_get(cfg, REFERENCE_TABLES_PATH, &refs).await?;
         let (mut items, next_offset) = parse_reference_table_items(resp)?;
         items.retain(|item| table_matches_query(&item.name, query));
         results.append(&mut items);
@@ -406,7 +412,7 @@ async fn get_reference_table_columns(
             ("page[offset]", offset_param.as_str()),
             ("filter[table_name_contains]", table_name),
         ];
-        let resp = client::raw_get(cfg, REFERENCE_TABLES_PATH, &params).await?;
+        let resp = raw_client::raw_get(cfg, REFERENCE_TABLES_PATH, &params).await?;
         let (tables, next_offset) = parse_reference_tables(resp)?;
 
         if let Some(table) = tables
@@ -490,7 +496,7 @@ pub async fn schema_columns(
     let columns = if kind == "reference_table" {
         get_reference_table_columns(cfg, &table_name).await?
     } else {
-        let resp = client::raw_post(
+        let resp = raw_client::raw_post(
             cfg,
             DDSQL_TABLE_DATA_PATH,
             json!({ "tables": [table_name] }),
@@ -522,8 +528,9 @@ fn build_advanced_table_request(
     limit: Option<i32>,
 ) -> Result<Value> {
     let from_ms =
-        util::parse_time_to_unix_millis(from).map_err(|e| anyhow!("invalid --from: {e}"))?;
-    let to_ms = util::parse_time_to_unix_millis(to).map_err(|e| anyhow!("invalid --to: {e}"))?;
+        util_ext::parse_time_to_unix_millis(from).map_err(|e| anyhow!("invalid --from: {e}"))?;
+    let to_ms =
+        util_ext::parse_time_to_unix_millis(to).map_err(|e| anyhow!("invalid --to: {e}"))?;
 
     let mut query_body = json!({
         "dataset": "user_query",
@@ -606,7 +613,7 @@ fn build_fetch_request(base_body: &Value, query_id: &str) -> Value {
 /// to the User-Agent header for audit log differentiation.
 async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -> Result<Value> {
     let ua = useragent::get_with_command(command);
-    let resp = client::raw_post_with_ua(
+    let resp = raw_client::raw_post_with_ua(
         cfg,
         "/api/unstable/advanced/query/tabular",
         body.clone(),
@@ -623,7 +630,7 @@ async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let fetch_body = build_fetch_request(&body, &query_id);
-        let poll_resp = client::raw_post_with_ua(
+        let poll_resp = raw_client::raw_post_with_ua(
             cfg,
             "/api/unstable/advanced/query/tabular/fetch",
             fetch_body,

@@ -52,10 +52,10 @@ fn resolve_token(inner: &str, vars: &HashMap<String, String>) -> String {
 
 /// Parse a duration string into a `std::time::Duration`.
 ///
-/// Delegates to `crate::util::parse_duration_to_millis` — accepts the same
+/// Delegates to `crate::util_ext::parse_duration_to_millis` — accepts the same
 /// formats (30s, 5m, 1h, 7d, 1w, "5 minutes", etc.).
 pub fn parse_duration(s: &str) -> anyhow::Result<std::time::Duration> {
-    let ms = crate::util::parse_duration_to_millis(s)?;
+    let ms = crate::util_ext::parse_duration_to_millis(s)?;
     Ok(std::time::Duration::from_millis(ms as u64))
 }
 

@@ -2,7 +2,7 @@
 
 This guide helps AI coding agents understand and effectively use the Pup CLI tool. It covers the agent operability system, discovery commands, query syntax, and common workflows.
 
-For the runtime version of this guide (embedded in the binary), run `pup agent guide`.
+For the machine-readable runtime reference (embedded in the binary), run `pup agent schema` (JSON).
 
 ## Agent Mode
 
@@ -60,8 +60,6 @@ pup metrics --help   # Only metrics commands
 ```bash
 pup agent schema              # Full JSON schema
 pup agent schema --compact    # Minimal schema (names + flags only, fewer tokens)
-pup agent guide               # Full steering guide (markdown)
-pup agent guide logs          # Domain-specific guide section
 ```
 
 ## Authentication
@@ -132,6 +130,9 @@ pup logs aggregate --query="env:prod" --from=30m --compute="percentile(@duration
 
 # Storage tiers
 pup logs search --query="*" --from=30d --storage="flex"
+
+# Specific indexes
+pup logs query --query="*" --index="main,security" --from=1h
 ```
 
 ### Metrics

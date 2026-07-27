@@ -39,17 +39,14 @@ pub struct ClientCredentials {
     pub site: String,
 }
 
-/// All known valid OAuth scopes for validation.
-pub fn all_known_scopes() -> Vec<&'static str> {
-    default_scopes()
-}
-
 /// Read-only OAuth scopes for use with --read-only flag.
 /// Excludes write, manage, and org-level administrative scopes.
 pub fn read_only_scopes() -> Vec<&'static str> {
     vec![
         "apm_read",
+        "apm_remote_configuration_read",
         "apm_service_catalog_read",
+        "apm_service_ingest_read",
         "apps_run",
         "audit_logs_read",
         "aws_configuration_read",
@@ -59,6 +56,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "ci_visibility_read",
         "cloud_cost_management_read",
         "code_coverage_read",
+        "dora_metrics_read",
         "test_optimization_read",
         "dashboards_read",
         "built_in_features",
@@ -109,7 +107,11 @@ pub fn default_scopes() -> Vec<&'static str> {
     vec![
         // APM
         "apm_read",
+        "apm_remote_configuration_read",
+        "apm_remote_configuration_write",
         "apm_service_catalog_read",
+        "apm_service_ingest_read",
+        "apm_service_ingest_write",
         "apm_service_renaming_write",
         // App Builder
         "apps_run",
@@ -134,6 +136,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         // Cloud Cost Management
         "cloud_cost_management_read",
         "cloud_cost_management_write",
+        "dora_metrics_read",
         "dora_metrics_write",
         "test_optimization_read",
         "test_optimization_write",
@@ -186,6 +189,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "logs_read_data",
         "logs_read_index_data",
         "logs_write_archives",
+        "logs_write_pipelines",
         // Metrics
         "metrics_read",
         // Monitors
@@ -231,6 +235,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "slos_read",
         "slos_write",
         // Status Pages
+        "status_pages_incident_write",
         "status_pages_settings_read",
         "status_pages_settings_write",
         // Synthetics
@@ -329,6 +334,8 @@ mod tests {
         // Database Monitoring
         assert!(scopes.contains(&"dbm_read"));
         assert!(scopes.contains(&"built_in_features"));
+        // Logs
+        assert!(scopes.contains(&"logs_write_pipelines"));
     }
 
     #[test]
@@ -350,6 +357,7 @@ mod tests {
         assert!(!ro.contains(&"org_management"));
         assert!(!ro.contains(&"teams_manage"));
         assert!(!ro.contains(&"monitors_write"));
+        assert!(!ro.contains(&"logs_write_pipelines"));
     }
 
     #[test]
@@ -361,11 +369,6 @@ mod tests {
                 "read_only scope not in default_scopes: {scope}"
             );
         }
-    }
-
-    #[test]
-    fn test_all_known_scopes_matches_default() {
-        assert_eq!(all_known_scopes(), default_scopes());
     }
 
     #[test]

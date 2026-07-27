@@ -1,9 +1,9 @@
 use anyhow::{bail, Result};
 
-use crate::client;
 use crate::config::Config;
 use crate::formatter;
-use crate::util;
+use crate::raw_client;
+use crate::util_ext;
 
 fn parse_sort(sort: &str) -> Result<&'static str> {
     match sort {
@@ -50,11 +50,11 @@ pub async fn samples_search(
 ) -> Result<()> {
     cfg.validate_auth()?;
 
-    let from_ms = util::parse_time_to_unix_millis(&from)?;
-    let to_ms = util::parse_time_to_unix_millis(&to)?;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
     let body = build_search_body(query, from_ms, to_ms, limit, &sort)?;
 
-    let resp = client::raw_post(cfg, "/api/v1/logs-analytics/list?type=databasequery", body)
+    let resp = raw_client::raw_post(cfg, "/api/v1/logs-analytics/list?type=databasequery", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to search DBM query samples: {e:?}"))?;
 

@@ -118,7 +118,7 @@ url = { version = "2", optional = true }
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 
 # Crypto for fallback storage (optional — not needed for browser)
-aes-gcm = { version = "0.10", optional = true }
+aes-gcm = { version = "0.11", optional = true }
 
 # ---- Native-only dependencies ----
 

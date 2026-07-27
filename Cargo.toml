@@ -125,7 +125,7 @@ aes-gcm = { version = "0.11", optional = true }
 # Synthetics tunnel
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"], optional = true }
 yamux = { version = "0.14", optional = true }
-russh = { version = "0.61", optional = true }
+russh = { version = "0.62", optional = true }
 ssh-key = { version = "0.6", features = ["p256", "std"], optional = true }
 futures = { version = "0.3", optional = true }
 tokio-util = { version = "0.7", features = ["compat", "io"], optional = true }

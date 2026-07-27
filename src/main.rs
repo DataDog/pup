@@ -9410,6 +9410,13 @@ enum LlmObsDatasetsActions {
         #[arg(long, help = "JSON file with restore version body (required)")]
         file: String,
     },
+    /// Read ALL dataset records, paging past the preview endpoint's response-size cap
+    RecordsAll {
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(long, help = "Records per page (default 100)")]
+        limit: Option<u32>,
+    },
     /// Read dataset records (structure-preserving previews + schema summary)
     Records {
         #[arg(long, help = "Project ID (required)")]
@@ -16260,6 +16267,9 @@ async fn main_inner() -> anyhow::Result<()> {
                     } => {
                         commands::llm_obs::datasets_restore(&cfg, &project_id, &dataset_id, &file)
                             .await?;
+                    }
+                    LlmObsDatasetsActions::RecordsAll { dataset_id, limit } => {
+                        commands::llm_obs::datasets_records_all(&cfg, &dataset_id, limit).await?;
                     }
                     LlmObsDatasetsActions::Records {
                         project_id,

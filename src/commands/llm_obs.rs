@@ -200,6 +200,71 @@ pub async fn datasets_records(
     formatter::output(cfg, &resp)
 }
 
+/// Hard stop on page count so a misbehaving cursor cannot loop forever.
+const RECORDS_ALL_MAX_PAGES: u32 = 200;
+
+/// Read EVERY record in a dataset by paging the REST records endpoint.
+///
+/// `datasets records` posts to `llm-obs-mcp/v1/dataset/records`, which trims its response to a
+/// size budget (~19 records on a dataset with sizeable inputs), reports `truncated: true`, and
+/// returns **no cursor** — so there is no way to reach the rest of a large dataset through it.
+/// This pages `GET /api/unstable/llm-obs/v1/datasets/{id}/records` using `meta.after`, which has
+/// no such cap, and emits the aggregated records under the same `records`/`returned` keys.
+///
+/// The REST route needs no project_id, so this takes only the dataset id.
+pub async fn datasets_records_all(
+    cfg: &Config,
+    dataset_id: &str,
+    limit: Option<u32>,
+) -> Result<()> {
+    let path = format!("/api/unstable/llm-obs/v1/datasets/{dataset_id}/records");
+    let page_limit = limit.unwrap_or(100).to_string();
+    let mut records: Vec<serde_json::Value> = Vec::new();
+    let mut cursor = String::new();
+    let mut pages: u32 = 0;
+
+    loop {
+        let mut query: Vec<(&str, &str)> = vec![("page[limit]", page_limit.as_str())];
+        if !cursor.is_empty() {
+            query.push(("page[cursor]", cursor.as_str()));
+        }
+        let resp = raw_client::raw_get(cfg, &path, &query)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to list dataset records: {e:?}"))?;
+        pages += 1;
+
+        match resp["data"].as_array() {
+            Some(page) if !page.is_empty() => records.extend(page.iter().cloned()),
+            _ => break,
+        }
+
+        let after = resp["meta"]["after"].as_str().unwrap_or_default();
+        // Empty or unchanged cursor both mean "no further pages".
+        if after.is_empty() || after == cursor {
+            break;
+        }
+        cursor = after.to_string();
+
+        if pages >= RECORDS_ALL_MAX_PAGES {
+            eprintln!(
+                "warning: stopped after {pages} pages ({} records); the dataset may have more",
+                records.len()
+            );
+            break;
+        }
+    }
+
+    let out = serde_json::json!({
+        "dataset_id": dataset_id,
+        "kind": "full_list",
+        "records": records,
+        "returned": records.len(),
+        "truncated": false,
+        "pages_fetched": pages,
+    });
+    formatter::output(cfg, &out)
+}
+
 pub async fn datasets_records_full(
     cfg: &Config,
     project_id: &str,
@@ -1025,6 +1090,105 @@ mod tests {
             "expected error but got ok: {:?}",
             result.ok()
         );
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_all_pages_until_cursor_empty() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Page 1: two records plus a cursor. Matched by the ABSENCE of page[cursor].
+        let page1 = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::UrlEncoded(
+                "page[limit]".into(),
+                "2".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[{"id":"rec-1"},{"id":"rec-2"}],"meta":{"after":"CURSOR2"}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        // Page 2: one record and an empty cursor, which terminates the loop.
+        let page2 = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::UrlEncoded(
+                "page[cursor]".into(),
+                "CURSOR2".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[{"id":"rec-3"}],"meta":{"after":""}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = super::datasets_records_all(&cfg, "ds-1", Some(2)).await;
+        assert!(
+            result.is_ok(),
+            "datasets_records_all failed: {:?}",
+            result.err()
+        );
+        // Both pages must have been requested — proves the cursor was followed.
+        page1.assert_async().await;
+        page2.assert_async().await;
+
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_all_stops_on_repeated_cursor() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Always returns the same cursor it was given: a server bug that would loop forever
+        // if the guard were missing.
+        let _mock = mock_any(
+            &mut server,
+            "GET",
+            r#"{"data":[{"id":"rec-1"}],"meta":{"after":"SAME"}}"#,
+        )
+        .await;
+
+        let result = super::datasets_records_all(&cfg, "ds-1", None).await;
+        assert!(result.is_ok(), "expected ok, got {:?}", result.err());
+
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_all_500() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(500)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["internal error"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::datasets_records_all(&cfg, "ds-1", None).await;
+        assert!(
+            result.is_err(),
+            "expected error but got ok: {:?}",
+            result.ok()
+        );
+
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }

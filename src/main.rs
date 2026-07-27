@@ -9097,8 +9097,17 @@ enum LlmObsProjectsActions {
         #[arg(long, help = "JSON file with project body (required)")]
         file: String,
     },
-    /// List LLM Obs projects
-    List,
+    /// List LLM Obs projects (filter by ID or name to resolve a single project)
+    List {
+        #[arg(long, help = "Filter by project ID")]
+        filter_id: Option<String>,
+        #[arg(long, help = "Filter by project name")]
+        filter_name: Option<String>,
+        #[arg(long, help = "Maximum number of projects to return per page")]
+        limit: Option<u32>,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -9204,8 +9213,16 @@ enum LlmObsSpansActions {
     Search {
         #[arg(long, help = "Search query string")]
         query: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Filter by \"key:value\" tags (comma-separated, AND)"
+        )]
+        tags: Option<Vec<String>>,
         #[arg(long, help = "Filter by trace ID")]
         trace_id: Option<String>,
+        #[arg(long, help = "Filter by APM trace ID")]
+        apm_trace_id: Option<String>,
         #[arg(long, help = "Filter by span ID")]
         span_id: Option<String>,
         #[arg(
@@ -9392,10 +9409,18 @@ enum LlmObsDatasetsActions {
         #[arg(long, help = "JSON file with dataset body (required)")]
         file: String,
     },
-    /// List LLM Obs datasets for a project
+    /// List LLM Obs datasets for a project (filter by ID or name to resolve one dataset)
     List {
         #[arg(long, help = "Project ID (required)")]
         project_id: String,
+        #[arg(long, help = "Filter by dataset ID")]
+        filter_id: Option<String>,
+        #[arg(long, help = "Filter by dataset name")]
+        filter_name: Option<String>,
+        #[arg(long, help = "Maximum number of datasets to return per page")]
+        limit: Option<u32>,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
     },
     /// Batch insert, update, and delete records in a dataset
     BatchUpdate {
@@ -9459,6 +9484,29 @@ enum LlmObsDatasetsActions {
         cursor: Option<String>,
         #[arg(long, help = "Compute the schema summary aggregate (default true)")]
         compute_schema: Option<bool>,
+    },
+    /// Add records to a dataset (previews by default; pass --confirm to write)
+    #[command(name = "records-add")]
+    RecordsAdd {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(
+            long,
+            help = "JSON file with an array of records, each with optional input, expected_output, metadata, tags (required)"
+        )]
+        file: String,
+        #[arg(
+            long,
+            help = "Actually insert the records; without this the endpoint returns a preview and writes nothing"
+        )]
+        confirm: bool,
+        #[arg(
+            long,
+            help = "Bump the dataset version on insert (default true; set false for in-place edits)"
+        )]
+        create_new_version: Option<bool>,
     },
     /// Fetch up to 3 records with untrimmed input/expected_output/metadata
     #[command(name = "records-full")]
@@ -10804,6 +10852,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "trigger"
         || name == "set"
         || name == "add"
+        || name.ends_with("-add")
         || name == "remove"
         || name == "install"
         || name == "assign"
@@ -11007,6 +11056,26 @@ mod test_agent_schema {
         let commands = schema["commands"].as_array().unwrap();
         let cmd = find_command(commands, &["events", "post"]).expect("events post not found");
         assert_eq!(cmd["read_only"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn records_add_is_classified_as_write() {
+        // "records-add" inserts dataset records, so read-only mode must block it
+        // and the agent schema must not advertise it as read-only.
+        assert!(is_write_command_name("records-add"));
+        // Read-only siblings must stay read-only.
+        assert!(!is_write_command_name("records"));
+        assert!(!is_write_command_name("records-all"));
+        assert!(!is_write_command_name("records-full"));
+
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let cmd = find_command(commands, &["llm-obs", "datasets", "records-add"])
+            .expect("llm-obs datasets records-add not found");
+        assert_eq!(cmd["read_only"].as_bool(), Some(false));
+        let full = find_command(commands, &["llm-obs", "datasets", "records-full"])
+            .expect("llm-obs datasets records-full not found");
+        assert_eq!(full["read_only"].as_bool(), Some(true));
     }
 
     #[test]
@@ -16152,8 +16221,20 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsProjectsActions::Create { file } => {
                         commands::llm_obs::projects_create(&cfg, &file).await?;
                     }
-                    LlmObsProjectsActions::List => {
-                        commands::llm_obs::projects_list(&cfg).await?;
+                    LlmObsProjectsActions::List {
+                        filter_id,
+                        filter_name,
+                        limit,
+                        cursor,
+                    } => {
+                        commands::llm_obs::projects_list(
+                            &cfg,
+                            filter_id,
+                            filter_name,
+                            limit,
+                            cursor,
+                        )
+                        .await?;
                     }
                 },
                 LlmObsActions::Experiments { action } => match action {
@@ -16263,8 +16344,22 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsDatasetsActions::Create { project_id, file } => {
                         commands::llm_obs::datasets_create(&cfg, &project_id, &file).await?;
                     }
-                    LlmObsDatasetsActions::List { project_id } => {
-                        commands::llm_obs::datasets_list(&cfg, &project_id).await?;
+                    LlmObsDatasetsActions::List {
+                        project_id,
+                        filter_id,
+                        filter_name,
+                        limit,
+                        cursor,
+                    } => {
+                        commands::llm_obs::datasets_list(
+                            &cfg,
+                            &project_id,
+                            filter_id,
+                            filter_name,
+                            limit,
+                            cursor,
+                        )
+                        .await?;
                     }
                     LlmObsDatasetsActions::BatchUpdate {
                         project_id,
@@ -16323,6 +16418,23 @@ async fn main_inner() -> anyhow::Result<()> {
                         )
                         .await?;
                     }
+                    LlmObsDatasetsActions::RecordsAdd {
+                        project_id,
+                        dataset_id,
+                        file,
+                        confirm,
+                        create_new_version,
+                    } => {
+                        commands::llm_obs::datasets_records_add(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            &file,
+                            confirm,
+                            create_new_version,
+                        )
+                        .await?;
+                    }
                     LlmObsDatasetsActions::RecordsFull {
                         project_id,
                         dataset_id,
@@ -16340,7 +16452,9 @@ async fn main_inner() -> anyhow::Result<()> {
                 LlmObsActions::Spans { action } => match action {
                     LlmObsSpansActions::Search {
                         query,
+                        tags,
                         trace_id,
+                        apm_trace_id,
                         span_id,
                         span_kind,
                         span_name,
@@ -16355,7 +16469,9 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::llm_obs::spans_search(
                             &cfg,
                             query,
+                            tags,
                             trace_id,
+                            apm_trace_id,
                             span_id,
                             span_kind,
                             span_name,

@@ -33,8 +33,28 @@ pub async fn projects_create(cfg: &Config, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
-pub async fn projects_list(cfg: &Config) -> Result<()> {
-    let resp = raw_client::raw_get(cfg, "/api/v2/llm-obs/v1/projects", &[])
+pub async fn projects_list(
+    cfg: &Config,
+    filter_id: Option<String>,
+    filter_name: Option<String>,
+    limit: Option<u32>,
+    cursor: Option<String>,
+) -> Result<()> {
+    let mut query: Vec<(&str, String)> = Vec::new();
+    if let Some(ref id) = filter_id {
+        query.push(("filter[id]", id.clone()));
+    }
+    if let Some(ref name) = filter_name {
+        query.push(("filter[name]", name.clone()));
+    }
+    if let Some(l) = limit {
+        query.push(("page[limit]", l.to_string()));
+    }
+    if let Some(ref c) = cursor {
+        query.push(("page[cursor]", c.clone()));
+    }
+    let query_refs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let resp = raw_client::raw_get(cfg, "/api/v2/llm-obs/v1/projects", &query_refs)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list LLM obs projects: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -103,9 +123,30 @@ pub async fn datasets_create(cfg: &Config, project_id: &str, file: &str) -> Resu
     formatter::output(cfg, &resp)
 }
 
-pub async fn datasets_list(cfg: &Config, project_id: &str) -> Result<()> {
+pub async fn datasets_list(
+    cfg: &Config,
+    project_id: &str,
+    filter_id: Option<String>,
+    filter_name: Option<String>,
+    limit: Option<u32>,
+    cursor: Option<String>,
+) -> Result<()> {
     let path = format!("/api/v2/llm-obs/v1/{project_id}/datasets");
-    let resp = raw_client::raw_get(cfg, &path, &[])
+    let mut query: Vec<(&str, String)> = Vec::new();
+    if let Some(ref id) = filter_id {
+        query.push(("filter[id]", id.clone()));
+    }
+    if let Some(ref name) = filter_name {
+        query.push(("filter[name]", name.clone()));
+    }
+    if let Some(l) = limit {
+        query.push(("page[limit]", l.to_string()));
+    }
+    if let Some(ref c) = cursor {
+        query.push(("page[cursor]", c.clone()));
+    }
+    let query_refs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let resp = raw_client::raw_get(cfg, &path, &query_refs)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list LLM obs datasets: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -283,6 +324,42 @@ pub async fn datasets_records_full(
     )
     .await
     .map_err(|e| anyhow::anyhow!("failed to get full dataset records: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+/// Adds records to a dataset (mirrors the add_llmobs_dataset_records MCP tool).
+///
+/// The endpoint is two-step: without `confirm` it returns a preview (resolved IDs,
+/// planned record count, tag union) and writes nothing; with `confirm` it inserts.
+pub async fn datasets_records_add(
+    cfg: &Config,
+    project_id: &str,
+    dataset_id: &str,
+    file: &str,
+    confirm: bool,
+    create_new_version: Option<bool>,
+) -> Result<()> {
+    let records: serde_json::Value = util::read_json_file(file)?;
+    match records.as_array() {
+        Some(a) if !a.is_empty() => {}
+        _ => anyhow::bail!("--file must contain a non-empty JSON array of records"),
+    }
+    let mut body = serde_json::json!({
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "records": records,
+        "confirmed": confirm,
+    });
+    if let Some(v) = create_new_version {
+        body["create_new_version"] = serde_json::json!(v);
+    }
+    let resp = raw_client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/dataset/records-add",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to add dataset records: {e:?}"))?;
     formatter::output(cfg, &resp)
 }
 
@@ -624,11 +701,29 @@ pub async fn evals_delete(cfg: &Config, eval_name: &str) -> Result<()> {
 
 // ---- Spans (no typed equivalent — unstable MCP endpoint) ----
 
+/// Parses `key:value` tag filters into the JSON object the search-spans endpoint expects.
+/// Splits on the first colon only, so values may themselves contain colons.
+fn parse_tag_filters(tags: &[String]) -> Result<serde_json::Map<String, serde_json::Value>> {
+    let mut map = serde_json::Map::new();
+    for tag in tags {
+        let (key, value) = tag
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("--tags entries must be \"key:value\", got '{tag}'"))?;
+        if key.is_empty() || value.is_empty() {
+            anyhow::bail!("--tags entries must have a non-empty key and value, got '{tag}'");
+        }
+        map.insert(key.to_string(), serde_json::json!(value));
+    }
+    Ok(map)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn spans_search(
     cfg: &Config,
     query: Option<String>,
+    tags: Option<Vec<String>>,
     trace_id: Option<String>,
+    apm_trace_id: Option<String>,
     span_id: Option<String>,
     span_kind: Option<String>,
     span_name: Option<String>,
@@ -647,8 +742,14 @@ pub async fn spans_search(
     if let Some(q) = query {
         body["query"] = serde_json::json!(q);
     }
+    if let Some(t) = tags {
+        body["tags"] = serde_json::Value::Object(parse_tag_filters(&t)?);
+    }
     if let Some(t) = trace_id {
         body["trace_id"] = serde_json::json!(t);
+    }
+    if let Some(a) = apm_trace_id {
+        body["apm_trace_id"] = serde_json::json!(a);
     }
     if let Some(s) = span_id {
         body["span_id"] = serde_json::json!(s);
@@ -887,7 +988,7 @@ mod tests {
         let body = r#"{"data":[{"id":"proj-1","type":"projects","attributes":{"name":"my-project","description":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}}]}"#;
         let _mock = mock_any(&mut server, "GET", body).await;
 
-        let result = super::projects_list(&cfg).await;
+        let result = super::projects_list(&cfg, None, None, None, None).await;
         assert!(result.is_ok(), "projects_list failed: {:?}", result.err());
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
@@ -908,7 +1009,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::projects_list(&cfg).await;
+        let result = super::projects_list(&cfg, None, None, None, None).await;
         assert!(
             result.is_err(),
             "expected error but got ok: {:?}",
@@ -935,7 +1036,7 @@ mod tests {
             read_only: false,
             jq: None,
         };
-        let result = super::projects_list(&cfg).await;
+        let result = super::projects_list(&cfg, None, None, None, None).await;
         assert!(result.is_err(), "should fail without auth");
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
@@ -955,10 +1056,49 @@ mod tests {
             r#"{"data":[{"id":"p1","type":"llm_obs_projects"}]}"#,
         )
         .await;
-        let result = super::projects_list(&cfg).await;
+        let result = super::projects_list(&cfg, None, None, None, None).await;
         assert!(
             result.is_ok(),
             "should tolerate missing nullable fields: {:?}",
+            result.err()
+        );
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_projects_list_with_filters() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Strict query param check: name/id filters and pagination are sent through.
+        let _mock = server
+            .mock("GET", "/api/v2/llm-obs/v1/projects")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("filter[id]".into(), "proj-1".into()),
+                mockito::Matcher::UrlEncoded("filter[name]".into(), "my-project".into()),
+                mockito::Matcher::UrlEncoded("page[limit]".into(), "5".into()),
+                mockito::Matcher::UrlEncoded("page[cursor]".into(), "cursor-abc".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::projects_list(
+            &cfg,
+            Some("proj-1".into()),
+            Some("my-project".into()),
+            Some(5),
+            Some("cursor-abc".into()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "projects_list with filters failed: {:?}",
             result.err()
         );
         cleanup_env();
@@ -1374,8 +1514,48 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::datasets_list(&cfg, "proj-1").await;
+        let result = super::datasets_list(&cfg, "proj-1", None, None, None, None).await;
         assert!(result.is_ok(), "datasets_list failed: {:?}", result.err());
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_list_with_filters() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Strict path + query check: project-scoped path, name/id filters, pagination.
+        let _mock = server
+            .mock("GET", "/api/v2/llm-obs/v1/proj-1/datasets")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("filter[id]".into(), "ds-1".into()),
+                mockito::Matcher::UrlEncoded("filter[name]".into(), "my-dataset".into()),
+                mockito::Matcher::UrlEncoded("page[limit]".into(), "25".into()),
+                mockito::Matcher::UrlEncoded("page[cursor]".into(), "cursor-xyz".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::datasets_list(
+            &cfg,
+            "proj-1",
+            Some("ds-1".into()),
+            Some("my-dataset".into()),
+            Some(25),
+            Some("cursor-xyz".into()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "datasets_list with filters failed: {:?}",
+            result.err()
+        );
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
@@ -1395,7 +1575,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::datasets_list(&cfg, "proj-1").await;
+        let result = super::datasets_list(&cfg, "proj-1", None, None, None, None).await;
         assert!(
             result.is_err(),
             "expected error but got ok: {:?}",
@@ -1953,6 +2133,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             Some("my-app".into()),
             false,
             "1h".into(),
@@ -1964,6 +2146,95 @@ mod tests {
         .await;
         assert!(result.is_ok(), "spans_search failed: {:?}", result.err());
         cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_search_tags_and_apm_trace_id() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Strict body check: tags go up as a JSON object map, apm_trace_id as a string.
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/trace/search-spans")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "tags": {"env": "prod", "version": "1.2:3"},
+                "apm_trace_id": "apm-9",
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"spans":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::spans_search(
+            &cfg,
+            None,
+            // The second tag's value contains a colon — only the first colon splits.
+            Some(vec!["env:prod".into(), "version:1.2:3".into()]),
+            None,
+            Some("apm-9".into()),
+            None,
+            None,
+            None,
+            None,
+            false,
+            "1h".into(),
+            "now".into(),
+            10,
+            None,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "spans_search with tags failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_search_invalid_tags() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Malformed --tags must fail locally, before any request is made.
+        for bad in ["envprod", ":prod", "env:"] {
+            let result = super::spans_search(
+                &cfg,
+                None,
+                Some(vec![bad.to_string()]),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                "1h".into(),
+                "now".into(),
+                10,
+                None,
+                false,
+            )
+            .await;
+            assert!(result.is_err(), "expected error for --tags value '{bad}'");
+        }
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_parse_tag_filters() {
+        let map = super::parse_tag_filters(&["env:prod".into(), "svc:api:v2".into()]).unwrap();
+        assert_eq!(map["env"], serde_json::json!("prod"));
+        // Only the first colon splits, so colons survive inside values.
+        assert_eq!(map["svc"], serde_json::json!("api:v2"));
+        assert!(super::parse_tag_filters(&[]).unwrap().is_empty());
+        assert!(super::parse_tag_filters(&["nocolon".into()]).is_err());
+        assert!(super::parse_tag_filters(&[":novalue".into()]).is_err());
+        assert!(super::parse_tag_filters(&["nokey:".into()]).is_err());
     }
 
     #[tokio::test]
@@ -1991,6 +2262,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             false,
             "4h".into(),
             "now".into(),
@@ -2012,6 +2285,8 @@ mod tests {
 
         let result = super::spans_search(
             &cfg,
+            None,
+            None,
             None,
             None,
             None,
@@ -2047,6 +2322,8 @@ mod tests {
 
         let result = super::spans_search(
             &cfg,
+            None,
+            None,
             None,
             None,
             None,
@@ -2091,6 +2368,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             false,
             "1h".into(),
             "now".into(),
@@ -2123,6 +2402,8 @@ mod tests {
 
         let result = super::spans_search(
             &cfg,
+            None,
+            None,
             None,
             None,
             None,
@@ -2897,6 +3178,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             false,
             "1h".into(),
             "now".into(),
@@ -2930,6 +3213,8 @@ mod tests {
 
         let result = super::spans_search(
             &cfg,
+            None,
+            None,
             None,
             None,
             None,
@@ -3217,6 +3502,137 @@ mod tests {
             "datasets_records_full failed: {:?}",
             result.err()
         );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_add_preview() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_records_add_preview.json",
+            r#"[{"input":{"question":"hi"},"expected_output":"hello","tags":["env:prod"]}]"#,
+        );
+        // Without --confirm the endpoint must be told confirmed=false so it only previews.
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/dataset/records-add")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "project_id": "proj-1",
+                "dataset_id": "ds-1",
+                "confirmed": false,
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"success","data":{"planned_record_count":1}}"#)
+            .create_async()
+            .await;
+
+        let result =
+            super::datasets_records_add(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap(), false, None)
+                .await;
+        assert!(
+            result.is_ok(),
+            "datasets_records_add preview failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_add_confirmed() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_records_add_confirmed.json",
+            r#"[{"input":"a"},{"input":"b"}]"#,
+        );
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/dataset/records-add")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "confirmed": true,
+                "create_new_version": false,
+                "records": [{"input": "a"}, {"input": "b"}],
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"success","data":{"inserted":2}}"#)
+            .create_async()
+            .await;
+
+        let result = super::datasets_records_add(
+            &cfg,
+            "proj-1",
+            "ds-1",
+            tmp.to_str().unwrap(),
+            true,
+            Some(false),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "datasets_records_add confirmed failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_add_invalid_file() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // An object, an empty array, and a missing file must all fail locally
+        // before any request is made.
+        let not_array =
+            write_temp_json("pup_test_ds_records_add_not_array.json", r#"{"input":"a"}"#);
+        let empty = write_temp_json("pup_test_ds_records_add_empty.json", r#"[]"#);
+        for path in [not_array.to_str().unwrap(), empty.to_str().unwrap()] {
+            let result =
+                super::datasets_records_add(&cfg, "proj-1", "ds-1", path, false, None).await;
+            assert!(result.is_err(), "expected error for records file '{path}'");
+        }
+        let result = super::datasets_records_add(
+            &cfg,
+            "proj-1",
+            "ds-1",
+            "/nonexistent/pup_records.json",
+            false,
+            None,
+        )
+        .await;
+        assert!(result.is_err(), "expected error for missing records file");
+        let _ = std::fs::remove_file(not_array);
+        let _ = std::fs::remove_file(empty);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_add_400() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json("pup_test_ds_records_add_400.json", r#"[{"input":"a"}]"#);
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records-add",
+            400,
+            r#"{"reason":"unknown_dataset"}"#,
+        )
+        .await;
+
+        let result =
+            super::datasets_records_add(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap(), true, None)
+                .await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(tmp);
         cleanup_env();
     }
 

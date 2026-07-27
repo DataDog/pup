@@ -39,7 +39,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | downtime | list, get, cancel | src/commands/downtime.rs | ✅ |
 | tags | list, get, add, update, delete | src/commands/tags.rs | ✅ |
 | events | post, list, search, get | src/commands/events.rs | ✅ |
-| on-call | teams (CRUD, memberships) | src/commands/on_call.rs | ✅ |
+| on-call | teams (CRUD, memberships), pages (list, get, create) | src/commands/on_call.rs | ✅ |
 | audit-logs | list, search | src/commands/audit_logs.rs | ✅ |
 | api-keys | list, get, create, delete | src/commands/api_keys.rs | ✅ |
 | app-keys | list, get, create, update, delete | src/commands/app_keys.rs | ✅ |
@@ -66,7 +66,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
 | obs-pipelines | list, get, create, update, delete, validate | src/commands/obs_pipelines.rs | ✅ |
-| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore), spans (search) | src/commands/llm_obs.rs | ✅ |
+| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get), runs (list, status), topics, topics-with-points, points) | src/commands/llm_obs.rs | ✅ |
 | reference-tables | list, get, create, batch-query | src/commands/reference_tables.rs | ✅ |
 | network | flows list, devices (list, get, interfaces, tags), interfaces (list, update) | src/commands/network.rs | ✅ |
 | cloud | aws, gcp, azure, oci | src/commands/cloud.rs | ✅ |
@@ -188,7 +188,7 @@ pup infrastructure hosts list
 
 ### Operations & Incident Response
 - **incidents** - Incident management (list, get, attachments, settings, handles, postmortem-templates)
-- **on-call** - Team management (create, update, delete teams; manage memberships with roles)
+- **on-call** - Team management (create, update, delete teams; manage memberships with roles) and pages (list, get, create)
 - **cases** - Case management (create, search, assign, archive, unarchive, update, projects, jira, servicenow, move)
 - **hamr** - High Availability Multi-Region connections
 - **fleet** - Fleet Automation (agents, deployments, schedules, tracers, clusters, instrumented-pods)
@@ -301,7 +301,7 @@ steps) bypass `format_and_print` and do not honor `--jq`.
 
 ### v0.28.0 — New Command Groups and Full Pipeline Implementation
 
-- ✅ **llm-obs** (new) — LLM Observability: projects (create, list), experiments (create, list, update, delete, summary, events (list, get), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore), spans (search)
+- ✅ **llm-obs** (new) — LLM Observability: projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-all, records-full), spans (search)
 - ✅ **reference-tables** (new) — Reference table management (list, get, create, batch-query)
 - ✅ **obs-pipelines** (upgraded from placeholder) — Full CRUD: list, get, create, update, delete, validate
 - **costs** — Added cloud cost configs: `aws-config`, `azure-config`, `gcp-config` (list, get, create, delete each)

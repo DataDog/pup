@@ -88,6 +88,38 @@ fn test_read_only_guard_nested_read() {
 }
 
 #[test]
+fn test_read_only_guard_on_call_pages_list() {
+    let matches = crate::Cli::command()
+        .try_get_matches_from([
+            "pup",
+            "on-call",
+            "pages",
+            "list",
+            "--team",
+            "core-platform",
+            "--responder",
+            "user-1",
+        ])
+        .unwrap();
+    let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
+    assert_eq!(leaf, "list");
+    assert!(!crate::is_write_command_name(&leaf));
+}
+
+#[test]
+fn test_on_call_pages_list_rejects_invalid_page_size() {
+    let result = crate::Cli::command().try_get_matches_from([
+        "pup",
+        "on-call",
+        "pages",
+        "list",
+        "--page-size",
+        "0",
+    ]);
+    assert!(result.is_err());
+}
+
+#[test]
 fn test_read_only_guard_nested_write() {
     let matches = crate::Cli::command()
         .try_get_matches_from([

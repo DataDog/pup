@@ -123,7 +123,7 @@ list of commands as built.
 | API Domain | Status | Pup Commands | Notes |
 |------------|--------|--------------|-------|
 | Incidents | ✅ | `incidents list`, `incidents get`, `incidents attachments`, `incidents settings`, `incidents handles`, `incidents postmortem-templates` | Incident management with settings, handles, and postmortem templates |
-| On-Call (Teams) | ✅ | `on-call teams` (CRUD, memberships with roles) | Full team management system with admin/member roles |
+| On-Call | ✅ | `on-call teams` (CRUD, memberships with roles), `on-call pages` (list, get, create) | Team management and on-call page access |
 | Case Management | ✅ | `cases` (create, search, assign, archive, projects, jira, servicenow, move) | Complete case management with Jira/ServiceNow linking |
 | Error Tracking | ✅ | `error-tracking issues search`, `error-tracking issues get` | Error issue search and details |
 | Service Catalog | ✅ | `service-catalog list`, `service-catalog get` | Service registry management |
@@ -180,7 +180,7 @@ list of commands as built.
 | Data Streams (Kafka) | ✅ | `kafka topic-configs`, `kafka broker-configs`, `kafka client-configs`, `kafka read-messages` | **Experimental** — Kafka cluster inspection via Datadog |
 | Restricted Datasets | ✅ | `datasets list`, `datasets get`, `datasets create`, `datasets update`, `datasets delete` | Restricted dataset management for data access control |
 | Observability Pipelines | ✅ | `obs-pipelines list`, `obs-pipelines get`, `obs-pipelines create`, `obs-pipelines update`, `obs-pipelines delete`, `obs-pipelines validate` | Full pipeline CRUD and validation |
-| LLM Observability | ✅ | `llm-obs projects`, `llm-obs experiments`, `llm-obs datasets` | **New** — LLM Obs projects, experiments, and dataset management |
+| LLM Observability | ✅ | `llm-obs projects`, `llm-obs experiments`, `llm-obs datasets` | **New** — LLM Obs projects, experiments (incl. `events submit`), and dataset management (incl. `datasets records` / `records-full`) |
 | Reference Tables | ✅ | `reference-tables list`, `reference-tables get`, `reference-tables create`, `reference-tables batch-query` | **New** — Reference table management for log enrichment |
 | Miscellaneous | ✅ | `misc ip-ranges`, `misc status` | IP ranges and status |
 | App Builder | ✅ | `app-builder list`, `app-builder get`, `app-builder create`, `app-builder update`, `app-builder delete`, `app-builder publish` | Low-code app management with publish/unpublish and batch delete |
@@ -599,6 +599,8 @@ Pup ships plugin manifest files for several AI coding assistants:
 /plugin marketplace add DataDog/pup
 
 # Codex (reads .codex-plugin/plugin.json from the repo, or marketplace.json from ~/.agents/plugins/)
+
+# Cursor (reads .cursor-plugin/plugin.json from the repo)
 ```
 
 ## ACP Server

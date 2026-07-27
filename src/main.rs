@@ -6675,6 +6675,20 @@ enum OnCallNotificationRulesActions {
 
 #[derive(Subcommand)]
 enum OnCallPagesActions {
+    /// List on-call pages, optionally filtered by team handle and/or responder user id
+    List {
+        #[arg(long, help = "Filter by team handle (server-side)")]
+        team: Option<String>,
+        #[arg(long, help = "Filter by responder user id (client-side)")]
+        responder: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 1000,
+            value_parser = clap::value_parser!(u32).range(1..=1000),
+            help = "Results per page (1-1000; endpoint pagination is unsupported)"
+        )]
+        page_size: u32,
+    },
     /// Create an on-call page from a JSON file
     Create {
         #[arg(long, help = "Path to JSON file")]
@@ -9101,6 +9115,79 @@ enum LlmObsActions {
         #[command(subcommand)]
         action: LlmObsEvalsActions,
     },
+    /// Explore Topic Discovery (Patterns): span clusters and their topic hierarchy
+    Patterns {
+        #[command(subcommand)]
+        action: LlmObsPatternsActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsPatternsActions {
+    /// Manage Topic Discovery configurations
+    Configs {
+        #[command(subcommand)]
+        action: LlmObsPatternConfigsActions,
+    },
+    /// Inspect Topic Discovery runs for a config
+    Runs {
+        #[command(subcommand)]
+        action: LlmObsPatternRunsActions,
+    },
+    /// Get the topic hierarchy discovered by a run
+    Topics {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+        #[arg(long, help = "Specific run ID (defaults to the latest completed run)")]
+        run_id: Option<String>,
+    },
+    /// Get the topic hierarchy with clustering point span IDs inlined on leaf topics
+    #[command(name = "topics-with-points")]
+    TopicsWithPoints {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+        #[arg(long, help = "Specific run ID (defaults to the latest completed run)")]
+        run_id: Option<String>,
+        #[arg(
+            long,
+            help = "Inline per-span duration, cost, token counts, and evaluations (heavier response)"
+        )]
+        include_metrics: bool,
+    },
+    /// Get a page of clustering points (spans) for a single topic
+    Points {
+        #[arg(long, help = "Topic ID (required)")]
+        topic_id: String,
+        #[arg(
+            long,
+            help = "Max points per page (server default applies when omitted)"
+        )]
+        page_size: Option<u32>,
+        #[arg(long, help = "Pagination cursor (next_page_token) from a prior call")]
+        page_token: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsPatternConfigsActions {
+    /// List all Topic Discovery configs for the org
+    List,
+    /// Get the most-recently-modified Topic Discovery config for the org
+    Get,
+}
+
+#[derive(Subcommand)]
+enum LlmObsPatternRunsActions {
+    /// List completed runs for a config, newest first
+    List {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+    },
+    /// Get status and per-activity progress of the most recent run for a config
+    Status {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -9110,8 +9197,17 @@ enum LlmObsProjectsActions {
         #[arg(long, help = "JSON file with project body (required)")]
         file: String,
     },
-    /// List LLM Obs projects
-    List,
+    /// List LLM Obs projects (filter by ID or name to resolve a single project)
+    List {
+        #[arg(long, help = "Filter by project ID")]
+        filter_id: Option<String>,
+        #[arg(long, help = "Filter by project name")]
+        filter_name: Option<String>,
+        #[arg(long, help = "Maximum number of projects to return per page")]
+        limit: Option<u32>,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -9194,6 +9290,21 @@ enum LlmObsExperimentsEventsActions {
         experiment_id: String,
         event_id: String,
     },
+    /// Submit evaluation-metric events to an experiment
+    Submit {
+        experiment_id: String,
+        #[arg(
+            long,
+            help = "JSON array of eval-metric events, e.g. '[{\"label\":\"accuracy\",\"metric_type\":\"score\",\"score_value\":0.9}]' (required)"
+        )]
+        metrics: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Optional \"key:value\" tags applied to every submitted metric (comma-separated)"
+        )]
+        tags: Option<Vec<String>>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -9202,8 +9313,16 @@ enum LlmObsSpansActions {
     Search {
         #[arg(long, help = "Search query string")]
         query: Option<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Filter by \"key:value\" tags (comma-separated, AND)"
+        )]
+        tags: Option<Vec<String>>,
         #[arg(long, help = "Filter by trace ID")]
         trace_id: Option<String>,
+        #[arg(long, help = "Filter by APM trace ID")]
+        apm_trace_id: Option<String>,
         #[arg(long, help = "Filter by span ID")]
         span_id: Option<String>,
         #[arg(
@@ -9390,10 +9509,18 @@ enum LlmObsDatasetsActions {
         #[arg(long, help = "JSON file with dataset body (required)")]
         file: String,
     },
-    /// List LLM Obs datasets for a project
+    /// List LLM Obs datasets for a project (filter by ID or name to resolve one dataset)
     List {
         #[arg(long, help = "Project ID (required)")]
         project_id: String,
+        #[arg(long, help = "Filter by dataset ID")]
+        filter_id: Option<String>,
+        #[arg(long, help = "Filter by dataset name")]
+        filter_name: Option<String>,
+        #[arg(long, help = "Maximum number of datasets to return per page")]
+        limit: Option<u32>,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
     },
     /// Batch insert, update, and delete records in a dataset
     BatchUpdate {
@@ -9421,6 +9548,79 @@ enum LlmObsDatasetsActions {
         dataset_id: String,
         #[arg(long, help = "JSON file with restore version body (required)")]
         file: String,
+    },
+    /// Read ALL dataset records, paging past the preview endpoint's response-size cap
+    RecordsAll {
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(long, help = "Records per page (default 100)")]
+        limit: Option<u32>,
+    },
+    /// Read dataset records (structure-preserving previews + schema summary)
+    Records {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Fetch specific record IDs (comma-separated)"
+        )]
+        record_ids: Option<Vec<String>>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Filter by key:value tags (comma-separated, AND)"
+        )]
+        tags: Option<Vec<String>>,
+        #[arg(long, help = "Canonical record ID (all versions of one record)")]
+        canonical_id: Option<String>,
+        #[arg(long, help = "Historical dataset version (defaults to current)")]
+        dataset_version: Option<i64>,
+        #[arg(long, default_value = "10", help = "Max records per page")]
+        limit: u32,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
+        #[arg(long, help = "Compute the schema summary aggregate (default true)")]
+        compute_schema: Option<bool>,
+    },
+    /// Add records to a dataset (previews by default; pass --confirm to write)
+    #[command(name = "records-add")]
+    RecordsAdd {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(
+            long,
+            help = "JSON file with an array of records, each with optional input, expected_output, metadata, tags (required)"
+        )]
+        file: String,
+        #[arg(
+            long,
+            help = "Actually insert the records; without this the endpoint returns a preview and writes nothing"
+        )]
+        confirm: bool,
+        #[arg(
+            long,
+            help = "Bump the dataset version on insert (default true; set false for in-place edits)"
+        )]
+        create_new_version: Option<bool>,
+    },
+    /// Fetch up to 3 records with untrimmed input/expected_output/metadata
+    #[command(name = "records-full")]
+    RecordsFull {
+        #[arg(long, help = "Project ID (required)")]
+        project_id: String,
+        #[arg(long, help = "Dataset ID (required)")]
+        dataset_id: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "1-3 record IDs to fetch (comma-separated, required)"
+        )]
+        record_ids: Vec<String>,
     },
 }
 
@@ -10752,6 +10952,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "trigger"
         || name == "set"
         || name == "add"
+        || name.ends_with("-add")
         || name == "remove"
         || name == "install"
         || name == "assign"
@@ -10955,6 +11156,26 @@ mod test_agent_schema {
         let commands = schema["commands"].as_array().unwrap();
         let cmd = find_command(commands, &["events", "post"]).expect("events post not found");
         assert_eq!(cmd["read_only"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn records_add_is_classified_as_write() {
+        // "records-add" inserts dataset records, so read-only mode must block it
+        // and the agent schema must not advertise it as read-only.
+        assert!(is_write_command_name("records-add"));
+        // Read-only siblings must stay read-only.
+        assert!(!is_write_command_name("records"));
+        assert!(!is_write_command_name("records-all"));
+        assert!(!is_write_command_name("records-full"));
+
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let cmd = find_command(commands, &["llm-obs", "datasets", "records-add"])
+            .expect("llm-obs datasets records-add not found");
+        assert_eq!(cmd["read_only"].as_bool(), Some(false));
+        let full = find_command(commands, &["llm-obs", "datasets", "records-full"])
+            .expect("llm-obs datasets records-full not found");
+        assert_eq!(full["read_only"].as_bool(), Some(true));
     }
 
     #[test]
@@ -14091,6 +14312,19 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                 },
                 OnCallActions::Pages { action } => match action {
+                    OnCallPagesActions::List {
+                        team,
+                        responder,
+                        page_size,
+                    } => {
+                        commands::on_call::pages_list(
+                            &cfg,
+                            team.as_deref(),
+                            responder.as_deref(),
+                            page_size,
+                        )
+                        .await?;
+                    }
                     OnCallPagesActions::Create { file } => {
                         commands::on_call::pages_create(&cfg, &file).await?;
                     }
@@ -16101,8 +16335,20 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsProjectsActions::Create { file } => {
                         commands::llm_obs::projects_create(&cfg, &file).await?;
                     }
-                    LlmObsProjectsActions::List => {
-                        commands::llm_obs::projects_list(&cfg).await?;
+                    LlmObsProjectsActions::List {
+                        filter_id,
+                        filter_name,
+                        limit,
+                        cursor,
+                    } => {
+                        commands::llm_obs::projects_list(
+                            &cfg,
+                            filter_id,
+                            filter_name,
+                            limit,
+                            cursor,
+                        )
+                        .await?;
                     }
                 },
                 LlmObsActions::Experiments { action } => match action {
@@ -16167,6 +16413,19 @@ async fn main_inner() -> anyhow::Result<()> {
                             )
                             .await?;
                         }
+                        LlmObsExperimentsEventsActions::Submit {
+                            experiment_id,
+                            metrics,
+                            tags,
+                        } => {
+                            commands::llm_obs::experiments_events_submit(
+                                &cfg,
+                                &experiment_id,
+                                &metrics,
+                                tags,
+                            )
+                            .await?;
+                        }
                     },
                     LlmObsExperimentsActions::MetricValues {
                         experiment_id,
@@ -16199,8 +16458,22 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsDatasetsActions::Create { project_id, file } => {
                         commands::llm_obs::datasets_create(&cfg, &project_id, &file).await?;
                     }
-                    LlmObsDatasetsActions::List { project_id } => {
-                        commands::llm_obs::datasets_list(&cfg, &project_id).await?;
+                    LlmObsDatasetsActions::List {
+                        project_id,
+                        filter_id,
+                        filter_name,
+                        limit,
+                        cursor,
+                    } => {
+                        commands::llm_obs::datasets_list(
+                            &cfg,
+                            &project_id,
+                            filter_id,
+                            filter_name,
+                            limit,
+                            cursor,
+                        )
+                        .await?;
                     }
                     LlmObsDatasetsActions::BatchUpdate {
                         project_id,
@@ -16231,11 +16504,71 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::llm_obs::datasets_restore(&cfg, &project_id, &dataset_id, &file)
                             .await?;
                     }
+                    LlmObsDatasetsActions::RecordsAll { dataset_id, limit } => {
+                        commands::llm_obs::datasets_records_all(&cfg, &dataset_id, limit).await?;
+                    }
+                    LlmObsDatasetsActions::Records {
+                        project_id,
+                        dataset_id,
+                        record_ids,
+                        tags,
+                        canonical_id,
+                        dataset_version,
+                        limit,
+                        cursor,
+                        compute_schema,
+                    } => {
+                        commands::llm_obs::datasets_records(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            record_ids,
+                            tags,
+                            canonical_id,
+                            dataset_version,
+                            limit,
+                            cursor,
+                            compute_schema,
+                        )
+                        .await?;
+                    }
+                    LlmObsDatasetsActions::RecordsAdd {
+                        project_id,
+                        dataset_id,
+                        file,
+                        confirm,
+                        create_new_version,
+                    } => {
+                        commands::llm_obs::datasets_records_add(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            &file,
+                            confirm,
+                            create_new_version,
+                        )
+                        .await?;
+                    }
+                    LlmObsDatasetsActions::RecordsFull {
+                        project_id,
+                        dataset_id,
+                        record_ids,
+                    } => {
+                        commands::llm_obs::datasets_records_full(
+                            &cfg,
+                            &project_id,
+                            &dataset_id,
+                            record_ids,
+                        )
+                        .await?;
+                    }
                 },
                 LlmObsActions::Spans { action } => match action {
                     LlmObsSpansActions::Search {
                         query,
+                        tags,
                         trace_id,
+                        apm_trace_id,
                         span_id,
                         span_kind,
                         span_name,
@@ -16250,7 +16583,9 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::llm_obs::spans_search(
                             &cfg,
                             query,
+                            tags,
                             trace_id,
+                            apm_trace_id,
                             span_id,
                             span_kind,
                             span_name,
@@ -16412,6 +16747,48 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     LlmObsEvalsActions::Delete { eval_name } => {
                         commands::llm_obs::evals_delete(&cfg, &eval_name).await?;
+                    }
+                },
+                LlmObsActions::Patterns { action } => match action {
+                    LlmObsPatternsActions::Configs { action } => match action {
+                        LlmObsPatternConfigsActions::List => {
+                            commands::llm_obs::patterns_configs_list(&cfg).await?;
+                        }
+                        LlmObsPatternConfigsActions::Get => {
+                            commands::llm_obs::patterns_configs_get(&cfg).await?;
+                        }
+                    },
+                    LlmObsPatternsActions::Runs { action } => match action {
+                        LlmObsPatternRunsActions::List { config_id } => {
+                            commands::llm_obs::patterns_runs_list(&cfg, &config_id).await?;
+                        }
+                        LlmObsPatternRunsActions::Status { config_id } => {
+                            commands::llm_obs::patterns_runs_status(&cfg, &config_id).await?;
+                        }
+                    },
+                    LlmObsPatternsActions::Topics { config_id, run_id } => {
+                        commands::llm_obs::patterns_topics(&cfg, &config_id, run_id).await?;
+                    }
+                    LlmObsPatternsActions::TopicsWithPoints {
+                        config_id,
+                        run_id,
+                        include_metrics,
+                    } => {
+                        commands::llm_obs::patterns_topics_with_points(
+                            &cfg,
+                            &config_id,
+                            run_id,
+                            include_metrics,
+                        )
+                        .await?;
+                    }
+                    LlmObsPatternsActions::Points {
+                        topic_id,
+                        page_size,
+                        page_token,
+                    } => {
+                        commands::llm_obs::patterns_points(&cfg, &topic_id, page_size, page_token)
+                            .await?;
                     }
                 },
             }

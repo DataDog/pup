@@ -33,8 +33,28 @@ pub async fn projects_create(cfg: &Config, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
-pub async fn projects_list(cfg: &Config) -> Result<()> {
-    let resp = raw_client::raw_get(cfg, "/api/v2/llm-obs/v1/projects", &[])
+pub async fn projects_list(
+    cfg: &Config,
+    filter_id: Option<String>,
+    filter_name: Option<String>,
+    limit: Option<u32>,
+    cursor: Option<String>,
+) -> Result<()> {
+    let mut query: Vec<(&str, String)> = Vec::new();
+    if let Some(ref id) = filter_id {
+        query.push(("filter[id]", id.clone()));
+    }
+    if let Some(ref name) = filter_name {
+        query.push(("filter[name]", name.clone()));
+    }
+    if let Some(l) = limit {
+        query.push(("page[limit]", l.to_string()));
+    }
+    if let Some(ref c) = cursor {
+        query.push(("page[cursor]", c.clone()));
+    }
+    let query_refs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let resp = raw_client::raw_get(cfg, "/api/v2/llm-obs/v1/projects", &query_refs)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list LLM obs projects: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -103,9 +123,30 @@ pub async fn datasets_create(cfg: &Config, project_id: &str, file: &str) -> Resu
     formatter::output(cfg, &resp)
 }
 
-pub async fn datasets_list(cfg: &Config, project_id: &str) -> Result<()> {
+pub async fn datasets_list(
+    cfg: &Config,
+    project_id: &str,
+    filter_id: Option<String>,
+    filter_name: Option<String>,
+    limit: Option<u32>,
+    cursor: Option<String>,
+) -> Result<()> {
     let path = format!("/api/v2/llm-obs/v1/{project_id}/datasets");
-    let resp = raw_client::raw_get(cfg, &path, &[])
+    let mut query: Vec<(&str, String)> = Vec::new();
+    if let Some(ref id) = filter_id {
+        query.push(("filter[id]", id.clone()));
+    }
+    if let Some(ref name) = filter_name {
+        query.push(("filter[name]", name.clone()));
+    }
+    if let Some(l) = limit {
+        query.push(("page[limit]", l.to_string()));
+    }
+    if let Some(ref c) = cursor {
+        query.push(("page[cursor]", c.clone()));
+    }
+    let query_refs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let resp = raw_client::raw_get(cfg, &path, &query_refs)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list LLM obs datasets: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -154,6 +195,172 @@ pub async fn datasets_restore(
         .map_err(|e| anyhow::anyhow!("failed to restore dataset version: {e:?}"))?;
     println!("Dataset {dataset_id} restored.");
     Ok(())
+}
+
+// ---- Dataset records (no typed equivalent — unstable MCP endpoints) ----
+
+#[allow(clippy::too_many_arguments)]
+pub async fn datasets_records(
+    cfg: &Config,
+    project_id: &str,
+    dataset_id: &str,
+    record_ids: Option<Vec<String>>,
+    tags: Option<Vec<String>>,
+    canonical_id: Option<String>,
+    dataset_version: Option<i64>,
+    limit: u32,
+    cursor: Option<String>,
+    compute_schema: Option<bool>,
+) -> Result<()> {
+    let mut body = serde_json::json!({
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "limit": limit,
+    });
+    if let Some(ids) = record_ids {
+        body["record_ids"] = serde_json::json!(ids);
+    }
+    if let Some(t) = tags {
+        body["tags"] = serde_json::json!(t);
+    }
+    if let Some(c) = canonical_id {
+        body["canonical_id"] = serde_json::json!(c);
+    }
+    if let Some(v) = dataset_version {
+        body["dataset_version"] = serde_json::json!(v);
+    }
+    if let Some(c) = cursor {
+        body["cursor"] = serde_json::json!(c);
+    }
+    if let Some(cs) = compute_schema {
+        body["compute_schema"] = serde_json::json!(cs);
+    }
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/dataset/records", body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get dataset records: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+/// Hard stop on page count so a misbehaving cursor cannot loop forever.
+const RECORDS_ALL_MAX_PAGES: u32 = 200;
+
+/// Read EVERY record in a dataset by paging the REST records endpoint.
+///
+/// `datasets records` posts to `llm-obs-mcp/v1/dataset/records`, which trims its response to a
+/// size budget (~19 records on a dataset with sizeable inputs), reports `truncated: true`, and
+/// returns **no cursor** — so there is no way to reach the rest of a large dataset through it.
+/// This pages `GET /api/unstable/llm-obs/v1/datasets/{id}/records` using `meta.after`, which has
+/// no such cap, and emits the aggregated records under the same `records`/`returned` keys.
+///
+/// The REST route needs no project_id, so this takes only the dataset id.
+pub async fn datasets_records_all(
+    cfg: &Config,
+    dataset_id: &str,
+    limit: Option<u32>,
+) -> Result<()> {
+    let path = format!("/api/unstable/llm-obs/v1/datasets/{dataset_id}/records");
+    let page_limit = limit.unwrap_or(100).to_string();
+    let mut records: Vec<serde_json::Value> = Vec::new();
+    let mut cursor = String::new();
+    let mut pages: u32 = 0;
+
+    loop {
+        let mut query: Vec<(&str, &str)> = vec![("page[limit]", page_limit.as_str())];
+        if !cursor.is_empty() {
+            query.push(("page[cursor]", cursor.as_str()));
+        }
+        let resp = raw_client::raw_get(cfg, &path, &query)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to list dataset records: {e:?}"))?;
+        pages += 1;
+
+        match resp["data"].as_array() {
+            Some(page) if !page.is_empty() => records.extend(page.iter().cloned()),
+            _ => break,
+        }
+
+        let after = resp["meta"]["after"].as_str().unwrap_or_default();
+        // Empty or unchanged cursor both mean "no further pages".
+        if after.is_empty() || after == cursor {
+            break;
+        }
+        cursor = after.to_string();
+
+        if pages >= RECORDS_ALL_MAX_PAGES {
+            eprintln!(
+                "warning: stopped after {pages} pages ({} records); the dataset may have more",
+                records.len()
+            );
+            break;
+        }
+    }
+
+    let out = serde_json::json!({
+        "dataset_id": dataset_id,
+        "kind": "full_list",
+        "records": records,
+        "returned": records.len(),
+        "truncated": false,
+        "pages_fetched": pages,
+    });
+    formatter::output(cfg, &out)
+}
+
+pub async fn datasets_records_full(
+    cfg: &Config,
+    project_id: &str,
+    dataset_id: &str,
+    record_ids: Vec<String>,
+) -> Result<()> {
+    let body = serde_json::json!({
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "record_ids": record_ids,
+    });
+    let resp = raw_client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/dataset/records-full",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to get full dataset records: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+/// Adds records to a dataset (mirrors the add_llmobs_dataset_records MCP tool).
+///
+/// The endpoint is two-step: without `confirm` it returns a preview (resolved IDs,
+/// planned record count, tag union) and writes nothing; with `confirm` it inserts.
+pub async fn datasets_records_add(
+    cfg: &Config,
+    project_id: &str,
+    dataset_id: &str,
+    file: &str,
+    confirm: bool,
+    create_new_version: Option<bool>,
+) -> Result<()> {
+    let records: serde_json::Value = util::read_json_file(file)?;
+    match records.as_array() {
+        Some(a) if !a.is_empty() => {}
+        _ => anyhow::bail!("--file must contain a non-empty JSON array of records"),
+    }
+    let mut body = serde_json::json!({
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "records": records,
+        "confirmed": confirm,
+    });
+    if let Some(v) = create_new_version {
+        body["create_new_version"] = serde_json::json!(v);
+    }
+    let resp = raw_client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/dataset/records-add",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to add dataset records: {e:?}"))?;
+    formatter::output(cfg, &resp)
 }
 
 // ---- Experiment analytics (no typed equivalent — unstable MCP endpoints) ----
@@ -211,6 +418,34 @@ pub async fn experiments_events_get(
     let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/experiment/event", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get experiment event: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn experiments_events_submit(
+    cfg: &Config,
+    experiment_id: &str,
+    metrics: &str,
+    tags: Option<Vec<String>>,
+) -> Result<()> {
+    // Mirrors the submit_llmobs_experiment_events MCP tool: experiment_id + metrics
+    // (array) + optional tags. metrics is passed through as-is; the server validates it.
+    let metrics: serde_json::Value = serde_json::from_str(metrics).map_err(|e| {
+        anyhow::anyhow!("--metrics must be a JSON array of eval-metric events: {e}")
+    })?;
+    let mut body = serde_json::json!({
+        "experiment_id": experiment_id,
+        "metrics": metrics,
+    });
+    if let Some(t) = tags {
+        body["tags"] = serde_json::json!(t);
+    }
+    let resp = raw_client::raw_post(
+        cfg,
+        "/api/unstable/llm-obs-mcp/v1/experiment/ingest-events",
+        body,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to submit experiment events: {e:?}"))?;
     formatter::output(cfg, &resp)
 }
 
@@ -466,11 +701,29 @@ pub async fn evals_delete(cfg: &Config, eval_name: &str) -> Result<()> {
 
 // ---- Spans (no typed equivalent — unstable MCP endpoint) ----
 
+/// Parses `key:value` tag filters into the JSON object the search-spans endpoint expects.
+/// Splits on the first colon only, so values may themselves contain colons.
+fn parse_tag_filters(tags: &[String]) -> Result<serde_json::Map<String, serde_json::Value>> {
+    let mut map = serde_json::Map::new();
+    for tag in tags {
+        let (key, value) = tag
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("--tags entries must be \"key:value\", got '{tag}'"))?;
+        if key.is_empty() || value.is_empty() {
+            anyhow::bail!("--tags entries must have a non-empty key and value, got '{tag}'");
+        }
+        map.insert(key.to_string(), serde_json::json!(value));
+    }
+    Ok(map)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn spans_search(
     cfg: &Config,
     query: Option<String>,
+    tags: Option<Vec<String>>,
     trace_id: Option<String>,
+    apm_trace_id: Option<String>,
     span_id: Option<String>,
     span_kind: Option<String>,
     span_name: Option<String>,
@@ -489,8 +742,14 @@ pub async fn spans_search(
     if let Some(q) = query {
         body["query"] = serde_json::json!(q);
     }
+    if let Some(t) = tags {
+        body["tags"] = serde_json::Value::Object(parse_tag_filters(&t)?);
+    }
     if let Some(t) = trace_id {
         body["trace_id"] = serde_json::json!(t);
+    }
+    if let Some(a) = apm_trace_id {
+        body["apm_trace_id"] = serde_json::json!(a);
     }
     if let Some(s) = span_id {
         body["span_id"] = serde_json::json!(s);
@@ -712,6 +971,114 @@ pub async fn spans_get_agent_loop(
     formatter::output(cfg, &resp)
 }
 
+// ---- Topic Discovery / Patterns (no typed equivalent — unstable MCP endpoints) ----
+//
+// Topic Discovery clusters LLM Obs spans into a topic hierarchy. A config defines
+// what to cluster; a run is one clustering of those spans at a point in time; a
+// completed run yields topics, each backed by clustering points (spans). The usual
+// read flow is:
+//
+//   patterns configs list -> patterns runs status -> patterns topics
+//     -> patterns points
+
+const PATTERNS_BASE: &str = "/api/unstable/llm-obs-mcp/v1/topic-discovery";
+
+/// POSTs `body` to a topic-discovery endpoint and prints the response.
+async fn patterns_post(
+    cfg: &Config,
+    endpoint: &str,
+    body: serde_json::Value,
+    what: &str,
+) -> Result<()> {
+    let path = format!("{PATTERNS_BASE}/{endpoint}");
+    let resp = raw_client::raw_post(cfg, &path, body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to {what}: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn patterns_configs_list(cfg: &Config) -> Result<()> {
+    patterns_post(
+        cfg,
+        "configs/list",
+        serde_json::json!({}),
+        "list pattern configs",
+    )
+    .await
+}
+
+/// Gets the most-recently-modified pattern config for the org. Takes no arguments —
+/// use `patterns configs list` to see all configs or resolve a specific config_id.
+pub async fn patterns_configs_get(cfg: &Config) -> Result<()> {
+    patterns_post(
+        cfg,
+        "config/get",
+        serde_json::json!({}),
+        "get pattern config",
+    )
+    .await
+}
+
+pub async fn patterns_runs_list(cfg: &Config, config_id: &str) -> Result<()> {
+    patterns_post(
+        cfg,
+        "runs/list",
+        serde_json::json!({ "config_id": config_id }),
+        "list pattern runs",
+    )
+    .await
+}
+
+pub async fn patterns_runs_status(cfg: &Config, config_id: &str) -> Result<()> {
+    patterns_post(
+        cfg,
+        "run-status",
+        serde_json::json!({ "config_id": config_id }),
+        "get pattern run status",
+    )
+    .await
+}
+
+pub async fn patterns_topics(cfg: &Config, config_id: &str, run_id: Option<String>) -> Result<()> {
+    let mut body = serde_json::json!({ "config_id": config_id });
+    if let Some(r) = run_id {
+        body["run_id"] = serde_json::json!(r);
+    }
+    patterns_post(cfg, "topics", body, "get patterns").await
+}
+
+pub async fn patterns_topics_with_points(
+    cfg: &Config,
+    config_id: &str,
+    run_id: Option<String>,
+    include_metrics: bool,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "config_id": config_id });
+    if let Some(r) = run_id {
+        body["run_id"] = serde_json::json!(r);
+    }
+    if include_metrics {
+        body["include_metrics"] = serde_json::json!(true);
+    }
+    patterns_post(cfg, "topics-with-points", body, "get patterns with points").await
+}
+
+pub async fn patterns_points(
+    cfg: &Config,
+    topic_id: &str,
+    page_size: Option<u32>,
+    page_token: Option<String>,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "topic_id": topic_id });
+    if let Some(s) = page_size {
+        body["page_size"] = serde_json::json!(s);
+    }
+    if let Some(t) = page_token {
+        body["page_token"] = serde_json::json!(t);
+    }
+    patterns_post(cfg, "clustered-points", body, "get pattern points").await
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -729,7 +1096,7 @@ mod tests {
         let body = r#"{"data":[{"id":"proj-1","type":"projects","attributes":{"name":"my-project","description":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}}]}"#;
         let _mock = mock_any(&mut server, "GET", body).await;
 
-        let result = super::projects_list(&cfg).await;
+        let result = super::projects_list(&cfg, None, None, None, None).await;
         assert!(result.is_ok(), "projects_list failed: {:?}", result.err());
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
@@ -750,7 +1117,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::projects_list(&cfg).await;
+        let result = super::projects_list(&cfg, None, None, None, None).await;
         assert!(
             result.is_err(),
             "expected error but got ok: {:?}",
@@ -777,7 +1144,7 @@ mod tests {
             read_only: false,
             jq: None,
         };
-        let result = super::projects_list(&cfg).await;
+        let result = super::projects_list(&cfg, None, None, None, None).await;
         assert!(result.is_err(), "should fail without auth");
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
@@ -797,10 +1164,49 @@ mod tests {
             r#"{"data":[{"id":"p1","type":"llm_obs_projects"}]}"#,
         )
         .await;
-        let result = super::projects_list(&cfg).await;
+        let result = super::projects_list(&cfg, None, None, None, None).await;
         assert!(
             result.is_ok(),
             "should tolerate missing nullable fields: {:?}",
+            result.err()
+        );
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_projects_list_with_filters() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Strict query param check: name/id filters and pagination are sent through.
+        let _mock = server
+            .mock("GET", "/api/v2/llm-obs/v1/projects")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("filter[id]".into(), "proj-1".into()),
+                mockito::Matcher::UrlEncoded("filter[name]".into(), "my-project".into()),
+                mockito::Matcher::UrlEncoded("page[limit]".into(), "5".into()),
+                mockito::Matcher::UrlEncoded("page[cursor]".into(), "cursor-abc".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::projects_list(
+            &cfg,
+            Some("proj-1".into()),
+            Some("my-project".into()),
+            Some(5),
+            Some("cursor-abc".into()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "projects_list with filters failed: {:?}",
             result.err()
         );
         cleanup_env();
@@ -932,6 +1338,105 @@ mod tests {
             "expected error but got ok: {:?}",
             result.ok()
         );
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_all_pages_until_cursor_empty() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Page 1: two records plus a cursor. Matched by the ABSENCE of page[cursor].
+        let page1 = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::UrlEncoded(
+                "page[limit]".into(),
+                "2".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[{"id":"rec-1"},{"id":"rec-2"}],"meta":{"after":"CURSOR2"}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        // Page 2: one record and an empty cursor, which terminates the loop.
+        let page2 = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::UrlEncoded(
+                "page[cursor]".into(),
+                "CURSOR2".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[{"id":"rec-3"}],"meta":{"after":""}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = super::datasets_records_all(&cfg, "ds-1", Some(2)).await;
+        assert!(
+            result.is_ok(),
+            "datasets_records_all failed: {:?}",
+            result.err()
+        );
+        // Both pages must have been requested — proves the cursor was followed.
+        page1.assert_async().await;
+        page2.assert_async().await;
+
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_all_stops_on_repeated_cursor() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Always returns the same cursor it was given: a server bug that would loop forever
+        // if the guard were missing.
+        let _mock = mock_any(
+            &mut server,
+            "GET",
+            r#"{"data":[{"id":"rec-1"}],"meta":{"after":"SAME"}}"#,
+        )
+        .await;
+
+        let result = super::datasets_records_all(&cfg, "ds-1", None).await;
+        assert!(result.is_ok(), "expected ok, got {:?}", result.err());
+
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_all_500() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(500)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["internal error"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::datasets_records_all(&cfg, "ds-1", None).await;
+        assert!(
+            result.is_err(),
+            "expected error but got ok: {:?}",
+            result.ok()
+        );
+
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
@@ -1117,8 +1622,48 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::datasets_list(&cfg, "proj-1").await;
+        let result = super::datasets_list(&cfg, "proj-1", None, None, None, None).await;
         assert!(result.is_ok(), "datasets_list failed: {:?}", result.err());
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_list_with_filters() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Strict path + query check: project-scoped path, name/id filters, pagination.
+        let _mock = server
+            .mock("GET", "/api/v2/llm-obs/v1/proj-1/datasets")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("filter[id]".into(), "ds-1".into()),
+                mockito::Matcher::UrlEncoded("filter[name]".into(), "my-dataset".into()),
+                mockito::Matcher::UrlEncoded("page[limit]".into(), "25".into()),
+                mockito::Matcher::UrlEncoded("page[cursor]".into(), "cursor-xyz".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::datasets_list(
+            &cfg,
+            "proj-1",
+            Some("ds-1".into()),
+            Some("my-dataset".into()),
+            Some(25),
+            Some("cursor-xyz".into()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "datasets_list with filters failed: {:?}",
+            result.err()
+        );
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
@@ -1138,7 +1683,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::datasets_list(&cfg, "proj-1").await;
+        let result = super::datasets_list(&cfg, "proj-1", None, None, None, None).await;
         assert!(
             result.is_err(),
             "expected error but got ok: {:?}",
@@ -1696,6 +2241,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             Some("my-app".into()),
             false,
             "1h".into(),
@@ -1707,6 +2254,95 @@ mod tests {
         .await;
         assert!(result.is_ok(), "spans_search failed: {:?}", result.err());
         cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_search_tags_and_apm_trace_id() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Strict body check: tags go up as a JSON object map, apm_trace_id as a string.
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/trace/search-spans")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "tags": {"env": "prod", "version": "1.2:3"},
+                "apm_trace_id": "apm-9",
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"spans":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::spans_search(
+            &cfg,
+            None,
+            // The second tag's value contains a colon — only the first colon splits.
+            Some(vec!["env:prod".into(), "version:1.2:3".into()]),
+            None,
+            Some("apm-9".into()),
+            None,
+            None,
+            None,
+            None,
+            false,
+            "1h".into(),
+            "now".into(),
+            10,
+            None,
+            false,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "spans_search with tags failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_spans_search_invalid_tags() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Malformed --tags must fail locally, before any request is made.
+        for bad in ["envprod", ":prod", "env:"] {
+            let result = super::spans_search(
+                &cfg,
+                None,
+                Some(vec![bad.to_string()]),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                "1h".into(),
+                "now".into(),
+                10,
+                None,
+                false,
+            )
+            .await;
+            assert!(result.is_err(), "expected error for --tags value '{bad}'");
+        }
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_parse_tag_filters() {
+        let map = super::parse_tag_filters(&["env:prod".into(), "svc:api:v2".into()]).unwrap();
+        assert_eq!(map["env"], serde_json::json!("prod"));
+        // Only the first colon splits, so colons survive inside values.
+        assert_eq!(map["svc"], serde_json::json!("api:v2"));
+        assert!(super::parse_tag_filters(&[]).unwrap().is_empty());
+        assert!(super::parse_tag_filters(&["nocolon".into()]).is_err());
+        assert!(super::parse_tag_filters(&[":novalue".into()]).is_err());
+        assert!(super::parse_tag_filters(&["nokey:".into()]).is_err());
     }
 
     #[tokio::test]
@@ -1734,6 +2370,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             false,
             "4h".into(),
             "now".into(),
@@ -1755,6 +2393,8 @@ mod tests {
 
         let result = super::spans_search(
             &cfg,
+            None,
+            None,
             None,
             None,
             None,
@@ -1790,6 +2430,8 @@ mod tests {
 
         let result = super::spans_search(
             &cfg,
+            None,
+            None,
             None,
             None,
             None,
@@ -1834,6 +2476,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             false,
             "1h".into(),
             "now".into(),
@@ -1866,6 +2510,8 @@ mod tests {
 
         let result = super::spans_search(
             &cfg,
+            None,
+            None,
             None,
             None,
             None,
@@ -2640,6 +3286,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             false,
             "1h".into(),
             "now".into(),
@@ -2673,6 +3321,8 @@ mod tests {
 
         let result = super::spans_search(
             &cfg,
+            None,
+            None,
             None,
             None,
             None,
@@ -2848,6 +3498,692 @@ mod tests {
         let result = super::datasets_restore(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap()).await;
         assert!(result.is_err(), "should fail on 400");
         let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"records":[{"id":"rec-1"}],"schema_summary":{},"returned":1,"truncated":false,"next_cursor":null}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::datasets_records(
+            &cfg, "proj-1", "ds-1", None, None, None, None, 10, None, None,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "datasets_records failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_filtered() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"records":[],"returned":0,"truncated":false,"next_cursor":null}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::datasets_records(
+            &cfg,
+            "proj-1",
+            "ds-1",
+            Some(vec!["rec-1".into(), "rec-2".into()]),
+            Some(vec!["env:prod".into()]),
+            Some("canon-1".into()),
+            Some(3),
+            5,
+            Some("cursor-abc".into()),
+            Some(false),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "datasets_records filtered failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::datasets_records(
+            &cfg, "proj-1", "ds-1", None, None, None, None, 10, None, None,
+        )
+        .await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_full() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body = r#"{"status":"success","data":{"records":[{"id":"rec-1","input":{"prompt":"hello"},"expected_output":"world"}]}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records-full",
+            200,
+            body,
+        )
+        .await;
+
+        let result =
+            super::datasets_records_full(&cfg, "proj-1", "ds-1", vec!["rec-1".into()]).await;
+        assert!(
+            result.is_ok(),
+            "datasets_records_full failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_add_preview() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_records_add_preview.json",
+            r#"[{"input":{"question":"hi"},"expected_output":"hello","tags":["env:prod"]}]"#,
+        );
+        // Without --confirm the endpoint must be told confirmed=false so it only previews.
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/dataset/records-add")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "project_id": "proj-1",
+                "dataset_id": "ds-1",
+                "confirmed": false,
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"success","data":{"planned_record_count":1}}"#)
+            .create_async()
+            .await;
+
+        let result =
+            super::datasets_records_add(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap(), false, None)
+                .await;
+        assert!(
+            result.is_ok(),
+            "datasets_records_add preview failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_add_confirmed() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_ds_records_add_confirmed.json",
+            r#"[{"input":"a"},{"input":"b"}]"#,
+        );
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/dataset/records-add")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "confirmed": true,
+                "create_new_version": false,
+                "records": [{"input": "a"}, {"input": "b"}],
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"success","data":{"inserted":2}}"#)
+            .create_async()
+            .await;
+
+        let result = super::datasets_records_add(
+            &cfg,
+            "proj-1",
+            "ds-1",
+            tmp.to_str().unwrap(),
+            true,
+            Some(false),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "datasets_records_add confirmed failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_add_invalid_file() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // An object, an empty array, and a missing file must all fail locally
+        // before any request is made.
+        let not_array =
+            write_temp_json("pup_test_ds_records_add_not_array.json", r#"{"input":"a"}"#);
+        let empty = write_temp_json("pup_test_ds_records_add_empty.json", r#"[]"#);
+        for path in [not_array.to_str().unwrap(), empty.to_str().unwrap()] {
+            let result =
+                super::datasets_records_add(&cfg, "proj-1", "ds-1", path, false, None).await;
+            assert!(result.is_err(), "expected error for records file '{path}'");
+        }
+        let result = super::datasets_records_add(
+            &cfg,
+            "proj-1",
+            "ds-1",
+            "/nonexistent/pup_records.json",
+            false,
+            None,
+        )
+        .await;
+        assert!(result.is_err(), "expected error for missing records file");
+        let _ = std::fs::remove_file(not_array);
+        let _ = std::fs::remove_file(empty);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_datasets_records_add_400() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json("pup_test_ds_records_add_400.json", r#"[{"input":"a"}]"#);
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/dataset/records-add",
+            400,
+            r#"{"reason":"unknown_dataset"}"#,
+        )
+        .await;
+
+        let result =
+            super::datasets_records_add(&cfg, "proj-1", "ds-1", tmp.to_str().unwrap(), true, None)
+                .await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_events_submit() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let resp_body = r#"{"status":"success","data":{"accepted":1}}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/experiment/ingest-events",
+            200,
+            resp_body,
+        )
+        .await;
+
+        let result = super::experiments_events_submit(
+            &cfg,
+            "exp-1",
+            r#"[{"label":"accuracy","metric_type":"score","score_value":0.9}]"#,
+            Some(vec!["run:1".to_string()]),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "experiments_events_submit failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_events_submit_400() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["bad request"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::experiments_events_submit(
+            &cfg,
+            "exp-1",
+            r#"[{"label":"accuracy","metric_type":"score","score_value":0.9}]"#,
+            None,
+        )
+        .await;
+        assert!(result.is_err(), "should fail on 400");
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_events_submit_invalid_json() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Malformed --metrics should fail locally before any request is made.
+        let result = super::experiments_events_submit(&cfg, "exp-1", "not-json", None).await;
+        assert!(result.is_err(), "should fail on invalid metrics JSON");
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    // ---- Topic Discovery / Patterns ----
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_list() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body =
+            r#"{"configs":[{"id":"cfg-1","name":"prod spans","evp_query":"@ml_app:my-app"}]}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/configs/list",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::patterns_configs_list(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_get() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/get",
+            200,
+            r#"{"config":{"id":"cfg-1","name":"prod spans"}}"#,
+        )
+        .await;
+
+        let result = super::patterns_configs_get(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_get failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_get_404() {
+        // The org may have no config yet; the endpoint 404s rather than returning empty.
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/get",
+            404,
+            r#"{"reason":"not_found"}"#,
+        )
+        .await;
+
+        let result = super::patterns_configs_get(&cfg).await;
+        assert!(result.is_err(), "should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_runs_list() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Strict body check: config_id must reach the endpoint.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/runs/list",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"runs":[{"id":"run-1","status":"completed"}]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_runs_list(&cfg, "cfg-1").await;
+        assert!(
+            result.is_ok(),
+            "patterns_runs_list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_runs_status() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/run-status",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"run-1","status":"running","step":"clustering","progress":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_runs_status(&cfg, "cfg-1").await;
+        assert!(
+            result.is_ok(),
+            "patterns_runs_status failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_runs_status_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/run-status",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::patterns_runs_status(&cfg, "cfg-1").await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_topics_latest_run() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Omitting run_id must leave the key out entirely so the server picks the latest run.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/topics",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"topics":[{"id":"topic-1","name":"billing questions","point_count":42}]}"#,
+            )
+            .create_async()
+            .await;
+
+        let result = super::patterns_topics(&cfg, "cfg-1", None).await;
+        assert!(result.is_ok(), "patterns_topics failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_topics_specific_run() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/topics",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1", "run_id": "run-7"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"topics":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_topics(&cfg, "cfg-1", Some("run-7".into())).await;
+        assert!(
+            result.is_ok(),
+            "patterns_topics with run_id failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_topics_with_points() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // include_metrics is only sent when the flag is passed.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/topics-with-points",
+            )
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "config_id": "cfg-1",
+                "run_id": "run-7",
+                "include_metrics": true,
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"topics":[{"id":"topic-1","points":[{"span_id":"s-1"}]}]}"#)
+            .create_async()
+            .await;
+
+        let result =
+            super::patterns_topics_with_points(&cfg, "cfg-1", Some("run-7".into()), true).await;
+        assert!(
+            result.is_ok(),
+            "patterns_topics_with_points failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_topics_with_points_omits_metrics() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Without the flag, include_metrics must be absent (not false) so the
+        // server default applies — matching the MCP tool's behavior.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/topics-with-points",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"topics":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_topics_with_points(&cfg, "cfg-1", None, false).await;
+        assert!(
+            result.is_ok(),
+            "patterns_topics_with_points without metrics failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_points_paginated() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/clustered-points",
+            )
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "topic_id": "topic-1",
+                "page_size": 50,
+                "page_token": "tok-abc",
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"points":[{"span_id":"s-1","session_id":"sess-1"}],"next_page_token":"tok-def"}"#)
+            .create_async()
+            .await;
+
+        let result =
+            super::patterns_points(&cfg, "topic-1", Some(50), Some("tok-abc".into())).await;
+        assert!(result.is_ok(), "patterns_points failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_points_defaults() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Omitted paging args must not appear in the body.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/clustered-points",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"topic_id": "topic-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"points":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_points(&cfg, "topic-1", None, None).await;
+        assert!(
+            result.is_ok(),
+            "patterns_points defaults failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_points_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/clustered-points",
+            404,
+            r#"{"reason":"unknown_topic"}"#,
+        )
+        .await;
+
+        let result = super::patterns_points(&cfg, "missing", None, None).await;
+        assert!(result.is_err(), "should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_no_auth() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+            jq: None,
+        };
+        let result = super::patterns_configs_list(&cfg).await;
+        assert!(result.is_err(), "should fail without auth");
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }

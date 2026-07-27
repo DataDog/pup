@@ -37,6 +37,13 @@ impl std::error::Error for HttpError {}
 async fn parse_response_json(resp: reqwest::Response) -> anyhow::Result<serde_json::Value> {
     use serde::Deserialize;
     let bytes = resp.bytes().await?;
+    // Some endpoints return a success status (e.g. 200) with an empty body, such
+    // as GET /api/v2/on-call/pages/{id} which responds with content-length: 0.
+    // Treat an empty or whitespace-only body as JSON null rather than failing
+    // with "EOF while parsing value at line 1 column 0".
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return Ok(serde_json::Value::Null);
+    }
     let mut de = serde_json::Deserializer::from_slice(&bytes);
     de.disable_recursion_limit();
     let de = serde_stacker::Deserializer::new(&mut de);
@@ -1104,6 +1111,74 @@ mod tests {
             "raw_request with query failed: {:?}",
             resp.err()
         );
+        cleanup_env();
+    }
+
+    /// Regression test: a 200 response with an empty body must parse as JSON null
+    /// instead of failing with "EOF while parsing value at line 1 column 0".
+    #[tokio::test]
+    async fn test_raw_get_empty_body_returns_null() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", "/api/v2/on-call/pages/12345")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("")
+            .create_async()
+            .await;
+        let resp = super::raw_get(&cfg, "/api/v2/on-call/pages/12345", &[]).await;
+        assert!(
+            resp.is_ok(),
+            "raw_get with empty body failed: {:?}",
+            resp.err()
+        );
+        assert_eq!(resp.unwrap(), serde_json::Value::Null);
+        cleanup_env();
+    }
+
+    /// A whitespace-only body is also unparseable JSON and must be treated as null.
+    #[tokio::test]
+    async fn test_raw_get_whitespace_body_returns_null() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", "/api/v2/on-call/pages/12345")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("  \n\t ")
+            .create_async()
+            .await;
+        let resp = super::raw_get(&cfg, "/api/v2/on-call/pages/12345", &[]).await;
+        assert!(
+            resp.is_ok(),
+            "raw_get with whitespace body failed: {:?}",
+            resp.err()
+        );
+        assert_eq!(resp.unwrap(), serde_json::Value::Null);
+        cleanup_env();
+    }
+
+    /// A non-empty JSON body must still parse normally (the empty-body guard must
+    /// not shadow the regular parse path).
+    #[tokio::test]
+    async fn test_raw_get_nonempty_body_parses() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", "/api/v2/on-call/pages/12345")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"id": "12345"}}"#)
+            .create_async()
+            .await;
+        let resp = super::raw_get(&cfg, "/api/v2/on-call/pages/12345", &[])
+            .await
+            .expect("raw_get with JSON body should succeed");
+        assert_eq!(resp["data"]["id"], "12345");
         cleanup_env();
     }
 }

@@ -470,17 +470,24 @@ fn extract_rows(value: &serde_json::Value) -> Vec<&serde_json::Value> {
     }
 }
 
+/// Truncate `s` to at most `max` characters, appending "..." when shortened.
+/// Cuts on character boundaries so multi-byte UTF-8 text never panics.
+fn truncate_ellipsis(s: &str, max: usize) -> String {
+    if s.chars().count() > max {
+        let keep: String = s.chars().take(max.saturating_sub(3)).collect();
+        format!("{keep}...")
+    } else {
+        s.to_string()
+    }
+}
+
 /// Compact label for a single array element, used when previewing arrays in table cells.
 /// For objects, tries id/name/title/type in order; falls back to format_cell for primitives.
 fn format_array_item(value: &serde_json::Value) -> String {
     if let serde_json::Value::Object(map) = value {
         for key in &["name", "title", "id", "type"] {
             if let Some(serde_json::Value::String(s)) = map.get(*key) {
-                return if s.len() > 16 {
-                    format!("{}...", &s[..13])
-                } else {
-                    s.clone()
-                };
+                return truncate_ellipsis(s, 16);
             }
         }
         return format!("{{{} fields}}", map.len());
@@ -491,13 +498,7 @@ fn format_array_item(value: &serde_json::Value) -> String {
 fn format_cell(value: Option<&serde_json::Value>) -> String {
     match value {
         None | Some(serde_json::Value::Null) => String::new(),
-        Some(serde_json::Value::String(s)) => {
-            if s.len() > 50 {
-                format!("{}...", &s[..47])
-            } else {
-                s.clone()
-            }
-        }
+        Some(serde_json::Value::String(s)) => truncate_ellipsis(s, 50),
         Some(serde_json::Value::Number(n)) => n.to_string(),
         Some(serde_json::Value::Bool(b)) => b.to_string(),
         Some(serde_json::Value::Array(arr)) => {
@@ -509,11 +510,7 @@ fn format_cell(value: Option<&serde_json::Value>) -> String {
                 parts.push(format!("+{} more", arr.len() - 4));
             }
             let result = format!("[{}]", parts.join(", "));
-            if result.len() > 50 {
-                format!("{}...", &result[..47])
-            } else {
-                result
-            }
+            truncate_ellipsis(&result, 50)
         }
         Some(serde_json::Value::Object(map)) => format!("{{{} fields}}", map.len()),
     }
@@ -567,6 +564,27 @@ mod tests {
         let result = format_cell(Some(&serde_json::json!(long)));
         assert_eq!(result.len(), 50);
         assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_format_cell_long_multibyte_string_char_boundary() {
+        // Regression: truncating by byte index used to panic when the cut point
+        // landed inside a multi-byte UTF-8 character (issue #676).
+        let name = "Resx V4 ;-) (vérifier que c'est bien un problème de resx avant de recycler)";
+        let result = format_cell(Some(&serde_json::json!(name)));
+        // 47 kept chars + the ellipsis, counted by characters not bytes.
+        let expected: String = name.chars().take(47).collect();
+        assert_eq!(result, format!("{expected}..."));
+        assert_eq!(result.chars().count(), 50, "got: {result}");
+    }
+
+    #[test]
+    fn test_format_array_item_multibyte_no_panic() {
+        // The array-preview path (16-char cap) is also char-boundary safe.
+        let arr = serde_json::json!([{"name": "problème récurrent de résolution"}]);
+        let result = format_cell(Some(&arr));
+        assert!(result.contains("..."), "got: {result}");
+        assert!(result.starts_with("[problème réc"), "got: {result}");
     }
 
     #[test]

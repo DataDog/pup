@@ -971,6 +971,114 @@ pub async fn spans_get_agent_loop(
     formatter::output(cfg, &resp)
 }
 
+// ---- Topic Discovery / Patterns (no typed equivalent — unstable MCP endpoints) ----
+//
+// Topic Discovery clusters LLM Obs spans into a topic hierarchy. A config defines
+// what to cluster; a run is one clustering of those spans at a point in time; a
+// completed run yields topics, each backed by clustering points (spans). The usual
+// read flow is:
+//
+//   patterns configs list -> patterns runs status -> patterns topics
+//     -> patterns points
+
+const PATTERNS_BASE: &str = "/api/unstable/llm-obs-mcp/v1/topic-discovery";
+
+/// POSTs `body` to a topic-discovery endpoint and prints the response.
+async fn patterns_post(
+    cfg: &Config,
+    endpoint: &str,
+    body: serde_json::Value,
+    what: &str,
+) -> Result<()> {
+    let path = format!("{PATTERNS_BASE}/{endpoint}");
+    let resp = raw_client::raw_post(cfg, &path, body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to {what}: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn patterns_configs_list(cfg: &Config) -> Result<()> {
+    patterns_post(
+        cfg,
+        "configs/list",
+        serde_json::json!({}),
+        "list pattern configs",
+    )
+    .await
+}
+
+/// Gets the most-recently-modified pattern config for the org. Takes no arguments —
+/// use `patterns configs list` to see all configs or resolve a specific config_id.
+pub async fn patterns_configs_get(cfg: &Config) -> Result<()> {
+    patterns_post(
+        cfg,
+        "config/get",
+        serde_json::json!({}),
+        "get pattern config",
+    )
+    .await
+}
+
+pub async fn patterns_runs_list(cfg: &Config, config_id: &str) -> Result<()> {
+    patterns_post(
+        cfg,
+        "runs/list",
+        serde_json::json!({ "config_id": config_id }),
+        "list pattern runs",
+    )
+    .await
+}
+
+pub async fn patterns_runs_status(cfg: &Config, config_id: &str) -> Result<()> {
+    patterns_post(
+        cfg,
+        "run-status",
+        serde_json::json!({ "config_id": config_id }),
+        "get pattern run status",
+    )
+    .await
+}
+
+pub async fn patterns_topics(cfg: &Config, config_id: &str, run_id: Option<String>) -> Result<()> {
+    let mut body = serde_json::json!({ "config_id": config_id });
+    if let Some(r) = run_id {
+        body["run_id"] = serde_json::json!(r);
+    }
+    patterns_post(cfg, "topics", body, "get patterns").await
+}
+
+pub async fn patterns_topics_with_points(
+    cfg: &Config,
+    config_id: &str,
+    run_id: Option<String>,
+    include_metrics: bool,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "config_id": config_id });
+    if let Some(r) = run_id {
+        body["run_id"] = serde_json::json!(r);
+    }
+    if include_metrics {
+        body["include_metrics"] = serde_json::json!(true);
+    }
+    patterns_post(cfg, "topics-with-points", body, "get patterns with points").await
+}
+
+pub async fn patterns_points(
+    cfg: &Config,
+    topic_id: &str,
+    page_size: Option<u32>,
+    page_token: Option<String>,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "topic_id": topic_id });
+    if let Some(s) = page_size {
+        body["page_size"] = serde_json::json!(s);
+    }
+    if let Some(t) = page_token {
+        body["page_token"] = serde_json::json!(t);
+    }
+    patterns_post(cfg, "clustered-points", body, "get pattern points").await
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -3706,6 +3814,376 @@ mod tests {
         // Malformed --metrics should fail locally before any request is made.
         let result = super::experiments_events_submit(&cfg, "exp-1", "not-json", None).await;
         assert!(result.is_err(), "should fail on invalid metrics JSON");
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    // ---- Topic Discovery / Patterns ----
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_list() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let body =
+            r#"{"configs":[{"id":"cfg-1","name":"prod spans","evp_query":"@ml_app:my-app"}]}"#;
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/configs/list",
+            200,
+            body,
+        )
+        .await;
+
+        let result = super::patterns_configs_list(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_get() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/get",
+            200,
+            r#"{"config":{"id":"cfg-1","name":"prod spans"}}"#,
+        )
+        .await;
+
+        let result = super::patterns_configs_get(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_get failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_get_404() {
+        // The org may have no config yet; the endpoint 404s rather than returning empty.
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/get",
+            404,
+            r#"{"reason":"not_found"}"#,
+        )
+        .await;
+
+        let result = super::patterns_configs_get(&cfg).await;
+        assert!(result.is_err(), "should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_runs_list() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Strict body check: config_id must reach the endpoint.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/runs/list",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"runs":[{"id":"run-1","status":"completed"}]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_runs_list(&cfg, "cfg-1").await;
+        assert!(
+            result.is_ok(),
+            "patterns_runs_list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_runs_status() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/run-status",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"run-1","status":"running","step":"clustering","progress":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_runs_status(&cfg, "cfg-1").await;
+        assert!(
+            result.is_ok(),
+            "patterns_runs_status failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_runs_status_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/run-status",
+            500,
+            r#"{"errors":["internal server error"]}"#,
+        )
+        .await;
+
+        let result = super::patterns_runs_status(&cfg, "cfg-1").await;
+        assert!(result.is_err(), "should fail on 500");
+        assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_topics_latest_run() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Omitting run_id must leave the key out entirely so the server picks the latest run.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/topics",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"topics":[{"id":"topic-1","name":"billing questions","point_count":42}]}"#,
+            )
+            .create_async()
+            .await;
+
+        let result = super::patterns_topics(&cfg, "cfg-1", None).await;
+        assert!(result.is_ok(), "patterns_topics failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_topics_specific_run() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/topics",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1", "run_id": "run-7"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"topics":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_topics(&cfg, "cfg-1", Some("run-7".into())).await;
+        assert!(
+            result.is_ok(),
+            "patterns_topics with run_id failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_topics_with_points() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // include_metrics is only sent when the flag is passed.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/topics-with-points",
+            )
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "config_id": "cfg-1",
+                "run_id": "run-7",
+                "include_metrics": true,
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"topics":[{"id":"topic-1","points":[{"span_id":"s-1"}]}]}"#)
+            .create_async()
+            .await;
+
+        let result =
+            super::patterns_topics_with_points(&cfg, "cfg-1", Some("run-7".into()), true).await;
+        assert!(
+            result.is_ok(),
+            "patterns_topics_with_points failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_topics_with_points_omits_metrics() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Without the flag, include_metrics must be absent (not false) so the
+        // server default applies — matching the MCP tool's behavior.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/topics-with-points",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"topics":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_topics_with_points(&cfg, "cfg-1", None, false).await;
+        assert!(
+            result.is_ok(),
+            "patterns_topics_with_points without metrics failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_points_paginated() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/clustered-points",
+            )
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "topic_id": "topic-1",
+                "page_size": 50,
+                "page_token": "tok-abc",
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"points":[{"span_id":"s-1","session_id":"sess-1"}],"next_page_token":"tok-def"}"#)
+            .create_async()
+            .await;
+
+        let result =
+            super::patterns_points(&cfg, "topic-1", Some(50), Some("tok-abc".into())).await;
+        assert!(result.is_ok(), "patterns_points failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_points_defaults() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Omitted paging args must not appear in the body.
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/clustered-points",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"topic_id": "topic-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"points":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_points(&cfg, "topic-1", None, None).await;
+        assert!(
+            result.is_ok(),
+            "patterns_points defaults failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_points_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/clustered-points",
+            404,
+            r#"{"reason":"unknown_topic"}"#,
+        )
+        .await;
+
+        let result = super::patterns_points(&cfg, "missing", None, None).await;
+        assert!(result.is_err(), "should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_no_auth() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+            jq: None,
+        };
+        let result = super::patterns_configs_list(&cfg).await;
+        assert!(result.is_err(), "should fail without auth");
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }

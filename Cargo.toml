@@ -109,7 +109,7 @@ comfy-table = { version = "7", default-features = false }
 
 # Auth — OAuth2 PKCE + token storage (optional — not needed for browser)
 sha2 = { version = "0.11", optional = true }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 # Pinned to 0.10.1+ to prevent the SDK rev (d70b186e) from pulling in the older 0.10.0 patch
 rand = { version = "0.10.1", optional = true }
 url = { version = "2", optional = true }

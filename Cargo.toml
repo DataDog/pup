@@ -109,7 +109,7 @@ comfy-table = { version = "7", default-features = false }
 
 # Auth — OAuth2 PKCE + token storage (optional — not needed for browser)
 sha2 = { version = "0.11", optional = true }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 # Pinned to 0.10.1+ to prevent the SDK rev (d70b186e) from pulling in the older 0.10.0 patch
 rand = { version = "0.10.1", optional = true }
 url = { version = "2", optional = true }
@@ -118,14 +118,14 @@ url = { version = "2", optional = true }
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 
 # Crypto for fallback storage (optional — not needed for browser)
-aes-gcm = { version = "0.10", optional = true }
+aes-gcm = { version = "0.11", optional = true }
 
 # ---- Native-only dependencies ----
 
 # Synthetics tunnel
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"], optional = true }
-yamux = { version = "0.13", optional = true }
-russh = { version = "0.61", optional = true }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"], optional = true }
+yamux = { version = "0.14", optional = true }
+russh = { version = "0.62", optional = true }
 ssh-key = { version = "0.6", features = ["p256", "std"], optional = true }
 futures = { version = "0.3", optional = true }
 tokio-util = { version = "0.7", features = ["compat", "io"], optional = true }
@@ -163,7 +163,7 @@ serde-wasm-bindgen = { version = "0.6", optional = true }
 
 # RNG support in browser WASM (getrandom 0.4 — wasm_js feature enables JS crypto API)
 getrandom = { version = "0.4", features = ["wasm_js"], optional = true }
-jsonschema = { version = "0.46.5", default-features = false }
+jsonschema = { version = "0.49.1", default-features = false }
 jaq-core = "3.1.0"
 jaq-std = "3.0.1"
 jaq-json = { version = "2.0.1", features = ["serde"] }

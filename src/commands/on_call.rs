@@ -469,6 +469,61 @@ pub async fn pages_get(cfg: &Config, page_id: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+/// Lists on-call pages, optionally filtered by team handle (server-side) and
+/// responder user id (client-side).
+///
+/// Uses `raw_client::raw_get` against the unstable endpoint because
+/// `datadog-api-client` exposes no list binding, and the stable v2 collection
+/// endpoint currently returns an empty body.
+pub async fn pages_list(
+    cfg: &Config,
+    team: Option<&str>,
+    responder: Option<&str>,
+    page_size: u32,
+) -> Result<()> {
+    if !(1..=1000).contains(&page_size) {
+        anyhow::bail!("invalid page_size: {page_size}. Expected a value from 1 to 1000");
+    }
+
+    let page_size = page_size.to_string();
+    let team_filter = team.map(|t| format!("team:{t}"));
+    let mut query = vec![("page[size]", page_size.as_str())];
+    if let Some(filter) = team_filter.as_deref() {
+        query.push(("filter", filter));
+    }
+
+    let mut resp = raw_client::raw_get(cfg, "/api/unstable/on-call/pages", &query)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list pages: {e:?}"))?;
+
+    if let Some(responder) = responder {
+        filter_pages_by_responder(&mut resp, responder);
+    }
+
+    formatter::output(cfg, &resp)
+}
+
+fn filter_pages_by_responder(resp: &mut serde_json::Value, responder: &str) {
+    if let Some(pages) = resp
+        .get_mut("data")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        pages.retain(|page| page_has_responder(page, responder));
+    }
+}
+
+fn page_has_responder(page: &serde_json::Value, responder: &str) -> bool {
+    page.get("relationships")
+        .and_then(|relationships| relationships.get("responders"))
+        .and_then(|responders| responders.get("data"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|responders| {
+            responders.iter().any(|responder_ref| {
+                responder_ref.get("id").and_then(serde_json::Value::as_str) == Some(responder)
+            })
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
@@ -863,6 +918,88 @@ mod tests {
         let result = super::pages_get(&cfg, "abc/def?x").await;
         assert!(result.is_ok(), "pages_get failed: {:?}", result.err());
         cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_on_call_pages_list_by_team() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let mock = s
+            .mock("GET", "/api/unstable/on-call/pages")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("page[size]".into(), "42".into()),
+                mockito::Matcher::UrlEncoded("filter".into(), "team:core-platform".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+        let result = super::pages_list(&cfg, Some("core-platform"), None, 42).await;
+        assert!(result.is_ok(), "pages_list failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_on_call_pages_list_rejects_invalid_page_size() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        let result = super::pages_list(&cfg, None, None, 0).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid page_size"));
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_page_has_responder_matches_and_rejects() {
+        let page = serde_json::json!({
+            "relationships": {
+                "responders": {
+                    "data": [
+                        { "id": "user-1", "type": "users" },
+                        { "id": "user-2", "type": "users" }
+                    ]
+                }
+            }
+        });
+
+        assert!(super::page_has_responder(&page, "user-2"));
+        assert!(!super::page_has_responder(&page, "user-3"));
+    }
+
+    #[test]
+    fn test_filter_pages_by_responder() {
+        let mut resp = serde_json::json!({
+            "data": [
+                {
+                    "id": "page-1",
+                    "relationships": {
+                        "responders": {
+                            "data": [{ "id": "user-1", "type": "users" }]
+                        }
+                    }
+                },
+                {
+                    "id": "page-2",
+                    "relationships": {
+                        "responders": {
+                            "data": [{ "id": "user-2", "type": "users" }]
+                        }
+                    }
+                },
+                { "id": "page-3" }
+            ]
+        });
+
+        super::filter_pages_by_responder(&mut resp, "user-2");
+        let pages = resp["data"].as_array().unwrap();
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0]["id"], "page-2");
     }
 
     #[tokio::test]

@@ -25,7 +25,6 @@ A clear and concise description of what you expected to happen.
 
 - OS: [e.g. macOS, Linux, Windows]
 - Pup version: [e.g. 1.0.0] (run `pup --version`)
-- Go version: [e.g. 1.21.0] (run `go version`)
 - Authentication method: [OAuth2 / API Keys]
 
 ## Command output

@@ -9088,6 +9088,79 @@ enum LlmObsActions {
         #[command(subcommand)]
         action: LlmObsEvalsActions,
     },
+    /// Explore Topic Discovery (Patterns): span clusters and their topic hierarchy
+    Patterns {
+        #[command(subcommand)]
+        action: LlmObsPatternsActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsPatternsActions {
+    /// Manage Topic Discovery configurations
+    Configs {
+        #[command(subcommand)]
+        action: LlmObsPatternConfigsActions,
+    },
+    /// Inspect Topic Discovery runs for a config
+    Runs {
+        #[command(subcommand)]
+        action: LlmObsPatternRunsActions,
+    },
+    /// Get the topic hierarchy discovered by a run
+    Topics {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+        #[arg(long, help = "Specific run ID (defaults to the latest completed run)")]
+        run_id: Option<String>,
+    },
+    /// Get the topic hierarchy with clustering point span IDs inlined on leaf topics
+    #[command(name = "topics-with-points")]
+    TopicsWithPoints {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+        #[arg(long, help = "Specific run ID (defaults to the latest completed run)")]
+        run_id: Option<String>,
+        #[arg(
+            long,
+            help = "Inline per-span duration, cost, token counts, and evaluations (heavier response)"
+        )]
+        include_metrics: bool,
+    },
+    /// Get a page of clustering points (spans) for a single topic
+    Points {
+        #[arg(long, help = "Topic ID (required)")]
+        topic_id: String,
+        #[arg(
+            long,
+            help = "Max points per page (server default applies when omitted)"
+        )]
+        page_size: Option<u32>,
+        #[arg(long, help = "Pagination cursor (next_page_token) from a prior call")]
+        page_token: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsPatternConfigsActions {
+    /// List all Topic Discovery configs for the org
+    List,
+    /// Get the most-recently-modified Topic Discovery config for the org
+    Get,
+}
+
+#[derive(Subcommand)]
+enum LlmObsPatternRunsActions {
+    /// List completed runs for a config, newest first
+    List {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+    },
+    /// Get status and per-activity progress of the most recent run for a config
+    Status {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -16633,6 +16706,48 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     LlmObsEvalsActions::Delete { eval_name } => {
                         commands::llm_obs::evals_delete(&cfg, &eval_name).await?;
+                    }
+                },
+                LlmObsActions::Patterns { action } => match action {
+                    LlmObsPatternsActions::Configs { action } => match action {
+                        LlmObsPatternConfigsActions::List => {
+                            commands::llm_obs::patterns_configs_list(&cfg).await?;
+                        }
+                        LlmObsPatternConfigsActions::Get => {
+                            commands::llm_obs::patterns_configs_get(&cfg).await?;
+                        }
+                    },
+                    LlmObsPatternsActions::Runs { action } => match action {
+                        LlmObsPatternRunsActions::List { config_id } => {
+                            commands::llm_obs::patterns_runs_list(&cfg, &config_id).await?;
+                        }
+                        LlmObsPatternRunsActions::Status { config_id } => {
+                            commands::llm_obs::patterns_runs_status(&cfg, &config_id).await?;
+                        }
+                    },
+                    LlmObsPatternsActions::Topics { config_id, run_id } => {
+                        commands::llm_obs::patterns_topics(&cfg, &config_id, run_id).await?;
+                    }
+                    LlmObsPatternsActions::TopicsWithPoints {
+                        config_id,
+                        run_id,
+                        include_metrics,
+                    } => {
+                        commands::llm_obs::patterns_topics_with_points(
+                            &cfg,
+                            &config_id,
+                            run_id,
+                            include_metrics,
+                        )
+                        .await?;
+                    }
+                    LlmObsPatternsActions::Points {
+                        topic_id,
+                        page_size,
+                        page_token,
+                    } => {
+                        commands::llm_obs::patterns_points(&cfg, &topic_id, page_size, page_token)
+                            .await?;
                     }
                 },
             }

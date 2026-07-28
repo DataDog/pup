@@ -64,6 +64,8 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "dbm_read",
         "error_tracking_read",
         "events_read",
+        "feature_flag_config_read",
+        "feature_flag_environment_config_read",
         "gcp_configuration_read",
         "disaster_recovery_status_read",
         "hosts_read",
@@ -161,6 +163,12 @@ pub fn default_scopes() -> Vec<&'static str> {
         "error_tracking_read",
         // Events
         "events_read",
+        // Feature Flags
+        "feature_flag_config_read",
+        "feature_flag_config_write",
+        "feature_flag_environment_config_read",
+        "feature_flag_environment_config_write",
+        "feature_flag_approvals_override",
         // GCP
         "gcp_configuration_read",
         // HAMR (disaster recovery)

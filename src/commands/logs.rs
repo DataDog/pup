@@ -13,7 +13,7 @@ use crate::raw_client;
 use crate::util;
 use crate::util_ext;
 
-const SAVED_VIEWS_PATH: &str = "/api/v2/logs/config/saved_views";
+const SAVED_VIEWS_PATH: &str = "/api/v1/logs/views";
 
 pub struct AggregateArgs {
     pub query: String,
@@ -791,10 +791,10 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
         let _mock = server
-            .mock("GET", "/api/v2/logs/config/saved_views")
+            .mock("GET", "/api/v1/logs/views")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": []}"#)
+            .with_body(r#"{"logs_views": []}"#)
             .create_async()
             .await;
 
@@ -813,10 +813,10 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
         let _mock = server
-            .mock("GET", "/api/v2/logs/config/saved_views/123")
+            .mock("GET", "/api/v1/logs/views/123")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": {"id": "123"}}"#)
+            .with_body(r#"{"logs_view": {"id": 123}}"#)
             .create_async()
             .await;
 
@@ -832,13 +832,13 @@ mod tests {
         let cfg = test_config(&server.url());
         let tmp = TempDir::new("saved_views_create");
         let file = tmp.path().join("view.json");
-        std::fs::write(&file, r#"{"data":{"attributes":{"name":"Errors"}}}"#).unwrap();
+        std::fs::write(&file, r#"{"name":"Errors","search":"status:error"}"#).unwrap();
         let _mock = server
-            .mock("POST", "/api/v2/logs/config/saved_views")
+            .mock("POST", "/api/v1/logs/views")
             .match_body(mockito::Matcher::Regex(r#""name":"Errors""#.to_string()))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": {"id": "123"}}"#)
+            .with_body(r#"{"id": 123, "name": "Errors"}"#)
             .create_async()
             .await;
 
@@ -870,8 +870,10 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
         let _mock = server
-            .mock("DELETE", "/api/v2/logs/config/saved_views/123")
-            .with_status(204)
+            .mock("DELETE", "/api/v1/logs/views/123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"deleted_logs_saved_view_id": 123}"#)
             .create_async()
             .await;
 

@@ -1094,6 +1094,202 @@ pub async fn patterns_points(
     patterns_post(cfg, "clustered-points", body, "get pattern points").await
 }
 
+// ---- Agent Insights (no typed equivalent — unstable MCP endpoints) ----
+//
+// Agent Insights are server-generated findings about an ML app (for example a
+// tool-call retry loop) that move through a review lifecycle. The usual flow is:
+//
+//   agent-insights list -> agent-insights get -> agent-insights update-status
+//     -> agent-insights submit-feedback
+//
+// `list` and `get` return `feedback_targets`; a `submit-feedback` target key must
+// come from one of those responses.
+
+const AGENT_INSIGHTS_BASE: &str = "/api/unstable/llm-obs-mcp/v1/agent-insights";
+
+/// Lifecycle statuses accepted by `--status`, in the server's declared order.
+const AGENT_INSIGHT_STATUSES: [&str; 4] = ["for_review", "in_progress", "completed", "ignored"];
+
+/// Usefulness verdicts accepted for a feedback target.
+const AGENT_INSIGHT_USEFULNESS: [&str; 3] = ["useful", "somewhat_useful", "not_useful"];
+
+/// Feedback items the endpoint accepts per submission. Rejecting locally keeps an
+/// oversized batch from being sent and partially applied.
+const MAX_AGENT_INSIGHT_FEEDBACK_ITEMS: usize = 25;
+
+/// Rejects a value outside `allowed`, naming the flag and the valid values. The
+/// server enforces these too; failing here gives a usable message instead of a 400.
+fn validate_choice(flag: &str, value: &str, allowed: &[&str]) -> Result<()> {
+    if !allowed.contains(&value) {
+        anyhow::bail!(
+            "{flag} must be one of {}, got '{value}'",
+            allowed.join(", ")
+        );
+    }
+    Ok(())
+}
+
+/// POSTs `body` to an agent-insights endpoint and prints the response.
+async fn agent_insights_post(
+    cfg: &Config,
+    endpoint: &str,
+    body: serde_json::Value,
+    what: &str,
+) -> Result<()> {
+    let path = format!("{AGENT_INSIGHTS_BASE}/{endpoint}");
+    let resp = raw_client::raw_post(cfg, &path, body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to {what}: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn agent_insights_list(
+    cfg: &Config,
+    ml_app: Option<String>,
+    status: Option<String>,
+    insight_type: Option<String>,
+    limit: Option<u32>,
+    cursor: Option<String>,
+) -> Result<()> {
+    let mut body = serde_json::json!({});
+    if let Some(a) = ml_app {
+        body["ml_app"] = serde_json::json!(a);
+    }
+    if let Some(s) = status {
+        validate_choice("--status", &s, &AGENT_INSIGHT_STATUSES)?;
+        body["status"] = serde_json::json!(s);
+    }
+    if let Some(t) = insight_type {
+        body["insight_type"] = serde_json::json!(t);
+    }
+    if let Some(l) = limit {
+        body["limit"] = serde_json::json!(l);
+    }
+    if let Some(c) = cursor {
+        body["cursor"] = serde_json::json!(c);
+    }
+    agent_insights_post(cfg, "list", body, "list agent insights").await
+}
+
+pub async fn agent_insights_get(cfg: &Config, insight_id: &str) -> Result<()> {
+    agent_insights_post(
+        cfg,
+        "get",
+        serde_json::json!({ "insight_id": insight_id }),
+        "get agent insight",
+    )
+    .await
+}
+
+pub async fn agent_insights_update_status(
+    cfg: &Config,
+    insight_id: &str,
+    status: &str,
+) -> Result<()> {
+    validate_choice("--status", status, &AGENT_INSIGHT_STATUSES)?;
+    agent_insights_post(
+        cfg,
+        "status",
+        serde_json::json!({ "insight_id": insight_id, "status": status }),
+        "update agent insight status",
+    )
+    .await
+}
+
+/// Parses `--feedback` entries into the `feedback_items` array the endpoint expects.
+///
+/// Each entry is `target_key=usefulness[=reasoning]`. The separator is `=` rather than
+/// `:` because real target keys embed colons — `suggested_evaluator:<eval_name>` — while
+/// neither a target key nor a usefulness value contains `=`. Splitting into at most three
+/// parts also leaves any `=` in the free-text reasoning intact.
+fn parse_feedback_items(feedback: &[String]) -> Result<Vec<serde_json::Value>> {
+    if feedback.is_empty() {
+        anyhow::bail!("--feedback requires at least one entry");
+    }
+    if feedback.len() > MAX_AGENT_INSIGHT_FEEDBACK_ITEMS {
+        anyhow::bail!(
+            "--feedback accepts at most {MAX_AGENT_INSIGHT_FEEDBACK_ITEMS} entries, got {}",
+            feedback.len()
+        );
+    }
+    let mut items = Vec::with_capacity(feedback.len());
+    for entry in feedback {
+        let mut parts = entry.splitn(3, '=');
+        let target_key = parts.next().unwrap_or_default();
+        let usefulness = parts.next().unwrap_or_default();
+        if target_key.is_empty() || usefulness.is_empty() {
+            anyhow::bail!(
+                "--feedback entries must be \"target_key=usefulness[=reasoning]\", got '{entry}'"
+            );
+        }
+        validate_choice(
+            "--feedback usefulness",
+            usefulness,
+            &AGENT_INSIGHT_USEFULNESS,
+        )?;
+        let mut item = serde_json::json!({
+            "target_key": target_key,
+            "usefulness": usefulness,
+        });
+        if let Some(reasoning) = parts.next().filter(|r| !r.is_empty()) {
+            item["reasoning"] = serde_json::json!(reasoning);
+        }
+        items.push(item);
+    }
+    Ok(items)
+}
+
+pub async fn agent_insights_submit_feedback(
+    cfg: &Config,
+    insight_id: &str,
+    feedback: Vec<String>,
+) -> Result<()> {
+    let items = parse_feedback_items(&feedback)?;
+    agent_insights_post(
+        cfg,
+        "feedback",
+        serde_json::json!({ "insight_id": insight_id, "feedback_items": items }),
+        "submit agent insight feedback",
+    )
+    .await
+}
+
+// ---- Model pricing (no typed equivalent — unstable MCP endpoint) ----
+
+/// Gets canonical model pricing rate cards, in USD per million tokens.
+///
+/// At least one of `provider`/`model` must be given: with neither, the endpoint has
+/// nothing to match on. A `provider` alone scopes to that provider's catalog; a
+/// `model` alone searches every provider, so results carry their own `provider`.
+pub async fn model_pricing(
+    cfg: &Config,
+    provider: Option<String>,
+    model: Option<String>,
+    limit: Option<u32>,
+    cursor: Option<String>,
+) -> Result<()> {
+    if provider.is_none() && model.is_none() {
+        anyhow::bail!("at least one of --provider or --model is required");
+    }
+    let mut body = serde_json::json!({});
+    if let Some(p) = provider {
+        body["provider"] = serde_json::json!(p);
+    }
+    if let Some(m) = model {
+        body["model"] = serde_json::json!(m);
+    }
+    if let Some(l) = limit {
+        body["limit"] = serde_json::json!(l);
+    }
+    if let Some(c) = cursor {
+        body["cursor"] = serde_json::json!(c);
+    }
+    let resp = raw_client::raw_post(cfg, "/api/unstable/llm-obs-mcp/v1/pricing/model", body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get model pricing: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -4314,5 +4510,455 @@ mod tests {
         assert!(result.is_err(), "should fail without auth");
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    // ---- Agent Insights ----
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_list_with_filters() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/agent-insights/list")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "ml_app": "my-agent",
+                "status": "in_progress",
+                "insight_type": "tool_call_retry_loop",
+                "limit": 5,
+                "cursor": "tok-abc",
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"insights":[{"id":"ins-1","insight_type":"tool_call_retry_loop"}]}"#)
+            .create_async()
+            .await;
+
+        let result = super::agent_insights_list(
+            &cfg,
+            Some("my-agent".into()),
+            Some("in_progress".into()),
+            Some("tool_call_retry_loop".into()),
+            Some(5),
+            Some("tok-abc".into()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "agent_insights_list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_list_defaults() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Omitted filters must be absent from the body so the server's own
+        // defaults (status=for_review, limit=25) apply.
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/agent-insights/list")
+            .match_body(mockito::Matcher::Json(serde_json::json!({})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"insights":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::agent_insights_list(&cfg, None, None, None, None, None).await;
+        assert!(
+            result.is_ok(),
+            "agent_insights_list defaults failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_list_invalid_status() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        // No mock: validation must reject before any request is made.
+        let result =
+            super::agent_insights_list(&cfg, None, Some("archived".into()), None, None, None).await;
+        let err = result
+            .expect_err("should reject an unknown status")
+            .to_string();
+        assert!(err.contains("--status must be one of"), "unexpected: {err}");
+        assert!(
+            err.contains("for_review"),
+            "should list valid values: {err}"
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_get() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/agent-insights/get")
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"insight_id": "ins-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"insight":{"id":"ins-1"},"feedback_targets":["insight"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::agent_insights_get(&cfg, "ins-1").await;
+        assert!(
+            result.is_ok(),
+            "agent_insights_get failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_get_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/agent-insights/get",
+            404,
+            r#"{"errors":["insight not found"]}"#,
+        )
+        .await;
+
+        let result = super::agent_insights_get(&cfg, "missing").await;
+        assert!(result.is_err(), "should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_update_status() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/agent-insights/status")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "insight_id": "ins-1",
+                "status": "completed",
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"insight":{"id":"ins-1","status":"completed"}}"#)
+            .create_async()
+            .await;
+
+        let result = super::agent_insights_update_status(&cfg, "ins-1", "completed").await;
+        assert!(
+            result.is_ok(),
+            "agent_insights_update_status failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_update_status_invalid() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let result = super::agent_insights_update_status(&cfg, "ins-1", "done").await;
+        assert!(result.is_err(), "should reject an unknown status");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_update_status_403() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/agent-insights/status",
+            403,
+            r#"{"errors":["forbidden"]}"#,
+        )
+        .await;
+
+        let result = super::agent_insights_update_status(&cfg, "ins-1", "ignored").await;
+        assert!(result.is_err(), "should fail on 403");
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_parse_feedback_items_with_and_without_reasoning() {
+        let items = super::parse_feedback_items(&[
+            "insight=useful=helped narrow the retry loop".to_string(),
+            "fix_with_agent=not_useful".to_string(),
+        ])
+        .expect("valid entries should parse");
+        assert_eq!(
+            items,
+            vec![
+                serde_json::json!({
+                    "target_key": "insight",
+                    "usefulness": "useful",
+                    "reasoning": "helped narrow the retry loop",
+                }),
+                serde_json::json!({
+                    "target_key": "fix_with_agent",
+                    "usefulness": "not_useful",
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_feedback_items_keeps_colons_in_target_key() {
+        // Real target keys embed a colon, e.g. the suggested_evaluator:<eval_name> keys
+        // returned in feedback_targets. They must reach the server intact, and `=` in
+        // free-text reasoning must not be mistaken for a separator.
+        let items = super::parse_feedback_items(&[
+            "suggested_evaluator:change-ranker-temporal-gate=somewhat_useful=ok, but a=b was off"
+                .to_string(),
+        ])
+        .expect("colon-bearing target key should parse");
+        assert_eq!(
+            items,
+            vec![serde_json::json!({
+                "target_key": "suggested_evaluator:change-ranker-temporal-gate",
+                "usefulness": "somewhat_useful",
+                "reasoning": "ok, but a=b was off",
+            })]
+        );
+    }
+
+    #[test]
+    fn test_parse_feedback_items_rejects_bad_input() {
+        assert!(
+            super::parse_feedback_items(&[]).is_err(),
+            "empty feedback should be rejected"
+        );
+        assert!(
+            super::parse_feedback_items(&["insight".to_string()]).is_err(),
+            "missing usefulness should be rejected"
+        );
+        assert!(
+            super::parse_feedback_items(&["=useful".to_string()]).is_err(),
+            "empty target key should be rejected"
+        );
+        assert!(
+            super::parse_feedback_items(&["insight=very_useful".to_string()]).is_err(),
+            "unknown usefulness should be rejected"
+        );
+        assert!(
+            super::parse_feedback_items(&["insight:useful".to_string()]).is_err(),
+            "colon instead of = should be rejected, not silently mis-parsed"
+        );
+        let too_many: Vec<String> = (0..26).map(|i| format!("target-{i}=useful")).collect();
+        assert!(
+            super::parse_feedback_items(&too_many).is_err(),
+            "more than 25 entries should be rejected"
+        );
+        assert!(
+            super::parse_feedback_items(&too_many[..25]).is_ok(),
+            "exactly 25 entries should be accepted"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_submit_feedback() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/agent-insights/feedback",
+            )
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "insight_id": "ins-1",
+                "feedback_items": [
+                    {"target_key": "insight", "usefulness": "useful", "reasoning": "spot on"},
+                    {"target_key": "fix_with_agent", "usefulness": "somewhat_useful"},
+                ],
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"accepted":2}"#)
+            .create_async()
+            .await;
+
+        let result = super::agent_insights_submit_feedback(
+            &cfg,
+            "ins-1",
+            vec![
+                "insight=useful=spot on".to_string(),
+                "fix_with_agent=somewhat_useful".to_string(),
+            ],
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "agent_insights_submit_feedback failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_submit_feedback_400() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/agent-insights/feedback",
+            400,
+            r#"{"errors":["unknown target_key"]}"#,
+        )
+        .await;
+
+        let result = super::agent_insights_submit_feedback(
+            &cfg,
+            "ins-1",
+            vec!["not_a_target=useful".to_string()],
+        )
+        .await;
+        assert!(result.is_err(), "should fail on 400");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_agent_insights_no_auth() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: None,
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+            jq: None,
+        };
+        let result = super::agent_insights_list(&cfg, None, None, None, None, None).await;
+        assert!(result.is_err(), "should fail without auth");
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    // ---- Model pricing ----
+
+    #[tokio::test]
+    async fn test_llm_obs_model_pricing_provider_and_model() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/pricing/model")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-20250514",
+                "limit": 10,
+                "cursor": "tok-abc",
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"status":"ok","unit":"usd_per_million_tokens","models":[{"provider":"anthropic","model":"claude-sonnet-4-20250514","match_type":"exact","tiers":[]}]}"#,
+            )
+            .create_async()
+            .await;
+
+        let result = super::model_pricing(
+            &cfg,
+            Some("anthropic".into()),
+            Some("claude-sonnet-4-20250514".into()),
+            Some(10),
+            Some("tok-abc".into()),
+        )
+        .await;
+        assert!(result.is_ok(), "model_pricing failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_model_pricing_model_only_searches_all_providers() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Provider omitted is meaningful, not a default: the endpoint then searches
+        // the whole catalog, so it must not appear in the body.
+        let _mock = server
+            .mock("POST", "/api/unstable/llm-obs-mcp/v1/pricing/model")
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"model": "claude"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"ok","unit":"usd_per_million_tokens","models":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::model_pricing(&cfg, None, Some("claude".into()), None, None).await;
+        assert!(
+            result.is_ok(),
+            "model_pricing with model only failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_model_pricing_requires_provider_or_model() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        // No mock: validation must reject before any request is made.
+        let result = super::model_pricing(&cfg, None, None, Some(10), None).await;
+        let err = result
+            .expect_err("should reject with neither provider nor model")
+            .to_string();
+        assert!(
+            err.contains("--provider") && err.contains("--model"),
+            "unexpected: {err}"
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_model_pricing_500() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/pricing/model",
+            500,
+            r#"{"errors":["internal error"]}"#,
+        )
+        .await;
+
+        let result = super::model_pricing(&cfg, Some("openai".into()), None, None, None).await;
+        assert!(result.is_err(), "should fail on 500");
+        cleanup_env();
     }
 }

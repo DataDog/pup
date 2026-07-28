@@ -1694,11 +1694,14 @@ enum Commands {
     ///   • Create and list LLM Obs projects
     ///   • Create, list, update, and delete experiments
     ///   • Create and list datasets within a project
+    ///   • Triage Agent Insights and look up model pricing
     ///
     /// EXAMPLES:
     ///   pup llm-obs projects list
     ///   pup llm-obs experiments list
     ///   pup llm-obs datasets list --project-id=my-project
+    ///   pup llm-obs agent-insights list --status=for_review
+    ///   pup llm-obs model-pricing --provider=anthropic --model=claude-sonnet-4-20250514
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication or API keys.
@@ -9120,6 +9123,69 @@ enum LlmObsActions {
         #[command(subcommand)]
         action: LlmObsPatternsActions,
     },
+    /// Triage LLM Observability Agent Insights
+    #[command(name = "agent-insights")]
+    AgentInsights {
+        #[command(subcommand)]
+        action: LlmObsAgentInsightsActions,
+    },
+    /// Get canonical model pricing rate cards for cost math
+    #[command(name = "model-pricing")]
+    ModelPricing {
+        #[arg(long, help = "Model provider, e.g. anthropic, openai, aws, azure")]
+        provider: Option<String>,
+        #[arg(long, help = "Model name or partial model query")]
+        model: Option<String>,
+        #[arg(long, help = "Maximum number of models to return per page")]
+        limit: Option<u32>,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsAgentInsightsActions {
+    /// List Agent Insights as compact triage cards
+    List {
+        #[arg(long, help = "Filter by ML application")]
+        ml_app: Option<String>,
+        #[arg(
+            long,
+            help = "Filter by lifecycle status: for_review, in_progress, completed, or ignored (server default: for_review)"
+        )]
+        status: Option<String>,
+        #[arg(
+            long,
+            help = "Filter by insight type, e.g. tool_call_retry_loop (from an insight's insight_type)"
+        )]
+        insight_type: Option<String>,
+        #[arg(long, help = "Maximum number of insights to return per page")]
+        limit: Option<u32>,
+        #[arg(long, help = "Pagination cursor from a prior call")]
+        cursor: Option<String>,
+    },
+    /// Get one Agent Insight by ID, with its full payload and feedback targets
+    Get { insight_id: String },
+    /// Move an Agent Insight to a new lifecycle status
+    #[command(name = "update-status")]
+    UpdateStatus {
+        insight_id: String,
+        #[arg(
+            long,
+            help = "New lifecycle status: for_review, in_progress, completed, or ignored (required)"
+        )]
+        status: String,
+    },
+    /// Submit usefulness feedback for an Agent Insight's feedback targets
+    #[command(name = "submit-feedback")]
+    SubmitFeedback {
+        insight_id: String,
+        #[arg(
+            long,
+            help = "Feedback as \"target_key=usefulness[=reasoning]\", where target_key is a key from the insight's feedback_targets (these may contain colons, e.g. suggested_evaluator:my-eval) and usefulness is useful, somewhat_useful, or not_useful. Repeat for up to 25 targets; omit targets you cannot judge."
+        )]
+        feedback: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -10970,6 +11036,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name.starts_with("create-")
         || name.ends_with("-create")
         || name == "submit"
+        || name.starts_with("submit-")
         || name == "post"
         || name == "send"
         || name == "import"
@@ -16791,6 +16858,51 @@ async fn main_inner() -> anyhow::Result<()> {
                             .await?;
                     }
                 },
+                LlmObsActions::AgentInsights { action } => match action {
+                    LlmObsAgentInsightsActions::List {
+                        ml_app,
+                        status,
+                        insight_type,
+                        limit,
+                        cursor,
+                    } => {
+                        commands::llm_obs::agent_insights_list(
+                            &cfg,
+                            ml_app,
+                            status,
+                            insight_type,
+                            limit,
+                            cursor,
+                        )
+                        .await?;
+                    }
+                    LlmObsAgentInsightsActions::Get { insight_id } => {
+                        commands::llm_obs::agent_insights_get(&cfg, &insight_id).await?;
+                    }
+                    LlmObsAgentInsightsActions::UpdateStatus { insight_id, status } => {
+                        commands::llm_obs::agent_insights_update_status(&cfg, &insight_id, &status)
+                            .await?;
+                    }
+                    LlmObsAgentInsightsActions::SubmitFeedback {
+                        insight_id,
+                        feedback,
+                    } => {
+                        commands::llm_obs::agent_insights_submit_feedback(
+                            &cfg,
+                            &insight_id,
+                            feedback,
+                        )
+                        .await?;
+                    }
+                },
+                LlmObsActions::ModelPricing {
+                    provider,
+                    model,
+                    limit,
+                    cursor,
+                } => {
+                    commands::llm_obs::model_pricing(&cfg, provider, model, limit, cursor).await?;
+                }
             }
         }
         // --- Profiling ---

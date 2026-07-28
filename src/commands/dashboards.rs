@@ -184,6 +184,7 @@ pub async fn widget_list(cfg: &Config, dash_id: &str) -> Result<()> {
             command: Some("dashboards widgets list".into()),
             next_action: None,
         }),
+        cfg.jq.as_deref(),
     )
 }
 
@@ -294,6 +295,7 @@ pub fn widget_types(cfg: &Config) -> Result<()> {
             command: Some("dashboards widgets types".into()),
             next_action: None,
         }),
+        cfg.jq.as_deref(),
     )
 }
 

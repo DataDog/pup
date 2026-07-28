@@ -1074,6 +1074,12 @@ enum Commands {
     ///   pup datasets list
     ///   pup datasets get my-dataset-id
     ///   pup datasets create --file dataset.json
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    ///   All operations, including list/get, require the user_access_manage
+    ///   scope, which is not requested by default -- opt in with:
+    ///     pup auth login --extra-scopes user_access_manage
     #[command(verbatim_doc_comment)]
     Datasets {
         #[command(subcommand)]

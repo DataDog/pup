@@ -6,7 +6,7 @@ use crate::formatter;
 use crate::util;
 
 fn make_api(cfg: &Config) -> DatasetsAPI {
-    crate::make_api_no_auth!(DatasetsAPI, cfg)
+    crate::make_api!(DatasetsAPI, cfg)
 }
 
 pub async fn list(cfg: &Config) -> Result<()> {

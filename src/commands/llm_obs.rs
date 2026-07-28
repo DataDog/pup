@@ -7,8 +7,7 @@ use datadog_api_client::datadogV2::model::{
     LLMObsAnnotationQueueUpdateRequest, LLMObsCustomEvalConfigUpdateRequest,
     LLMObsDatasetBatchUpdateRequest, LLMObsDatasetCloneRequest, LLMObsDatasetRequest,
     LLMObsDatasetRestoreVersionRequest, LLMObsDeleteAnnotationQueueInteractionsRequest,
-    LLMObsDeleteExperimentsRequest, LLMObsExperimentRequest, LLMObsExperimentUpdateRequest,
-    LLMObsProjectRequest,
+    LLMObsDeleteExperimentsRequest, LLMObsProjectRequest,
 };
 
 use crate::config::Config;
@@ -62,11 +61,15 @@ pub async fn projects_list(
 
 // ---- Experiments ----
 
+/// Create an experiment.
+///
+/// Uses the raw client rather than the typed one: the API's response omits `config`, which the
+/// generated `LLMObsExperimentResponse` model requires, so the typed call fails to deserialize a
+/// 200 and reports an error **after the experiment has already been created**. The request shape is
+/// unchanged — same route, same body, `project_id` still required by the API.
 pub async fn experiments_create(cfg: &Config, file: &str) -> Result<()> {
-    let body: LLMObsExperimentRequest = util::read_json_file(file)?;
-    let api = make_api(cfg);
-    let resp = api
-        .create_llm_obs_experiment(body)
+    let body: serde_json::Value = util::read_json_file(file)?;
+    let resp = raw_client::raw_post(cfg, "/api/v2/llm-obs/v1/experiments", body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to create LLM obs experiment: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -91,14 +94,26 @@ pub async fn experiments_list(
     formatter::output(cfg, &resp)
 }
 
+/// Update an experiment's mutable fields.
+///
+/// Uses the raw client rather than the typed one: this endpoint answers a successful PATCH with
+/// **HTTP 200 and a zero-byte body**, which the generated client tries to deserialize into
+/// `LLMObsExperimentResponse` and fails on with "EOF while parsing a value" — reporting an error
+/// on a write that has already landed. Callers scripting against pup would treat that exit code as
+/// failure and retry, double-writing. The request shape is unchanged.
 pub async fn experiments_update(cfg: &Config, experiment_id: &str, file: &str) -> Result<()> {
-    let body: LLMObsExperimentUpdateRequest = util::read_json_file(file)?;
-    let api = make_api(cfg);
-    let resp = api
-        .update_llm_obs_experiment(experiment_id.to_string(), body)
+    let body: serde_json::Value = util::read_json_file(file)?;
+    let path = format!("/api/v2/llm-obs/v1/experiments/{experiment_id}");
+    let resp = raw_client::raw_patch(cfg, &path, body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to update LLM obs experiment: {e:?}"))?;
-    formatter::output(cfg, &resp)
+    // Empty body on success: report the update rather than printing a bare `null`.
+    let out = if resp.is_null() {
+        serde_json::json!({ "experiment_id": experiment_id, "status": "updated" })
+    } else {
+        resp
+    };
+    formatter::output(cfg, &out)
 }
 
 pub async fn experiments_delete(cfg: &Config, file: &str) -> Result<()> {
@@ -1437,6 +1452,119 @@ mod tests {
             result.ok()
         );
 
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_update_empty_200_body() {
+        // The real endpoint answers a successful PATCH with HTTP 200 and zero bytes. The typed
+        // client failed this with "EOF while parsing a value" AFTER the write had landed.
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = write_temp_json(
+            "pup_test_exp_update_empty.json",
+            r#"{"data":{"id":"exp-1","type":"experiments","attributes":{"status":"completed"}}}"#,
+        );
+        let _mock = server
+            .mock("PATCH", mockito::Matcher::Any)
+            .with_status(200)
+            .with_body("")
+            .create_async()
+            .await;
+
+        let result = super::experiments_update(&cfg, "exp-1", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "empty 200 body must not be an error: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_update_json_body() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = write_temp_json(
+            "pup_test_exp_update_json.json",
+            r#"{"data":{"id":"exp-1","type":"experiments","attributes":{"status":"running"}}}"#,
+        );
+        let _mock = mock_any(
+            &mut server,
+            "PATCH",
+            r#"{"data":{"id":"exp-1","type":"experiments","attributes":{"status":"running"}}}"#,
+        )
+        .await;
+
+        let result = super::experiments_update(&cfg, "exp-1", tmp.to_str().unwrap()).await;
+        assert!(result.is_ok(), "update failed: {:?}", result.err());
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_update_500() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = write_temp_json(
+            "pup_test_exp_update_500.json",
+            r#"{"data":{"id":"exp-1","type":"experiments","attributes":{"status":"running"}}}"#,
+        );
+        let _mock = server
+            .mock("PATCH", mockito::Matcher::Any)
+            .with_status(500)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["internal error"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::experiments_update(&cfg, "exp-1", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_err(),
+            "expected error but got ok: {:?}",
+            result.ok()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_experiments_create_response_without_config() {
+        // The API's create response omits `config`, which the typed model requires — the typed
+        // client errored on a 200 after the experiment had already been created.
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = write_temp_json(
+            "pup_test_exp_create_noconfig.json",
+            r#"{"data":{"type":"experiments","attributes":{"name":"x","project_id":"proj-1"}}}"#,
+        );
+        let _mock = mock_any(
+            &mut server,
+            "POST",
+            r#"{"data":{"id":"exp-1","type":"experiments","attributes":{"name":"x","project_id":"proj-1","is_auto_experiment":true,"created_at":"2024-01-01T00:00:00Z"}}}"#,
+        )
+        .await;
+
+        let result = super::experiments_create(&cfg, tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "create must tolerate a response without `config`: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }

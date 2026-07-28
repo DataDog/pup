@@ -854,7 +854,7 @@ mod tests {
     #[tokio::test]
     async fn test_saved_views_create_missing_file_errors() {
         let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
+        let server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
         let result = super::saved_views_create(&cfg, "/tmp/__pup_missing_saved_view__.json").await;

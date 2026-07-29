@@ -1397,7 +1397,7 @@ mod tests {
     #[tokio::test]
     async fn test_widget_add_invalid_json_fails() {
         let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
+        let server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
         let path = write_temp_json("test_widget_add_bad.json", "not json at all");
@@ -1409,7 +1409,7 @@ mod tests {
     #[tokio::test]
     async fn test_widget_add_unknown_type_fails() {
         let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
+        let server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
 
         let widget_json = r#"{"definition":{"type":"totally_unknown_type"}}"#;

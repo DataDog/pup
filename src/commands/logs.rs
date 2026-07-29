@@ -10,7 +10,10 @@ use datadog_api_client::datadogV2::model::{
 use crate::config::Config;
 use crate::formatter;
 use crate::raw_client;
+use crate::util;
 use crate::util_ext;
+
+const SAVED_VIEWS_PATH: &str = "/api/v1/logs/views";
 
 pub struct AggregateArgs {
     pub query: String,
@@ -415,6 +418,34 @@ pub async fn restriction_queries_get(cfg: &Config, query_id: &str) -> Result<()>
     formatter::output(cfg, &data)
 }
 
+// ---------------------------------------------------------------------------
+// Saved Views (raw HTTP - not available in typed client)
+// ---------------------------------------------------------------------------
+
+pub async fn saved_views_list(cfg: &Config) -> Result<()> {
+    let data = raw_client::raw_get(cfg, SAVED_VIEWS_PATH, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn saved_views_get(cfg: &Config, view_id: &str) -> Result<()> {
+    let path = format!("{SAVED_VIEWS_PATH}/{view_id}");
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn saved_views_create(cfg: &Config, file: &str) -> Result<()> {
+    let body: serde_json::Value = util::read_json_file(file)?;
+    let data = raw_client::raw_post(cfg, SAVED_VIEWS_PATH, body).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn saved_views_delete(cfg: &Config, view_id: &str) -> Result<()> {
+    let path = format!("{SAVED_VIEWS_PATH}/{view_id}");
+    raw_client::raw_delete(cfg, &path).await?;
+    println!("Log saved view {view_id} deleted.");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::{Config, OutputFormat};
@@ -811,6 +842,107 @@ mod tests {
         assert!(
             result.is_ok(),
             "logs search with indexes failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_saved_views_list() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", "/api/v1/logs/views")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"logs_views": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::saved_views_list(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "saved views list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_saved_views_get() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", "/api/v1/logs/views/123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"logs_view": {"id": 123}}"#)
+            .create_async()
+            .await;
+
+        let result = super::saved_views_get(&cfg, "123").await;
+        assert!(result.is_ok(), "saved views get failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_saved_views_create() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = TempDir::new("saved_views_create");
+        let file = tmp.path().join("view.json");
+        std::fs::write(&file, r#"{"name":"Errors","search":"status:error"}"#).unwrap();
+        let _mock = server
+            .mock("POST", "/api/v1/logs/views")
+            .match_body(mockito::Matcher::Regex(r#""name":"Errors""#.to_string()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id": 123, "name": "Errors"}"#)
+            .create_async()
+            .await;
+
+        let result = super::saved_views_create(&cfg, file.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "saved views create failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_saved_views_create_missing_file_errors() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result = super::saved_views_create(&cfg, "/tmp/__pup_missing_saved_view__.json").await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("failed to read"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_saved_views_delete() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("DELETE", "/api/v1/logs/views/123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"deleted_logs_saved_view_id": 123}"#)
+            .create_async()
+            .await;
+
+        let result = super::saved_views_delete(&cfg, "123").await;
+        assert!(
+            result.is_ok(),
+            "saved views delete failed: {:?}",
             result.err()
         );
         cleanup_env();

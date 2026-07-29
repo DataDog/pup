@@ -352,6 +352,16 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
         path: "/api/v1/events",
         method: "POST",
     },
+    // Logs saved views write endpoints accept full API users, not OAuth tokens.
+    // List/get support OAuth, so only create/delete are excluded here.
+    EndpointRequirement {
+        path: "/api/v1/logs/views",
+        method: "POST",
+    },
+    EndpointRequirement {
+        path: "/api/v1/logs/views/",
+        method: "DELETE",
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -724,15 +734,7 @@ pub async fn raw_delete(cfg: &Config, path: &str) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
     let mut req = client.delete(&url);
 
-    if let Some(token) = &cfg.access_token {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-        req = req
-            .header("DD-API-KEY", api_key.as_str())
-            .header("DD-APPLICATION-KEY", app_key.as_str());
-    } else {
-        anyhow::bail!("no authentication configured");
-    }
+    req = apply_auth(req, cfg, "DELETE", path)?;
 
     let resp = req
         .header("Accept", "application/json")
@@ -844,6 +846,17 @@ mod tests {
     }
 
     #[test]
+    fn test_fallback_for_logs_saved_views_writes() {
+        assert!(!requires_api_key_fallback("GET", "/api/v1/logs/views"));
+        assert!(!requires_api_key_fallback("GET", "/api/v1/logs/views/123"));
+        assert!(requires_api_key_fallback("POST", "/api/v1/logs/views"));
+        assert!(requires_api_key_fallback(
+            "DELETE",
+            "/api/v1/logs/views/123"
+        ));
+    }
+
+    #[test]
     fn test_no_fallback_for_standard_endpoints() {
         assert!(!requires_api_key_fallback("GET", "/api/v1/monitor"));
         assert!(!requires_api_key_fallback("GET", "/api/v1/dashboard"));
@@ -874,7 +887,7 @@ mod tests {
 
     #[test]
     fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 55);
+        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 57);
     }
 
     #[test]
@@ -1008,6 +1021,31 @@ mod tests {
         .await;
 
         assert!(result.is_ok(), "raw event post failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_raw_delete_uses_api_key_fallback() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.access_token = Some("token".into());
+        let mock = server
+            .mock("DELETE", "/api/v1/logs/views/123")
+            .match_header("DD-API-KEY", "test-api-key")
+            .match_header("DD-APPLICATION-KEY", "test-app-key")
+            .match_header("Authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"deleted_logs_saved_view_id":123}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = raw_delete(&cfg, "/api/v1/logs/views/123").await;
+
+        assert!(result.is_ok(), "raw delete failed: {:?}", result.err());
         mock.assert_async().await;
         cleanup_env();
     }

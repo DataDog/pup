@@ -1735,7 +1735,7 @@ enum Commands {
     ///
     /// The logs command provides comprehensive access to Datadog's log management capabilities
     /// including search, querying, aggregation, archives management, custom destinations,
-    /// log-based metrics, and restriction queries.
+    /// log-based metrics, restriction queries, and saved views.
     ///
     /// CAPABILITIES:
     ///   • Search logs with flexible queries (v1 API)
@@ -1746,6 +1746,7 @@ enum Commands {
     ///   • Manage custom destinations for logs
     ///   • Create and manage log-based metrics
     ///   • Configure restriction queries for access control
+    ///   • Manage logs saved views (experimental raw API)
     ///
     /// STORAGE TIERS:
     ///   Datadog logs can be stored in different tiers with different performance and cost characteristics:
@@ -1811,6 +1812,11 @@ enum Commands {
     ///
     ///   # List restriction queries
     ///   pup logs restriction-queries list
+    ///
+    ///   # Manage saved views
+    ///   pup logs saved-views list
+    ///   pup logs saved-views get 123456
+    ///   pup logs saved-views create --file saved-view.json
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication (pup auth login) or API keys
@@ -3244,6 +3250,27 @@ enum LogActions {
         #[command(subcommand)]
         action: LogRestrictionQueryActions,
     },
+    /// Manage logs saved views (experimental raw API)
+    #[command(name = "saved-views")]
+    SavedViews {
+        #[command(subcommand)]
+        action: LogSavedViewActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum LogSavedViewActions {
+    /// List logs saved views
+    List,
+    /// Get logs saved view details
+    Get { view_id: String },
+    /// Create a logs saved view from JSON
+    Create {
+        #[arg(long, help = "JSON file with saved view request body (required)")]
+        file: String,
+    },
+    /// Delete a logs saved view
+    Delete { view_id: String },
 }
 
 #[derive(Subcommand)]
@@ -12343,6 +12370,20 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     LogRestrictionQueryActions::Get { query_id } => {
                         commands::logs::restriction_queries_get(&cfg, &query_id).await?;
+                    }
+                },
+                LogActions::SavedViews { action } => match action {
+                    LogSavedViewActions::List => {
+                        commands::logs::saved_views_list(&cfg).await?;
+                    }
+                    LogSavedViewActions::Get { view_id } => {
+                        commands::logs::saved_views_get(&cfg, &view_id).await?;
+                    }
+                    LogSavedViewActions::Create { file } => {
+                        commands::logs::saved_views_create(&cfg, &file).await?;
+                    }
+                    LogSavedViewActions::Delete { view_id } => {
+                        commands::logs::saved_views_delete(&cfg, &view_id).await?;
                     }
                 },
             }

@@ -1370,12 +1370,16 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication (pup auth login) or API keys
-    ///   (DD_API_KEY and DD_APP_KEY environment variables).
-    ///   All operations require feature_flag_config_read and/or
-    ///   feature_flag_config_write, paired with the matching
-    ///   feature_flag_environment_config_read/write scope -- all requested
-    ///   by default. require-approval also requires
-    ///   feature_flag_approvals_override, also requested by default.
+    ///   (DD_API_KEY and DD_APP_KEY environment variables). All 4 scopes
+    ///   below are requested by default.
+    ///     flags list/get, allocations list  -- feature_flag_config_read +
+    ///                                          feature_flag_environment_config_read
+    ///     flags create/update/archive/unarchive/delete, enable/disable,
+    ///     allocations create/update, exposure schedule actions --
+    ///                                          feature_flag_config_write +
+    ///                                          feature_flag_environment_config_read
+    ///     environments list/get             -- feature_flag_environment_config_read
+    ///     environments create/update/delete -- feature_flag_environment_config_write
     #[command(name = "feature-flags", verbatim_doc_comment)]
     FeatureFlags {
         #[command(subcommand)]

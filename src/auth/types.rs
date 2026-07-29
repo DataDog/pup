@@ -168,7 +168,6 @@ pub fn default_scopes() -> Vec<&'static str> {
         "feature_flag_config_write",
         "feature_flag_environment_config_read",
         "feature_flag_environment_config_write",
-        "feature_flag_approvals_override",
         // GCP
         "gcp_configuration_read",
         // HAMR (disaster recovery)
@@ -344,6 +343,28 @@ mod tests {
         assert!(scopes.contains(&"built_in_features"));
         // Logs
         assert!(scopes.contains(&"logs_write_pipelines"));
+    }
+
+    #[test]
+    fn test_default_scopes_feature_flags() {
+        let scopes = default_scopes();
+        assert!(scopes.contains(&"feature_flag_config_read"));
+        assert!(scopes.contains(&"feature_flag_config_write"));
+        assert!(scopes.contains(&"feature_flag_environment_config_read"));
+        assert!(scopes.contains(&"feature_flag_environment_config_write"));
+        // No pup command exposes require-approval, so this scope shouldn't
+        // be requested by default.
+        assert!(!scopes.contains(&"feature_flag_approvals_override"));
+    }
+
+    #[test]
+    fn test_read_only_scopes_feature_flags() {
+        let ro = read_only_scopes();
+        assert!(ro.contains(&"feature_flag_config_read"));
+        assert!(ro.contains(&"feature_flag_environment_config_read"));
+        assert!(!ro.contains(&"feature_flag_config_write"));
+        assert!(!ro.contains(&"feature_flag_environment_config_write"));
+        assert!(!ro.contains(&"feature_flag_approvals_override"));
     }
 
     #[test]

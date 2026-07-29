@@ -10,7 +10,10 @@ use datadog_api_client::datadogV2::model::{
 use crate::config::Config;
 use crate::formatter;
 use crate::raw_client;
+use crate::util;
 use crate::util_ext;
+
+const SAVED_VIEWS_PATH: &str = "/api/v1/logs/views";
 
 pub struct AggregateArgs {
     pub query: String,
@@ -22,6 +25,7 @@ pub struct AggregateArgs {
     pub index: Vec<String>,
     pub storage: Option<String>,
     pub sort: String,
+    pub interval: Option<String>,
 }
 
 pub struct SearchArgs {
@@ -134,8 +138,13 @@ fn build_aggregate_body(
     index: Vec<String>,
     storage: Option<String>,
     sort: &str,
+    interval: Option<String>,
 ) -> Result<serde_json::Value> {
     let storage_tier = normalize_storage_tier(storage)?;
+    let interval = match interval {
+        Some(iv) => Some(util_ext::parse_duration_to_millis(&iv)?.to_string()),
+        None => None,
+    };
 
     let mut filter = serde_json::json!({
         "query": query,
@@ -156,6 +165,10 @@ fn build_aggregate_body(
             let mut obj = serde_json::json!({ "aggregation": aggregation });
             if let Some(m) = metric {
                 obj["metric"] = serde_json::Value::String(m);
+            }
+            if let Some(iv) = &interval {
+                obj["type"] = serde_json::Value::String("timeseries".into());
+                obj["interval"] = serde_json::Value::String(iv.clone());
             }
             Ok(obj)
         })
@@ -281,6 +294,7 @@ pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
         index,
         storage,
         sort,
+        interval,
     } = args;
     if compute.is_empty() {
         compute.push("count".into());
@@ -288,7 +302,7 @@ pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
     let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
     let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
     let body = build_aggregate_body(
-        query, from_ms, to_ms, compute, group_by, limit, index, storage, &sort,
+        query, from_ms, to_ms, compute, group_by, limit, index, storage, &sort, interval,
     )?;
     let data = raw_client::raw_post(cfg, "/api/v2/logs/analytics/aggregate", body).await?;
     formatter::output(cfg, &data)?;
@@ -404,6 +418,34 @@ pub async fn restriction_queries_get(cfg: &Config, query_id: &str) -> Result<()>
     formatter::output(cfg, &data)
 }
 
+// ---------------------------------------------------------------------------
+// Saved Views (raw HTTP - not available in typed client)
+// ---------------------------------------------------------------------------
+
+pub async fn saved_views_list(cfg: &Config) -> Result<()> {
+    let data = raw_client::raw_get(cfg, SAVED_VIEWS_PATH, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn saved_views_get(cfg: &Config, view_id: &str) -> Result<()> {
+    let path = format!("{SAVED_VIEWS_PATH}/{view_id}");
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn saved_views_create(cfg: &Config, file: &str) -> Result<()> {
+    let body: serde_json::Value = util::read_json_file(file)?;
+    let data = raw_client::raw_post(cfg, SAVED_VIEWS_PATH, body).await?;
+    formatter::output(cfg, &data)
+}
+
+pub async fn saved_views_delete(cfg: &Config, view_id: &str) -> Result<()> {
+    let path = format!("{SAVED_VIEWS_PATH}/{view_id}");
+    raw_client::raw_delete(cfg, &path).await?;
+    println!("Log saved view {view_id} deleted.");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::{Config, OutputFormat};
@@ -441,6 +483,7 @@ mod tests {
             vec![],
             Some("flex".into()),
             "count",
+            None,
         )
         .unwrap();
 
@@ -482,6 +525,7 @@ mod tests {
             vec![],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -516,6 +560,7 @@ mod tests {
             vec![],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -548,6 +593,7 @@ mod tests {
             vec![],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -608,6 +654,7 @@ mod tests {
             vec![],
             None,
             "pc95",
+            None,
         )
         .unwrap();
 
@@ -633,6 +680,7 @@ mod tests {
             vec![],
             None,
             "pc95",
+            None,
         )
         .unwrap();
 
@@ -651,6 +699,7 @@ mod tests {
             vec![],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -669,6 +718,7 @@ mod tests {
             vec!["main".into(), "web".into()],
             None,
             "count",
+            None,
         )
         .unwrap();
 
@@ -676,6 +726,49 @@ mod tests {
             body["filter"]["indexes"],
             serde_json::json!(["main", "web"])
         );
+    }
+
+    #[test]
+    fn test_build_aggregate_body_timeseries_interval() {
+        let body = build_aggregate_body(
+            "*".into(),
+            1,
+            2,
+            vec!["count".into(), "avg(@duration)".into()],
+            vec![],
+            10,
+            vec![],
+            None,
+            "count",
+            Some("5m".into()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            body["compute"],
+            serde_json::json!([
+                { "aggregation": "count", "type": "timeseries", "interval": "300000" },
+                { "aggregation": "avg", "metric": "@duration", "type": "timeseries", "interval": "300000" }
+            ])
+        );
+    }
+
+    #[test]
+    fn test_build_aggregate_body_invalid_interval() {
+        let err = build_aggregate_body(
+            "*".into(),
+            1,
+            2,
+            vec!["count".into()],
+            vec![],
+            10,
+            vec![],
+            None,
+            "count",
+            Some("bogus".into()),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("unable to parse duration"));
     }
 
     #[test]
@@ -755,6 +848,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_saved_views_list() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", "/api/v1/logs/views")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"logs_views": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::saved_views_list(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "saved views list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_saved_views_get() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", "/api/v1/logs/views/123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"logs_view": {"id": 123}}"#)
+            .create_async()
+            .await;
+
+        let result = super::saved_views_get(&cfg, "123").await;
+        assert!(result.is_ok(), "saved views get failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_saved_views_create() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let tmp = TempDir::new("saved_views_create");
+        let file = tmp.path().join("view.json");
+        std::fs::write(&file, r#"{"name":"Errors","search":"status:error"}"#).unwrap();
+        let _mock = server
+            .mock("POST", "/api/v1/logs/views")
+            .match_body(mockito::Matcher::Regex(r#""name":"Errors""#.to_string()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id": 123, "name": "Errors"}"#)
+            .create_async()
+            .await;
+
+        let result = super::saved_views_create(&cfg, file.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "saved views create failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_saved_views_create_missing_file_errors() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result = super::saved_views_create(&cfg, "/tmp/__pup_missing_saved_view__.json").await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("failed to read"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_saved_views_delete() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("DELETE", "/api/v1/logs/views/123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"deleted_logs_saved_view_id": 123}"#)
+            .create_async()
+            .await;
+
+        let result = super::saved_views_delete(&cfg, "123").await;
+        assert!(
+            result.is_ok(),
+            "saved views delete failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
     async fn test_logs_search_with_oauth() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
@@ -800,6 +994,7 @@ mod tests {
                 index: vec![],
                 storage: None,
                 sort: "count".into(),
+                interval: None,
             },
         )
         .await;
@@ -828,6 +1023,7 @@ mod tests {
                 index: vec![],
                 storage: None,
                 sort: "count".into(),
+                interval: None,
             },
         )
         .await;
@@ -916,6 +1112,7 @@ mod tests {
                 index: vec![],
                 storage: Some("flex".into()),
                 sort: "count".into(),
+                interval: None,
             },
         )
         .await;

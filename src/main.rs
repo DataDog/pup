@@ -617,6 +617,10 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication or API keys.
+    ///   list/get work with default OAuth scopes. create/update/delete
+    ///   require the user_access_manage scope, which is not requested by
+    ///   default -- opt in with:
+    ///     pup auth login --extra-scopes user_access_manage
     #[command(name = "authn-mappings", verbatim_doc_comment)]
     AuthnMappings {
         #[command(subcommand)]
@@ -1074,6 +1078,12 @@ enum Commands {
     ///   pup datasets list
     ///   pup datasets get my-dataset-id
     ///   pup datasets create --file dataset.json
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    ///   All operations, including list/get, require the user_access_manage
+    ///   scope, which is not requested by default -- opt in with:
+    ///     pup auth login --extra-scopes user_access_manage
     #[command(verbatim_doc_comment)]
     Datasets {
         #[command(subcommand)]
@@ -1370,7 +1380,16 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication (pup auth login) or API keys
-    ///   (DD_API_KEY and DD_APP_KEY environment variables).
+    ///   (DD_API_KEY and DD_APP_KEY environment variables). All 4 scopes
+    ///   below are requested by default.
+    ///     flags list/get, allocations list  -- feature_flag_config_read +
+    ///                                          feature_flag_environment_config_read
+    ///     flags create/update/archive/unarchive/delete, enable/disable,
+    ///     allocations create/update, exposure schedule actions --
+    ///                                          feature_flag_config_write +
+    ///                                          feature_flag_environment_config_read
+    ///     environments list/get             -- feature_flag_environment_config_read
+    ///     environments create/update/delete -- feature_flag_environment_config_write
     #[command(name = "feature-flags", verbatim_doc_comment)]
     FeatureFlags {
         #[command(subcommand)]
@@ -1716,7 +1735,7 @@ enum Commands {
     ///
     /// The logs command provides comprehensive access to Datadog's log management capabilities
     /// including search, querying, aggregation, archives management, custom destinations,
-    /// log-based metrics, and restriction queries.
+    /// log-based metrics, restriction queries, and saved views.
     ///
     /// CAPABILITIES:
     ///   • Search logs with flexible queries (v1 API)
@@ -1727,6 +1746,7 @@ enum Commands {
     ///   • Manage custom destinations for logs
     ///   • Create and manage log-based metrics
     ///   • Configure restriction queries for access control
+    ///   • Manage logs saved views (experimental raw API)
     ///
     /// STORAGE TIERS:
     ///   Datadog logs can be stored in different tiers with different performance and cost characteristics:
@@ -1792,6 +1812,11 @@ enum Commands {
     ///
     ///   # List restriction queries
     ///   pup logs restriction-queries list
+    ///
+    ///   # Manage saved views
+    ///   pup logs saved-views list
+    ///   pup logs saved-views get 123456
+    ///   pup logs saved-views create --file saved-view.json
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication (pup auth login) or API keys
@@ -3228,6 +3253,11 @@ enum LogActions {
             help = "Sort groups by aggregation (count,cardinality,pc75,pc90,pc95,pc98,pc99,sum,min,max)"
         )]
         sort: String,
+        #[arg(
+            long,
+            help = "Return a timeseries with this bucket size (e.g. 60s, 5m, 1h); enables timeseries mode"
+        )]
+        interval: Option<String>,
     },
     /// Manage log archives
     Archives {
@@ -3251,6 +3281,27 @@ enum LogActions {
         #[command(subcommand)]
         action: LogRestrictionQueryActions,
     },
+    /// Manage logs saved views (experimental raw API)
+    #[command(name = "saved-views")]
+    SavedViews {
+        #[command(subcommand)]
+        action: LogSavedViewActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum LogSavedViewActions {
+    /// List logs saved views
+    List,
+    /// Get logs saved view details
+    Get { view_id: String },
+    /// Create a logs saved view from JSON
+    Create {
+        #[arg(long, help = "JSON file with saved view request body (required)")]
+        file: String,
+    },
+    /// Delete a logs saved view
+    Delete { view_id: String },
 }
 
 #[derive(Subcommand)]
@@ -12359,6 +12410,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     storage,
                     index,
                     sort,
+                    interval,
                 } => {
                     commands::logs::aggregate(
                         &cfg,
@@ -12379,6 +12431,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             index,
                             storage,
                             sort,
+                            interval,
                         },
                     )
                     .await?;
@@ -12415,6 +12468,20 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     LogRestrictionQueryActions::Get { query_id } => {
                         commands::logs::restriction_queries_get(&cfg, &query_id).await?;
+                    }
+                },
+                LogActions::SavedViews { action } => match action {
+                    LogSavedViewActions::List => {
+                        commands::logs::saved_views_list(&cfg).await?;
+                    }
+                    LogSavedViewActions::Get { view_id } => {
+                        commands::logs::saved_views_get(&cfg, &view_id).await?;
+                    }
+                    LogSavedViewActions::Create { file } => {
+                        commands::logs::saved_views_create(&cfg, &file).await?;
+                    }
+                    LogSavedViewActions::Delete { view_id } => {
+                        commands::logs::saved_views_delete(&cfg, &view_id).await?;
                     }
                 },
             }

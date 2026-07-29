@@ -9,7 +9,7 @@ use crate::formatter;
 use crate::util;
 
 pub async fn list(cfg: &Config) -> Result<()> {
-    let api = crate::make_api_no_auth!(AuthNMappingsAPI, cfg);
+    let api = crate::make_api!(AuthNMappingsAPI, cfg);
     let resp = api
         .list_authn_mappings(ListAuthNMappingsOptionalParams::default())
         .await
@@ -18,7 +18,7 @@ pub async fn list(cfg: &Config) -> Result<()> {
 }
 
 pub async fn get(cfg: &Config, mapping_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(AuthNMappingsAPI, cfg);
+    let api = crate::make_api!(AuthNMappingsAPI, cfg);
     let resp = api
         .get_authn_mapping(mapping_id.to_string())
         .await
@@ -28,7 +28,7 @@ pub async fn get(cfg: &Config, mapping_id: &str) -> Result<()> {
 
 pub async fn create(cfg: &Config, file: &str) -> Result<()> {
     let body: AuthNMappingCreateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(AuthNMappingsAPI, cfg);
+    let api = crate::make_api!(AuthNMappingsAPI, cfg);
     let resp = api
         .create_authn_mapping(body)
         .await
@@ -38,7 +38,7 @@ pub async fn create(cfg: &Config, file: &str) -> Result<()> {
 
 pub async fn update(cfg: &Config, mapping_id: &str, file: &str) -> Result<()> {
     let body: AuthNMappingUpdateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(AuthNMappingsAPI, cfg);
+    let api = crate::make_api!(AuthNMappingsAPI, cfg);
     let resp = api
         .update_authn_mapping(mapping_id.to_string(), body)
         .await
@@ -47,7 +47,7 @@ pub async fn update(cfg: &Config, mapping_id: &str, file: &str) -> Result<()> {
 }
 
 pub async fn delete(cfg: &Config, mapping_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(AuthNMappingsAPI, cfg);
+    let api = crate::make_api!(AuthNMappingsAPI, cfg);
     api.delete_authn_mapping(mapping_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete AuthN mapping: {e:?}"))?;
@@ -109,6 +109,38 @@ mod tests {
         assert!(
             result.is_ok(),
             "authn mappings list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_authn_mappings_list_accepts_oauth_bearer_token() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        // Simulate OAuth-only auth: bearer token configured, no API/APP keys.
+        cfg.api_key = None;
+        cfg.app_key = None;
+        cfg.access_token = Some("oauth-bearer-token".into());
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_header("Authorization", "Bearer oauth-bearer-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::list(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "authn mappings list with OAuth bearer failed: {:?}",
             result.err()
         );
         cleanup_env();

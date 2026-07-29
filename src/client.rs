@@ -697,11 +697,11 @@ mod tests {
     /// Same coverage for the no-auth variant. Asserts the UA is overridden
     /// AND that no `Authorization` header leaks through, even when a bearer
     /// token exists in the config — that's the contract of `make_api_no_auth!`.
+    /// Uses `ApplicationSecurityAPI` (ASM WAF custom rules), which is still a
+    /// genuinely no-auth production call site as of this test.
     #[tokio::test]
     async fn test_make_api_no_auth_sends_pup_user_agent() {
-        use datadog_api_client::datadogV2::api_authn_mappings::{
-            AuthNMappingsAPI, ListAuthNMappingsOptionalParams,
-        };
+        use datadog_api_client::datadogV2::api_application_security::ApplicationSecurityAPI;
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let mock = server
@@ -719,10 +719,8 @@ mod tests {
         // Set a token so the Authorization-absent assertion meaningfully
         // exercises that `make_api_no_auth!` actively suppresses bearer.
         cfg.access_token = Some("test-bearer-token".into());
-        let api: AuthNMappingsAPI = crate::make_api_no_auth!(AuthNMappingsAPI, &cfg);
-        let resp = api
-            .list_authn_mappings(ListAuthNMappingsOptionalParams::default())
-            .await;
+        let api: ApplicationSecurityAPI = crate::make_api_no_auth!(ApplicationSecurityAPI, &cfg);
+        let resp = api.list_application_security_waf_custom_rules().await;
         assert!(
             resp.is_ok(),
             "make_api_no_auth! request leaked Authorization or wrong UA: {:?}",

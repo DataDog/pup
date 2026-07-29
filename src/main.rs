@@ -617,6 +617,10 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication or API keys.
+    ///   list/get work with default OAuth scopes. create/update/delete
+    ///   require the user_access_manage scope, which is not requested by
+    ///   default -- opt in with:
+    ///     pup auth login --extra-scopes user_access_manage
     #[command(name = "authn-mappings", verbatim_doc_comment)]
     AuthnMappings {
         #[command(subcommand)]

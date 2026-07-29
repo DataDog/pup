@@ -3216,6 +3216,11 @@ enum LogActions {
             help = "Sort groups by aggregation (count,cardinality,pc75,pc90,pc95,pc98,pc99,sum,min,max)"
         )]
         sort: String,
+        #[arg(
+            long,
+            help = "Return a timeseries with this bucket size (e.g. 60s, 5m, 1h); enables timeseries mode"
+        )]
+        interval: Option<String>,
     },
     /// Manage log archives
     Archives {
@@ -12280,6 +12285,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     storage,
                     index,
                     sort,
+                    interval,
                 } => {
                     commands::logs::aggregate(
                         &cfg,
@@ -12300,6 +12306,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             index,
                             storage,
                             sort,
+                            interval,
                         },
                     )
                     .await?;

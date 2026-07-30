@@ -337,6 +337,14 @@ mod tests {
         assert!(scopes.contains(&"built_in_features"));
         // Logs
         assert!(scopes.contains(&"logs_write_pipelines"));
+        // APM trace metrics
+        assert!(scopes.contains(&"apm_generate_metrics"));
+    }
+
+    #[test]
+    fn test_read_only_scopes_excludes_apm_generate_metrics() {
+        let ro = read_only_scopes();
+        assert!(!ro.contains(&"apm_generate_metrics"));
     }
 
     #[test]

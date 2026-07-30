@@ -373,6 +373,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_spans_metrics_list_accepts_oauth_bearer_token() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        // Simulate OAuth-only auth: bearer token configured, no API/APP keys.
+        cfg.api_key = None;
+        cfg.app_key = None;
+        cfg.access_token = Some("oauth-bearer-token".into());
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .match_header("Authorization", "Bearer oauth-bearer-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::metrics_list(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "spans metrics list with OAuth bearer failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
     async fn test_spans_metrics_get() {
         let _lock = lock_env().await;
         std::env::set_var("DD_TOKEN_STORAGE", "file");

@@ -1034,6 +1034,12 @@ enum Commands {
     ///   pup data-deletion requests list
     ///   pup data-deletion requests create --product logs --file request.json
     ///   pup data-deletion requests cancel <request-id>
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    ///   All operations require the logs_delete_data and/or rum_delete_data
+    ///   scopes, which are not requested by default -- opt in with:
+    ///     pup auth login --extra-scopes logs_delete_data,rum_delete_data
     #[command(name = "data-deletion", verbatim_doc_comment)]
     DataDeletion {
         #[command(subcommand)]

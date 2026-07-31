@@ -18,7 +18,7 @@ use crate::util_ext;
 // ---------------------------------------------------------------------------
 
 pub async fn metrics_list(cfg: &Config) -> Result<()> {
-    let api = crate::make_api_no_auth!(SpansMetricsAPI, cfg);
+    let api = crate::make_api!(SpansMetricsAPI, cfg);
     let resp = api
         .list_spans_metrics()
         .await
@@ -27,7 +27,7 @@ pub async fn metrics_list(cfg: &Config) -> Result<()> {
 }
 
 pub async fn metrics_get(cfg: &Config, metric_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(SpansMetricsAPI, cfg);
+    let api = crate::make_api!(SpansMetricsAPI, cfg);
     let resp = api
         .get_spans_metric(metric_id.to_string())
         .await
@@ -38,7 +38,7 @@ pub async fn metrics_get(cfg: &Config, metric_id: &str) -> Result<()> {
 pub async fn metrics_create(cfg: &Config, file: &str) -> Result<()> {
     let body: datadog_api_client::datadogV2::model::SpansMetricCreateRequest =
         util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(SpansMetricsAPI, cfg);
+    let api = crate::make_api!(SpansMetricsAPI, cfg);
     let resp = api
         .create_spans_metric(body)
         .await
@@ -49,7 +49,7 @@ pub async fn metrics_create(cfg: &Config, file: &str) -> Result<()> {
 pub async fn metrics_update(cfg: &Config, metric_id: &str, file: &str) -> Result<()> {
     let body: datadog_api_client::datadogV2::model::SpansMetricUpdateRequest =
         util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(SpansMetricsAPI, cfg);
+    let api = crate::make_api!(SpansMetricsAPI, cfg);
     let resp = api
         .update_spans_metric(metric_id.to_string(), body)
         .await
@@ -58,7 +58,7 @@ pub async fn metrics_update(cfg: &Config, metric_id: &str, file: &str) -> Result
 }
 
 pub async fn metrics_delete(cfg: &Config, metric_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(SpansMetricsAPI, cfg);
+    let api = crate::make_api!(SpansMetricsAPI, cfg);
     api.delete_spans_metric(metric_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete spans metric: {e:?}"))?;
@@ -366,6 +366,39 @@ mod tests {
         assert!(
             result.is_ok(),
             "spans metrics list failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_spans_metrics_list_accepts_oauth_bearer_token() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        // Simulate OAuth-only auth: bearer token configured, no API/APP keys.
+        cfg.api_key = None;
+        cfg.app_key = None;
+        cfg.access_token = Some("oauth-bearer-token".into());
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .match_header("Authorization", "Bearer oauth-bearer-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        let result = super::metrics_list(&cfg).await;
+        assert!(
+            result.is_ok(),
+            "spans metrics list with OAuth bearer failed: {:?}",
             result.err()
         );
         cleanup_env();

@@ -10156,6 +10156,19 @@ enum TracesActions {
         group_by: Option<String>,
     },
     /// Manage span-based metrics
+    ///
+    /// Create, list, get, update, and delete metrics generated from span data.
+    ///
+    /// EXAMPLES:
+    ///   pup traces metrics list
+    ///   pup traces metrics get my-metric-id
+    ///   pup traces metrics create --file metric.json
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    ///   list/get work with the default apm_read scope. create/update/delete
+    ///   require apm_generate_metrics, which is also requested by default.
+    #[command(verbatim_doc_comment)]
     Metrics {
         #[command(subcommand)]
         action: SpansMetricsActions,

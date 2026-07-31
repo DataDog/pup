@@ -108,6 +108,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
 pub fn default_scopes() -> Vec<&'static str> {
     vec![
         // APM
+        "apm_generate_metrics",
         "apm_read",
         "apm_remote_configuration_read",
         "apm_remote_configuration_write",
@@ -343,6 +344,14 @@ mod tests {
         assert!(scopes.contains(&"built_in_features"));
         // Logs
         assert!(scopes.contains(&"logs_write_pipelines"));
+        // APM trace metrics
+        assert!(scopes.contains(&"apm_generate_metrics"));
+    }
+
+    #[test]
+    fn test_read_only_scopes_excludes_apm_generate_metrics() {
+        let ro = read_only_scopes();
+        assert!(!ro.contains(&"apm_generate_metrics"));
     }
 
     #[test]

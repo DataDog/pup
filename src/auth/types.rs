@@ -198,6 +198,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "logs_read_index_data",
         "logs_write_archives",
         "logs_write_pipelines",
+        "saved_views_write",
         // Metrics
         "metrics_read",
         // Monitors
@@ -344,6 +345,7 @@ mod tests {
         assert!(scopes.contains(&"built_in_features"));
         // Logs
         assert!(scopes.contains(&"logs_write_pipelines"));
+        assert!(scopes.contains(&"saved_views_write"));
         // APM trace metrics
         assert!(scopes.contains(&"apm_generate_metrics"));
     }

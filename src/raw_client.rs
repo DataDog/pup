@@ -352,16 +352,6 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
         path: "/api/v1/events",
         method: "POST",
     },
-    // Logs saved views write endpoints accept full API users, not OAuth tokens.
-    // List/get support OAuth, so only create/delete are excluded here.
-    EndpointRequirement {
-        path: "/api/v1/logs/views",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v1/logs/views/",
-        method: "DELETE",
-    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -846,11 +836,11 @@ mod tests {
     }
 
     #[test]
-    fn test_fallback_for_logs_saved_views_writes() {
+    fn test_no_fallback_for_logs_saved_views() {
         assert!(!requires_api_key_fallback("GET", "/api/v1/logs/views"));
         assert!(!requires_api_key_fallback("GET", "/api/v1/logs/views/123"));
-        assert!(requires_api_key_fallback("POST", "/api/v1/logs/views"));
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback("POST", "/api/v1/logs/views"));
+        assert!(!requires_api_key_fallback(
             "DELETE",
             "/api/v1/logs/views/123"
         ));
@@ -887,7 +877,7 @@ mod tests {
 
     #[test]
     fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 57);
+        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 55);
     }
 
     #[test]
@@ -1026,16 +1016,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_raw_delete_uses_api_key_fallback() {
+    async fn test_raw_delete_uses_oauth_bearer() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let mut cfg = test_config(&server.url());
         cfg.access_token = Some("token".into());
         let mock = server
             .mock("DELETE", "/api/v1/logs/views/123")
-            .match_header("DD-API-KEY", "test-api-key")
-            .match_header("DD-APPLICATION-KEY", "test-app-key")
-            .match_header("Authorization", mockito::Matcher::Missing)
+            .match_header("Authorization", "Bearer token")
+            .match_header("DD-API-KEY", mockito::Matcher::Missing)
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"deleted_logs_saved_view_id":123}"#)

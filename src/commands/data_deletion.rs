@@ -8,7 +8,7 @@ use crate::formatter;
 use crate::util;
 
 fn make_api(cfg: &Config) -> DataDeletionAPI {
-    crate::make_api_no_auth!(DataDeletionAPI, cfg)
+    crate::make_api!(DataDeletionAPI, cfg)
 }
 
 pub async fn requests_list(

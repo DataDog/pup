@@ -140,6 +140,19 @@ Error: Invalid time format
 **No Results Found**:
 → Suggest broadening the query or checking time range
 
+**Trace IDs Missing from Log Results**:
+Logs may show a linked trace in the Datadog UI while the API result has no
+`dd.trace_id` / `dd.span_id` (queries like `@dd.trace_id:*` return zero hits).
+When a trace ID attribute is remapped for trace correlation (JSON preprocessing
+or a Trace Remapper processor), the source attribute is removed and stored as an
+internal attribute that the Logs Search API does not return.
+→ This is expected Datadog behavior, not a bug in pup, the query, or the user's
+instrumentation. Do NOT loop retrying queries or suggest instrumentation
+changes to "restore" the field. Explain the limitation (Datadog tracks the
+improvement as support reference FRLOGSS-4306) and offer alternatives: query a
+custom non-remapped attribute if the application emits one, or pivot to
+`pup traces search` using the log's service and time window.
+
 **Rate Limiting**:
 ```
 Error: Rate limit exceeded

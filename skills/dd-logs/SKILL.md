@@ -52,6 +52,27 @@ pup logs search --query="@http.status_code:>=500" --from="1h"
 | `service:api AND env:prod` | Boolean |
 | `@message:*timeout*` | Wildcard |
 
+### Trace IDs in Log Results
+
+Logs that show a linked trace in the Datadog UI may not include `dd.trace_id` /
+`dd.span_id` in API results. When a trace ID attribute is remapped for trace
+correlation (via JSON preprocessing or a Trace Remapper processor), the source
+attribute is removed and the value is stored as an internal attribute that the
+Logs Search API does not return. The UI's "trace" link reads that internal
+attribute, so UI and API results differ.
+
+**This is expected Datadog Log Management behavior, not a pup bug or an
+instrumentation problem.** Do not retry queries or change instrumentation to
+"fix" it. Datadog is tracking making these values queryable (support reference
+FRLOGSS-4306).
+
+Workarounds until then:
+
+- Emit the trace ID under a separate attribute that is not remapped (e.g.
+  `@custom.trace_id`) and query that.
+- Pivot the other way: search spans by the log's service/time window via
+  `pup traces search`, or use the trace link in the Datadog UI.
+
 ## Pipelines
 
 Process logs before indexing:
@@ -184,6 +205,7 @@ def sanitize_log(message: str) -> str:
 | High costs | Add exclusion filters |
 | Search slow | Narrow time range, use indexes |
 | Missing attributes | Check grok parser |
+| `dd.trace_id` missing but UI shows a trace | Expected: remapped trace IDs become internal attributes (see [Trace IDs in Log Results](#trace-ids-in-log-results)) |
 
 ## References/Documentation
 

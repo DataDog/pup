@@ -233,6 +233,34 @@ pup --verbose monitors get 12345678
 pup --site=datadoghq.eu monitors get 12345678
 ```
 
+### Trace IDs Missing from Log Search Results
+
+**Symptoms:**
+- The Datadog UI shows a trace linked to a log, but `pup logs search` results
+  have no `dd.trace_id` / `dd.span_id` attribute
+- Queries like `@dd.trace_id:*` return zero hits for logs that are correlated
+  with traces in the UI
+
+**Cause:**
+
+This is Datadog Log Management behavior, not a pup issue. When a trace ID
+attribute is remapped for trace correlation (via JSON preprocessing or a Trace
+Remapper processor), the source attribute is removed from the log and the value
+is stored as an internal attribute. The Logs Search API does not return internal
+attributes, while the UI's trace link reads them - so the UI and API disagree.
+
+Datadog is tracking making these values queryable; contact
+support@datadoghq.com and reference "FRLOGSS-4306" for updates.
+
+**Workarounds:**
+- Emit the trace ID under an additional attribute that is not remapped (e.g.
+  `@custom.trace_id`) and query that instead
+- Pivot to trace search using the log's service and time window:
+
+```bash
+pup traces search --query="service:my-service" --from="1h"
+```
+
 ## Command Issues
 
 ### Command Not Found

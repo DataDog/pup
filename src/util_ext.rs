@@ -1,4 +1,4 @@
-//! Hand-written pup command utilities: time/duration parsing, the monitor-diff
+//! Hand-written pup command utilities: time/duration parsing, the JSON diff
 //! helpers, compute-string parsing, and percent-encoding. None of this is used by
 //! generated command modules (only `util::read_json_file` is) -- kept here as pup-
 //! owned code the generator never touches.
@@ -10,6 +10,8 @@ use chrono::Utc;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
+
+use crate::formatter::{self, Metadata};
 
 fn parse_relative_duration_millis(input: &str) -> Result<i64> {
     let stripped = input.trim_start_matches('-').trim();
@@ -185,22 +187,182 @@ pub struct DiffEntry {
     pub after: Option<Value>,
 }
 
-/// Remove `readonly` keys at the top level and recursively drop `null`-valued
+/// Read-only server-managed fields that are stripped before diffing a workflow.
+pub const READONLY_WORKFLOW_FIELDS: &[&str] = &[
+    "data.id",
+    "data.type",
+    "data.attributes.created_at",
+    "data.attributes.createdAt",
+    "data.attributes.created_by",
+    "data.attributes.createdBy",
+    "data.attributes.modified_at",
+    "data.attributes.modifiedAt",
+    "data.attributes.updated_at",
+    "data.attributes.updatedAt",
+    "data.attributes.updated_by",
+    "data.attributes.updatedBy",
+];
+
+/// Options for diffing a live resource against a candidate JSON value.
+pub struct ResourceDiffOptions<'a> {
+    pub command: &'a str,
+    pub update_command: &'a str,
+    pub resource_kind: &'a str,
+    pub resource_id: &'a str,
+    pub readonly_paths: &'a [&'a str],
+    pub only: &'a [String],
+    pub ignore: &'a [String],
+    pub live_root: Option<&'a str>,
+    pub candidate_root: Option<&'a str>,
+    pub removed_entries_next_action: Option<&'a str>,
+    pub no_changes_message: Option<String>,
+}
+
+impl<'a> ResourceDiffOptions<'a> {
+    pub fn new(
+        command: &'a str,
+        update_command: &'a str,
+        resource_kind: &'a str,
+        resource_id: &'a str,
+    ) -> Self {
+        Self {
+            command,
+            update_command,
+            resource_kind,
+            resource_id,
+            readonly_paths: &[],
+            only: &[],
+            ignore: &[],
+            live_root: None,
+            candidate_root: None,
+            removed_entries_next_action: None,
+            no_changes_message: None,
+        }
+    }
+}
+
+/// Remove `readonly` keys at dotted paths and recursively drop `null`-valued
 /// keys so that absent fields and explicit `null`s compare equal.
 pub fn normalize_for_diff(v: &mut Value, readonly: &[&str]) {
+    for key in readonly {
+        remove_path(v, key);
+    }
+    drop_null_object_fields(v);
+}
+
+fn remove_path(v: &mut Value, path: &str) {
+    let parts: Vec<&str> = path.split('.').filter(|part| !part.is_empty()).collect();
+    remove_path_parts(v, &parts);
+}
+
+fn remove_path_parts(v: &mut Value, parts: &[&str]) {
+    if parts.is_empty() {
+        return;
+    }
+
     if let Value::Object(map) = v {
-        for key in readonly {
-            map.remove(*key);
+        if parts.len() == 1 {
+            map.remove(parts[0]);
+        } else if let Some(child) = map.get_mut(parts[0]) {
+            remove_path_parts(child, &parts[1..]);
         }
+    }
+}
+
+fn drop_null_object_fields(v: &mut Value) {
+    if let Value::Object(map) = v {
         let keys: Vec<String> = map.keys().cloned().collect();
         for key in keys {
             if map[&key].is_null() {
                 map.remove(&key);
             } else {
-                normalize_for_diff(map.get_mut(&key).unwrap(), &[]);
+                drop_null_object_fields(map.get_mut(&key).unwrap());
             }
         }
     }
+}
+
+/// Diff a live resource and candidate using common pup resource-diff rules.
+pub fn diff_resource_values(
+    live: &Value,
+    candidate: &Value,
+    options: &ResourceDiffOptions<'_>,
+) -> Result<Vec<DiffEntry>> {
+    let mut live = select_diff_root(live, options.live_root, "live")?;
+    let mut candidate = select_diff_root(candidate, options.candidate_root, "candidate")?;
+    normalize_for_diff(&mut live, options.readonly_paths);
+    normalize_for_diff(&mut candidate, options.readonly_paths);
+    Ok(scope_diff(
+        diff_json(&live, &candidate),
+        options.only,
+        options.ignore,
+    ))
+}
+
+fn select_diff_root(value: &Value, root: Option<&str>, label: &str) -> Result<Value> {
+    let Some(path) = root else {
+        return Ok(value.clone());
+    };
+
+    let mut current = value;
+    for part in path.split('.').filter(|part| !part.is_empty()) {
+        current = current
+            .get(part)
+            .ok_or_else(|| anyhow::anyhow!("{label} JSON does not contain diff root '{path}'"))?;
+    }
+    Ok(current.clone())
+}
+
+/// Diff and print a live resource against a candidate JSON value.
+pub fn format_resource_diff(
+    cfg: &crate::config::Config,
+    live: &Value,
+    candidate: &Value,
+    options: &ResourceDiffOptions<'_>,
+) -> Result<()> {
+    let entries = diff_resource_values(live, candidate, options)?;
+    let has_removed = entries.iter().any(|e| e.change == ChangeKind::Removed);
+    let next_action = if entries.is_empty() {
+        None
+    } else if has_removed {
+        options
+            .removed_entries_next_action
+            .map(ToString::to_string)
+            .or_else(|| {
+                Some(format!(
+                    "review changes, then run `{}`",
+                    options.update_command
+                ))
+            })
+    } else {
+        Some(format!(
+            "review changes, then run `{}`",
+            options.update_command
+        ))
+    };
+    let meta = Metadata {
+        count: Some(entries.len()),
+        truncated: false,
+        command: Some(options.command.to_string()),
+        next_action,
+    };
+    formatter::format_and_print(
+        &entries,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&meta),
+        cfg.jq.as_deref(),
+    )?;
+    if entries.is_empty() && !cfg.agent_mode {
+        let message = options.no_changes_message.clone().unwrap_or_else(|| {
+            format!(
+                "No changes - {} {} is in sync.",
+                options.resource_kind, options.resource_id
+            )
+        });
+        eprintln!("{message}");
+    }
+    Ok(())
 }
 
 /// Recursively compare `before` and `after` as `serde_json::Value`s, building
@@ -790,6 +952,28 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_strips_nested_readonly_fields() {
+        let mut v = serde_json::json!({
+            "data": {
+                "id": "wf-1",
+                "type": "workflows",
+                "attributes": {
+                    "name": "Deploy",
+                    "updatedAt": "2024-01-02T00:00:00Z"
+                }
+            }
+        });
+        normalize_for_diff(&mut v, READONLY_WORKFLOW_FIELDS);
+        assert!(v.pointer("/data/id").is_none());
+        assert!(v.pointer("/data/type").is_none());
+        assert!(v.pointer("/data/attributes/updatedAt").is_none());
+        assert_eq!(
+            v.pointer("/data/attributes/name"),
+            Some(&serde_json::json!("Deploy"))
+        );
+    }
+
+    #[test]
     fn test_normalize_drops_null_values() {
         let mut v = serde_json::json!({"name": "cpu", "message": null, "priority": null});
         normalize_for_diff(&mut v, &[]);
@@ -807,6 +991,39 @@ mod tests {
         normalize_for_diff(&mut live, &[]);
         normalize_for_diff(&mut candidate, &[]);
         assert!(diff_json(&live, &candidate).is_empty());
+    }
+
+    #[test]
+    fn test_diff_resource_values_uses_roots_and_filters() {
+        let live = serde_json::json!({
+            "data": {
+                "attributes": {
+                    "name": "Old",
+                    "spec": {"threshold": 1},
+                    "updatedAt": "2024-01-01T00:00:00Z"
+                }
+            }
+        });
+        let candidate = serde_json::json!({
+            "data": {
+                "attributes": {
+                    "name": "New",
+                    "spec": {"threshold": 2}
+                }
+            }
+        });
+        let only = vec!["spec".to_string()];
+        let readonly = ["updatedAt"];
+        let mut options = ResourceDiffOptions::new("test diff", "test update", "thing", "id");
+        options.readonly_paths = &readonly;
+        options.only = &only;
+        options.live_root = Some("data.attributes");
+        options.candidate_root = Some("data.attributes");
+
+        let entries = diff_resource_values(&live, &candidate, &options).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "spec.threshold");
+        assert_eq!(entries[0].change, ChangeKind::Modified);
     }
 
     // ---- scope_diff ----

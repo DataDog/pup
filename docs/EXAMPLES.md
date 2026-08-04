@@ -773,6 +773,16 @@ pup workflows create --file=workflow.json
 pup workflows update <workflow-id> --file=workflow.json
 ```
 
+### Diff a Workflow
+```bash
+# Compare a candidate JSON file against the live workflow
+pup workflows diff <workflow-id> workflow.json
+
+# Scope or suppress specific field paths
+pup workflows diff <workflow-id> workflow.json --only data.attributes.spec
+pup workflows diff <workflow-id> workflow.json --ignore data.attributes.updatedAt
+```
+
 ### Delete a Workflow
 ```bash
 pup workflows delete <workflow-id>

@@ -588,6 +588,8 @@ pub fn apply_auth(
     method: &str,
     path: &str,
 ) -> anyhow::Result<reqwest::RequestBuilder> {
+    req = crate::client::with_workflow_source_header(req, path);
+
     // Events post is also in the broader OAuth-excluded table, so handle its
     // API-key-only requirement before the fallback branch that adds both keys.
     if requires_api_key_only(method, path) {
@@ -1107,6 +1109,46 @@ mod tests {
         ));
     }
 
+    /// Verifies that raw requests to Workflow Automation carry pup's source header.
+    #[tokio::test]
+    async fn test_raw_request_sends_workflow_source_header() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/v2/workflows/workflow-id")
+            .match_header(
+                crate::client::WORKFLOW_SOURCE_HEADER,
+                crate::client::WORKFLOW_SOURCE_VALUE,
+            )
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"id": "workflow-id"}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let response = super::raw_request(
+            &cfg,
+            "GET",
+            "/api/v2/workflows/workflow-id",
+            &[],
+            None,
+            None,
+            "application/json",
+            &[],
+        )
+        .await;
+
+        assert!(
+            response.is_ok(),
+            "raw workflow request failed: {:?}",
+            response.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
     /// Verifies that raw_request attaches query parameters and returns Ok when the
     /// server responds 200. Exercises the `!query.is_empty()` branch added to the function.
     #[tokio::test]
@@ -1117,6 +1159,10 @@ mod tests {
         let _mock = server
             .mock("GET", "/api/v2/monitors")
             .match_query(mockito::Matcher::Any)
+            .match_header(
+                crate::client::WORKFLOW_SOURCE_HEADER,
+                mockito::Matcher::Missing,
+            )
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body("[]")

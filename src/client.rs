@@ -56,6 +56,52 @@ impl Middleware for UserAgentMiddleware {
     }
 }
 
+// Workflow Automation records this header as request-source metadata.
+pub(crate) const WORKFLOW_SOURCE_HEADER: &str = "x-datadog-workflow-automation-source";
+pub(crate) const WORKFLOW_SOURCE_VALUE: &str = "pup";
+const WORKFLOW_API_PATH: &str = "/api/v2/workflows";
+
+fn is_workflow_api_path(path: &str) -> bool {
+    path == WORKFLOW_API_PATH || path.starts_with("/api/v2/workflows/")
+}
+
+pub(crate) fn with_workflow_source_header(
+    req: reqwest::RequestBuilder,
+    path: &str,
+) -> reqwest::RequestBuilder {
+    if is_workflow_api_path(path) {
+        req.header(WORKFLOW_SOURCE_HEADER, WORKFLOW_SOURCE_VALUE)
+    } else {
+        req
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct WorkflowSourceMiddleware;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait]
+impl Middleware for WorkflowSourceMiddleware {
+    async fn handle(
+        &self,
+        mut req: reqwest_middleware::reqwest::Request,
+        extensions: &mut Extensions,
+        next: Next<'_>,
+    ) -> reqwest_middleware::Result<reqwest_middleware::reqwest::Response> {
+        if is_workflow_api_path(req.url().path()) {
+            req.headers_mut().insert(
+                reqwest_middleware::reqwest::header::HeaderName::from_static(
+                    WORKFLOW_SOURCE_HEADER,
+                ),
+                reqwest_middleware::reqwest::header::HeaderValue::from_static(
+                    WORKFLOW_SOURCE_VALUE,
+                ),
+            );
+        }
+        next.run(req, extensions).await
+    }
+}
+
 // ---------------------------------------------------------------------------
 // DD Configuration builder
 // ---------------------------------------------------------------------------
@@ -116,10 +162,9 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
 }
 
 /// Builds a reqwest middleware client for SDK API calls. Always installs
-/// `UserAgentMiddleware` so requests carry pup's branded `User-Agent`
-/// instead of the SDK's `datadog-api-client-rust/...` default. When
-/// `send_bearer` is true and the config has an access token, also installs
-/// `BearerAuthMiddleware`. OAuth-incompatible endpoints (see
+/// middleware for pup's branded `User-Agent` and Workflow Automation source
+/// header. When `send_bearer` is true and the config has an access token, also
+/// installs `BearerAuthMiddleware`. OAuth-incompatible endpoints (see
 /// `raw_client::OAUTH_EXCLUDED_ENDPOINTS`) pass `false` so the SDK falls back
 /// to API key headers from the `Configuration`.
 ///
@@ -130,7 +175,9 @@ pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddl
         let reqwest_client = reqwest_middleware::reqwest::Client::builder()
             .build()
             .expect("failed to build reqwest client");
-        let mut builder = ClientBuilder::new(reqwest_client).with(UserAgentMiddleware);
+        let mut builder = ClientBuilder::new(reqwest_client)
+            .with(UserAgentMiddleware)
+            .with(WorkflowSourceMiddleware);
         if send_bearer {
             if let Some(token) = cfg.access_token.as_ref() {
                 builder = builder.with(BearerAuthMiddleware {
@@ -621,6 +668,52 @@ mod tests {
         std::env::remove_var("PUP_MOCK_SERVER");
         std::env::remove_var("DD_API_KEY");
         std::env::remove_var("DD_APP_KEY");
+    }
+
+    /// Verifies that source attribution is scoped to Workflow Automation routes.
+    #[tokio::test]
+    async fn test_make_dd_client_sends_workflow_source_header_only_for_workflows() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let workflow_mock = server
+            .mock("GET", "/api/v2/workflows/workflow-id")
+            .match_header(WORKFLOW_SOURCE_HEADER, WORKFLOW_SOURCE_VALUE)
+            .with_status(200)
+            .expect(1)
+            .create_async()
+            .await;
+        let non_workflow_mock = server
+            .mock("GET", "/api/v2/workflows-backup")
+            .match_header(WORKFLOW_SOURCE_HEADER, mockito::Matcher::Missing)
+            .with_status(200)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let cfg = test_config(&server.url());
+        let client = make_dd_client(&cfg, true).expect("native builds use the middleware client");
+        let workflow_response = client
+            .get(format!("{}/api/v2/workflows/workflow-id", server.url()))
+            .send()
+            .await;
+        let non_workflow_response = client
+            .get(format!("{}/api/v2/workflows-backup", server.url()))
+            .send()
+            .await;
+
+        assert!(
+            workflow_response.is_ok(),
+            "workflow request did not carry source header: {:?}",
+            workflow_response.err()
+        );
+        assert!(
+            non_workflow_response.is_ok(),
+            "non-workflow request unexpectedly carried source header: {:?}",
+            non_workflow_response.err()
+        );
+        workflow_mock.assert_async().await;
+        non_workflow_mock.assert_async().await;
+        cleanup_env();
     }
 
     /// Verifies that requests built via `make_api!` carry pup's branded

@@ -1,0 +1,37 @@
+name: Close Stale Issues and PRs
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
+        with:
+          days-before-stale: 30
+          days-before-close: 14
+          exempt-issue-labels: "no-stale,enhancement,bug"
+          exempt-pr-labels: "no-stale,enhancement,bug"
+          stale-issue-label: stale
+          stale-pr-label: stale
+          stale-issue-message: >
+            This issue has been automatically marked as stale because it has not had
+            recent activity. It will be closed in 14 days if no further activity occurs.
+            Remove the stale label or comment to keep it open.
+          stale-pr-message: >
+            This pull request has been automatically marked as stale because it has not had
+            recent activity. It will be closed in 14 days if no further activity occurs.
+            Remove the stale label or comment to keep it open.
+          close-issue-message: >
+            This issue has been automatically closed due to inactivity. Feel free to
+            reopen if it is still relevant.
+          close-pr-message: >
+            This pull request has been automatically closed due to inactivity. Feel free to
+            reopen if it is still relevant.

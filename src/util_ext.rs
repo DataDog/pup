@@ -191,6 +191,8 @@ pub struct DiffEntry {
 pub const READONLY_WORKFLOW_FIELDS: &[&str] = &[
     "data.id",
     "data.type",
+    "data.attributes.action_id",
+    "data.attributes.actionId",
     "data.attributes.created_at",
     "data.attributes.createdAt",
     "data.attributes.created_by",
@@ -958,6 +960,7 @@ mod tests {
                 "id": "wf-1",
                 "type": "workflows",
                 "attributes": {
+                    "action_id": "wf-1",
                     "name": "Deploy",
                     "updatedAt": "2024-01-02T00:00:00Z"
                 }
@@ -966,6 +969,7 @@ mod tests {
         normalize_for_diff(&mut v, READONLY_WORKFLOW_FIELDS);
         assert!(v.pointer("/data/id").is_none());
         assert!(v.pointer("/data/type").is_none());
+        assert!(v.pointer("/data/attributes/action_id").is_none());
         assert!(v.pointer("/data/attributes/updatedAt").is_none());
         assert_eq!(
             v.pointer("/data/attributes/name"),

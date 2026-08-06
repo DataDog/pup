@@ -311,6 +311,7 @@ mod tests {
                 "id": "wf-123",
                 "type": "workflows",
                 "attributes": {
+                    "action_id": "wf-123",
                     "name": "Old workflow",
                     "description": "Deploy service",
                     "spec": {"steps": [{"name": "deploy", "timeout": 60}]},

@@ -8,6 +8,7 @@ use datadog_api_client::datadogV2::api_workflow_automation::{
 
 use crate::config::Config;
 use crate::formatter::{self, Metadata};
+use crate::raw_client;
 use crate::util;
 use crate::util_ext;
 
@@ -62,14 +63,9 @@ pub async fn diff(
     ignore: &[String],
 ) -> Result<()> {
     let candidate: serde_json::Value = util::read_json_file(file)?;
-    let api = make_api(cfg);
-    let live = api
-        .get_workflow(workflow_id.to_string())
+    let live = raw_client::raw_get(cfg, &format!("/api/v2/workflows/{workflow_id}"), &[])
         .await
-        .map_err(|e| anyhow::anyhow!("failed to get workflow: {:?}", e))?;
-    let live = serde_json::to_value(&live).map_err(|e| {
-        anyhow::anyhow!("failed to serialize workflow {workflow_id} for diff: {e:?}")
-    })?;
+        .map_err(|e| anyhow::anyhow!("failed to get workflow: {e:?}"))?;
 
     let mut options = util_ext::ResourceDiffOptions::new(
         "workflows diff",

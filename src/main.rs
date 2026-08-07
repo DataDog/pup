@@ -6814,6 +6814,14 @@ enum OnCallPagesActions {
         responder: Option<String>,
         #[arg(
             long,
+            allow_hyphen_values = true,
+            value_parser = ["created_at", "-created_at"],
+            default_value = "-created_at",
+            help = "Sort field (created_at or -created_at; defaults to newest first)"
+        )]
+        sort: String,
+        #[arg(
+            long,
             default_value_t = 1000,
             value_parser = clap::value_parser!(u32).range(1..=1000),
             help = "Results per page (1-1000; endpoint pagination is unsupported)"
@@ -14512,6 +14520,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     OnCallPagesActions::List {
                         team,
                         responder,
+                        sort,
                         page_size,
                     } => {
                         commands::on_call::pages_list(
@@ -14519,6 +14528,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             team.as_deref(),
                             responder.as_deref(),
                             page_size,
+                            &sort,
                         )
                         .await?;
                     }

@@ -480,14 +480,16 @@ pub async fn pages_list(
     team: Option<&str>,
     responder: Option<&str>,
     page_size: u32,
+    sort: &str,
 ) -> Result<()> {
     if !(1..=1000).contains(&page_size) {
         anyhow::bail!("invalid page_size: {page_size}. Expected a value from 1 to 1000");
     }
+    validate_pages_sort(sort)?;
 
     let page_size = page_size.to_string();
     let team_filter = team.map(|t| format!("team:{t}"));
-    let mut query = vec![("page[size]", page_size.as_str())];
+    let mut query = vec![("page[size]", page_size.as_str()), ("sort", sort)];
     if let Some(filter) = team_filter.as_deref() {
         query.push(("filter", filter));
     }
@@ -501,6 +503,15 @@ pub async fn pages_list(
     }
 
     formatter::output(cfg, &resp)
+}
+
+fn validate_pages_sort(sort: &str) -> Result<()> {
+    match sort {
+        "created_at" | "-created_at" => Ok(()),
+        other => {
+            anyhow::bail!("invalid --sort value: {other:?}\nExpected: created_at, -created_at")
+        }
+    }
 }
 
 fn filter_pages_by_responder(resp: &mut serde_json::Value, responder: &str) {
@@ -952,6 +963,7 @@ mod tests {
             .mock("GET", "/api/unstable/on-call/pages")
             .match_query(mockito::Matcher::AllOf(vec![
                 mockito::Matcher::UrlEncoded("page[size]".into(), "42".into()),
+                mockito::Matcher::UrlEncoded("sort".into(), "-created_at".into()),
                 mockito::Matcher::UrlEncoded("filter".into(), "team:core-platform".into()),
             ]))
             .with_status(200)
@@ -959,7 +971,7 @@ mod tests {
             .with_body(r#"{"data": []}"#)
             .create_async()
             .await;
-        let result = super::pages_list(&cfg, Some("core-platform"), None, 42).await;
+        let result = super::pages_list(&cfg, Some("core-platform"), None, 42, "-created_at").await;
         assert!(result.is_ok(), "pages_list failed: {:?}", result.err());
         mock.assert_async().await;
         cleanup_env();
@@ -969,12 +981,25 @@ mod tests {
     async fn test_on_call_pages_list_rejects_invalid_page_size() {
         let _lock = lock_env().await;
         let cfg = test_config("http://unused.local");
-        let result = super::pages_list(&cfg, None, None, 0).await;
+        let result = super::pages_list(&cfg, None, None, 0, "-created_at").await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("invalid page_size"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_on_call_pages_list_rejects_invalid_sort() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        let result = super::pages_list(&cfg, None, None, 100, "started_at").await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid --sort value"));
         cleanup_env();
     }
 

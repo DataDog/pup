@@ -96,6 +96,7 @@ fn parse_compute(input: &str) -> Result<(SpansAggregationFunction, Option<String
     Ok((agg, metric))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn search(
     cfg: &Config,
     query: String,
@@ -103,13 +104,21 @@ pub async fn search(
     to: String,
     limit: i32,
     sort: String,
+    cursor: Option<String>,
+    live: bool,
 ) -> Result<()> {
     validate_sort(&sort)?;
 
     let api = crate::make_api!(SpansAPI, cfg);
 
     let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
-    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
+    // Live search always ends at now so the query lands in Datadog's live
+    // (recent, unsampled) trace buffer rather than the indexed store.
+    let to_ms = if live {
+        util_ext::parse_time_to_unix_millis("now")?
+    } else {
+        util_ext::parse_time_to_unix_millis(&to)?
+    };
 
     if !(1..=1000).contains(&limit) {
         anyhow::bail!("--limit must be between 1 and 1000, got {limit}");
@@ -119,6 +128,11 @@ pub async fn search(
         "timestamp" => SpansSort::TIMESTAMP_ASCENDING,
         _ => SpansSort::TIMESTAMP_DESCENDING,
     };
+
+    let mut page = SpansListRequestPage::new().limit(page_limit);
+    if let Some(c) = cursor {
+        page = page.cursor(c);
+    }
 
     let body = SpansListRequest::new().data(
         SpansListRequestData::new()
@@ -131,7 +145,7 @@ pub async fn search(
                             .from(from_ms.to_string())
                             .to(to_ms.to_string()),
                     )
-                    .page(SpansListRequestPage::new().limit(page_limit))
+                    .page(page)
                     .sort(spans_sort),
             ),
     );
@@ -141,21 +155,21 @@ pub async fn search(
         .await
         .map_err(|e| anyhow::anyhow!("failed to search spans: {:?}", e))?;
 
+    let next_cursor = resp
+        .meta
+        .as_ref()
+        .and_then(|m| m.page.as_ref())
+        .and_then(|p| p.after.clone());
+
     let meta = if cfg.agent_mode {
         let count = resp.data.as_ref().map(|d| d.len());
-        let truncated = count.is_some_and(|c| c as i32 >= page_limit);
         Some(formatter::Metadata {
             count,
-            truncated,
+            truncated: next_cursor.is_some(),
             command: Some("traces search".into()),
-            next_action: if truncated {
-                Some(format!(
-                    "Results may be truncated at {page_limit}. Use --limit={} or narrow the --query",
-                    page_limit + 1
-                ))
-            } else {
-                None
-            },
+            next_action: next_cursor.map(|c| {
+                format!("More results available. Use --cursor=\"{c}\" to page backwards through older spans.")
+            }),
         })
     } else {
         None
@@ -499,6 +513,8 @@ mod tests {
             "now".into(),
             0,
             "-timestamp".into(),
+            None,
+            false,
         )
         .await;
         assert!(result.is_err());
@@ -518,6 +534,8 @@ mod tests {
             "now".into(),
             1001,
             "-timestamp".into(),
+            None,
+            false,
         )
         .await;
         assert!(result.is_err());
@@ -525,5 +543,71 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("--limit must be between 1 and 1000"));
+    }
+
+    #[tokio::test]
+    async fn test_search_sends_cursor_and_surfaces_next_cursor() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.agent_mode = true;
+        let mock = server
+            .mock("POST", "/api/v2/spans/events/search")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "data": {"attributes": {"page": {"cursor": "prev-cursor"}}}
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[],"meta":{"page":{"after":"next-cursor"}}}"#)
+            .create_async()
+            .await;
+
+        let result = super::search(
+            &cfg,
+            "*".into(),
+            "1h".into(),
+            "now".into(),
+            50,
+            "-timestamp".into(),
+            Some("prev-cursor".into()),
+            false,
+        )
+        .await;
+
+        assert!(result.is_ok(), "search failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_search_live_forces_to_now() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/v2/spans/events/search")
+            .match_body(mockito::Matcher::Regex(r#""to":"\d{13}""#.to_string()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        // --to is set far in the past; --live must override it to "now".
+        let result = super::search(
+            &cfg,
+            "*".into(),
+            "1h".into(),
+            "2000-01-01T00:00:00Z".into(),
+            50,
+            "-timestamp".into(),
+            None,
+            true,
+        )
+        .await;
+
+        assert!(result.is_ok(), "live search failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
     }
 }

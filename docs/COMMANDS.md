@@ -39,7 +39,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | downtime | list, get, cancel | src/commands/downtime.rs | ✅ |
 | tags | list, get, add, update, delete | src/commands/tags.rs | ✅ |
 | events | post, list, search, get | src/commands/events.rs | ✅ |
-| on-call | teams (CRUD, memberships), pages (list, get, create) | src/commands/on_call.rs | ✅ |
+| on-call | teams (CRUD, memberships), pages (newest-first list, get, create) | src/commands/on_call.rs | ✅ |
 | audit-logs | list, search | src/commands/audit_logs.rs | ✅ |
 | api-keys | list, get, create, delete | src/commands/api_keys.rs | ✅ |
 | app-keys | list, get, create, update, delete | src/commands/app_keys.rs | ✅ |
@@ -188,7 +188,7 @@ pup infrastructure hosts list
 
 ### Operations & Incident Response
 - **incidents** - Incident management (list, get, attachments, settings, handles, postmortem-templates)
-- **on-call** - Team management (create, update, delete teams; manage memberships with roles) and pages (list, get, create)
+- **on-call** - Team management (create, update, delete teams; manage memberships with roles) and pages (newest-first list, get, create)
 - **cases** - Case management (create, search, assign, archive, unarchive, update, projects, jira, servicenow, move)
 - **hamr** - High Availability Multi-Region connections
 - **fleet** - Fleet Automation (agents, deployments, schedules, tracers, clusters, instrumented-pods)

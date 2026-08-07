@@ -99,6 +99,8 @@ fn test_read_only_guard_on_call_pages_list() {
             "core-platform",
             "--responder",
             "user-1",
+            "--sort",
+            "-created_at",
         ])
         .unwrap();
     let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
@@ -115,6 +117,19 @@ fn test_on_call_pages_list_rejects_invalid_page_size() {
         "list",
         "--page-size",
         "0",
+    ]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_on_call_pages_list_rejects_invalid_sort() {
+    let result = crate::Cli::command().try_get_matches_from([
+        "pup",
+        "on-call",
+        "pages",
+        "list",
+        "--sort",
+        "started_at",
     ]);
     assert!(result.is_err());
 }

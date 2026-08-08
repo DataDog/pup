@@ -2923,11 +2923,13 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Workflow CRUD (`workflows get/create/update/delete`),
-    ///   `workflows run`, and `workflows instances *` accept OAuth2
-    ///   (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
-    ///   `workflows connections *` requires DD_API_KEY + DD_APP_KEY
-    ///   pending server-side OAuth enablement on the action-connections
-    ///   API.
+    ///   `workflows run`, `workflows instances *`, and `workflows
+    ///   connections *` accept OAuth2 (`pup auth login`) or DD_API_KEY +
+    ///   DD_APP_KEY.
+    ///   `workflows connections create/update/delete` require the
+    ///   connections_write scope, which is not requested by default --
+    ///   opt in with:
+    ///     pup auth login --extra-scopes connections_write
     #[command(verbatim_doc_comment)]
     Workflows {
         #[command(subcommand)]
@@ -4773,6 +4775,14 @@ enum WorkflowActions {
         action: WorkflowInstanceActions,
     },
     /// Manage action connections
+    ///
+    /// AUTHENTICATION:
+    ///   `get` accepts OAuth2 (`pup auth login`) or DD_API_KEY + DD_APP_KEY.
+    ///   `create`/`update`/`delete` additionally require the
+    ///   connections_write scope, which is not requested by default --
+    ///   opt in with:
+    ///     pup auth login --extra-scopes connections_write
+    #[command(verbatim_doc_comment)]
     Connections {
         #[command(subcommand)]
         action: WorkflowConnectionActions,

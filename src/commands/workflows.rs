@@ -222,7 +222,7 @@ pub async fn instance_cancel(cfg: &Config, workflow_id: &str, instance_id: &str)
 // ---------------------------------------------------------------------------
 
 fn make_connection_api(cfg: &Config) -> ActionConnectionAPI {
-    crate::make_api_no_auth!(ActionConnectionAPI, cfg)
+    crate::make_api!(ActionConnectionAPI, cfg)
 }
 
 pub async fn connections_get(cfg: &Config, connection_id: &str) -> Result<()> {
@@ -279,6 +279,38 @@ mod tests {
         let _mock = mock_any(&mut server, "GET", r#"{}"#).await;
         let result = super::connections_get(&cfg, "conn-id").await;
         assert!(result.is_ok(), "connections get failed: {:?}", result.err());
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_connections_get_accepts_oauth_bearer_token() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        // Simulate OAuth-only auth: bearer token configured, no API/APP keys.
+        cfg.api_key = None;
+        cfg.app_key = None;
+        cfg.access_token = Some("oauth-bearer-token".into());
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_header("Authorization", "Bearer oauth-bearer-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{}"#)
+            .create_async()
+            .await;
+
+        let result = super::connections_get(&cfg, "conn-id").await;
+        assert!(
+            result.is_ok(),
+            "connections get with OAuth bearer failed: {:?}",
+            result.err()
+        );
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }

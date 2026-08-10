@@ -1756,9 +1756,9 @@ enum Commands {
     ///
     /// STORAGE TIERS:
     ///   Datadog logs can be stored in different tiers with different performance and cost characteristics:
-    ///   • indexes - Standard indexed logs (default, real-time searchable)
+    ///   • indexes - Standard indexed logs (real-time searchable)
     ///   • online-archives - Rehydrated logs from archives (slower queries, lower cost)
-    ///   • flex - Flex logs (cost-optimized storage tier, balanced performance)
+    ///   • flex - Flex logs (default for search and aggregate, cost-optimized storage tier)
     ///
     /// LOG QUERY SYNTAX:
     ///   Logs use a query language similar to web search:
@@ -3154,7 +3154,11 @@ enum LogActions {
             help = "Log indexes to aggregate, comma-separated or repeated"
         )]
         index: Vec<String>,
-        #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
+        #[arg(
+            long,
+            default_value = "flex",
+            help = "Storage tier: indexes, online-archives, or flex"
+        )]
         storage: Option<String>,
     },
     /// List logs (v2 API)
@@ -3244,7 +3248,11 @@ enum LogActions {
         group_by: Option<String>,
         #[arg(long, default_value_t = 10, help = "Maximum groups per facet")]
         limit: i32,
-        #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
+        #[arg(
+            long,
+            default_value = "flex",
+            help = "Storage tier: indexes, online-archives, or flex"
+        )]
         storage: Option<String>,
         #[arg(
             long,

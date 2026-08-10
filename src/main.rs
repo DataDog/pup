@@ -4744,6 +4744,23 @@ enum WorkflowActions {
         #[arg(long)]
         file: String,
     },
+    /// Diff a candidate JSON definition against the live workflow
+    Diff {
+        workflow_id: String,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
+    },
     /// Delete a workflow
     Delete { workflow_id: String },
     /// Execute a workflow via API trigger
@@ -16559,6 +16576,14 @@ async fn main_inner() -> anyhow::Result<()> {
             }
             WorkflowActions::Update { workflow_id, file } => {
                 commands::workflows::update(&cfg, &workflow_id, &file).await?;
+            }
+            WorkflowActions::Diff {
+                workflow_id,
+                file,
+                only,
+                ignore,
+            } => {
+                commands::workflows::diff(&cfg, &workflow_id, &file, &only, &ignore).await?;
             }
             WorkflowActions::Delete { workflow_id } => {
                 commands::workflows::delete(&cfg, &workflow_id).await?;

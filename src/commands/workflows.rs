@@ -8,6 +8,7 @@ use datadog_api_client::datadogV2::api_workflow_automation::{
 
 use crate::config::Config;
 use crate::formatter::{self, Metadata};
+use crate::raw_client;
 use crate::util;
 use crate::util_ext;
 
@@ -52,6 +53,31 @@ pub async fn update(cfg: &Config, workflow_id: &str, file: &str) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("failed to update workflow: {:?}", e))?;
     formatter::output(cfg, &resp)
+}
+
+pub async fn diff(
+    cfg: &Config,
+    workflow_id: &str,
+    file: &str,
+    only: &[String],
+    ignore: &[String],
+) -> Result<()> {
+    let candidate: serde_json::Value = util::read_json_file(file)?;
+    let live = raw_client::raw_get(cfg, &format!("/api/v2/workflows/{workflow_id}"), &[])
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get workflow: {e:?}"))?;
+
+    let mut options = util_ext::ResourceDiffOptions::new(
+        "workflows diff",
+        "pup workflows update",
+        "workflow",
+        workflow_id,
+    );
+    options.readonly_paths = util_ext::READONLY_WORKFLOW_FIELDS;
+    options.only = only;
+    options.ignore = ignore;
+    options.no_changes_message = Some(format!("No changes - workflow {workflow_id} is in sync."));
+    util_ext::format_resource_diff(cfg, &live, &candidate, &options)
 }
 
 pub async fn delete(cfg: &Config, workflow_id: &str) -> Result<()> {
@@ -269,6 +295,69 @@ pub async fn connections_delete(cfg: &Config, connection_id: &str) -> Result<()>
 mod tests {
 
     use crate::test_support::*;
+
+    #[tokio::test]
+    async fn test_workflows_diff_detects_changes() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let live_body = r#"{
+            "data": {
+                "id": "wf-123",
+                "type": "workflows",
+                "attributes": {
+                    "action_id": "wf-123",
+                    "name": "Old workflow",
+                    "description": "Deploy service",
+                    "spec": {"steps": [{"name": "deploy", "timeout": 60}]},
+                    "updatedAt": "2024-01-01T00:00:00Z"
+                }
+            }
+        }"#;
+        let _mock = mock_any(&mut server, "GET", live_body).await;
+
+        let candidate = r#"{
+            "data": {
+                "type": "workflows",
+                "attributes": {
+                    "name": "New workflow",
+                    "description": "Deploy service",
+                    "spec": {"steps": [{"name": "deploy", "timeout": 90}]}
+                }
+            }
+        }"#;
+        let path = write_temp_json("pup_workflows_diff_detects_changes.json", candidate);
+
+        let result = super::diff(&cfg, "wf-123", path.to_str().unwrap(), &[], &[]).await;
+        let _ = std::fs::remove_file(path);
+        assert!(result.is_ok(), "workflows diff failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_workflows_diff_file_not_found() {
+        let cfg = test_config("http://unused.local");
+        let result = super::diff(&cfg, "wf-123", "/nonexistent/path.json", &[], &[]).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to read file"));
+    }
+
+    #[tokio::test]
+    async fn test_workflows_diff_invalid_json() {
+        let path = write_temp_json("pup_workflows_diff_invalid_json.json", "not valid json {{{");
+        let cfg = test_config("http://unused.local");
+        let result = super::diff(&cfg, "wf-123", path.to_str().unwrap(), &[], &[]).await;
+        let _ = std::fs::remove_file(path);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to parse JSON"));
+    }
 
     #[tokio::test]
     async fn test_connections_get() {

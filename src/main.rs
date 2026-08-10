@@ -10093,6 +10093,16 @@ enum TracesActions {
     ///   pup traces search --query="@http.status_code:>=500"
     ///   pup traces search --query="service:api @duration:>1000000000" --from="4h"
     ///   pup traces search --query="env:prod" --sort="timestamp" --limit=20
+    ///   pup traces search --live --query="service:api"
+    ///   pup traces search --live --cursor="<cursor from previous next_action>"
+    ///
+    /// LIVE SEARCH:
+    ///   --live pins the end of the window to "now", so the query lands in
+    ///   Datadog's live (recent, unsampled) trace buffer instead of the
+    ///   indexed store — useful for viewing very recent traces that haven't
+    ///   gone through ingestion sampling yet. Combine with the default
+    ///   -timestamp sort and page backwards through older spans with
+    ///   --cursor (returned as `next_action` in agent mode).
     #[command(verbatim_doc_comment)]
     Search {
         #[arg(long, default_value = "*", help = "Span search query")]
@@ -10103,7 +10113,11 @@ enum TracesActions {
             help = "Start time: 1h, 30m, 7d, RFC3339, Unix timestamp, or 'now'"
         )]
         from: String,
-        #[arg(long, default_value = "now", help = "End time")]
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time (ignored when --live is set, which always ends at now)"
+        )]
         to: String,
         #[arg(
             long,
@@ -10118,6 +10132,16 @@ enum TracesActions {
             help = "Sort order: timestamp or -timestamp"
         )]
         sort: String,
+        #[arg(
+            long,
+            help = "Pagination cursor from a prior call's next_action, to page backwards through older spans"
+        )]
+        cursor: Option<String>,
+        #[arg(
+            long,
+            help = "Live search: always end the window at now, querying Datadog's live (recent, unsampled) trace buffer"
+        )]
+        live: bool,
     },
     /// Compute aggregated stats over spans
     ///
@@ -16163,8 +16187,11 @@ async fn main_inner() -> anyhow::Result<()> {
                     to,
                     limit,
                     sort,
+                    cursor,
+                    live,
                 } => {
-                    commands::traces::search(&cfg, query, from, to, limit, sort).await?;
+                    commands::traces::search(&cfg, query, from, to, limit, sort, cursor, live)
+                        .await?;
                 }
                 TracesActions::Aggregate {
                     query,

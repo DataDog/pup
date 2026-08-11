@@ -570,6 +570,61 @@ fn test_logs_list_sort_accepts_hyphen_timestamp() {
 }
 
 #[test]
+fn test_logs_search_and_aggregate_default_to_flex_storage() {
+    use clap::Parser;
+
+    let search = crate::Cli::try_parse_from(["pup", "logs", "search", "--query", "*"])
+        .expect("logs search should parse");
+    let aggregate = crate::Cli::try_parse_from(["pup", "logs", "aggregate"])
+        .expect("logs aggregate should parse");
+
+    match search.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Search { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("flex")),
+        _ => panic!("expected LogActions::Search"),
+    }
+    match aggregate.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Aggregate { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("flex")),
+        _ => panic!("expected LogActions::Aggregate"),
+    }
+}
+
+#[test]
+fn test_logs_search_and_aggregate_storage_overrides_are_preserved() {
+    use clap::Parser;
+
+    let search = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "search",
+        "--query",
+        "*",
+        "--storage",
+        "indexes",
+    ])
+    .expect("logs search --storage indexes should parse");
+    let aggregate =
+        crate::Cli::try_parse_from(["pup", "logs", "aggregate", "--storage", "online-archives"])
+            .expect("logs aggregate --storage online-archives should parse");
+
+    match search.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Search { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("indexes")),
+        _ => panic!("expected LogActions::Search"),
+    }
+    match aggregate.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Aggregate { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("online-archives")),
+        _ => panic!("expected LogActions::Aggregate"),
+    }
+}
+
+#[test]
 fn test_logs_saved_views_create_parses() {
     use clap::Parser;
 

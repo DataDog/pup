@@ -178,10 +178,10 @@ pup logs search --query="service:api" --from="7d" --storage="flex"
 # Search online archives (long-term storage)
 pup logs search --query="status:error" --from="30d" --storage="online-archives"
 
-# Search standard indexes (default, fastest tier)
+# Search standard indexes (fastest tier)
 pup logs search --query="service:web-app" --from="1h" --storage="indexes"
 
-# Use Datadog's default storage behavior
+# Search Flex logs by default
 pup logs search --query="status:warn" --from="1h"
 ```
 

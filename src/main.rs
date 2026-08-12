@@ -3146,6 +3146,16 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 50, help = "Maximum number of logs (1-1000)")]
         limit: i32,
+        #[arg(long, help = "Pagination cursor from a previous response")]
+        cursor: Option<String>,
+        #[arg(
+            long = "max-pages",
+            visible_alias = "pages",
+            default_value_t = 1,
+            value_parser = clap::value_parser!(u32).range(1..),
+            help = "Maximum pages to fetch automatically (default: 1)"
+        )]
+        pages: u32,
         #[arg(long, help = "Sort order: asc or desc", default_value = "desc")]
         sort: String,
         #[arg(
@@ -12411,6 +12421,8 @@ async fn main_inner() -> anyhow::Result<()> {
                     from,
                     to,
                     limit,
+                    cursor,
+                    pages,
                     sort,
                     index,
                     storage,
@@ -12422,6 +12434,8 @@ async fn main_inner() -> anyhow::Result<()> {
                             from,
                             to,
                             limit,
+                            cursor,
+                            pages,
                             sort,
                             storage,
                             index,
@@ -12445,6 +12459,8 @@ async fn main_inner() -> anyhow::Result<()> {
                             from,
                             to,
                             limit,
+                            cursor: None,
+                            pages: 1,
                             sort,
                             storage,
                             index,
@@ -12469,6 +12485,8 @@ async fn main_inner() -> anyhow::Result<()> {
                             from,
                             to,
                             limit,
+                            cursor: None,
+                            pages: 1,
                             sort,
                             storage,
                             index,

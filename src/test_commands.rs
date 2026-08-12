@@ -580,8 +580,11 @@ fn test_logs_search_and_aggregate_default_to_flex_storage() {
 
     match search.command {
         crate::Commands::Logs {
-            action: crate::LogActions::Search { storage, .. },
-        } => assert_eq!(storage.as_deref(), Some("flex")),
+            action: crate::LogActions::Search { storage, pages, .. },
+        } => {
+            assert_eq!(storage.as_deref(), Some("flex"));
+            assert_eq!(pages, 1);
+        }
         _ => panic!("expected LogActions::Search"),
     }
     match aggregate.command {
@@ -590,6 +593,44 @@ fn test_logs_search_and_aggregate_default_to_flex_storage() {
         } => assert_eq!(storage.as_deref(), Some("flex")),
         _ => panic!("expected LogActions::Aggregate"),
     }
+}
+
+#[test]
+fn test_logs_search_cursor_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "search",
+        "--query",
+        "*",
+        "--cursor",
+        "cursor-abc",
+        "--pages",
+        "3",
+    ])
+    .expect("logs search --cursor should parse");
+
+    match cli.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Search { cursor, pages, .. },
+        } => {
+            assert_eq!(cursor.as_deref(), Some("cursor-abc"));
+            assert_eq!(pages, 3);
+        }
+        _ => panic!("expected LogActions::Search"),
+    }
+}
+
+#[test]
+fn test_logs_search_rejects_zero_pages() {
+    use clap::Parser;
+
+    let result =
+        crate::Cli::try_parse_from(["pup", "logs", "search", "--query", "*", "--max-pages", "0"]);
+
+    assert!(result.is_err(), "logs search should reject --max-pages 0");
 }
 
 #[test]

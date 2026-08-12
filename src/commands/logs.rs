@@ -33,6 +33,8 @@ pub struct SearchArgs {
     pub from: String,
     pub to: String,
     pub limit: i32,
+    pub cursor: Option<String>,
+    pub pages: u32,
     pub sort: String,
     pub storage: Option<String>,
     pub index: Vec<String>,
@@ -204,16 +206,49 @@ fn parse_logs_sort(sort: &str) -> LogsSort {
     }
 }
 
+fn append_log_page(aggregated: &mut Option<serde_json::Value>, page: serde_json::Value) {
+    if let Some(aggregated) = aggregated {
+        if let Some(page_data) = page.get("data").and_then(|value| value.as_array()) {
+            if let Some(data) = aggregated
+                .get_mut("data")
+                .and_then(|value| value.as_array_mut())
+            {
+                data.extend(page_data.iter().cloned());
+            } else {
+                aggregated["data"] = serde_json::Value::Array(page_data.to_vec());
+            }
+        }
+        if let Some(meta) = page.get("meta") {
+            aggregated["meta"] = meta.clone();
+        }
+    } else {
+        *aggregated = Some(page);
+    }
+}
+
+fn next_log_cursor(response: &serde_json::Value) -> Option<String> {
+    response
+        .pointer("/meta/page/after")
+        .and_then(|value| value.as_str())
+        .filter(|cursor| !cursor.is_empty())
+        .map(str::to_owned)
+}
+
 pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
     let SearchArgs {
         query,
         from,
         to,
         limit,
+        cursor,
+        pages,
         sort,
         storage,
         index,
     } = args;
+    if pages == 0 {
+        bail!("--pages must be at least 1");
+    }
     let api = crate::make_api!(LogsAPI, cfg);
 
     let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
@@ -232,39 +267,81 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
         filter = filter.storage_tier(tier);
     }
 
-    let body = LogsListRequest::new()
-        .filter(filter)
-        .page(LogsListRequestPage::new().limit(limit))
-        .sort(parse_logs_sort(&sort));
+    let mut request_cursor = cursor;
+    let mut response: Option<serde_json::Value> = None;
+    let mut next_cursor = None;
 
-    let params = ListLogsOptionalParams::default().body(body);
+    for _ in 0..pages {
+        let requested_cursor = request_cursor.clone();
+        let mut page = LogsListRequestPage::new().limit(limit);
+        if let Some(cursor) = requested_cursor.clone() {
+            page = page.cursor(cursor);
+        }
 
-    let resp = api
-        .list_logs(params)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to search logs: {:?}", e))?;
+        let body = LogsListRequest::new()
+            .filter(filter.clone())
+            .page(page)
+            .sort(parse_logs_sort(&sort));
+        let params = ListLogsOptionalParams::default().body(body);
+        let resp = api
+            .list_logs(params)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to search logs: {:?}", e))?;
+        let page_response = serde_json::to_value(&resp)?;
+        let has_results = page_response
+            .get("data")
+            .and_then(|data| data.as_array())
+            .is_some_and(|data| !data.is_empty());
+        let returned_cursor = next_log_cursor(&page_response);
+        append_log_page(&mut response, page_response);
+        next_cursor = returned_cursor.clone();
+
+        if !has_results {
+            next_cursor = None;
+            break;
+        }
+
+        match returned_cursor {
+            Some(after) if requested_cursor.as_deref() != Some(after.as_str()) => {
+                request_cursor = Some(after);
+            }
+            _ => {
+                next_cursor = None;
+                break;
+            }
+        }
+    }
+
+    let response = response.unwrap_or_else(|| serde_json::json!({}));
 
     let meta = if cfg.agent_mode {
-        let count = resp.data.as_ref().map(|d| d.len());
-        let truncated = count.is_some_and(|c| c as i32 >= limit);
+        let count = response
+            .get("data")
+            .and_then(|data| data.as_array())
+            .map(|data| data.len());
+        let truncated = next_cursor.is_some() || count.is_some_and(|c| c as i32 >= limit);
         Some(formatter::Metadata {
             count,
             truncated,
             command: Some("logs search".into()),
-            next_action: if truncated {
-                Some(format!(
-                    "Results may be truncated at {limit}. Use --limit={} or narrow the --query",
-                    limit + 1
-                ))
-            } else {
-                None
-            },
+            next_action: next_cursor
+                .map(|cursor| format!("More results available. Use --cursor=\"{cursor}\" to retrieve the next page."))
+                .or_else(|| {
+                    if truncated {
+                        Some(format!(
+                            "Results may be truncated at {limit}. Use --limit={} or narrow the --query",
+                            limit + 1
+                        ))
+                    } else {
+                        None
+                    }
+                }),
         })
     } else {
         None
     };
     formatter::format_and_print(
-        &resp,
+        &response,
         &cfg.output_format,
         cfg.agent_mode,
         meta.as_ref(),
@@ -459,10 +536,39 @@ mod tests {
             from: "1h".into(),
             to: "now".into(),
             limit: 10,
+            cursor: None,
+            pages: 1,
             sort: "-timestamp".into(),
             storage,
             index,
         }
+    }
+
+    #[test]
+    fn test_append_log_page_combines_data_and_keeps_latest_meta() {
+        let mut response = None;
+        append_log_page(
+            &mut response,
+            serde_json::json!({
+                "data": [{"id": "log-1"}],
+                "meta": {"page": {"after": "cursor-2"}}
+            }),
+        );
+        append_log_page(
+            &mut response,
+            serde_json::json!({
+                "data": [{"id": "log-2"}],
+                "meta": {"page": {}}
+            }),
+        );
+
+        assert_eq!(
+            response.unwrap(),
+            serde_json::json!({
+                "data": [{"id": "log-1"}, {"id": "log-2"}],
+                "meta": {"page": {}}
+            })
+        );
     }
 
     #[test]
@@ -814,6 +920,107 @@ mod tests {
 
         let result = super::search(&cfg, search_args("status:error", None, vec![])).await;
         assert!(result.is_ok(), "logs search failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_search_supports_all_output_formats() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        let _mock = mock_any(
+            &mut server,
+            "POST",
+            r#"{"data":[{"id":"log-1","attributes":{"message":"error"}}],"meta":{"page":{}}}"#,
+        )
+        .await;
+
+        for format in [
+            OutputFormat::Json,
+            OutputFormat::Yaml,
+            OutputFormat::Table,
+            OutputFormat::Csv,
+            OutputFormat::Tsv,
+        ] {
+            cfg.output_format = format.clone();
+            let result = super::search(&cfg, search_args("status:error", None, vec![])).await;
+            assert!(
+                result.is_ok(),
+                "logs search failed for {format}: {:?}",
+                result.err()
+            );
+        }
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_search_with_cursor() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .match_body(mockito::Matcher::Regex(
+                r#""cursor":"cursor-abc""#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": [], "meta": {"page": {}}}"#)
+            .create_async()
+            .await;
+
+        let mut args = search_args("status:error", None, vec![]);
+        args.cursor = Some("cursor-abc".into());
+        let result = super::search(&cfg, args).await;
+        assert!(
+            result.is_ok(),
+            "logs search with cursor failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_search_fetches_requested_pages() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let first_page = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .match_body(mockito::Matcher::Regex(
+                r#""page":\{"limit":10\}"#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[{"id":"log-1"}],"meta":{"page":{"after":"cursor-2"}}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let second_page = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .match_body(mockito::Matcher::Regex(
+                r#""cursor":"cursor-2""#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[{"id":"log-2"}],"meta":{"page":{"after":"cursor-3"}}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let mut args = search_args("status:error", None, vec![]);
+        args.pages = 2;
+        let result = super::search(&cfg, args).await;
+        assert!(
+            result.is_ok(),
+            "logs search pagination failed: {:?}",
+            result.err()
+        );
+        first_page.assert_async().await;
+        second_page.assert_async().await;
         cleanup_env();
     }
 

@@ -581,7 +581,9 @@ fn test_logs_search_and_aggregate_default_to_flex_storage() {
     match search.command {
         crate::Commands::Logs {
             action: crate::LogActions::Search { storage, .. },
-        } => assert_eq!(storage.as_deref(), Some("flex")),
+        } => {
+            assert_eq!(storage.as_deref(), Some("flex"));
+        }
         _ => panic!("expected LogActions::Search"),
     }
     match aggregate.command {
@@ -589,6 +591,62 @@ fn test_logs_search_and_aggregate_default_to_flex_storage() {
             action: crate::LogActions::Aggregate { storage, .. },
         } => assert_eq!(storage.as_deref(), Some("flex")),
         _ => panic!("expected LogActions::Aggregate"),
+    }
+}
+
+#[test]
+fn test_logs_search_cursor_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "search",
+        "--query",
+        "*",
+        "--cursor",
+        "cursor-abc",
+    ])
+    .expect("logs search --cursor should parse");
+
+    match cli.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Search { cursor, .. },
+        } => {
+            assert_eq!(cursor.as_deref(), Some("cursor-abc"));
+        }
+        _ => panic!("expected LogActions::Search"),
+    }
+}
+
+#[test]
+fn test_logs_list_and_query_cursor_parse() {
+    use clap::Parser;
+
+    let list = crate::Cli::try_parse_from(["pup", "logs", "list", "--cursor", "list-cursor"])
+        .expect("logs list --cursor should parse");
+    let query = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "query",
+        "--query",
+        "status:error",
+        "--cursor",
+        "query-cursor",
+    ])
+    .expect("logs query --cursor should parse");
+
+    match list.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::List { cursor, .. },
+        } => assert_eq!(cursor.as_deref(), Some("list-cursor")),
+        _ => panic!("expected LogActions::List"),
+    }
+    match query.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Query { cursor, .. },
+        } => assert_eq!(cursor.as_deref(), Some("query-cursor")),
+        _ => panic!("expected LogActions::Query"),
     }
 }
 

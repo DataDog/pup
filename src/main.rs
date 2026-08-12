@@ -3223,6 +3223,35 @@ enum LogActions {
         #[arg(long, help = "Timezone for timestamps")]
         timezone: Option<String>,
     },
+    /// Find similar log-message patterns (v1 API)
+    Patterns {
+        #[arg(long, help = "Log query (required)")]
+        query: String,
+        #[arg(long, help = "Field whose similar values are clustered (required)")]
+        pattern_field: String,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: 1h, 5min, 2hours, '5 minutes', RFC3339, Unix timestamp, or 'now'"
+        )]
+        from: String,
+        #[arg(long, default_value = "now", help = "End time")]
+        to: String,
+        #[arg(
+            long,
+            default_value_t = 50,
+            help = "Maximum representative samples per pattern"
+        )]
+        sample_limit: i32,
+        #[arg(long, default_value_t = 10_000, help = "Maximum events to analyze")]
+        event_limit: i32,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Log indexes to search, comma-separated or repeated (all indexes by default)"
+        )]
+        index: Vec<String>,
+    },
     /// Aggregate logs (v2 API)
     Aggregate {
         #[arg(long, help = "Log query (required)")]
@@ -12521,6 +12550,29 @@ async fn main_inner() -> anyhow::Result<()> {
                             limit,
                             sort,
                             storage,
+                            index,
+                        },
+                    )
+                    .await?;
+                }
+                LogActions::Patterns {
+                    query,
+                    pattern_field,
+                    from,
+                    to,
+                    sample_limit,
+                    event_limit,
+                    index,
+                } => {
+                    commands::logs::patterns(
+                        &cfg,
+                        commands::logs::PatternArgs {
+                            query,
+                            pattern_field,
+                            from,
+                            to,
+                            sample_limit,
+                            event_limit,
                             index,
                         },
                     )

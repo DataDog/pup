@@ -570,6 +570,59 @@ fn test_logs_list_sort_accepts_hyphen_timestamp() {
 }
 
 #[test]
+fn test_logs_patterns_parses_and_is_read_only() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "patterns",
+        "--query",
+        "status:error",
+        "--pattern-field",
+        "message",
+        "--index",
+        "main,security",
+    ])
+    .expect("logs patterns should parse");
+
+    match cli.command {
+        crate::Commands::Logs {
+            action:
+                crate::LogActions::Patterns {
+                    pattern_field,
+                    sample_limit,
+                    event_limit,
+                    index,
+                    ..
+                },
+        } => {
+            assert_eq!(pattern_field, "message");
+            assert_eq!(sample_limit, 50);
+            assert_eq!(event_limit, 10_000);
+            assert_eq!(index, vec!["main", "security"]);
+        }
+        _ => panic!("expected LogActions::Patterns"),
+    }
+
+    let command = crate::Cli::command();
+    let schema = crate::build_agent_schema(&command);
+    let logs = schema["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "logs")
+        .expect("logs must be present in the agent schema");
+    let patterns = logs["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "patterns")
+        .expect("logs patterns must be present in the agent schema");
+    assert_eq!(patterns["read_only"], true);
+}
+
+#[test]
 fn test_logs_search_and_aggregate_default_to_flex_storage() {
     use clap::Parser;
 

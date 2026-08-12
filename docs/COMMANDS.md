@@ -24,7 +24,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | acp | serve | src/commands/acp.rs | ✅ |
 | auth | login, logout, status, refresh | src/commands/auth.rs | ✅ |
 | metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
-| logs | search, list, aggregate, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
+| logs | search, list, aggregate, patterns, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
 | dashboards | list, get, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
@@ -111,6 +111,7 @@ pup slos get abc-123-def
 ```bash
 pup logs search --query="status:error" --from="1h"
 pup logs search --query="service:api" --from="7d" --storage="flex"
+pup logs patterns --query="status:error" --pattern-field="message" --from="1h"
 pup logs query --query="service:api" --index="main,security" --from="1h"
 pup logs saved-views create --file=saved-view.json
 pup dbm samples search --query="dbm_type:activity service:orders env:prod" --from="1h" --limit=10

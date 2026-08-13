@@ -401,6 +401,23 @@ mod tests {
     }
 
     #[test]
+    fn test_default_scopes_excludes_workload_identity_federation() {
+        let scopes = default_scopes();
+        // workload_identity_federation_read/write are only ever granted to
+        // admins, so they're opt-in only (see 'pup cloud-auth' AUTHENTICATION
+        // doc) rather than requested by default.
+        assert!(!scopes.contains(&"workload_identity_federation_read"));
+        assert!(!scopes.contains(&"workload_identity_federation_write"));
+    }
+
+    #[test]
+    fn test_read_only_scopes_excludes_workload_identity_federation() {
+        let ro = read_only_scopes();
+        assert!(!ro.contains(&"workload_identity_federation_read"));
+        assert!(!ro.contains(&"workload_identity_federation_write"));
+    }
+
+    #[test]
     fn test_read_only_scopes_subset_of_default() {
         let default: std::collections::HashSet<&str> = default_scopes().into_iter().collect();
         for scope in read_only_scopes() {

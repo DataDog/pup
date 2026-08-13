@@ -3,10 +3,11 @@ use datadog_api_client::datadogV2::api_llm_observability::{
     LLMObservabilityAPI, ListLLMObsAnnotationQueuesOptionalParams,
 };
 use datadog_api_client::datadogV2::model::{
-    LLMObsAnnotationQueueInteractionsRequest, LLMObsAnnotationQueueRequest,
-    LLMObsAnnotationQueueUpdateRequest, LLMObsCustomEvalConfigUpdateRequest,
-    LLMObsDatasetBatchUpdateRequest, LLMObsDatasetCloneRequest, LLMObsDatasetRequest,
-    LLMObsDatasetRestoreVersionRequest, LLMObsDeleteAnnotationQueueInteractionsRequest,
+    LLMObsAnnotationQueueInteractionsRequest, LLMObsAnnotationQueueLabelSchemaUpdateRequest,
+    LLMObsAnnotationQueueRequest, LLMObsAnnotationQueueUpdateRequest, LLMObsAnnotationsRequest,
+    LLMObsCustomEvalConfigUpdateRequest, LLMObsDatasetBatchUpdateRequest,
+    LLMObsDatasetCloneRequest, LLMObsDatasetRequest, LLMObsDatasetRestoreVersionRequest,
+    LLMObsDeleteAnnotationQueueInteractionsRequest, LLMObsDeleteAnnotationsRequest,
     LLMObsDeleteExperimentsRequest, LLMObsProjectRequest,
 };
 
@@ -593,6 +594,57 @@ pub async fn annotation_queue_interactions_list(cfg: &Config, queue_id: &str) ->
         .get_llm_obs_annotated_interactions(queue_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to list annotated interactions: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn annotation_queue_schema_get(cfg: &Config, queue_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .get_llm_obs_annotation_queue_label_schema(queue_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get annotation queue label schema: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn annotation_queue_schema_update(
+    cfg: &Config,
+    queue_id: &str,
+    file: &str,
+) -> Result<()> {
+    let body: LLMObsAnnotationQueueLabelSchemaUpdateRequest = util::read_json_file(file)?;
+    let api = make_api(cfg);
+    let resp = api
+        .update_llm_obs_annotation_queue_label_schema(queue_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update annotation queue label schema: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn annotation_queue_annotations_upsert(
+    cfg: &Config,
+    queue_id: &str,
+    file: &str,
+) -> Result<()> {
+    let body: LLMObsAnnotationsRequest = util::read_json_file(file)?;
+    let api = make_api(cfg);
+    let resp = api
+        .upsert_llm_obs_annotations(queue_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to upsert annotations: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn annotation_queue_annotations_delete(
+    cfg: &Config,
+    queue_id: &str,
+    file: &str,
+) -> Result<()> {
+    let body: LLMObsDeleteAnnotationsRequest = util::read_json_file(file)?;
+    let api = make_api(cfg);
+    let resp = api
+        .delete_llm_obs_annotations(queue_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete annotations: {e:?}"))?;
     formatter::output(cfg, &resp)
 }
 
@@ -4959,6 +5011,175 @@ mod tests {
 
         let result = super::model_pricing(&cfg, Some("openai".into()), None, None, None).await;
         assert!(result.is_err(), "should fail on 500");
+        cleanup_env();
+    }
+
+    // ---- Annotation queue label schemas ----
+
+    const LABEL_SCHEMA_BODY: &str = r#"{"data":{"id":"queue-1","type":"queues","attributes":{"annotation_schema":{"label_schemas":[{"id":"ls-1","name":"quality","type":"score","min":0.0,"max":5.0,"is_required":true}]}}}}"#;
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_get() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(&mut server, "GET", LABEL_SCHEMA_BODY).await;
+
+        let result = super::annotation_queue_schema_get(&cfg, "queue-1").await;
+        assert!(result.is_ok(), "schema_get failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_get_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(404)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["queue not found"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::annotation_queue_schema_get(&cfg, "missing-queue").await;
+        assert!(result.is_err(), "should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_update() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(&mut server, "PUT", LABEL_SCHEMA_BODY).await;
+
+        let path = write_temp_json(
+            "pup_aq_schema_update.json",
+            r#"{"data":{"type":"queues","attributes":{"annotation_schema":{"label_schemas":[{"name":"quality","type":"score","min":0.0,"max":5.0}]}}}}"#,
+        );
+        let result =
+            super::annotation_queue_schema_update(&cfg, "queue-1", path.to_str().unwrap()).await;
+        assert!(result.is_ok(), "schema_update failed: {:?}", result.err());
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_update_missing_file() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result =
+            super::annotation_queue_schema_update(&cfg, "queue-1", "/nonexistent/schema.json")
+                .await;
+        let err = result
+            .expect_err("should fail on unreadable file")
+            .to_string();
+        assert!(err.contains("failed to read file"), "unexpected: {err}");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_update_malformed_json() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        // Valid JSON but missing the required `data` member.
+        let path = write_temp_json("pup_aq_schema_bad.json", r#"{"nope":true}"#);
+        let result =
+            super::annotation_queue_schema_update(&cfg, "queue-1", path.to_str().unwrap()).await;
+        let err = result.expect_err("should reject bad body").to_string();
+        assert!(err.contains("failed to parse JSON"), "unexpected: {err}");
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    // ---- Annotations on queue interactions ----
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_upsert() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let body = r#"{"data":{"id":"upsert-1","type":"annotations","attributes":{"annotations":[{"id":"a-1","interaction_id":"i-1","created_at":"2024-01-01T00:00:00Z","created_by":"user-1","modified_at":"2024-01-01T00:00:00Z","modified_by":"user-1","label_values":[{"label_schema_id":"ls-1","value":4.0}]}]}}}"#;
+        let _mock = mock_any(&mut server, "POST", body).await;
+
+        let path = write_temp_json(
+            "pup_aq_annotations_upsert.json",
+            r#"{"data":{"type":"annotations","attributes":{"annotations":[{"interaction_id":"i-1","label_values":[{"label_schema_id":"ls-1","value":4.0}]}]}}}"#,
+        );
+        let result =
+            super::annotation_queue_annotations_upsert(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        assert!(result.is_ok(), "upsert failed: {:?}", result.err());
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_upsert_400() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["unknown label_schema_id"]}"#)
+            .create_async()
+            .await;
+
+        let path = write_temp_json(
+            "pup_aq_annotations_upsert_400.json",
+            r#"{"data":{"type":"annotations","attributes":{"annotations":[{"interaction_id":"i-1","label_values":[{"label_schema_id":"bogus","value":4.0}]}]}}}"#,
+        );
+        let result =
+            super::annotation_queue_annotations_upsert(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_delete() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let body = r#"{"data":{"id":"delete-1","type":"annotations","attributes":{"annotation_ids":["a-1"],"errors":[]}}}"#;
+        let _mock = mock_any(&mut server, "POST", body).await;
+
+        let path = write_temp_json(
+            "pup_aq_annotations_delete.json",
+            r#"{"data":{"type":"annotations","attributes":{"annotation_ids":["a-1"]}}}"#,
+        );
+        let result =
+            super::annotation_queue_annotations_delete(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        assert!(result.is_ok(), "delete failed: {:?}", result.err());
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_delete_malformed_json() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let path = write_temp_json("pup_aq_annotations_delete_bad.json", r#"{ not json"#);
+        let result =
+            super::annotation_queue_annotations_delete(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        let err = result.expect_err("should reject bad JSON").to_string();
+        assert!(err.contains("failed to parse JSON"), "unexpected: {err}");
+        let _ = std::fs::remove_file(&path);
         cleanup_env();
     }
 }

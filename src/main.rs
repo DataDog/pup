@@ -3251,6 +3251,12 @@ enum LogActions {
             help = "Log indexes to search, comma-separated or repeated (all indexes by default)"
         )]
         index: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Fields to group patterns by, comma-separated or repeated"
+        )]
+        group_by: Vec<String>,
     },
     /// Aggregate logs (v2 API)
     Aggregate {
@@ -12563,6 +12569,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     sample_limit,
                     event_limit,
                     index,
+                    group_by,
                 } => {
                     commands::logs::patterns(
                         &cfg,
@@ -12574,6 +12581,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             sample_limit,
                             event_limit,
                             index,
+                            group_by,
                         },
                     )
                     .await?;

@@ -139,10 +139,11 @@ pup logs patterns \
   --pattern-field="message" \
   --from="1h"
 
-# Analyze a specific index with larger sampling limits
+# Analyze a specific index with larger sampling limits and grouping fields
 pup logs patterns \
   --query="service:api" \
   --pattern-field="@request.path" \
+  --group-by="service,status" \
   --index="main" \
   --sample-limit=100 \
   --event-limit=20000 \

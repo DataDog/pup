@@ -47,6 +47,7 @@ pub struct PatternArgs {
     pub sample_limit: i32,
     pub event_limit: i32,
     pub index: Vec<String>,
+    pub group_by: Vec<String>,
 }
 
 fn normalize_storage_tier(storage: Option<String>) -> Result<Option<String>> {
@@ -294,6 +295,7 @@ pub async fn query(cfg: &Config, args: SearchArgs) -> Result<()> {
     search(cfg, args).await
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_patterns_body(
     query: String,
     pattern_field: String,
@@ -302,6 +304,7 @@ fn build_patterns_body(
     sample_limit: i32,
     event_limit: i32,
     index: Vec<String>,
+    group_by: Vec<String>,
 ) -> Result<serde_json::Value> {
     if pattern_field.trim().is_empty() {
         bail!("--pattern-field must not be empty");
@@ -331,7 +334,7 @@ fn build_patterns_body(
             } else {
                 index
             },
-            "clusteringFieldPaths": [],
+            "clusteringFieldPaths": group_by,
             "clusteringPatternFieldPath": pattern_field,
             "ignoreDocumentsWithEmptyText": true,
             "executionInfo": {},
@@ -350,6 +353,7 @@ pub async fn patterns(cfg: &Config, args: PatternArgs) -> Result<()> {
         sample_limit,
         event_limit,
         index,
+        group_by,
     } = args;
     let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
     let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
@@ -361,6 +365,7 @@ pub async fn patterns(cfg: &Config, args: PatternArgs) -> Result<()> {
         sample_limit,
         event_limit,
         index,
+        group_by,
     )?;
     let data = raw_client::raw_post(cfg, PATTERNS_PATH, body)
         .await
@@ -566,6 +571,7 @@ mod tests {
             50,
             100,
             vec![],
+            vec![],
         )
         .unwrap();
 
@@ -600,6 +606,7 @@ mod tests {
             50,
             100,
             vec!["main".into(), "security".into()],
+            vec!["service".into(), "status".into()],
         )
         .unwrap();
 
@@ -607,16 +614,31 @@ mod tests {
             body["cluster"]["indexes"],
             serde_json::json!(["main", "security"])
         );
+        assert_eq!(
+            body["cluster"]["clusteringFieldPaths"],
+            serde_json::json!(["service", "status"])
+        );
     }
 
     #[test]
     fn test_build_patterns_body_rejects_invalid_input() {
-        let valid = || build_patterns_body("*".into(), "message".into(), 1, 2, 50, 100, vec![]);
+        let valid =
+            || build_patterns_body("*".into(), "message".into(), 1, 2, 50, 100, vec![], vec![]);
         assert!(valid().is_ok());
-        assert!(build_patterns_body("*".into(), " ".into(), 1, 2, 50, 100, vec![]).is_err());
-        assert!(build_patterns_body("*".into(), "message".into(), 1, 2, 0, 100, vec![]).is_err());
-        assert!(build_patterns_body("*".into(), "message".into(), 1, 2, 50, 0, vec![]).is_err());
-        assert!(build_patterns_body("*".into(), "message".into(), 2, 1, 50, 100, vec![]).is_err());
+        assert!(
+            build_patterns_body("*".into(), " ".into(), 1, 2, 50, 100, vec![], vec![]).is_err()
+        );
+        assert!(
+            build_patterns_body("*".into(), "message".into(), 1, 2, 0, 100, vec![], vec![])
+                .is_err()
+        );
+        assert!(
+            build_patterns_body("*".into(), "message".into(), 1, 2, 50, 0, vec![], vec![]).is_err()
+        );
+        assert!(
+            build_patterns_body("*".into(), "message".into(), 2, 1, 50, 100, vec![], vec![])
+                .is_err()
+        );
     }
 
     #[test]
@@ -1152,6 +1174,7 @@ mod tests {
                 sample_limit: 50,
                 event_limit: 100,
                 index: vec![],
+                group_by: vec![],
             },
         )
         .await;
@@ -1197,6 +1220,7 @@ mod tests {
                 sample_limit: 50,
                 event_limit: 100,
                 index: vec![],
+                group_by: vec![],
             },
         )
         .await;
@@ -1231,6 +1255,7 @@ mod tests {
                 sample_limit: 50,
                 event_limit: 100,
                 index: vec![],
+                group_by: vec![],
             },
         )
         .await;
@@ -1258,6 +1283,7 @@ mod tests {
                 sample_limit: 50,
                 event_limit: 100,
                 index: vec![],
+                group_by: vec![],
             },
         )
         .await;

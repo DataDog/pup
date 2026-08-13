@@ -583,6 +583,8 @@ fn test_logs_patterns_parses_and_is_read_only() {
         "message",
         "--index",
         "main,security",
+        "--group-by",
+        "service,status",
     ])
     .expect("logs patterns should parse");
 
@@ -594,6 +596,7 @@ fn test_logs_patterns_parses_and_is_read_only() {
                     sample_limit,
                     event_limit,
                     index,
+                    group_by,
                     ..
                 },
         } => {
@@ -601,6 +604,7 @@ fn test_logs_patterns_parses_and_is_read_only() {
             assert_eq!(sample_limit, 50);
             assert_eq!(event_limit, 10_000);
             assert_eq!(index, vec!["main", "security"]);
+            assert_eq!(group_by, vec!["service", "status"]);
         }
         _ => panic!("expected LogActions::Patterns"),
     }

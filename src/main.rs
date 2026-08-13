@@ -7953,7 +7953,13 @@ enum IntegrationActions {
 #[derive(Subcommand)]
 enum IntegrationAwsActions {
     /// Manage AWS cloud authentication
-    #[command(name = "cloud-auth")]
+    ///
+    /// AUTHENTICATION:
+    ///   Requires OAuth2 (via 'pup auth login') or API + Application keys.
+    ///   OAuth2 requires the workload_identity_federation_read/write scopes,
+    ///   which are not requested by default -- opt in with:
+    ///     pup auth login --extra-scopes workload_identity_federation_read,workload_identity_federation_write
+    #[command(name = "cloud-auth", verbatim_doc_comment)]
     CloudAuth {
         #[command(subcommand)]
         action: CloudAuthActions,
@@ -9953,6 +9959,50 @@ enum LlmObsAnnotationQueuesActions {
     Interactions {
         #[command(subcommand)]
         action: LlmObsAnnotationQueueInteractionsActions,
+    },
+    /// Manage the label schema of an annotation queue
+    Schema {
+        #[command(subcommand)]
+        action: LlmObsAnnotationQueueSchemaActions,
+    },
+    /// Manage annotations on interactions in an annotation queue
+    Annotations {
+        #[command(subcommand)]
+        action: LlmObsAnnotationQueueAnnotationsActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsAnnotationQueueSchemaActions {
+    /// Get the label schema for an annotation queue
+    Get {
+        #[arg(help = "Annotation queue ID")]
+        queue_id: String,
+    },
+    /// Replace the label schema for an annotation queue
+    Update {
+        #[arg(help = "Annotation queue ID")]
+        queue_id: String,
+        #[arg(long, help = "JSON file with label schema update body (required)")]
+        file: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsAnnotationQueueAnnotationsActions {
+    /// Create or update annotations on interactions in an annotation queue
+    Upsert {
+        #[arg(help = "Annotation queue ID")]
+        queue_id: String,
+        #[arg(long, help = "JSON file with annotations body (required)")]
+        file: String,
+    },
+    /// Delete annotations from interactions in an annotation queue
+    Delete {
+        #[arg(help = "Annotation queue ID")]
+        queue_id: String,
+        #[arg(long, help = "JSON file with annotations to delete (required)")]
+        file: String,
     },
 }
 
@@ -17131,6 +17181,31 @@ async fn main_inner() -> anyhow::Result<()> {
                         LlmObsAnnotationQueueInteractionsActions::List { queue_id } => {
                             commands::llm_obs::annotation_queue_interactions_list(&cfg, &queue_id)
                                 .await?;
+                        }
+                    },
+                    LlmObsAnnotationQueuesActions::Schema { action } => match action {
+                        LlmObsAnnotationQueueSchemaActions::Get { queue_id } => {
+                            commands::llm_obs::annotation_queue_schema_get(&cfg, &queue_id).await?;
+                        }
+                        LlmObsAnnotationQueueSchemaActions::Update { queue_id, file } => {
+                            commands::llm_obs::annotation_queue_schema_update(
+                                &cfg, &queue_id, &file,
+                            )
+                            .await?;
+                        }
+                    },
+                    LlmObsAnnotationQueuesActions::Annotations { action } => match action {
+                        LlmObsAnnotationQueueAnnotationsActions::Upsert { queue_id, file } => {
+                            commands::llm_obs::annotation_queue_annotations_upsert(
+                                &cfg, &queue_id, &file,
+                            )
+                            .await?;
+                        }
+                        LlmObsAnnotationQueueAnnotationsActions::Delete { queue_id, file } => {
+                            commands::llm_obs::annotation_queue_annotations_delete(
+                                &cfg, &queue_id, &file,
+                            )
+                            .await?;
                         }
                     },
                 },

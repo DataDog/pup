@@ -66,7 +66,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
 | obs-pipelines | list, get, create, update, diff, delete, validate | src/commands/obs_pipelines.rs | ✅ |
-| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get), runs (list, status), topics, topics-with-points, points), agent-insights (list, get, update-status, submit-feedback), model-pricing | src/commands/llm_obs.rs | ✅ |
+| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get), runs (list, status), topics, topics-with-points, points), agent-insights (list, get, update-status, submit-feedback), annotation-queues (create, list, update, delete, interactions (add, delete, list), schema (get, update), annotations (upsert, delete)), model-pricing | src/commands/llm_obs.rs | ✅ |
 | reference-tables | list, get, create, batch-query | src/commands/reference_tables.rs | ✅ |
 | network | flows list, devices (list, get, interfaces, tags), interfaces (list, update) | src/commands/network.rs | ✅ |
 | cloud | aws, gcp, azure, oci | src/commands/cloud.rs | ✅ |

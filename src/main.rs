@@ -3486,6 +3486,23 @@ enum DashboardActions {
         #[arg(long)]
         file: String,
     },
+    /// Diff a candidate JSON definition against the live dashboard
+    Diff {
+        id: String,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
+    },
     /// Delete a dashboard
     Delete { id: String },
     /// Edit widgets embedded in a dashboard, and discover widget schemas
@@ -3859,6 +3876,23 @@ enum SloActions {
         id: String,
         #[arg(long)]
         file: String,
+    },
+    /// Diff a candidate JSON definition against the live SLO
+    Diff {
+        id: String,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
     },
     /// Delete an SLO
     Delete { id: String },
@@ -6318,6 +6352,23 @@ enum NotebookActions {
         notebook_id: i64,
         #[arg(long, help = "JSON file with notebook data (required)")]
         file: String,
+    },
+    /// Diff a candidate JSON definition against the live notebook
+    Diff {
+        notebook_id: i64,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
     },
     /// Append cells to an existing notebook (reads current notebook first, then appends)
     Edit {
@@ -9229,6 +9280,23 @@ enum ObsPipelinesActions {
         pipeline_id: String,
         #[arg(long, help = "JSON file with pipeline body (required)")]
         file: String,
+    },
+    /// Diff a candidate JSON definition against the live pipeline
+    Diff {
+        pipeline_id: String,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
     },
     /// Delete a pipeline
     Delete { pipeline_id: String },
@@ -12649,6 +12717,14 @@ async fn main_inner() -> anyhow::Result<()> {
                 DashboardActions::Update { id, file } => {
                     commands::dashboards::update(&cfg, &id, &file).await?;
                 }
+                DashboardActions::Diff {
+                    id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::dashboards::diff(&cfg, &id, &file, &only, &ignore).await?;
+                }
                 DashboardActions::Delete { id } => commands::dashboards::delete(&cfg, &id).await?,
                 DashboardActions::Widgets { action } => match action {
                     DashboardWidgetActions::List { dash_id } => {
@@ -12852,6 +12928,14 @@ async fn main_inner() -> anyhow::Result<()> {
                 SloActions::Create { file } => commands::slos::create(&cfg, &file).await?,
                 SloActions::Update { id, file } => {
                     commands::slos::update(&cfg, &id, &file).await?;
+                }
+                SloActions::Diff {
+                    id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::slos::diff(&cfg, &id, &file, &only, &ignore).await?;
                 }
                 SloActions::Delete { id } => commands::slos::delete(&cfg, &id).await?,
                 SloActions::Status { id, from, to } => {
@@ -14177,6 +14261,14 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 NotebookActions::Update { notebook_id, file } => {
                     commands::notebooks::update(&cfg, notebook_id, &file).await?;
+                }
+                NotebookActions::Diff {
+                    notebook_id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::notebooks::diff(&cfg, notebook_id, &file, &only, &ignore).await?;
                 }
                 NotebookActions::Edit { notebook_id, file } => {
                     commands::notebooks::edit(&cfg, notebook_id, &file).await?;
@@ -16145,6 +16237,15 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 ObsPipelinesActions::Update { pipeline_id, file } => {
                     commands::obs_pipelines::update(&cfg, &pipeline_id, &file).await?;
+                }
+                ObsPipelinesActions::Diff {
+                    pipeline_id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::obs_pipelines::diff(&cfg, &pipeline_id, &file, &only, &ignore)
+                        .await?;
                 }
                 ObsPipelinesActions::Delete { pipeline_id } => {
                     commands::obs_pipelines::delete(&cfg, &pipeline_id).await?;

@@ -7902,7 +7902,13 @@ enum IntegrationActions {
 #[derive(Subcommand)]
 enum IntegrationAwsActions {
     /// Manage AWS cloud authentication
-    #[command(name = "cloud-auth")]
+    ///
+    /// AUTHENTICATION:
+    ///   Requires OAuth2 (via 'pup auth login') or API + Application keys.
+    ///   OAuth2 requires the workload_identity_federation_read/write scopes,
+    ///   which are not requested by default -- opt in with:
+    ///     pup auth login --extra-scopes workload_identity_federation_read,workload_identity_federation_write
+    #[command(name = "cloud-auth", verbatim_doc_comment)]
     CloudAuth {
         #[command(subcommand)]
         action: CloudAuthActions,

@@ -1043,15 +1043,6 @@ mod tests {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
-        let fallback_mock = server
-            .mock("POST", mockito::Matcher::Any)
-            .match_query(mockito::Matcher::Any)
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"data": [], "meta": {"page": {}}}"#)
-            .expect(1)
-            .create_async()
-            .await;
         let flex_mock = server
             .mock("POST", mockito::Matcher::Any)
             .match_query(mockito::Matcher::Any)
@@ -1061,6 +1052,15 @@ mod tests {
             .with_status(403)
             .with_header("content-type", "application/json")
             .with_body(r#"{"errors":["Flex storage forbidden"]}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let fallback_mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": [], "meta": {"page": {}}}"#)
             .expect(1)
             .create_async()
             .await;
@@ -1361,14 +1361,6 @@ mod tests {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
-        let fallback_mock = server
-            .mock("POST", "/api/v2/logs/analytics/aggregate")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"data": {"buckets": []}}"#)
-            .expect(1)
-            .create_async()
-            .await;
         let flex_mock = server
             .mock("POST", "/api/v2/logs/analytics/aggregate")
             .match_body(mockito::Matcher::Regex(
@@ -1377,6 +1369,14 @@ mod tests {
             .with_status(403)
             .with_header("content-type", "application/json")
             .with_body(r#"{"errors":["Flex storage forbidden"]}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let fallback_mock = server
+            .mock("POST", "/api/v2/logs/analytics/aggregate")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"buckets": []}}"#)
             .expect(1)
             .create_async()
             .await;

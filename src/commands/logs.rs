@@ -24,6 +24,7 @@ pub struct AggregateArgs {
     pub limit: i32,
     pub index: Vec<String>,
     pub storage: Option<String>,
+    pub auto_storage: bool,
     pub sort: String,
     pub interval: Option<String>,
 }
@@ -36,6 +37,15 @@ pub struct SearchArgs {
     pub sort: String,
     pub storage: Option<String>,
     pub index: Vec<String>,
+    pub auto_storage: bool,
+}
+
+const FLEX_FALLBACK_WARNING: &str = "Flex log storage is unavailable for this account or credentials; retried with indexed logs. Use --storage indexes to skip this retry or --storage flex to require Flex.";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum StorageSelection {
+    Auto,
+    Explicit(Option<String>),
 }
 
 fn normalize_storage_tier(storage: Option<String>) -> Result<Option<String>> {
@@ -46,10 +56,22 @@ fn normalize_storage_tier(storage: Option<String>) -> Result<Option<String>> {
             "online-archives" | "online_archives" => Ok(Some("online-archives".into())),
             "flex" => Ok(Some("flex".into())),
             other => anyhow::bail!(
-                "unknown storage tier {:?}; valid values are: indexes, online-archives, flex",
+                "unknown storage tier {:?}; valid values are: auto, indexes, online-archives, flex",
                 other
             ),
         },
+    }
+}
+
+fn parse_storage_selection(
+    storage: Option<String>,
+    auto_when_omitted: bool,
+) -> Result<StorageSelection> {
+    match storage {
+        None if auto_when_omitted => Ok(StorageSelection::Auto),
+        None => Ok(StorageSelection::Explicit(None)),
+        Some(s) if s.trim().eq_ignore_ascii_case("auto") => Ok(StorageSelection::Auto),
+        Some(s) => Ok(StorageSelection::Explicit(normalize_storage_tier(Some(s))?)),
     }
 }
 
@@ -63,6 +85,60 @@ fn parse_storage_tier(storage: Option<String>) -> Result<Option<LogsStorageTier>
             _ => unreachable!("storage tier is normalized"),
         },
     }
+}
+
+fn auto_should_try_flex(selection: &StorageSelection, index: &[String]) -> bool {
+    matches!(selection, StorageSelection::Auto) && index.is_empty()
+}
+
+fn search_storage_tier(
+    selection: &StorageSelection,
+    prefer_flex: bool,
+) -> Result<Option<LogsStorageTier>> {
+    match selection {
+        StorageSelection::Auto if prefer_flex => Ok(Some(LogsStorageTier::FLEX)),
+        StorageSelection::Auto => Ok(None),
+        StorageSelection::Explicit(storage) => parse_storage_tier(storage.clone()),
+    }
+}
+
+fn aggregate_storage_tier(selection: &StorageSelection, prefer_flex: bool) -> Option<String> {
+    match selection {
+        StorageSelection::Auto if prefer_flex => Some("flex".into()),
+        StorageSelection::Auto => None,
+        StorageSelection::Explicit(storage) => storage.clone(),
+    }
+}
+
+fn retryable_flex_status(status: u16, body: &str) -> bool {
+    if status == 403 {
+        return true;
+    }
+
+    status == 400 && error_text_mentions_flex(body)
+}
+
+fn error_text_mentions_flex(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.contains("flex") || lower.contains("storage_tier") || lower.contains("storage tier")
+}
+
+fn retryable_flex_error(err: &anyhow::Error) -> bool {
+    if let Some(http_err) = err.downcast_ref::<raw_client::HttpError>() {
+        return retryable_flex_status(http_err.status, &http_err.body);
+    }
+
+    retryable_flex_error_text(&err.to_string())
+}
+
+fn retryable_flex_error_text(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.contains("403")
+        || lower.contains("forbidden")
+        || lower.contains("permission")
+        || lower.contains("not authorized")
+        || ((lower.contains("400") || lower.contains("bad request"))
+            && error_text_mentions_flex(&lower))
 }
 
 /// Split a comma-separated compute string into individual compute expressions,
@@ -197,6 +273,32 @@ fn build_aggregate_body(
     Ok(body)
 }
 
+fn build_search_body(
+    query: String,
+    from_ms: i64,
+    to_ms: i64,
+    limit: i32,
+    sort: &str,
+    index: Vec<String>,
+    storage_tier: Option<LogsStorageTier>,
+) -> LogsListRequest {
+    let mut filter = LogsQueryFilter::new()
+        .query(query)
+        .from(from_ms.to_string())
+        .to(to_ms.to_string());
+    if !index.is_empty() {
+        filter = filter.indexes(index);
+    }
+    if let Some(tier) = storage_tier {
+        filter = filter.storage_tier(tier);
+    }
+
+    LogsListRequest::new()
+        .filter(filter)
+        .page(LogsListRequestPage::new().limit(limit))
+        .sort(parse_logs_sort(sort))
+}
+
 fn parse_logs_sort(sort: &str) -> LogsSort {
     match sort {
         "timestamp" | "asc" | "+timestamp" => LogsSort::TIMESTAMP_ASCENDING,
@@ -213,36 +315,40 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
         sort,
         storage,
         index,
+        auto_storage,
     } = args;
     let api = crate::make_api!(LogsAPI, cfg);
 
     let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
     let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
 
-    let storage_tier = parse_storage_tier(storage)?;
-
-    let mut filter = LogsQueryFilter::new()
-        .query(query)
-        .from(from_ms.to_string())
-        .to(to_ms.to_string());
-    if !index.is_empty() {
-        filter = filter.indexes(index);
-    }
-    if let Some(tier) = storage_tier {
-        filter = filter.storage_tier(tier);
-    }
-
-    let body = LogsListRequest::new()
-        .filter(filter)
-        .page(LogsListRequestPage::new().limit(limit))
-        .sort(parse_logs_sort(&sort));
-
+    let storage_selection = parse_storage_selection(storage, auto_storage)?;
+    let try_auto_flex = auto_should_try_flex(&storage_selection, &index);
+    let body = build_search_body(
+        query.clone(),
+        from_ms,
+        to_ms,
+        limit,
+        &sort,
+        index.clone(),
+        search_storage_tier(&storage_selection, try_auto_flex)?,
+    );
     let params = ListLogsOptionalParams::default().body(body);
 
-    let resp = api
-        .list_logs(params)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to search logs: {:?}", e))?;
+    let resp = match api.list_logs(params).await {
+        Ok(resp) => resp,
+        Err(err) if try_auto_flex && retryable_flex_error_text(&format!("{err:?}")) => {
+            eprintln!("{FLEX_FALLBACK_WARNING}");
+            let fallback_body = build_search_body(query, from_ms, to_ms, limit, &sort, index, None);
+            let fallback_params = ListLogsOptionalParams::default().body(fallback_body);
+            api.list_logs(fallback_params).await.map_err(|fallback_err| {
+                anyhow::anyhow!(
+                    "failed to search logs with flex storage ({err:?}); fallback to indexed logs also failed: {fallback_err:?}"
+                )
+            })?
+        }
+        Err(err) => return Err(anyhow::anyhow!("failed to search logs: {:?}", err)),
+    };
 
     let meta = if cfg.agent_mode {
         let count = resp.data.as_ref().map(|d| d.len());
@@ -293,6 +399,7 @@ pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
         limit,
         index,
         storage,
+        auto_storage,
         sort,
         interval,
     } = args;
@@ -301,10 +408,37 @@ pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
     }
     let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
     let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
+    let storage_selection = parse_storage_selection(storage, auto_storage)?;
+    let try_auto_flex = auto_should_try_flex(&storage_selection, &index);
     let body = build_aggregate_body(
-        query, from_ms, to_ms, compute, group_by, limit, index, storage, &sort, interval,
+        query.clone(),
+        from_ms,
+        to_ms,
+        compute.clone(),
+        group_by.clone(),
+        limit,
+        index.clone(),
+        aggregate_storage_tier(&storage_selection, try_auto_flex),
+        &sort,
+        interval.clone(),
     )?;
-    let data = raw_client::raw_post(cfg, "/api/v2/logs/analytics/aggregate", body).await?;
+    let data = match raw_client::raw_post(cfg, "/api/v2/logs/analytics/aggregate", body).await {
+        Ok(data) => data,
+        Err(err) if try_auto_flex && retryable_flex_error(&err) => {
+            eprintln!("{FLEX_FALLBACK_WARNING}");
+            let fallback_body = build_aggregate_body(
+                query, from_ms, to_ms, compute, group_by, limit, index, None, &sort, interval,
+            )?;
+            raw_client::raw_post(cfg, "/api/v2/logs/analytics/aggregate", fallback_body)
+                .await
+                .map_err(|fallback_err| {
+                    anyhow::anyhow!(
+                        "failed to aggregate logs with flex storage ({err}); fallback to indexed logs also failed: {fallback_err}"
+                    )
+                })?
+        }
+        Err(err) => return Err(err),
+    };
     formatter::output(cfg, &data)?;
     Ok(())
 }
@@ -462,6 +596,14 @@ mod tests {
             sort: "-timestamp".into(),
             storage,
             index,
+            auto_storage: false,
+        }
+    }
+
+    fn auto_search_args(query: &str, storage: Option<String>, index: Vec<String>) -> SearchArgs {
+        SearchArgs {
+            auto_storage: true,
+            ..search_args(query, storage, index)
         }
     }
 
@@ -469,6 +611,27 @@ mod tests {
     fn test_normalize_storage_tier_alias() {
         let tier = normalize_storage_tier(Some("online_archives".into())).unwrap();
         assert_eq!(tier.unwrap(), "online-archives");
+    }
+
+    #[test]
+    fn test_parse_storage_selection_auto_when_omitted() {
+        let selection = parse_storage_selection(None, true).unwrap();
+        assert_eq!(selection, StorageSelection::Auto);
+    }
+
+    #[test]
+    fn test_parse_storage_selection_explicit_auto() {
+        let selection = parse_storage_selection(Some("auto".into()), false).unwrap();
+        assert_eq!(selection, StorageSelection::Auto);
+    }
+
+    #[test]
+    fn test_auto_storage_skips_flex_when_indexes_are_set() {
+        let selection = StorageSelection::Auto;
+        assert!(auto_should_try_flex(&selection, &[]));
+        assert!(!auto_should_try_flex(&selection, &["main".into()]));
+        assert_eq!(aggregate_storage_tier(&selection, false), None);
+        assert!(search_storage_tier(&selection, false).unwrap().is_none());
     }
 
     #[test]
@@ -848,6 +1011,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_logs_search_auto_storage_tries_flex() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .match_body(mockito::Matcher::Regex(
+                r#""storage_tier":"flex""#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": [], "meta": {"page": {}}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = super::search(&cfg, auto_search_args("*", None, vec![])).await;
+        assert!(
+            result.is_ok(),
+            "logs search with auto storage failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_search_auto_storage_falls_back_after_flex_403() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let fallback_mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": [], "meta": {"page": {}}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let flex_mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .match_body(mockito::Matcher::Regex(
+                r#""storage_tier":"flex""#.to_string(),
+            ))
+            .with_status(403)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Flex storage forbidden"]}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = super::search(&cfg, auto_search_args("*", None, vec![])).await;
+        assert!(
+            result.is_ok(),
+            "logs search should fall back after flex 403: {:?}",
+            result.err()
+        );
+        flex_mock.assert_async().await;
+        fallback_mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
     async fn test_saved_views_list() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
@@ -993,6 +1222,7 @@ mod tests {
                 limit: 10,
                 index: vec![],
                 storage: None,
+                auto_storage: false,
                 sort: "count".into(),
                 interval: None,
             },
@@ -1022,6 +1252,7 @@ mod tests {
                 limit: 10,
                 index: vec![],
                 storage: None,
+                auto_storage: false,
                 sort: "count".into(),
                 interval: None,
             },
@@ -1111,6 +1342,7 @@ mod tests {
                 limit: 10,
                 index: vec![],
                 storage: Some("flex".into()),
+                auto_storage: false,
                 sort: "count".into(),
                 interval: None,
             },
@@ -1121,6 +1353,97 @@ mod tests {
             "logs aggregate with flex failed: {:?}",
             result.err()
         );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_aggregate_auto_storage_falls_back_after_flex_403() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let fallback_mock = server
+            .mock("POST", "/api/v2/logs/analytics/aggregate")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {"buckets": []}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let flex_mock = server
+            .mock("POST", "/api/v2/logs/analytics/aggregate")
+            .match_body(mockito::Matcher::Regex(
+                r#""storage_tier":"flex""#.to_string(),
+            ))
+            .with_status(403)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Flex storage forbidden"]}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = super::aggregate(
+            &cfg,
+            super::AggregateArgs {
+                query: "*".into(),
+                from: "1h".into(),
+                to: "now".into(),
+                compute: vec!["count".into()],
+                group_by: vec![],
+                limit: 10,
+                index: vec![],
+                storage: None,
+                auto_storage: true,
+                sort: "count".into(),
+                interval: None,
+            },
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "logs aggregate should fall back after flex 403: {:?}",
+            result.err()
+        );
+        flex_mock.assert_async().await;
+        fallback_mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_aggregate_explicit_flex_does_not_fallback() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let flex_mock = server
+            .mock("POST", "/api/v2/logs/analytics/aggregate")
+            .match_body(mockito::Matcher::Regex(
+                r#""storage_tier":"flex""#.to_string(),
+            ))
+            .with_status(403)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Flex storage forbidden"]}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = super::aggregate(
+            &cfg,
+            super::AggregateArgs {
+                query: "*".into(),
+                from: "1h".into(),
+                to: "now".into(),
+                compute: vec!["count".into()],
+                group_by: vec![],
+                limit: 10,
+                index: vec![],
+                storage: Some("flex".into()),
+                auto_storage: true,
+                sort: "count".into(),
+                interval: None,
+            },
+        )
+        .await;
+        assert!(result.is_err(), "explicit flex should not fall back");
+        flex_mock.assert_async().await;
         cleanup_env();
     }
 

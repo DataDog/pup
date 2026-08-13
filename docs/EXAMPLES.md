@@ -181,8 +181,11 @@ pup logs search --query="status:error" --from="30d" --storage="online-archives"
 # Search standard indexes (fastest tier)
 pup logs search --query="service:web-app" --from="1h" --storage="indexes"
 
-# Search Flex logs by default
+# Automatically try Flex, then fall back to indexed logs when Flex is unavailable
 pup logs search --query="status:warn" --from="1h"
+
+# Request automatic storage selection explicitly
+pup logs search --query="status:warn" --from="1h" --storage="auto"
 ```
 
 ## Dashboards

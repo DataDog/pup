@@ -131,6 +131,27 @@ pup logs query --query="service:api" --index="main,security" --from="1h"
 pup logs query --query="service:api" --index="main" --index="security" --from="1h"
 ```
 
+### Find Similar Log Patterns
+```bash
+# Cluster similar message values instead of grouping exact values
+pup logs patterns \
+  --query="status:error" \
+  --pattern-field="message" \
+  --from="1h"
+
+# Analyze a specific index with larger sampling limits and grouping fields
+pup logs patterns \
+  --query="service:api" \
+  --pattern-field="@request.path" \
+  --group-by="service,status" \
+  --index="main" \
+  --sample-limit=100 \
+  --event-limit=20000 \
+  --from="24h"
+```
+
+Pattern clustering returns similar-value groups. Use `logs aggregate --group-by` when exact-value buckets are required.
+
 ### Aggregate Logs
 ```bash
 # Count logs by status

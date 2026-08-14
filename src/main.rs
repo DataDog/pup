@@ -11791,9 +11791,44 @@ mod test_agent_schema {
 
 // ---- Main ----
 
+#[cfg(unix)]
+fn reset_sigpipe() {
+    // Rust ignores SIGPIPE by default, which turns a closed stdout pipe (e.g. `| head`)
+    // into an EPIPE error that println!/print! then panic on. Restore the default Unix
+    // behavior so the process just exits quietly instead.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
+
+#[cfg(all(test, unix))]
+mod reset_sigpipe_tests {
+    use super::reset_sigpipe;
+
+    #[test]
+    fn sets_default_disposition() {
+        // Force a non-default disposition first so the assertion below can't
+        // pass merely because SIGPIPE happened to already be SIG_DFL.
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        }
+
+        reset_sigpipe();
+
+        // libc::signal returns the *previous* disposition, so calling it again
+        // reveals what reset_sigpipe() actually installed.
+        let previous = unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+        assert_eq!(previous, libc::SIG_DFL);
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    reset_sigpipe();
     main_inner().await
 }
 

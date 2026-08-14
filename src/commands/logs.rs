@@ -14,6 +14,7 @@ use crate::util;
 use crate::util_ext;
 
 const SAVED_VIEWS_PATH: &str = "/api/v1/logs/views";
+const PATTERNS_PATH: &str = "/api/v1/logs-analytics/cluster?type=logs";
 
 pub struct AggregateArgs {
     pub query: String,
@@ -46,6 +47,17 @@ const FLEX_FALLBACK_WARNING: &str = "Flex log storage is unavailable for this ac
 enum StorageSelection {
     Auto,
     Explicit(Option<String>),
+}
+
+pub struct PatternArgs {
+    pub query: String,
+    pub pattern_field: String,
+    pub from: String,
+    pub to: String,
+    pub sample_limit: i32,
+    pub event_limit: i32,
+    pub index: Vec<String>,
+    pub group_by: Vec<String>,
 }
 
 fn normalize_storage_tier(storage: Option<String>) -> Result<Option<String>> {
@@ -389,6 +401,84 @@ pub async fn query(cfg: &Config, args: SearchArgs) -> Result<()> {
     search(cfg, args).await
 }
 
+#[allow(clippy::too_many_arguments)]
+fn build_patterns_body(
+    query: String,
+    pattern_field: String,
+    from_ms: i64,
+    to_ms: i64,
+    sample_limit: i32,
+    event_limit: i32,
+    index: Vec<String>,
+    group_by: Vec<String>,
+) -> Result<serde_json::Value> {
+    if pattern_field.trim().is_empty() {
+        bail!("--pattern-field must not be empty");
+    }
+    if sample_limit <= 0 {
+        bail!("--sample-limit must be greater than zero");
+    }
+    if event_limit <= 0 {
+        bail!("--event-limit must be greater than zero");
+    }
+    if from_ms > to_ms {
+        bail!("--from must not be after --to");
+    }
+
+    Ok(serde_json::json!({
+        "cluster": {
+            "time": {
+                "from": from_ms.to_string(),
+                "to": to_ms.to_string(),
+            },
+            "search": { "query": query },
+            "sampleLimit": sample_limit,
+            "eventLimit": event_limit,
+            "computeGrokParser": true,
+            "indexes": if index.is_empty() {
+                vec!["*".to_string()]
+            } else {
+                index
+            },
+            "clusteringFieldPaths": group_by,
+            "clusteringPatternFieldPath": pattern_field,
+            "ignoreDocumentsWithEmptyText": true,
+            "executionInfo": {},
+            "includeWildcardSummaries": false,
+        },
+        "querySourceId": "logs_explorer",
+    }))
+}
+
+pub async fn patterns(cfg: &Config, args: PatternArgs) -> Result<()> {
+    let PatternArgs {
+        query,
+        pattern_field,
+        from,
+        to,
+        sample_limit,
+        event_limit,
+        index,
+        group_by,
+    } = args;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
+    let body = build_patterns_body(
+        query,
+        pattern_field,
+        from_ms,
+        to_ms,
+        sample_limit,
+        event_limit,
+        index,
+        group_by,
+    )?;
+    let data = raw_client::raw_post(cfg, PATTERNS_PATH, body)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to cluster log patterns: {error}"))?;
+    formatter::output(cfg, &data)
+}
+
 pub async fn aggregate(cfg: &Config, args: AggregateArgs) -> Result<()> {
     let AggregateArgs {
         query,
@@ -632,6 +722,86 @@ mod tests {
         assert!(!auto_should_try_flex(&selection, &["main".into()]));
         assert_eq!(aggregate_storage_tier(&selection, false), None);
         assert!(search_storage_tier(&selection, false).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_build_patterns_body_uses_defaults_and_all_indexes() {
+        let body = build_patterns_body(
+            "status:error".into(),
+            "message".into(),
+            1,
+            2,
+            50,
+            100,
+            vec![],
+            vec![],
+        )
+        .unwrap();
+
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "cluster": {
+                    "time": { "from": "1", "to": "2" },
+                    "search": { "query": "status:error" },
+                    "sampleLimit": 50,
+                    "eventLimit": 100,
+                    "computeGrokParser": true,
+                    "indexes": ["*"],
+                    "clusteringFieldPaths": [],
+                    "clusteringPatternFieldPath": "message",
+                    "ignoreDocumentsWithEmptyText": true,
+                    "executionInfo": {},
+                    "includeWildcardSummaries": false,
+                },
+                "querySourceId": "logs_explorer",
+            })
+        );
+    }
+
+    #[test]
+    fn test_build_patterns_body_preserves_indexes() {
+        let body = build_patterns_body(
+            "*".into(),
+            "@request.path".into(),
+            1,
+            2,
+            50,
+            100,
+            vec!["main".into(), "security".into()],
+            vec!["service".into(), "status".into()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            body["cluster"]["indexes"],
+            serde_json::json!(["main", "security"])
+        );
+        assert_eq!(
+            body["cluster"]["clusteringFieldPaths"],
+            serde_json::json!(["service", "status"])
+        );
+    }
+
+    #[test]
+    fn test_build_patterns_body_rejects_invalid_input() {
+        let valid =
+            || build_patterns_body("*".into(), "message".into(), 1, 2, 50, 100, vec![], vec![]);
+        assert!(valid().is_ok());
+        assert!(
+            build_patterns_body("*".into(), " ".into(), 1, 2, 50, 100, vec![], vec![]).is_err()
+        );
+        assert!(
+            build_patterns_body("*".into(), "message".into(), 1, 2, 0, 100, vec![], vec![])
+                .is_err()
+        );
+        assert!(
+            build_patterns_body("*".into(), "message".into(), 1, 2, 50, 0, vec![], vec![]).is_err()
+        );
+        assert!(
+            build_patterns_body("*".into(), "message".into(), 2, 1, 50, 100, vec![], vec![])
+                .is_err()
+        );
     }
 
     #[test]
@@ -1201,6 +1371,152 @@ mod tests {
 
         let result = super::search(&cfg, search_args("status:error", None, vec![])).await;
         assert!(result.is_ok(), "logs search should work with OAuth");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_patterns() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("POST", "/api/v1/logs-analytics/cluster")
+            .match_query(mockito::Matcher::UrlEncoded("type".into(), "logs".into()))
+            .match_header("dd-api-key", "test-api-key")
+            .match_header("dd-application-key", "test-app-key")
+            .match_body(mockito::Matcher::Regex(
+                r#""clusteringPatternFieldPath":"message""#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"clusters": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns(
+            &cfg,
+            super::PatternArgs {
+                query: "status:error".into(),
+                pattern_field: "message".into(),
+                from: "1h".into(),
+                to: "now".into(),
+                sample_limit: 50,
+                event_limit: 100,
+                index: vec![],
+                group_by: vec![],
+            },
+        )
+        .await;
+        assert!(result.is_ok(), "logs patterns failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_patterns_with_oauth() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        std::env::set_var("PUP_MOCK_SERVER", server.url());
+        let cfg = Config {
+            api_key: None,
+            app_key: None,
+            access_token: Some("token".into()),
+            site: "datadoghq.com".into(),
+            site_explicit: false,
+            org: None,
+            output_format: OutputFormat::Json,
+            auto_approve: false,
+            agent_mode: false,
+            read_only: false,
+            jq: None,
+        };
+        let _mock = server
+            .mock("POST", "/api/v1/logs-analytics/cluster")
+            .match_query(mockito::Matcher::UrlEncoded("type".into(), "logs".into()))
+            .match_header("authorization", "Bearer token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"clusters": []}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns(
+            &cfg,
+            super::PatternArgs {
+                query: "*".into(),
+                pattern_field: "message".into(),
+                from: "1h".into(),
+                to: "now".into(),
+                sample_limit: 50,
+                event_limit: 100,
+                index: vec![],
+                group_by: vec![],
+            },
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "logs patterns with OAuth failed: {result:?}"
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_patterns_returns_endpoint_error() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("POST", "/api/v1/logs-analytics/cluster")
+            .match_query(mockito::Matcher::UrlEncoded("type".into(), "logs".into()))
+            .with_status(403)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors": ["forbidden"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns(
+            &cfg,
+            super::PatternArgs {
+                query: "*".into(),
+                pattern_field: "message".into(),
+                from: "1h".into(),
+                to: "now".into(),
+                sample_limit: 50,
+                event_limit: 100,
+                index: vec![],
+                group_by: vec![],
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to cluster log patterns"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_patterns_rejects_invalid_time() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result = super::patterns(
+            &cfg,
+            super::PatternArgs {
+                query: "*".into(),
+                pattern_field: "message".into(),
+                from: "not-a-time".into(),
+                to: "now".into(),
+                sample_limit: 50,
+                event_limit: 100,
+                index: vec![],
+                group_by: vec![],
+            },
+        )
+        .await;
+        assert!(result.is_err());
         cleanup_env();
     }
 

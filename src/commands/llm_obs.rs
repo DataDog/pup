@@ -596,6 +596,67 @@ pub async fn annotation_queue_interactions_list(cfg: &Config, queue_id: &str) ->
     formatter::output(cfg, &resp)
 }
 
+/// Uses the raw client rather than the typed one: a queue with no schema yet answers with
+/// `"annotation_schema": null`, but the generated client models it as a non-`Option`
+/// `LLMObsAnnotationSchema` and fails with "invalid type: null, expected a mapping". Most queues
+/// have no schema, so the typed path errors on the common case. The request shape is unchanged.
+pub async fn annotation_queue_schema_get(cfg: &Config, queue_id: &str) -> Result<()> {
+    let path = format!("/api/v2/llm-obs/v1/annotation-queues/{queue_id}/label-schema");
+    let resp = raw_client::raw_get(cfg, &path, &[])
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get annotation queue label schema: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+/// Raw client for symmetry with [`annotation_queue_schema_get`], so a round-trip of get → edit →
+/// update never straddles two response representations.
+pub async fn annotation_queue_schema_update(
+    cfg: &Config,
+    queue_id: &str,
+    file: &str,
+) -> Result<()> {
+    let body: serde_json::Value = util::read_json_file(file)?;
+    let path = format!("/api/v2/llm-obs/v1/annotation-queues/{queue_id}/label-schema");
+    let resp = raw_client::raw_put(cfg, &path, body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update annotation queue label schema: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+/// Uses the raw client rather than the typed one: this endpoint reports per-item failures with
+/// **HTTP 200** and `"annotations": null` alongside a populated `errors` array. The generated
+/// client models `annotations` as a non-`Option` `Vec` and fails with "invalid type: null,
+/// expected a sequence", turning a readable partial-failure report into an opaque serde error.
+/// The request shape is unchanged.
+pub async fn annotation_queue_annotations_upsert(
+    cfg: &Config,
+    queue_id: &str,
+    file: &str,
+) -> Result<()> {
+    let body: serde_json::Value = util::read_json_file(file)?;
+    let path = format!("/api/v2/llm-obs/v1/annotation-queues/{queue_id}/annotations");
+    let resp = raw_client::raw_post(cfg, &path, body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to upsert annotations: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+/// Raw client for the same reason as [`annotation_queue_annotations_upsert`]: partial failures come
+/// back as HTTP 200, and both `annotation_ids` and `errors` are non-`Option` `Vec`s in the
+/// generated model, so a `null` in either field would surface as a serde error.
+pub async fn annotation_queue_annotations_delete(
+    cfg: &Config,
+    queue_id: &str,
+    file: &str,
+) -> Result<()> {
+    let body: serde_json::Value = util::read_json_file(file)?;
+    let path = format!("/api/v2/llm-obs/v1/annotation-queues/{queue_id}/annotations/delete");
+    let resp = raw_client::raw_post(cfg, &path, body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete annotations: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
 // ---- Custom Evaluator Configs ----
 
 pub async fn eval_config_get(cfg: &Config, eval_name: &str) -> Result<()> {
@@ -4959,6 +5020,274 @@ mod tests {
 
         let result = super::model_pricing(&cfg, Some("openai".into()), None, None, None).await;
         assert!(result.is_err(), "should fail on 500");
+        cleanup_env();
+    }
+
+    // ---- Annotation queue label schemas ----
+
+    // Shapes below are captured from real API responses, not hand-written: the typed SDK models
+    // declare `annotation_schema`, `annotations` and `annotation_ids` as non-`Option`, but the API
+    // returns `null` for them in ordinary cases (queue with no schema; per-item write failures).
+    const LABEL_SCHEMA_BODY: &str = r#"{"data":{"id":"queue-1","type":"queues","attributes":{"annotation_schema":{"label_schemas":[{"id":"ls-1","name":"quality","type":"score","min":0.0,"max":5.0,"is_required":true}]}}}}"#;
+
+    /// A queue that has never had a schema set — the common case.
+    const LABEL_SCHEMA_NULL_BODY: &str =
+        r#"{"data":{"id":"queue-1","type":"queues","attributes":{"annotation_schema":null}}}"#;
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_get_null_schema() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(&mut server, "GET", LABEL_SCHEMA_NULL_BODY).await;
+
+        // Regression: the typed client rejected this with
+        // "invalid type: null, expected a mapping".
+        let result = super::annotation_queue_schema_get(&cfg, "queue-1").await;
+        assert!(
+            result.is_ok(),
+            "schema_get must tolerate a null annotation_schema: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_get() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(&mut server, "GET", LABEL_SCHEMA_BODY).await;
+
+        let result = super::annotation_queue_schema_get(&cfg, "queue-1").await;
+        assert!(result.is_ok(), "schema_get failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_get_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(404)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["queue not found"]}"#)
+            .create_async()
+            .await;
+
+        let result = super::annotation_queue_schema_get(&cfg, "missing-queue").await;
+        assert!(result.is_err(), "should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_update() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = mock_any(&mut server, "PUT", LABEL_SCHEMA_BODY).await;
+
+        let path = write_temp_json(
+            "pup_aq_schema_update.json",
+            r#"{"data":{"type":"queues","attributes":{"annotation_schema":{"label_schemas":[{"name":"quality","type":"score","min":0.0,"max":5.0}]}}}}"#,
+        );
+        let result =
+            super::annotation_queue_schema_update(&cfg, "queue-1", path.to_str().unwrap()).await;
+        assert!(result.is_ok(), "schema_update failed: {:?}", result.err());
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_update_missing_file() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result =
+            super::annotation_queue_schema_update(&cfg, "queue-1", "/nonexistent/schema.json")
+                .await;
+        let err = result
+            .expect_err("should fail on unreadable file")
+            .to_string();
+        assert!(err.contains("failed to read file"), "unexpected: {err}");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_schema_update_malformed_json() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let path = write_temp_json("pup_aq_schema_bad.json", r#"{"data": }"#);
+        let result =
+            super::annotation_queue_schema_update(&cfg, "queue-1", path.to_str().unwrap()).await;
+        let err = result.expect_err("should reject bad body").to_string();
+        assert!(err.contains("failed to parse JSON"), "unexpected: {err}");
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    /// A body the API rejects (rather than one serde rejects): the raw path forwards it, so the
+    /// error must come back from the server instead of being caught locally.
+    #[tokio::test]
+    async fn test_annotation_queue_schema_update_rejected_body() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("PUT", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":[{"detail":"data is required"}]}"#)
+            .create_async()
+            .await;
+
+        let path = write_temp_json("pup_aq_schema_nodata.json", r#"{"nope":true}"#);
+        let result =
+            super::annotation_queue_schema_update(&cfg, "queue-1", path.to_str().unwrap()).await;
+        assert!(result.is_err(), "should surface the API's 400");
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    // ---- Annotations on queue interactions ----
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_upsert() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let body = r#"{"data":{"id":"upsert-1","type":"annotations","attributes":{"annotations":[{"id":"a-1","interaction_id":"i-1","created_at":"2024-01-01T00:00:00Z","created_by":"user-1","modified_at":"2024-01-01T00:00:00Z","modified_by":"user-1","label_values":[{"label_schema_id":"ls-1","value":4.0}]}]}}}"#;
+        let _mock = mock_any(&mut server, "POST", body).await;
+
+        let path = write_temp_json(
+            "pup_aq_annotations_upsert.json",
+            r#"{"data":{"type":"annotations","attributes":{"annotations":[{"interaction_id":"i-1","label_values":[{"label_schema_id":"ls-1","value":4.0}]}]}}}"#,
+        );
+        let result =
+            super::annotation_queue_annotations_upsert(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        assert!(result.is_ok(), "upsert failed: {:?}", result.err());
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_upsert_null_annotations() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        // Real partial-failure shape: HTTP 200, `annotations` null, `errors` populated.
+        let body = r#"{"data":{"id":"queue-1","type":"annotations","attributes":{"annotations":null,"errors":[{"interaction_id":"i-9","error":"interaction not found: i-9"}]}}}"#;
+        let _mock = mock_any(&mut server, "POST", body).await;
+
+        let path = write_temp_json(
+            "pup_aq_annotations_upsert_null.json",
+            r#"{"data":{"type":"annotations","attributes":{"annotations":[{"interaction_id":"i-9","label_values":[{"label_schema_id":"ls-1","value":3.0}]}]}}}"#,
+        );
+        // Regression: the typed client rejected this with
+        // "invalid type: null, expected a sequence", hiding the per-item error report.
+        let result =
+            super::annotation_queue_annotations_upsert(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        assert!(
+            result.is_ok(),
+            "upsert must surface a 200 partial-failure report: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_delete_null_ids() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let body = r#"{"data":{"id":"queue-1","type":"annotations","attributes":{"annotation_ids":null,"errors":[{"annotation_id":"a-9","error":"annotation not found: a-9"}]}}}"#;
+        let _mock = mock_any(&mut server, "POST", body).await;
+
+        let path = write_temp_json(
+            "pup_aq_annotations_delete_null.json",
+            r#"{"data":{"type":"annotations","attributes":{"annotation_ids":["a-9"]}}}"#,
+        );
+        let result =
+            super::annotation_queue_annotations_delete(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        assert!(
+            result.is_ok(),
+            "delete must tolerate null annotation_ids: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_upsert_400() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["unknown label_schema_id"]}"#)
+            .create_async()
+            .await;
+
+        let path = write_temp_json(
+            "pup_aq_annotations_upsert_400.json",
+            r#"{"data":{"type":"annotations","attributes":{"annotations":[{"interaction_id":"i-1","label_values":[{"label_schema_id":"bogus","value":4.0}]}]}}}"#,
+        );
+        let result =
+            super::annotation_queue_annotations_upsert(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_delete() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let body = r#"{"data":{"id":"delete-1","type":"annotations","attributes":{"annotation_ids":["a-1"],"errors":[]}}}"#;
+        let _mock = mock_any(&mut server, "POST", body).await;
+
+        let path = write_temp_json(
+            "pup_aq_annotations_delete.json",
+            r#"{"data":{"type":"annotations","attributes":{"annotation_ids":["a-1"]}}}"#,
+        );
+        let result =
+            super::annotation_queue_annotations_delete(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        assert!(result.is_ok(), "delete failed: {:?}", result.err());
+        let _ = std::fs::remove_file(&path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotation_queue_annotations_delete_malformed_json() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let path = write_temp_json("pup_aq_annotations_delete_bad.json", r#"{ not json"#);
+        let result =
+            super::annotation_queue_annotations_delete(&cfg, "queue-1", path.to_str().unwrap())
+                .await;
+        let err = result.expect_err("should reject bad JSON").to_string();
+        assert!(err.contains("failed to parse JSON"), "unexpected: {err}");
+        let _ = std::fs::remove_file(&path);
         cleanup_env();
     }
 }

@@ -3146,6 +3146,8 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 50, help = "Maximum number of logs (1-1000)")]
         limit: i32,
+        #[arg(long, help = "Pagination cursor from a previous response")]
+        cursor: Option<String>,
         #[arg(long, help = "Sort order: asc or desc", default_value = "desc")]
         sort: String,
         #[arg(
@@ -3175,6 +3177,8 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 10, help = "Number of logs")]
         limit: i32,
+        #[arg(long, help = "Pagination cursor from a previous response")]
+        cursor: Option<String>,
         #[arg(
             long,
             allow_hyphen_values = true,
@@ -3205,6 +3209,8 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 50, help = "Maximum results")]
         limit: i32,
+        #[arg(long, help = "Pagination cursor from a previous response")]
+        cursor: Option<String>,
         #[arg(
             long,
             allow_hyphen_values = true,
@@ -12496,6 +12502,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     from,
                     to,
                     limit,
+                    cursor,
                     sort,
                     index,
                     storage,
@@ -12507,6 +12514,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             from,
                             to,
                             limit,
+                            cursor,
                             sort,
                             storage,
                             index,
@@ -12519,6 +12527,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     from,
                     to,
                     limit,
+                    cursor,
                     sort,
                     storage,
                     index,
@@ -12530,6 +12539,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             from,
                             to,
                             limit,
+                            cursor,
                             sort,
                             storage,
                             index,
@@ -12542,6 +12552,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     from,
                     to,
                     limit,
+                    cursor,
                     sort,
                     storage,
                     index,
@@ -12554,6 +12565,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             from,
                             to,
                             limit,
+                            cursor,
                             sort,
                             storage,
                             index,

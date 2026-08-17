@@ -556,17 +556,36 @@ pub async fn downtime_list(
 ) -> Result<()> {
     let api = crate::make_api!(SyntheticsV2API, cfg);
     let mut params = ListSyntheticsDowntimesOptionalParams::default();
-    if let Some(ids) = filter_test_ids {
+    if let Some(ids) = filter_test_ids.clone() {
         params = params.filter_test_ids(ids);
     }
-    if let Some(active) = filter_active {
+    if let Some(active) = filter_active.clone() {
         params = params.filter_active(active);
     }
-    let resp = api
-        .list_synthetics_downtimes(params)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to list synthetics downtimes: {e:?}"))?;
-    formatter::output(cfg, &resp)
+    match api.list_synthetics_downtimes(params).await {
+        Ok(resp) => formatter::output(cfg, &resp),
+        // Issue #722: the typed V2 model rejects downtime payloads that contain
+        // `null` where it expects an array ("invalid type: null, expected a
+        // sequence"). This deserialization failure only happens on a successful
+        // (2xx) response, so fall back to emitting the raw JSON:API body, which
+        // tolerates nulls. Genuine HTTP errors surface through the arm below.
+        Err(datadog_api_client::datadog::Error::Serde(_)) => {
+            let mut query: Vec<(&str, &str)> = Vec::new();
+            if let Some(ids) = filter_test_ids.as_deref() {
+                query.push(("filter[test_ids]", ids));
+            }
+            if let Some(active) = filter_active.as_deref() {
+                query.push(("filter[active]", active));
+            }
+            let resp = crate::raw_client::raw_get(cfg, "/api/v2/synthetics/downtimes", &query)
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to list synthetics downtimes: {e}"))?;
+            formatter::output(cfg, &resp)
+        }
+        Err(e) => Err(anyhow::anyhow!(
+            "failed to list synthetics downtimes: {e:?}"
+        )),
+    }
 }
 
 pub async fn downtime_create(cfg: &Config, file: &str) -> Result<()> {
@@ -914,6 +933,46 @@ mod tests {
             .await;
         let result = super::downtime_list(&cfg, None, None).await;
         assert!(result.is_err(), "expected 403 error from downtime_list");
+        cleanup_env();
+    }
+
+    // Issue #722: a successful (2xx) response whose shape the typed V2 model
+    // cannot deserialize (here `data` is an object where a sequence is
+    // expected, mirroring the reported "invalid type: null, expected a
+    // sequence") must fall back to the raw JSON:API body instead of erroring.
+    #[tokio::test]
+    async fn test_synthetics_downtime_list_falls_back_on_deserialize_error() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _mock = mock_any(&mut s, "GET", r#"{"data":{}}"#).await;
+        let result = super::downtime_list(&cfg, None, None).await;
+        assert!(
+            result.is_ok(),
+            "downtime_list should fall back to raw output on deserialize error: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    // The raw fallback must still forward the test-id and active filters.
+    #[tokio::test]
+    async fn test_synthetics_downtime_list_fallback_with_filters() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _mock = mock_any(&mut s, "GET", r#"{"data":{}}"#).await;
+        let result = super::downtime_list(
+            &cfg,
+            Some("abc-def-ghi".to_string()),
+            Some("true".to_string()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "downtime_list fallback with filters failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 

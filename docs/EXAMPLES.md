@@ -131,6 +131,27 @@ pup logs query --query="service:api" --index="main,security" --from="1h"
 pup logs query --query="service:api" --index="main" --index="security" --from="1h"
 ```
 
+### Find Similar Log Patterns
+```bash
+# Cluster similar message values instead of grouping exact values
+pup logs patterns \
+  --query="status:error" \
+  --pattern-field="message" \
+  --from="1h"
+
+# Analyze a specific index with larger sampling limits and grouping fields
+pup logs patterns \
+  --query="service:api" \
+  --pattern-field="@request.path" \
+  --group-by="service,status" \
+  --index="main" \
+  --sample-limit=100 \
+  --event-limit=20000 \
+  --from="24h"
+```
+
+Pattern clustering returns similar-value groups. Use `logs aggregate --group-by` when exact-value buckets are required.
+
 ### Aggregate Logs
 ```bash
 # Count logs by status
@@ -178,11 +199,14 @@ pup logs search --query="service:api" --from="7d" --storage="flex"
 # Search online archives (long-term storage)
 pup logs search --query="status:error" --from="30d" --storage="online-archives"
 
-# Search standard indexes (default, fastest tier)
+# Search standard indexes (fastest tier)
 pup logs search --query="service:web-app" --from="1h" --storage="indexes"
 
-# Use Datadog's default storage behavior
+# Automatically try Flex, then fall back to indexed logs when Flex is unavailable
 pup logs search --query="status:warn" --from="1h"
+
+# Request automatic storage selection explicitly
+pup logs search --query="status:warn" --from="1h" --storage="auto"
 ```
 
 ## Dashboards
@@ -206,6 +230,16 @@ pup dashboards url "abc-123-def"
 
 # Open with a live 1 week time window
 pup dashboards url "abc-123-def" --from=now-1w --to=now --live=true
+```
+
+### Diff Dashboard
+```bash
+# Compare a candidate JSON file against the live dashboard
+pup dashboards diff "abc-123-def" dashboard.json
+
+# Scope or suppress specific field paths
+pup dashboards diff "abc-123-def" dashboard.json --only widgets
+pup dashboards diff "abc-123-def" dashboard.json --ignore modified_at
 ```
 
 ### Delete Dashboard
@@ -285,6 +319,16 @@ pup slos list --metrics-query="sum:requests.error{service:api}" --limit=25 --off
 ### Get SLO
 ```bash
 pup slos get "abc-123-def"
+```
+
+### Diff SLO
+```bash
+# Compare a candidate JSON file against the live SLO
+pup slos diff "abc-123-def" slo.json
+
+# Scope or suppress specific field paths
+pup slos diff "abc-123-def" slo.json --only thresholds
+pup slos diff "abc-123-def" slo.json --ignore overall_status
 ```
 
 ### Create SLO
@@ -756,6 +800,30 @@ pup synthetics tests get "test-id"
 pup synthetics locations list
 ```
 
+## Notebooks
+
+### Diff Notebook
+```bash
+# Compare a candidate JSON file against the live notebook
+pup notebooks diff 12345 notebook.json
+
+# Scope or suppress specific field paths
+pup notebooks diff 12345 notebook.json --only data.attributes.cells
+pup notebooks diff 12345 notebook.json --ignore data.attributes.modified
+```
+
+## Observability Pipelines
+
+### Diff Pipeline
+```bash
+# Compare a candidate JSON file against the live pipeline
+pup obs-pipelines diff <pipeline-id> pipeline.json
+
+# Scope or suppress specific field paths
+pup obs-pipelines diff <pipeline-id> pipeline.json --only data.attributes.config
+pup obs-pipelines diff <pipeline-id> pipeline.json --ignore data.attributes.updated_at
+```
+
 ## Workflows
 
 ### Get a Workflow
@@ -771,6 +839,16 @@ pup workflows create --file=workflow.json
 ### Update a Workflow
 ```bash
 pup workflows update <workflow-id> --file=workflow.json
+```
+
+### Diff a Workflow
+```bash
+# Compare a candidate JSON file against the live workflow
+pup workflows diff <workflow-id> workflow.json
+
+# Scope or suppress specific field paths
+pup workflows diff <workflow-id> workflow.json --only data.attributes.spec
+pup workflows diff <workflow-id> workflow.json --ignore data.attributes.updatedAt
 ```
 
 ### Delete a Workflow

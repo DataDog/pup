@@ -570,6 +570,198 @@ fn test_logs_list_sort_accepts_hyphen_timestamp() {
 }
 
 #[test]
+fn test_logs_patterns_parses_and_is_read_only() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "patterns",
+        "--query",
+        "status:error",
+        "--pattern-field",
+        "message",
+        "--index",
+        "main,security",
+        "--group-by",
+        "service,status",
+    ])
+    .expect("logs patterns should parse");
+
+    match cli.command {
+        crate::Commands::Logs {
+            action:
+                crate::LogActions::Patterns {
+                    pattern_field,
+                    sample_limit,
+                    event_limit,
+                    index,
+                    group_by,
+                    ..
+                },
+        } => {
+            assert_eq!(pattern_field, "message");
+            assert_eq!(sample_limit, 50);
+            assert_eq!(event_limit, 10_000);
+            assert_eq!(index, vec!["main", "security"]);
+            assert_eq!(group_by, vec!["service", "status"]);
+        }
+        _ => panic!("expected LogActions::Patterns"),
+    }
+
+    let command = crate::Cli::command();
+    let schema = crate::build_agent_schema(&command);
+    let logs = schema["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "logs")
+        .expect("logs must be present in the agent schema");
+    let patterns = logs["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "patterns")
+        .expect("logs patterns must be present in the agent schema");
+    assert_eq!(patterns["read_only"], true);
+}
+
+#[test]
+fn test_logs_search_and_aggregate_default_to_auto_storage() {
+    use clap::Parser;
+
+    let search = crate::Cli::try_parse_from(["pup", "logs", "search", "--query", "*"])
+        .expect("logs search should parse");
+    let aggregate = crate::Cli::try_parse_from(["pup", "logs", "aggregate"])
+        .expect("logs aggregate should parse");
+
+    match search.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Search { storage, .. },
+        } => assert_eq!(storage.as_deref(), None),
+        _ => panic!("expected LogActions::Search"),
+    }
+    match aggregate.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Aggregate { storage, .. },
+        } => assert_eq!(storage.as_deref(), None),
+        _ => panic!("expected LogActions::Aggregate"),
+    }
+}
+
+#[test]
+fn test_logs_search_and_aggregate_accept_explicit_auto_storage() {
+    use clap::Parser;
+
+    let search =
+        crate::Cli::try_parse_from(["pup", "logs", "search", "--query", "*", "--storage", "auto"])
+            .expect("logs search --storage auto should parse");
+    let aggregate = crate::Cli::try_parse_from(["pup", "logs", "aggregate", "--storage", "auto"])
+        .expect("logs aggregate --storage auto should parse");
+
+    match search.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Search { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("auto")),
+        _ => panic!("expected LogActions::Search"),
+    }
+    match aggregate.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Aggregate { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("auto")),
+        _ => panic!("expected LogActions::Aggregate"),
+    }
+}
+
+#[test]
+fn test_logs_search_cursor_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "search",
+        "--query",
+        "*",
+        "--cursor",
+        "cursor-abc",
+    ])
+    .expect("logs search --cursor should parse");
+
+    match cli.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Search { cursor, .. },
+        } => {
+            assert_eq!(cursor.as_deref(), Some("cursor-abc"));
+        }
+        _ => panic!("expected LogActions::Search"),
+    }
+}
+
+#[test]
+fn test_logs_list_and_query_cursor_parse() {
+    use clap::Parser;
+
+    let list = crate::Cli::try_parse_from(["pup", "logs", "list", "--cursor", "list-cursor"])
+        .expect("logs list --cursor should parse");
+    let query = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "query",
+        "--query",
+        "status:error",
+        "--cursor",
+        "query-cursor",
+    ])
+    .expect("logs query --cursor should parse");
+
+    match list.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::List { cursor, .. },
+        } => assert_eq!(cursor.as_deref(), Some("list-cursor")),
+        _ => panic!("expected LogActions::List"),
+    }
+    match query.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Query { cursor, .. },
+        } => assert_eq!(cursor.as_deref(), Some("query-cursor")),
+        _ => panic!("expected LogActions::Query"),
+    }
+}
+
+#[test]
+fn test_logs_search_and_aggregate_storage_overrides_are_preserved() {
+    use clap::Parser;
+
+    let search = crate::Cli::try_parse_from([
+        "pup",
+        "logs",
+        "search",
+        "--query",
+        "*",
+        "--storage",
+        "indexes",
+    ])
+    .expect("logs search --storage indexes should parse");
+    let aggregate =
+        crate::Cli::try_parse_from(["pup", "logs", "aggregate", "--storage", "online-archives"])
+            .expect("logs aggregate --storage online-archives should parse");
+
+    match search.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Search { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("indexes")),
+        _ => panic!("expected LogActions::Search"),
+    }
+    match aggregate.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Aggregate { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("online-archives")),
+        _ => panic!("expected LogActions::Aggregate"),
+    }
+}
+
+#[test]
 fn test_logs_saved_views_create_parses() {
     use clap::Parser;
 

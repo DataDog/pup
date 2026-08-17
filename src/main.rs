@@ -1756,9 +1756,10 @@ enum Commands {
     ///
     /// STORAGE TIERS:
     ///   Datadog logs can be stored in different tiers with different performance and cost characteristics:
-    ///   • indexes - Standard indexed logs (default, real-time searchable)
+    ///   • indexes - Standard indexed logs (real-time searchable)
     ///   • online-archives - Rehydrated logs from archives (slower queries, lower cost)
-    ///   • flex - Flex logs (cost-optimized storage tier, balanced performance)
+    ///   • flex - Flex logs (cost-optimized storage tier)
+    ///   • auto - Try flex when available, then fall back to indexed logs
     ///
     /// LOG QUERY SYNTAX:
     ///   Logs use a query language similar to web search:
@@ -1783,8 +1784,8 @@ enum Commands {
     ///   # Search for error logs in the last hour
     ///   pup logs search --query="status:error" --from="1h"
     ///
-    ///   # Search Flex logs specifically
-    ///   pup logs search --query="status:error" --from="1h" --storage="flex"
+    ///   # Search logs with automatic storage selection
+    ///   pup logs search --query="status:error" --from="1h"
     ///
     ///   # Query logs from a specific service
     ///   pup logs query --query="service:web-app" --from="4h" --to="now"
@@ -3148,6 +3149,8 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 50, help = "Maximum number of logs (1-1000)")]
         limit: i32,
+        #[arg(long, help = "Pagination cursor from a previous response")]
+        cursor: Option<String>,
         #[arg(long, help = "Sort order: asc or desc", default_value = "desc")]
         sort: String,
         #[arg(
@@ -3156,7 +3159,10 @@ enum LogActions {
             help = "Log indexes to aggregate, comma-separated or repeated"
         )]
         index: Vec<String>,
-        #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
+        #[arg(
+            long,
+            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto)"
+        )]
         storage: Option<String>,
     },
     /// List logs (v2 API)
@@ -3173,6 +3179,8 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 10, help = "Number of logs")]
         limit: i32,
+        #[arg(long, help = "Pagination cursor from a previous response")]
+        cursor: Option<String>,
         #[arg(
             long,
             allow_hyphen_values = true,
@@ -3180,7 +3188,7 @@ enum LogActions {
             help = "Sort order"
         )]
         sort: String,
-        #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
+        #[arg(long, help = "Storage tier: auto, indexes, online-archives, or flex")]
         storage: Option<String>,
         #[arg(
             long,
@@ -3203,6 +3211,8 @@ enum LogActions {
         to: String,
         #[arg(long, default_value_t = 50, help = "Maximum results")]
         limit: i32,
+        #[arg(long, help = "Pagination cursor from a previous response")]
+        cursor: Option<String>,
         #[arg(
             long,
             allow_hyphen_values = true,
@@ -3210,7 +3220,7 @@ enum LogActions {
             help = "Sort order"
         )]
         sort: String,
-        #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
+        #[arg(long, help = "Storage tier: auto, indexes, online-archives, or flex")]
         storage: Option<String>,
         #[arg(
             long,
@@ -3220,6 +3230,41 @@ enum LogActions {
         index: Vec<String>,
         #[arg(long, help = "Timezone for timestamps")]
         timezone: Option<String>,
+    },
+    /// Find similar log-message patterns (v1 API)
+    Patterns {
+        #[arg(long, help = "Log query (required)")]
+        query: String,
+        #[arg(long, help = "Field whose similar values are clustered (required)")]
+        pattern_field: String,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: 1h, 5min, 2hours, '5 minutes', RFC3339, Unix timestamp, or 'now'"
+        )]
+        from: String,
+        #[arg(long, default_value = "now", help = "End time")]
+        to: String,
+        #[arg(
+            long,
+            default_value_t = 50,
+            help = "Maximum representative samples per pattern"
+        )]
+        sample_limit: i32,
+        #[arg(long, default_value_t = 10_000, help = "Maximum events to analyze")]
+        event_limit: i32,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Log indexes to search, comma-separated or repeated (all indexes by default)"
+        )]
+        index: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Fields to group patterns by, comma-separated or repeated"
+        )]
+        group_by: Vec<String>,
     },
     /// Aggregate logs (v2 API)
     Aggregate {
@@ -3246,7 +3291,10 @@ enum LogActions {
         group_by: Option<String>,
         #[arg(long, default_value_t = 10, help = "Maximum groups per facet")]
         limit: i32,
-        #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
+        #[arg(
+            long,
+            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto)"
+        )]
         storage: Option<String>,
         #[arg(
             long,
@@ -3479,6 +3527,23 @@ enum DashboardActions {
         id: String,
         #[arg(long)]
         file: String,
+    },
+    /// Diff a candidate JSON definition against the live dashboard
+    Diff {
+        id: String,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
     },
     /// Delete a dashboard
     Delete { id: String },
@@ -3853,6 +3918,23 @@ enum SloActions {
         id: String,
         #[arg(long)]
         file: String,
+    },
+    /// Diff a candidate JSON definition against the live SLO
+    Diff {
+        id: String,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
     },
     /// Delete an SLO
     Delete { id: String },
@@ -4745,6 +4827,23 @@ enum WorkflowActions {
         workflow_id: String,
         #[arg(long)]
         file: String,
+    },
+    /// Diff a candidate JSON definition against the live workflow
+    Diff {
+        workflow_id: String,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
     },
     /// Delete a workflow
     Delete { workflow_id: String },
@@ -6303,6 +6402,23 @@ enum NotebookActions {
         notebook_id: i64,
         #[arg(long, help = "JSON file with notebook data (required)")]
         file: String,
+    },
+    /// Diff a candidate JSON definition against the live notebook
+    Diff {
+        notebook_id: i64,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
     },
     /// Append cells to an existing notebook (reads current notebook first, then appends)
     Edit {
@@ -7887,7 +8003,13 @@ enum IntegrationActions {
 #[derive(Subcommand)]
 enum IntegrationAwsActions {
     /// Manage AWS cloud authentication
-    #[command(name = "cloud-auth")]
+    ///
+    /// AUTHENTICATION:
+    ///   Requires OAuth2 (via 'pup auth login') or API + Application keys.
+    ///   OAuth2 requires the workload_identity_federation_read/write scopes,
+    ///   which are not requested by default -- opt in with:
+    ///     pup auth login --extra-scopes workload_identity_federation_read,workload_identity_federation_write
+    #[command(name = "cloud-auth", verbatim_doc_comment)]
     CloudAuth {
         #[command(subcommand)]
         action: CloudAuthActions,
@@ -9215,6 +9337,23 @@ enum ObsPipelinesActions {
         #[arg(long, help = "JSON file with pipeline body (required)")]
         file: String,
     },
+    /// Diff a candidate JSON definition against the live pipeline
+    Diff {
+        pipeline_id: String,
+        file: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Restrict the diff to these field paths (dot-notation, comma-separated or repeated)"
+        )]
+        only: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Exclude these field paths from the diff (dot-notation, comma-separated or repeated)"
+        )]
+        ignore: Vec<String>,
+    },
     /// Delete a pipeline
     Delete { pipeline_id: String },
     /// Validate a pipeline configuration without creating it
@@ -9871,6 +10010,50 @@ enum LlmObsAnnotationQueuesActions {
         #[command(subcommand)]
         action: LlmObsAnnotationQueueInteractionsActions,
     },
+    /// Manage the label schema of an annotation queue
+    Schema {
+        #[command(subcommand)]
+        action: LlmObsAnnotationQueueSchemaActions,
+    },
+    /// Manage annotations on interactions in an annotation queue
+    Annotations {
+        #[command(subcommand)]
+        action: LlmObsAnnotationQueueAnnotationsActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsAnnotationQueueSchemaActions {
+    /// Get the label schema for an annotation queue
+    Get {
+        #[arg(help = "Annotation queue ID")]
+        queue_id: String,
+    },
+    /// Replace the label schema for an annotation queue
+    Update {
+        #[arg(help = "Annotation queue ID")]
+        queue_id: String,
+        #[arg(long, help = "JSON file with label schema update body (required)")]
+        file: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsAnnotationQueueAnnotationsActions {
+    /// Create or update annotations on interactions in an annotation queue
+    Upsert {
+        #[arg(help = "Annotation queue ID")]
+        queue_id: String,
+        #[arg(long, help = "JSON file with annotations body (required)")]
+        file: String,
+    },
+    /// Delete annotations from interactions in an annotation queue
+    Delete {
+        #[arg(help = "Annotation queue ID")]
+        queue_id: String,
+        #[arg(long, help = "JSON file with annotations to delete (required)")]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -10103,6 +10286,16 @@ enum TracesActions {
     ///   pup traces search --query="@http.status_code:>=500"
     ///   pup traces search --query="service:api @duration:>1000000000" --from="4h"
     ///   pup traces search --query="env:prod" --sort="timestamp" --limit=20
+    ///   pup traces search --live --query="service:api"
+    ///   pup traces search --live --cursor="<cursor from previous next_action>"
+    ///
+    /// LIVE SEARCH:
+    ///   --live pins the end of the window to "now", so the query lands in
+    ///   Datadog's live (recent, unsampled) trace buffer instead of the
+    ///   indexed store — useful for viewing very recent traces that haven't
+    ///   gone through ingestion sampling yet. Combine with the default
+    ///   -timestamp sort and page backwards through older spans with
+    ///   --cursor (returned as `next_action` in agent mode).
     #[command(verbatim_doc_comment)]
     Search {
         #[arg(long, default_value = "*", help = "Span search query")]
@@ -10113,7 +10306,11 @@ enum TracesActions {
             help = "Start time: 1h, 30m, 7d, RFC3339, Unix timestamp, or 'now'"
         )]
         from: String,
-        #[arg(long, default_value = "now", help = "End time")]
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time (ignored when --live is set, which always ends at now)"
+        )]
         to: String,
         #[arg(
             long,
@@ -10128,6 +10325,16 @@ enum TracesActions {
             help = "Sort order: timestamp or -timestamp"
         )]
         sort: String,
+        #[arg(
+            long,
+            help = "Pagination cursor from a prior call's next_action, to page backwards through older spans"
+        )]
+        cursor: Option<String>,
+        #[arg(
+            long,
+            help = "Live search: always end the window at now, querying Datadog's live (recent, unsampled) trace buffer"
+        )]
+        live: bool,
     },
     /// Compute aggregated stats over spans
     ///
@@ -11667,9 +11874,44 @@ mod test_agent_schema {
 
 // ---- Main ----
 
+#[cfg(unix)]
+fn reset_sigpipe() {
+    // Rust ignores SIGPIPE by default, which turns a closed stdout pipe (e.g. `| head`)
+    // into an EPIPE error that println!/print! then panic on. Restore the default Unix
+    // behavior so the process just exits quietly instead.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
+
+#[cfg(all(test, unix))]
+mod reset_sigpipe_tests {
+    use super::reset_sigpipe;
+
+    #[test]
+    fn sets_default_disposition() {
+        // Force a non-default disposition first so the assertion below can't
+        // pass merely because SIGPIPE happened to already be SIG_DFL.
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        }
+
+        reset_sigpipe();
+
+        // libc::signal returns the *previous* disposition, so calling it again
+        // reveals what reset_sigpipe() actually installed.
+        let previous = unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+        assert_eq!(previous, libc::SIG_DFL);
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    reset_sigpipe();
     main_inner().await
 }
 
@@ -12372,6 +12614,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     from,
                     to,
                     limit,
+                    cursor,
                     sort,
                     index,
                     storage,
@@ -12383,9 +12626,11 @@ async fn main_inner() -> anyhow::Result<()> {
                             from,
                             to,
                             limit,
+                            cursor,
                             sort,
                             storage,
                             index,
+                            auto_storage: true,
                         },
                     )
                     .await?;
@@ -12395,6 +12640,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     from,
                     to,
                     limit,
+                    cursor,
                     sort,
                     storage,
                     index,
@@ -12406,9 +12652,11 @@ async fn main_inner() -> anyhow::Result<()> {
                             from,
                             to,
                             limit,
+                            cursor,
                             sort,
                             storage,
                             index,
+                            auto_storage: false,
                         },
                     )
                     .await?;
@@ -12418,6 +12666,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     from,
                     to,
                     limit,
+                    cursor,
                     sort,
                     storage,
                     index,
@@ -12430,9 +12679,36 @@ async fn main_inner() -> anyhow::Result<()> {
                             from,
                             to,
                             limit,
+                            cursor,
                             sort,
                             storage,
                             index,
+                            auto_storage: false,
+                        },
+                    )
+                    .await?;
+                }
+                LogActions::Patterns {
+                    query,
+                    pattern_field,
+                    from,
+                    to,
+                    sample_limit,
+                    event_limit,
+                    index,
+                    group_by,
+                } => {
+                    commands::logs::patterns(
+                        &cfg,
+                        commands::logs::PatternArgs {
+                            query,
+                            pattern_field,
+                            from,
+                            to,
+                            sample_limit,
+                            event_limit,
+                            index,
+                            group_by,
                         },
                     )
                     .await?;
@@ -12467,6 +12743,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             limit,
                             index,
                             storage,
+                            auto_storage: true,
                             sort,
                             interval,
                         },
@@ -12609,6 +12886,14 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 DashboardActions::Update { id, file } => {
                     commands::dashboards::update(&cfg, &id, &file).await?;
+                }
+                DashboardActions::Diff {
+                    id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::dashboards::diff(&cfg, &id, &file, &only, &ignore).await?;
                 }
                 DashboardActions::Delete { id } => commands::dashboards::delete(&cfg, &id).await?,
                 DashboardActions::Widgets { action } => match action {
@@ -12813,6 +13098,14 @@ async fn main_inner() -> anyhow::Result<()> {
                 SloActions::Create { file } => commands::slos::create(&cfg, &file).await?,
                 SloActions::Update { id, file } => {
                     commands::slos::update(&cfg, &id, &file).await?;
+                }
+                SloActions::Diff {
+                    id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::slos::diff(&cfg, &id, &file, &only, &ignore).await?;
                 }
                 SloActions::Delete { id } => commands::slos::delete(&cfg, &id).await?,
                 SloActions::Status { id, from, to } => {
@@ -14138,6 +14431,14 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 NotebookActions::Update { notebook_id, file } => {
                     commands::notebooks::update(&cfg, notebook_id, &file).await?;
+                }
+                NotebookActions::Diff {
+                    notebook_id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::notebooks::diff(&cfg, notebook_id, &file, &only, &ignore).await?;
                 }
                 NotebookActions::Edit { notebook_id, file } => {
                     commands::notebooks::edit(&cfg, notebook_id, &file).await?;
@@ -16107,6 +16408,15 @@ async fn main_inner() -> anyhow::Result<()> {
                 ObsPipelinesActions::Update { pipeline_id, file } => {
                     commands::obs_pipelines::update(&cfg, &pipeline_id, &file).await?;
                 }
+                ObsPipelinesActions::Diff {
+                    pipeline_id,
+                    file,
+                    only,
+                    ignore,
+                } => {
+                    commands::obs_pipelines::diff(&cfg, &pipeline_id, &file, &only, &ignore)
+                        .await?;
+                }
                 ObsPipelinesActions::Delete { pipeline_id } => {
                     commands::obs_pipelines::delete(&cfg, &pipeline_id).await?;
                 }
@@ -16173,8 +16483,11 @@ async fn main_inner() -> anyhow::Result<()> {
                     to,
                     limit,
                     sort,
+                    cursor,
+                    live,
                 } => {
-                    commands::traces::search(&cfg, query, from, to, limit, sort).await?;
+                    commands::traces::search(&cfg, query, from, to, limit, sort, cursor, live)
+                        .await?;
                 }
                 TracesActions::Aggregate {
                     query,
@@ -16542,6 +16855,14 @@ async fn main_inner() -> anyhow::Result<()> {
             }
             WorkflowActions::Update { workflow_id, file } => {
                 commands::workflows::update(&cfg, &workflow_id, &file).await?;
+            }
+            WorkflowActions::Diff {
+                workflow_id,
+                file,
+                only,
+                ignore,
+            } => {
+                commands::workflows::diff(&cfg, &workflow_id, &file, &only, &ignore).await?;
             }
             WorkflowActions::Delete { workflow_id } => {
                 commands::workflows::delete(&cfg, &workflow_id).await?;
@@ -16980,6 +17301,31 @@ async fn main_inner() -> anyhow::Result<()> {
                         LlmObsAnnotationQueueInteractionsActions::List { queue_id } => {
                             commands::llm_obs::annotation_queue_interactions_list(&cfg, &queue_id)
                                 .await?;
+                        }
+                    },
+                    LlmObsAnnotationQueuesActions::Schema { action } => match action {
+                        LlmObsAnnotationQueueSchemaActions::Get { queue_id } => {
+                            commands::llm_obs::annotation_queue_schema_get(&cfg, &queue_id).await?;
+                        }
+                        LlmObsAnnotationQueueSchemaActions::Update { queue_id, file } => {
+                            commands::llm_obs::annotation_queue_schema_update(
+                                &cfg, &queue_id, &file,
+                            )
+                            .await?;
+                        }
+                    },
+                    LlmObsAnnotationQueuesActions::Annotations { action } => match action {
+                        LlmObsAnnotationQueueAnnotationsActions::Upsert { queue_id, file } => {
+                            commands::llm_obs::annotation_queue_annotations_upsert(
+                                &cfg, &queue_id, &file,
+                            )
+                            .await?;
+                        }
+                        LlmObsAnnotationQueueAnnotationsActions::Delete { queue_id, file } => {
+                            commands::llm_obs::annotation_queue_annotations_delete(
+                                &cfg, &queue_id, &file,
+                            )
+                            .await?;
                         }
                     },
                 },

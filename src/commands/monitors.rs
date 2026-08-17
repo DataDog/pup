@@ -114,7 +114,7 @@ pub async fn diff(
     // Trade-off: field-name typos in the candidate file won't be caught here;
     // they will appear as added/removed pairs in the diff output, which is still
     // actionable. `pup monitors update` will fail or no-op on unknown fields.
-    let mut candidate: serde_json::Value = util::read_json_file(file)?;
+    let candidate: serde_json::Value = util::read_json_file(file)?;
 
     // Fetch the live monitor
     let api = crate::make_api!(MonitorsAPI, cfg);
@@ -122,19 +122,8 @@ pub async fn diff(
         .get_monitor(monitor_id, GetMonitorOptionalParams::default())
         .await
         .map_err(|e| anyhow::anyhow!("failed to get monitor: {:?}", e))?;
-    let mut live = serde_json::to_value(&live)
+    let live = serde_json::to_value(&live)
         .map_err(|e| anyhow::anyhow!("failed to serialize monitor {monitor_id} for diff: {e:?}"))?;
-
-    // Normalize both sides: strip server-managed read-only fields and drop nulls
-    // so absent and explicit-null compare equal.
-    // Note: the API may populate concrete option defaults (e.g. new_host_delay,
-    // notify_no_data) in the live response that the candidate omits. Those appear
-    // as "removed" because the candidate is treated as the complete desired state.
-    // Use --ignore to suppress specific option fields if the noise is unwanted.
-    util_ext::normalize_for_diff(&mut live, util_ext::READONLY_MONITOR_FIELDS);
-    util_ext::normalize_for_diff(&mut candidate, util_ext::READONLY_MONITOR_FIELDS);
-
-    let entries = util_ext::scope_diff(util_ext::diff_json(&live, &candidate), only, ignore);
 
     // `update` (PUT) is a partial/merge update: fields absent from the candidate
     // file are left unchanged on the live monitor, not deleted. "removed" entries
@@ -142,37 +131,22 @@ pub async fn diff(
     // removed by `pup monitors update`. Run `update` only for "added"/"modified"
     // changes; "removed" entries require no action unless you want to add those
     // fields to the candidate explicitly.
-    let has_removed = entries
-        .iter()
-        .any(|e| e.change == util_ext::ChangeKind::Removed);
-    let next_action = if entries.is_empty() {
-        None
-    } else if has_removed {
-        Some(
-            "review changes — note: 'removed' entries will NOT be deleted by \
-             `pup monitors update` (partial update)"
-                .to_string(),
-        )
-    } else {
-        Some("review changes, then run `pup monitors update`".to_string())
-    };
-    let meta = Metadata {
-        count: Some(entries.len()),
-        truncated: false,
-        command: Some("monitors diff".to_string()),
-        next_action,
-    };
-    formatter::format_and_print(
-        &entries,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )?;
-    if entries.is_empty() && !cfg.agent_mode {
-        eprintln!("No changes — monitor {monitor_id} is in sync.");
-    }
-    Ok(())
+    let resource_id = monitor_id.to_string();
+    let mut options = util_ext::ResourceDiffOptions::new(
+        "monitors diff",
+        "pup monitors update",
+        "monitor",
+        &resource_id,
+    );
+    options.readonly_paths = util_ext::READONLY_MONITOR_FIELDS;
+    options.only = only;
+    options.ignore = ignore;
+    options.removed_entries_next_action = Some(
+        "review changes — note: 'removed' entries will NOT be deleted by \
+         `pup monitors update` (partial update)",
+    );
+    options.no_changes_message = Some(format!("No changes — monitor {monitor_id} is in sync."));
+    util_ext::format_resource_diff(cfg, &live, &candidate, &options)
 }
 
 pub async fn search(

@@ -24,14 +24,14 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | acp | serve | src/commands/acp.rs | ✅ |
 | auth | login, logout, status, refresh | src/commands/auth.rs | ✅ |
 | metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
-| logs | search, list, aggregate, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
+| logs | search, list, aggregate, patterns, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
-| dashboards | list, get, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
+| dashboards | list, get, create, update, diff, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
 | ddsql | table, time-series, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |
 | debugger | probes (list, get, create, delete, watch) | src/commands/debugger.rs | ✅ |
-| slos | list, get, delete, status | src/commands/slos.rs | ✅ |
+| slos | list, get, create, update, diff, delete, status | src/commands/slos.rs | ✅ |
 | incidents | list, get, attachments, settings, handles, postmortem-templates | src/commands/incidents.rs | ✅ |
 | rum | apps, metrics, retention-filters, sessions, playlists, heatmaps | src/commands/rum.rs | ✅ |
 | cicd | pipelines, events, tests, dora, flaky-tests | src/commands/cicd.rs | ✅ |
@@ -49,7 +49,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | logs-restriction | list, get, create, update, delete, roles (list, add) | src/commands/logs_restriction.rs | ✅ |
 | processes | list | src/commands/processes.rs | ✅ |
 | users | list, get, roles, service-accounts (create, app-keys CRUD) | src/commands/users.rs | ✅ |
-| notebooks | list, get, delete, annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
+| notebooks | list, get, create, update, diff, delete, annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |
@@ -65,8 +65,8 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | datasets | list, get, create, update, delete | src/commands/datasets.rs | ✅ |
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
-| obs-pipelines | list, get, create, update, delete, validate | src/commands/obs_pipelines.rs | ✅ |
-| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get), runs (list, status), topics, topics-with-points, points), agent-insights (list, get, update-status, submit-feedback), model-pricing | src/commands/llm_obs.rs | ✅ |
+| obs-pipelines | list, get, create, update, diff, delete, validate | src/commands/obs_pipelines.rs | ✅ |
+| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get), runs (list, status), topics, topics-with-points, points), agent-insights (list, get, update-status, submit-feedback), annotation-queues (create, list, update, delete, interactions (add, delete, list), schema (get, update), annotations (upsert, delete)), model-pricing | src/commands/llm_obs.rs | ✅ |
 | reference-tables | list, get, create, batch-query | src/commands/reference_tables.rs | ✅ |
 | network | flows list, devices (list, get, interfaces, tags), interfaces (list, update) | src/commands/network.rs | ✅ |
 | cloud | aws, gcp, azure, oci | src/commands/cloud.rs | ✅ |
@@ -79,7 +79,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | fleet | agents (list, get, versions, tracers), deployments (list, get, configure, upgrade, cancel), schedules (list, get, create, update, delete, trigger), tracers (list), clusters (list), instrumented-pods (list) | src/commands/fleet.rs | ✅ |
 | skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/devin/all; `--name`, `--type`, `--project` for project-local scope) | src/commands/skills.rs | ✅ |
 | runbooks | list, describe, run, import, validate | src/commands/runbooks.rs | ✅ |
-| workflows | get, create, update, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
+| workflows | get, create, update, diff, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
 | investigations | list, get, trigger | src/commands/investigations.rs | ✅ |
 | change-requests | create, get, update, create-branch, decisions (update, delete) | src/commands/change_management.rs | ✅ |
 | change-stories | list | src/commands/change_stories.rs | ✅ |
@@ -111,6 +111,7 @@ pup slos get abc-123-def
 ```bash
 pup logs search --query="status:error" --from="1h"
 pup logs search --query="service:api" --from="7d" --storage="flex"
+pup logs patterns --query="status:error" --pattern-field="message" --from="1h"
 pup logs query --query="service:api" --index="main,security" --from="1h"
 pup logs saved-views create --file=saved-view.json
 pup dbm samples search --query="dbm_type:activity service:orders env:prod" --from="1h" --limit=10
@@ -193,7 +194,7 @@ pup infrastructure hosts list
 - **hamr** - High Availability Multi-Region connections
 - **fleet** - Fleet Automation (agents, deployments, schedules, tracers, clusters, instrumented-pods)
 - **runbooks** - Local runbook execution engine (list, describe, run, import, validate)
-- **workflows** - Workflow Automation (get, create, update, delete, run, instances, connections)
+- **workflows** - Workflow Automation (get, create, update, diff, delete, run, instances, connections)
 - **investigations** - Bits AI SRE investigations (list, get, trigger)
 - **change-requests** - Change request management (create, get, update, create-branch, decisions)
 - **change-stories** - Change events for a service (deployments, feature flags, config, k8s, watchdog) over time window
@@ -209,7 +210,7 @@ pup infrastructure hosts list
 - **costs** - Cost management: `datadog` subgroup (projected, attribution, by-org, aws-config, azure-config, gcp-config), `ccm` subgroup (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments), `oci-configs` subgroup (list), and `anomalies` subgroup (list)
 
 ### Configuration & Data Management
-- **obs-pipelines** - Observability pipelines (list, get, create, update, delete, validate)
+- **obs-pipelines** - Observability pipelines (list, get, create, update, diff, delete, validate)
 - **llm-obs** - LLM Observability (projects, experiments, datasets, spans, agent insights, model pricing)
 - **reference-tables** - Reference tables for log enrichment (list, get, create, batch-query)
 - **misc** - Miscellaneous (ip-ranges, status)

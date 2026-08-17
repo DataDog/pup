@@ -11332,16 +11332,66 @@ enum AuthActions {
 
 // ---- Agent-mode JSON schema for --help ----
 
+/// Extract the top-level subcommand token from raw CLI args (the value passed
+/// to `pup`, including the binary name at index 0). Used by the agent-mode
+/// `--help` intercept, which runs before clap parses.
+///
+/// Skips the binary name, flags, `--help`/`-h`, and any value belonging to a
+/// value-taking global flag — so `--org myorg logs` yields `logs`, not `myorg`.
+/// The `--flag=value` form is a single `-`-prefixed token and needs no lookahead.
+fn top_level_subcommand(args: &[String]) -> Option<&str> {
+    // Global flags that consume the following token as their value.
+    const VALUE_GLOBALS: &[&str] = &["-o", "--output", "--org", "--jq"];
+    let mut prev_consumes_value = false;
+    for arg in args.iter().skip(1) {
+        if prev_consumes_value {
+            prev_consumes_value = false;
+            continue;
+        }
+        if arg.starts_with('-') {
+            prev_consumes_value = VALUE_GLOBALS.contains(&arg.as_str());
+            continue;
+        }
+        return Some(arg.as_str());
+    }
+    None
+}
+
 /// Walk the clap command tree to find the subcommand matching the given path.
 fn find_subcommand<'a>(cmd: &'a clap::Command, path: &[&str]) -> Option<&'a clap::Command> {
     let mut current = cmd;
     for name in path {
-        current = current.get_subcommands().find(|s| s.get_name() == *name)?;
+        // Match canonical names and aliases so `audit` resolves the same way
+        // clap would resolve it to `audit-logs`.
+        current = current
+            .get_subcommands()
+            .find(|s| s.get_name() == *name || s.get_all_aliases().any(|a| a == *name))?;
     }
     if path.is_empty() {
         None
     } else {
         Some(current)
+    }
+}
+
+/// Return the agent-help schema for a valid command, or `None` when clap should
+/// handle an unknown command or invalid nested subcommand normally.
+fn agent_help_schema(cmd: &clap::Command, args: &[String]) -> Option<serde_json::Value> {
+    let top_level: Vec<&str> = top_level_subcommand(args).into_iter().collect();
+    let target_cmd = find_subcommand(cmd, &top_level);
+    let has_invalid_subcommand = target_cmd.is_some()
+        && cmd
+            .clone()
+            .try_get_matches_from(args)
+            .is_err_and(|error| error.kind() == clap::error::ErrorKind::InvalidSubcommand);
+
+    match target_cmd {
+        Some(target) if !has_invalid_subcommand => {
+            Some(build_agent_schema_scoped(cmd, target, &top_level))
+        }
+        Some(_) => None,
+        None if top_level.is_empty() => Some(build_agent_schema(cmd)),
+        None => None,
     }
 }
 
@@ -12796,24 +12846,10 @@ async fn main_inner() -> anyhow::Result<()> {
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
     if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
         let cmd = Cli::command();
-        // Collect subcommand path from args (skip binary name, flags, and --help/-h)
-        let sub_path: Vec<&str> = args
-            .iter()
-            .skip(1)
-            .filter(|a| *a != "--help" && *a != "-h" && !a.starts_with('-'))
-            .map(|s| s.as_str())
-            .collect();
-        // Always scope to the top-level subcommand (e.g., "logs" even if "logs search")
-        let top_level: Vec<&str> = sub_path.iter().take(1).copied().collect();
-        let target_cmd = find_subcommand(&cmd, &top_level);
-        let schema = match target_cmd {
-            Some(target) if !top_level.is_empty() => {
-                build_agent_schema_scoped(&cmd, target, &top_level)
-            }
-            _ => build_agent_schema(&cmd),
-        };
-        println!("{}", serde_json::to_string_pretty(&schema).unwrap());
-        return Ok(());
+        if let Some(schema) = agent_help_schema(&cmd, &args) {
+            println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+            return Ok(());
+        }
     }
 
     // --- Extension interception (before clap parsing) ---

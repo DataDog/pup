@@ -56,6 +56,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "ci_visibility_read",
         "cloud_cost_management_read",
         "code_coverage_read",
+        "connections_read",
         "dora_metrics_read",
         "test_optimization_read",
         "dashboards_read",
@@ -398,6 +399,10 @@ mod tests {
         assert!(!ro.contains(&"teams_manage"));
         assert!(!ro.contains(&"monitors_write"));
         assert!(!ro.contains(&"logs_write_pipelines"));
+        // connections_read is a ReadOnly-tier permission; connections_write
+        // is intentionally opt-in (see --extra-scopes) and must not appear.
+        assert!(ro.contains(&"connections_read"));
+        assert!(!ro.contains(&"connections_write"));
     }
 
     #[test]

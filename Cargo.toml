@@ -172,5 +172,9 @@ jaq-json = { version = "2.0.1", features = ["serde"] }
 reqwest = { version = ">=0.13, <0.13.3", features = ["stream"] }
 gethostname = "1"
 
+# SIGPIPE reset so piping output to `head`/`tail` exits quietly instead of panicking
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 mockito = "1"

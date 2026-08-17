@@ -3381,6 +3381,7 @@ dependencies = [
  "js-sys",
  "jsonschema",
  "keyring",
+ "libc",
  "mockito",
  "open",
  "openssl",

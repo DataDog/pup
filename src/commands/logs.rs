@@ -35,6 +35,7 @@ pub struct SearchArgs {
     pub from: String,
     pub to: String,
     pub limit: i32,
+    pub cursor: Option<String>,
     pub sort: String,
     pub storage: Option<String>,
     pub index: Vec<String>,
@@ -290,6 +291,7 @@ fn build_search_body(
     from_ms: i64,
     to_ms: i64,
     limit: i32,
+    cursor: Option<String>,
     sort: &str,
     index: Vec<String>,
     storage_tier: Option<LogsStorageTier>,
@@ -305,9 +307,14 @@ fn build_search_body(
         filter = filter.storage_tier(tier);
     }
 
+    let mut page = LogsListRequestPage::new().limit(limit);
+    if let Some(cursor) = cursor {
+        page = page.cursor(cursor);
+    }
+
     LogsListRequest::new()
         .filter(filter)
-        .page(LogsListRequestPage::new().limit(limit))
+        .page(page)
         .sort(parse_logs_sort(sort))
 }
 
@@ -324,6 +331,7 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
         from,
         to,
         limit,
+        cursor,
         sort,
         storage,
         index,
@@ -341,6 +349,7 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
         from_ms,
         to_ms,
         limit,
+        cursor.clone(),
         &sort,
         index.clone(),
         search_storage_tier(&storage_selection, try_auto_flex)?,
@@ -351,7 +360,8 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
         Ok(resp) => resp,
         Err(err) if try_auto_flex && retryable_flex_error_text(&format!("{err:?}")) => {
             eprintln!("{FLEX_FALLBACK_WARNING}");
-            let fallback_body = build_search_body(query, from_ms, to_ms, limit, &sort, index, None);
+            let fallback_body =
+                build_search_body(query, from_ms, to_ms, limit, cursor, &sort, index, None);
             let fallback_params = ListLogsOptionalParams::default().body(fallback_body);
             api.list_logs(fallback_params).await.map_err(|fallback_err| {
                 anyhow::anyhow!(
@@ -361,22 +371,23 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
         }
         Err(err) => return Err(anyhow::anyhow!("failed to search logs: {:?}", err)),
     };
+    let next_cursor = resp
+        .meta
+        .as_ref()
+        .and_then(|m| m.page.as_ref())
+        .and_then(|p| p.after.clone())
+        .filter(|cursor| !cursor.is_empty());
 
     let meta = if cfg.agent_mode {
         let count = resp.data.as_ref().map(|d| d.len());
-        let truncated = count.is_some_and(|c| c as i32 >= limit);
+
         Some(formatter::Metadata {
             count,
-            truncated,
+            truncated: next_cursor.is_some(),
             command: Some("logs search".into()),
-            next_action: if truncated {
-                Some(format!(
-                    "Results may be truncated at {limit}. Use --limit={} or narrow the --query",
-                    limit + 1
-                ))
-            } else {
-                None
-            },
+            next_action: next_cursor.map(|c| {
+                format!("More results available. Use --cursor=\"{c}\" to page backwards through older logs, change the limit with --limit, or narrow the --query")
+            }),
         })
     } else {
         None
@@ -683,6 +694,7 @@ mod tests {
             from: "1h".into(),
             to: "now".into(),
             limit: 10,
+            cursor: None,
             sort: "-timestamp".into(),
             storage,
             index,
@@ -1147,6 +1159,34 @@ mod tests {
 
         let result = super::search(&cfg, search_args("status:error", None, vec![])).await;
         assert!(result.is_ok(), "logs search failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_logs_search_with_cursor() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("POST", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .match_body(mockito::Matcher::Regex(
+                r#""cursor":"cursor-abc""#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": [], "meta": {"page": {}}}"#)
+            .create_async()
+            .await;
+
+        let mut args = search_args("status:error", None, vec![]);
+        args.cursor = Some("cursor-abc".into());
+        let result = super::search(&cfg, args).await;
+        assert!(
+            result.is_ok(),
+            "logs search with cursor failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 

@@ -286,6 +286,7 @@ fn build_aggregate_body(
     Ok(body)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_search_body(
     query: String,
     from_ms: i64,

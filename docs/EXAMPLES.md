@@ -229,6 +229,16 @@ pup dashboards url "abc-123-def"
 pup dashboards url "abc-123-def" --from=now-1w --to=now --live=true
 ```
 
+### Diff Dashboard
+```bash
+# Compare a candidate JSON file against the live dashboard
+pup dashboards diff "abc-123-def" dashboard.json
+
+# Scope or suppress specific field paths
+pup dashboards diff "abc-123-def" dashboard.json --only widgets
+pup dashboards diff "abc-123-def" dashboard.json --ignore modified_at
+```
+
 ### Delete Dashboard
 ```bash
 pup dashboards delete "abc-123-def" --yes
@@ -306,6 +316,16 @@ pup slos list --metrics-query="sum:requests.error{service:api}" --limit=25 --off
 ### Get SLO
 ```bash
 pup slos get "abc-123-def"
+```
+
+### Diff SLO
+```bash
+# Compare a candidate JSON file against the live SLO
+pup slos diff "abc-123-def" slo.json
+
+# Scope or suppress specific field paths
+pup slos diff "abc-123-def" slo.json --only thresholds
+pup slos diff "abc-123-def" slo.json --ignore overall_status
 ```
 
 ### Create SLO
@@ -775,6 +795,30 @@ pup synthetics tests get "test-id"
 ### List Synthetic Locations
 ```bash
 pup synthetics locations list
+```
+
+## Notebooks
+
+### Diff Notebook
+```bash
+# Compare a candidate JSON file against the live notebook
+pup notebooks diff 12345 notebook.json
+
+# Scope or suppress specific field paths
+pup notebooks diff 12345 notebook.json --only data.attributes.cells
+pup notebooks diff 12345 notebook.json --ignore data.attributes.modified
+```
+
+## Observability Pipelines
+
+### Diff Pipeline
+```bash
+# Compare a candidate JSON file against the live pipeline
+pup obs-pipelines diff <pipeline-id> pipeline.json
+
+# Scope or suppress specific field paths
+pup obs-pipelines diff <pipeline-id> pipeline.json --only data.attributes.config
+pup obs-pipelines diff <pipeline-id> pipeline.json --ignore data.attributes.updated_at
 ```
 
 ## Workflows

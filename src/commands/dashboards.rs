@@ -6,7 +6,9 @@ use url::Url;
 
 use crate::config::Config;
 use crate::formatter::{self, Metadata};
+use crate::raw_client;
 use crate::util;
+use crate::util_ext;
 
 pub async fn list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(DashboardsAPI, cfg);
@@ -44,6 +46,31 @@ pub async fn update(cfg: &Config, id: &str, file: &str) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("failed to update dashboard: {e:?}"))?;
     formatter::output(cfg, &resp)
+}
+
+pub async fn diff(
+    cfg: &Config,
+    id: &str,
+    file: &str,
+    only: &[String],
+    ignore: &[String],
+) -> Result<()> {
+    let candidate: serde_json::Value = util::read_json_file(file)?;
+    let live = raw_client::raw_get(cfg, &format!("/api/v1/dashboard/{id}"), &[])
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get dashboard: {e:?}"))?;
+
+    let mut options = util_ext::ResourceDiffOptions::new(
+        "dashboards diff",
+        "pup dashboards update",
+        "dashboard",
+        id,
+    );
+    options.readonly_paths = util_ext::READONLY_DASHBOARD_FIELDS;
+    options.only = only;
+    options.ignore = ignore;
+    options.no_changes_message = Some(format!("No changes - dashboard {id} is in sync."));
+    util_ext::format_resource_diff(cfg, &live, &candidate, &options)
 }
 
 pub async fn delete(cfg: &Config, id: &str) -> Result<()> {
@@ -1146,6 +1173,58 @@ mod tests {
 
         let result = super::get(&cfg, "abc-123").await;
         assert!(result.is_ok(), "dashboards get failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_dashboards_diff_detects_changes() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/v1/dashboard/abc-123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                    "id": "abc-123",
+                    "title": "Old Dashboard",
+                    "layout_type": "ordered",
+                    "widgets": [],
+                    "modified_at": "2024-01-01T00:00:00Z"
+                }"#,
+            )
+            .create_async()
+            .await;
+        let path = write_temp_json(
+            "pup_dashboard_diff_detects_changes.json",
+            r#"{
+                "title": "New Dashboard",
+                "layout_type": "ordered",
+                "widgets": []
+            }"#,
+        );
+
+        let result = super::diff(&cfg, "abc-123", path.to_str().unwrap(), &[], &[]).await;
+        let _ = std::fs::remove_file(path);
+        assert!(result.is_ok(), "dashboards diff failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_dashboards_diff_invalid_json() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        let path = write_temp_json("pup_dashboard_diff_invalid_json.json", "not valid json {{{");
+
+        let result = super::diff(&cfg, "abc-123", path.to_str().unwrap(), &[], &[]).await;
+        let _ = std::fs::remove_file(path);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to parse JSON"));
         cleanup_env();
     }
 

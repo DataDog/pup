@@ -27,11 +27,11 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | logs | search, list, aggregate, patterns, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
-| dashboards | list, get, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
+| dashboards | list, get, create, update, diff, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
 | ddsql | table, time-series, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |
 | debugger | probes (list, get, create, delete, watch) | src/commands/debugger.rs | ✅ |
-| slos | list, get, delete, status | src/commands/slos.rs | ✅ |
+| slos | list, get, create, update, diff, delete, status | src/commands/slos.rs | ✅ |
 | incidents | list, get, attachments, settings, handles, postmortem-templates | src/commands/incidents.rs | ✅ |
 | rum | apps, metrics, retention-filters, sessions, playlists, heatmaps | src/commands/rum.rs | ✅ |
 | cicd | pipelines, events, tests, dora, flaky-tests | src/commands/cicd.rs | ✅ |
@@ -49,7 +49,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | logs-restriction | list, get, create, update, delete, roles (list, add) | src/commands/logs_restriction.rs | ✅ |
 | processes | list | src/commands/processes.rs | ✅ |
 | users | list, get, roles, service-accounts (create, app-keys CRUD) | src/commands/users.rs | ✅ |
-| notebooks | list, get, delete, annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
+| notebooks | list, get, create, update, diff, delete, annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |
@@ -65,7 +65,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | datasets | list, get, create, update, delete | src/commands/datasets.rs | ✅ |
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
-| obs-pipelines | list, get, create, update, delete, validate | src/commands/obs_pipelines.rs | ✅ |
+| obs-pipelines | list, get, create, update, diff, delete, validate | src/commands/obs_pipelines.rs | ✅ |
 | llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get), runs (list, status), topics, topics-with-points, points), agent-insights (list, get, update-status, submit-feedback), annotation-queues (create, list, update, delete, interactions (add, delete, list), schema (get, update), annotations (upsert, delete)), model-pricing | src/commands/llm_obs.rs | ✅ |
 | reference-tables | list, get, create, batch-query | src/commands/reference_tables.rs | ✅ |
 | network | flows list, devices (list, get, interfaces, tags), interfaces (list, update) | src/commands/network.rs | ✅ |
@@ -210,7 +210,7 @@ pup infrastructure hosts list
 - **costs** - Cost management: `datadog` subgroup (projected, attribution, by-org, aws-config, azure-config, gcp-config), `ccm` subgroup (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments), `oci-configs` subgroup (list), and `anomalies` subgroup (list)
 
 ### Configuration & Data Management
-- **obs-pipelines** - Observability pipelines (list, get, create, update, delete, validate)
+- **obs-pipelines** - Observability pipelines (list, get, create, update, diff, delete, validate)
 - **llm-obs** - LLM Observability (projects, experiments, datasets, spans, agent insights, model pricing)
 - **reference-tables** - Reference tables for log enrichment (list, get, create, batch-query)
 - **misc** - Miscellaneous (ip-ranges, status)

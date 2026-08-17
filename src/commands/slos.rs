@@ -10,7 +10,9 @@ use datadog_api_client::datadogV2::model::RawErrorBudgetRemaining;
 
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 use crate::util;
+use crate::util_ext;
 
 pub async fn list(
     cfg: &Config,
@@ -71,6 +73,26 @@ pub async fn update(cfg: &Config, id: &str, file: &str) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("failed to update SLO: {e:?}"))?;
     formatter::output(cfg, &resp)
+}
+
+pub async fn diff(
+    cfg: &Config,
+    id: &str,
+    file: &str,
+    only: &[String],
+    ignore: &[String],
+) -> Result<()> {
+    let candidate: serde_json::Value = util::read_json_file(file)?;
+    let live = raw_client::raw_get(cfg, &format!("/api/v1/slo/{id}"), &[])
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get SLO: {e:?}"))?;
+
+    let mut options = util_ext::ResourceDiffOptions::new("slos diff", "pup slos update", "SLO", id);
+    options.readonly_paths = util_ext::READONLY_SLO_FIELDS;
+    options.only = only;
+    options.ignore = ignore;
+    options.no_changes_message = Some(format!("No changes - SLO {id} is in sync."));
+    util_ext::format_resource_diff(cfg, &live, &candidate, &options)
 }
 
 pub async fn delete(cfg: &Config, id: &str) -> Result<()> {
@@ -387,6 +409,66 @@ mod tests {
 
         let result = super::get(&cfg, "abc123").await;
         assert!(result.is_ok(), "slos get failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_slos_diff_detects_changes() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/v1/slo/slo-123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                    "id": "slo-123",
+                    "name": "Old SLO",
+                    "type": "metric",
+                    "query": {
+                        "numerator": "sum:requests.good{*}.as_count()",
+                        "denominator": "sum:requests.total{*}.as_count()"
+                    },
+                    "thresholds": [{"timeframe": "7d", "target": 99.9}],
+                    "overall_status": [{"status": "ok"}]
+                }"#,
+            )
+            .create_async()
+            .await;
+        let path = write_temp_json(
+            "pup_slo_diff_detects_changes.json",
+            r#"{
+                "name": "New SLO",
+                "type": "metric",
+                "query": {
+                    "numerator": "sum:requests.good{*}.as_count()",
+                    "denominator": "sum:requests.total{*}.as_count()"
+                },
+                "thresholds": [{"timeframe": "7d", "target": 99.95}]
+            }"#,
+        );
+
+        let result = super::diff(&cfg, "slo-123", path.to_str().unwrap(), &[], &[]).await;
+        let _ = std::fs::remove_file(path);
+        assert!(result.is_ok(), "slos diff failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_slos_diff_invalid_json() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        let path = write_temp_json("pup_slo_diff_invalid_json.json", "not valid json {{{");
+
+        let result = super::diff(&cfg, "slo-123", path.to_str().unwrap(), &[], &[]).await;
+        let _ = std::fs::remove_file(path);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to parse JSON"));
         cleanup_env();
     }
 

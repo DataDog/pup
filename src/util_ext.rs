@@ -205,6 +205,52 @@ pub const READONLY_WORKFLOW_FIELDS: &[&str] = &[
     "data.attributes.updatedBy",
 ];
 
+/// Read-only server-managed fields that are stripped before diffing a dashboard.
+pub const READONLY_DASHBOARD_FIELDS: &[&str] = &[
+    "id",
+    "url",
+    "author_handle",
+    "author_name",
+    "created_at",
+    "modified_at",
+    "deleted",
+];
+
+/// Read-only server-managed fields that are stripped before diffing an SLO.
+pub const READONLY_SLO_FIELDS: &[&str] = &[
+    "id",
+    "created_at",
+    "modified_at",
+    "creator",
+    "overall_status",
+    "overall_status_modified",
+];
+
+/// Read-only server-managed fields that are stripped before diffing a notebook.
+pub const READONLY_NOTEBOOK_FIELDS: &[&str] = &[
+    "data.id",
+    "data.type",
+    "data.attributes.author",
+    "data.attributes.created",
+    "data.attributes.modified",
+];
+
+/// Read-only server-managed fields that are stripped before diffing an observability pipeline.
+pub const READONLY_OBS_PIPELINE_FIELDS: &[&str] = &[
+    "data.id",
+    "data.type",
+    "data.attributes.created_at",
+    "data.attributes.createdAt",
+    "data.attributes.created_by",
+    "data.attributes.createdBy",
+    "data.attributes.modified_at",
+    "data.attributes.modifiedAt",
+    "data.attributes.updated_at",
+    "data.attributes.updatedAt",
+    "data.attributes.updated_by",
+    "data.attributes.updatedBy",
+];
+
 /// Options for diffing a live resource against a candidate JSON value.
 pub struct ResourceDiffOptions<'a> {
     pub command: &'a str,

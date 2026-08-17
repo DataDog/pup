@@ -130,6 +130,7 @@ pup logs aggregate --query="env:prod" --from=30m --compute="percentile(@duration
 
 # Storage tiers
 pup logs search --query="*" --from=30d --storage="flex"
+pup logs search --query="*" --from=1h --storage="auto"  # Try Flex, fall back to indexed logs
 
 # Specific indexes
 pup logs query --query="*" --index="main,security" --from=1h

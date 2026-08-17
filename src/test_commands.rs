@@ -627,7 +627,7 @@ fn test_logs_patterns_parses_and_is_read_only() {
 }
 
 #[test]
-fn test_logs_search_and_aggregate_default_to_flex_storage() {
+fn test_logs_search_and_aggregate_default_to_auto_storage() {
     use clap::Parser;
 
     let search = crate::Cli::try_parse_from(["pup", "logs", "search", "--query", "*"])
@@ -638,15 +638,37 @@ fn test_logs_search_and_aggregate_default_to_flex_storage() {
     match search.command {
         crate::Commands::Logs {
             action: crate::LogActions::Search { storage, .. },
-        } => {
-            assert_eq!(storage.as_deref(), Some("flex"));
-        }
+        } => assert_eq!(storage.as_deref(), None),
         _ => panic!("expected LogActions::Search"),
     }
     match aggregate.command {
         crate::Commands::Logs {
             action: crate::LogActions::Aggregate { storage, .. },
-        } => assert_eq!(storage.as_deref(), Some("flex")),
+        } => assert_eq!(storage.as_deref(), None),
+        _ => panic!("expected LogActions::Aggregate"),
+    }
+}
+
+#[test]
+fn test_logs_search_and_aggregate_accept_explicit_auto_storage() {
+    use clap::Parser;
+
+    let search =
+        crate::Cli::try_parse_from(["pup", "logs", "search", "--query", "*", "--storage", "auto"])
+            .expect("logs search --storage auto should parse");
+    let aggregate = crate::Cli::try_parse_from(["pup", "logs", "aggregate", "--storage", "auto"])
+        .expect("logs aggregate --storage auto should parse");
+
+    match search.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Search { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("auto")),
+        _ => panic!("expected LogActions::Search"),
+    }
+    match aggregate.command {
+        crate::Commands::Logs {
+            action: crate::LogActions::Aggregate { storage, .. },
+        } => assert_eq!(storage.as_deref(), Some("auto")),
         _ => panic!("expected LogActions::Aggregate"),
     }
 }

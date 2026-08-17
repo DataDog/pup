@@ -1758,7 +1758,8 @@ enum Commands {
     ///   Datadog logs can be stored in different tiers with different performance and cost characteristics:
     ///   • indexes - Standard indexed logs (real-time searchable)
     ///   • online-archives - Rehydrated logs from archives (slower queries, lower cost)
-    ///   • flex - Flex logs (default for search and aggregate, cost-optimized storage tier)
+    ///   • flex - Flex logs (cost-optimized storage tier)
+    ///   • auto - Try flex when available, then fall back to indexed logs
     ///
     /// LOG QUERY SYNTAX:
     ///   Logs use a query language similar to web search:
@@ -1783,8 +1784,8 @@ enum Commands {
     ///   # Search for error logs in the last hour
     ///   pup logs search --query="status:error" --from="1h"
     ///
-    ///   # Search Flex logs specifically
-    ///   pup logs search --query="status:error" --from="1h" --storage="flex"
+    ///   # Search logs with automatic storage selection
+    ///   pup logs search --query="status:error" --from="1h"
     ///
     ///   # Query logs from a specific service
     ///   pup logs query --query="service:web-app" --from="4h" --to="now"
@@ -3158,8 +3159,7 @@ enum LogActions {
         index: Vec<String>,
         #[arg(
             long,
-            default_value = "flex",
-            help = "Storage tier: indexes, online-archives, or flex"
+            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto)"
         )]
         storage: Option<String>,
     },
@@ -3186,7 +3186,7 @@ enum LogActions {
             help = "Sort order"
         )]
         sort: String,
-        #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
+        #[arg(long, help = "Storage tier: auto, indexes, online-archives, or flex")]
         storage: Option<String>,
         #[arg(
             long,
@@ -3218,7 +3218,7 @@ enum LogActions {
             help = "Sort order"
         )]
         sort: String,
-        #[arg(long, help = "Storage tier: indexes, online-archives, or flex")]
+        #[arg(long, help = "Storage tier: auto, indexes, online-archives, or flex")]
         storage: Option<String>,
         #[arg(
             long,
@@ -3291,8 +3291,7 @@ enum LogActions {
         limit: i32,
         #[arg(
             long,
-            default_value = "flex",
-            help = "Storage tier: indexes, online-archives, or flex"
+            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto)"
         )]
         storage: Option<String>,
         #[arg(
@@ -12621,6 +12620,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort,
                             storage,
                             index,
+                            auto_storage: true,
                         },
                     )
                     .await?;
@@ -12646,6 +12646,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort,
                             storage,
                             index,
+                            auto_storage: false,
                         },
                     )
                     .await?;
@@ -12672,6 +12673,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort,
                             storage,
                             index,
+                            auto_storage: false,
                         },
                     )
                     .await?;
@@ -12731,6 +12733,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             limit,
                             index,
                             storage,
+                            auto_storage: true,
                             sort,
                             interval,
                         },

@@ -1878,7 +1878,7 @@ mod tests {
     }
 
     #[test]
-    fn test_flex_fallback_warning_mentions_retention() {
+    fn test_flex_fallback_warning_mentions_indexed_log_retention() {
         // Verify the fallback warning explicitly communicates retention risk
         assert!(
             FLEX_FALLBACK_WARNING.contains("Results may be incomplete"),

@@ -1,8 +1,7 @@
 use anyhow::Result;
 
+use crate::commands::lassie;
 use crate::config::Config;
-
-const LASSIE_BASE: &str = "/api/unstable/lassie-ng/v1";
 
 /// Ask Datadog Bits AI a natural-language question.
 ///
@@ -16,6 +15,7 @@ pub async fn ask(
     agent_id: Option<String>,
     stream: bool,
     interactive: bool,
+    auto_create: bool,
 ) -> Result<()> {
     cfg.validate_auth()?;
 
@@ -28,11 +28,12 @@ pub async fn ask(
     let agent_id = match agent_id {
         Some(id) if !id.is_empty() => id,
         _ => {
-            resolve_agent_id(
+            lassie::resolve_agent_id(
                 &app_base,
                 cfg.access_token.as_deref(),
                 cfg.api_key.as_deref(),
                 cfg.app_key.as_deref(),
+                auto_create,
             )
             .await?
         }
@@ -93,7 +94,10 @@ async fn send_turn(
     session_id: Option<String>,
     stream: bool,
 ) -> Result<Option<String>> {
-    let url = format!("{app_base}{LASSIE_BASE}/agents/{agent_id}/messages");
+    let url = format!(
+        "{app_base}{}/agents/{agent_id}/messages",
+        lassie::LASSIE_BASE
+    );
 
     let mut body = serde_json::json!({ "input": query, "stream": stream });
     if let Some(ref sid) = session_id {
@@ -245,76 +249,15 @@ fn extract_text(val: &serde_json::Value) -> String {
     parts.join("\n")
 }
 
-/// Resolve the first available Bits AI agent ID from the API.
-#[cfg(not(target_arch = "wasm32"))]
-async fn resolve_agent_id(
-    app_base: &str,
-    access_token: Option<&str>,
-    api_key: Option<&str>,
-    app_key: Option<&str>,
-) -> Result<String> {
-    let url = format!("{app_base}{LASSIE_BASE}/agents?limit=1");
-    let client = reqwest::Client::new();
-    let req = client.get(&url).header("Accept", "application/json");
-
-    let req = req.header("User-Agent", crate::useragent::get());
-    let req = if let Some(token) = access_token {
-        req.header("Authorization", format!("Bearer {token}"))
-    } else if let (Some(ak), Some(apk)) = (api_key, app_key) {
-        req.header("DD-API-KEY", ak)
-            .header("DD-APPLICATION-KEY", apk)
-    } else {
-        anyhow::bail!("no authentication configured");
-    };
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to list Bits AI agents: {e}"))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("GET /agents failed (HTTP {status}): {body}");
-    }
-
-    let val: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to parse agents response: {e}"))?;
-
-    let agents = val
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("Unexpected agents response format"))?;
-
-    if agents.is_empty() {
-        anyhow::bail!(
-            "No Datadog Bits AI agents found. Create one in the Datadog UI first,\n\
-             or pass --agent-id to specify one directly."
-        );
-    }
-
-    let id = agents[0]
-        .get("id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Agent missing 'id' field"))?;
-
-    Ok(id.to_string())
-}
-
-/// Attach auth headers to a request builder.
+/// Convenience wrapper that extracts credentials from `Config`.
 #[cfg(not(target_arch = "wasm32"))]
 fn add_auth(req: reqwest::RequestBuilder, cfg: &Config) -> Result<reqwest::RequestBuilder> {
-    let req = req.header("User-Agent", crate::useragent::get());
-    if let Some(token) = &cfg.access_token {
-        return Ok(req.header("Authorization", format!("Bearer {token}")));
-    }
-    if let (Some(ak), Some(apk)) = (&cfg.api_key, &cfg.app_key) {
-        return Ok(req
-            .header("DD-API-KEY", ak.as_str())
-            .header("DD-APPLICATION-KEY", apk.as_str()));
-    }
-    anyhow::bail!("no authentication configured")
+    lassie::add_auth(
+        req,
+        cfg.access_token.as_deref(),
+        cfg.api_key.as_deref(),
+        cfg.app_key.as_deref(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +271,7 @@ pub async fn ask(
     _agent_id: Option<String>,
     _stream: bool,
     _interactive: bool,
+    _auto_create: bool,
 ) -> Result<()> {
     anyhow::bail!("bits ask is not supported in WASM builds")
 }

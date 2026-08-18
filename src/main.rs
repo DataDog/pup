@@ -659,6 +659,9 @@ enum Commands {
     ///   # Disable streaming (collect the full response before printing)
     ///   pup bits ask --no-stream "which endpoints are slowest?"
     ///
+    ///   # Auto-create a Bits AI agent if none are found
+    ///   pup bits ask --auto-create "what just happened?"
+    ///
     /// AUTHENTICATION:
     ///   Requires OAuth2 (via 'pup auth login') or a valid API key + Application key.
     ///   OAuth2 is recommended for interactive use.
@@ -5133,6 +5136,8 @@ enum BitsActions {
             help = "Start an interactive conversation (Ctrl+D or 'exit' to quit)"
         )]
         interactive: bool,
+        #[arg(long, help = "Automatically create a Bits AI agent if none are found")]
+        auto_create: bool,
     },
 }
 
@@ -10450,6 +10455,9 @@ enum AcpActions {
     ///
     ///   # Start on a custom port
     ///   pup acp serve --port 8080
+    ///
+    ///   # Auto-create a Bits AI agent if none are found
+    ///   pup acp serve --auto-create
     #[command(verbatim_doc_comment)]
     Serve {
         #[arg(
@@ -10469,6 +10477,8 @@ enum AcpActions {
             help = "Datadog Bits AI agent ID to proxy (auto-discovered if omitted)"
         )]
         agent_id: Option<String>,
+        #[arg(long, help = "Automatically create a Bits AI agent if none are found")]
+        auto_create: bool,
     },
 }
 
@@ -13653,9 +13663,17 @@ async fn main_inner() -> anyhow::Result<()> {
                 agent_id,
                 no_stream,
                 interactive,
+                auto_create,
             } => {
-                commands::bits::ask(&cfg, query.as_deref(), agent_id, !no_stream, interactive)
-                    .await?;
+                commands::bits::ask(
+                    &cfg,
+                    query.as_deref(),
+                    agent_id,
+                    !no_stream,
+                    interactive,
+                    auto_create,
+                )
+                .await?;
             }
         },
         // --- Security ---
@@ -16529,8 +16547,9 @@ async fn main_inner() -> anyhow::Result<()> {
                 port,
                 host,
                 agent_id,
+                auto_create,
             } => {
-                commands::acp::serve(&cfg, port, &host, agent_id).await?;
+                commands::acp::serve(&cfg, port, &host, agent_id, auto_create).await?;
             }
         },
         // --- Agent ---

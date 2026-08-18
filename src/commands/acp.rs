@@ -1,3 +1,4 @@
+use crate::commands::lassie;
 use crate::config::Config;
 /// ACP (Agent Communication Protocol) server that proxies to Datadog Bits AI.
 ///
@@ -20,11 +21,15 @@ use tokio::{
 pub const DEFAULT_PORT: u16 = 9099;
 pub const DEFAULT_HOST: &str = "127.0.0.1";
 
-const LASSIE_BASE: &str = "/api/unstable/lassie-ng/v1";
-
 /// Starts the ACP server on the given host and port.
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn serve(cfg: &Config, port: u16, host: &str, agent_id: Option<String>) -> Result<()> {
+pub async fn serve(
+    cfg: &Config,
+    port: u16,
+    host: &str,
+    agent_id: Option<String>,
+    auto_create: bool,
+) -> Result<()> {
     cfg.validate_auth()?;
 
     let app_base = format!("https://{}", cfg.auth_host());
@@ -36,11 +41,12 @@ pub async fn serve(cfg: &Config, port: u16, host: &str, agent_id: Option<String>
     let agent_id = match agent_id {
         Some(id) if !id.is_empty() => id,
         _ => {
-            resolve_agent_id(
+            lassie::resolve_agent_id(
                 &app_base,
                 access_token.as_deref(),
                 api_key.as_deref(),
                 app_key.as_deref(),
+                auto_create,
             )
             .await?
         }
@@ -56,7 +62,10 @@ pub async fn serve(cfg: &Config, port: u16, host: &str, agent_id: Option<String>
     eprintln!("  Agent card:  GET  {base_url}/agent.json");
     eprintln!("  Sync run:    POST {base_url}/runs");
     eprintln!("  Stream run:  POST {base_url}/runs/stream");
-    eprintln!("  Datadog Bits AI agent: {app_base}{LASSIE_BASE}/agents/{agent_id}");
+    eprintln!(
+        "  Datadog Bits AI agent: {app_base}{}/agents/{agent_id}",
+        lassie::LASSIE_BASE
+    );
     eprintln!("Press Ctrl+C to stop.");
 
     loop {
@@ -83,56 +92,6 @@ pub async fn serve(cfg: &Config, port: u16, host: &str, agent_id: Option<String>
             }
         });
     }
-}
-
-/// Fetches the first available Datadog Bits AI agent via GET /agents.
-#[cfg(not(target_arch = "wasm32"))]
-async fn resolve_agent_id(
-    app_base: &str,
-    access_token: Option<&str>,
-    api_key: Option<&str>,
-    app_key: Option<&str>,
-) -> Result<String> {
-    let url = format!("{app_base}{LASSIE_BASE}/agents?limit=1");
-    let client = reqwest::Client::new();
-    let mut req = client.get(&url).header("Accept", "application/json");
-    req = add_auth(req, access_token, api_key, app_key)?;
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to list agents: {e}"))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("GET /agents failed (HTTP {status}): {body}");
-    }
-
-    let val: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to parse agents response: {e}"))?;
-
-    // Response is an array of agents
-    let agents = val
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("Unexpected agents response format"))?;
-
-    if agents.is_empty() {
-        anyhow::bail!(
-            "No Datadog Bits AI agents found. Create one first or pass --agent-id.\n\
-             Hint: use the Datadog UI at app.datadoghq.com to create an agent."
-        );
-    }
-
-    let id = agents[0]
-        .get("id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Agent missing 'id' field"))?;
-
-    eprintln!("Auto-discovered agent: {id}");
-    Ok(id.to_string())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -266,7 +225,7 @@ async fn write_agent_card(writer: &mut OwnedWriteHalf, agent_id: &str) -> Result
             "provider": "Datadog",
             "backend": "datadog-bits-ai",
             "agent_id": agent_id,
-            "endpoint": format!("{LASSIE_BASE}/agents/{agent_id}/messages")
+            "endpoint": format!("{}/agents/{agent_id}/messages", lassie::LASSIE_BASE)
         }
     });
     write_json_response(writer, 200, card).await
@@ -317,7 +276,10 @@ async fn handle_run(
         "stream": streaming,
     });
 
-    let url = format!("{app_base}{LASSIE_BASE}/agents/{agent_id}/messages");
+    let url = format!(
+        "{app_base}{}/agents/{agent_id}/messages",
+        lassie::LASSIE_BASE
+    );
     let client = reqwest::Client::new();
     let mut req = client
         .post(&url)
@@ -331,7 +293,7 @@ async fn handle_run(
             },
         );
 
-    req = match add_auth(req, access_token, api_key, app_key) {
+    req = match lassie::add_auth(req, access_token, api_key, app_key) {
         Ok(r) => r,
         Err(_) => {
             return write_json_response(
@@ -422,7 +384,10 @@ async fn handle_openai_completions(
         "stream": streaming,
     });
 
-    let url = format!("{app_base}{LASSIE_BASE}/agents/{agent_id}/messages");
+    let url = format!(
+        "{app_base}{}/agents/{agent_id}/messages",
+        lassie::LASSIE_BASE
+    );
     let client = reqwest::Client::new();
     let mut lreq = client
         .post(&url)
@@ -436,7 +401,7 @@ async fn handle_openai_completions(
             },
         );
 
-    lreq = match add_auth(lreq, access_token, api_key, app_key) {
+    lreq = match lassie::add_auth(lreq, access_token, api_key, app_key) {
         Ok(r) => r,
         Err(_) => {
             return write_json_response(
@@ -947,25 +912,6 @@ fn extract_openai_message(req: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// Adds auth headers to a reqwest RequestBuilder.
-fn add_auth(
-    req: reqwest::RequestBuilder,
-    access_token: Option<&str>,
-    api_key: Option<&str>,
-    app_key: Option<&str>,
-) -> Result<reqwest::RequestBuilder> {
-    let req = req.header("User-Agent", crate::useragent::get());
-    if let Some(token) = access_token {
-        return Ok(req.header("Authorization", format!("Bearer {token}")));
-    }
-    if let (Some(ak), Some(apk)) = (api_key, app_key) {
-        return Ok(req
-            .header("DD-API-KEY", ak)
-            .header("DD-APPLICATION-KEY", apk));
-    }
-    anyhow::bail!("no authentication configured")
-}
-
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
@@ -1025,6 +971,7 @@ pub async fn serve(
     _port: u16,
     _host: &str,
     _agent_id: Option<String>,
+    _auto_create: bool,
 ) -> Result<()> {
     anyhow::bail!("acp serve is not supported in WASM")
 }

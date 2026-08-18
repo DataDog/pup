@@ -6,7 +6,7 @@
 use std::io::Read;
 
 use anyhow::{bail, Result};
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
@@ -47,12 +47,20 @@ fn parse_relative_duration_millis(input: &str) -> Result<i64> {
 ///   - With spaces: "5 minutes", "2 hours"
 ///   - With leading minus: "-5m", "-2h"
 ///   - Unix timestamp in seconds (10 digits or fewer) or milliseconds
+///   - Calendar month: "2024-01"
+///   - Calendar date: "2024-01-01"
 ///   - RFC3339: "2024-01-01T00:00:00Z"
 ///
 /// All relative times are interpreted as "ago from now".
 /// Returns second-aligned milliseconds (Unix seconds * 1000) to match Go behavior.
 pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
     let input = input.trim();
+    let time_parse_error = || {
+        anyhow::anyhow!(
+            "unable to parse time: {input:?}\n\
+             Expected: now, 1h, 30m, 7d, 5minutes, YYYY-MM, YYYY-MM-DD, RFC3339, or Unix timestamp"
+        )
+    };
 
     if input.eq_ignore_ascii_case("now") {
         return Ok(now_millis());
@@ -70,6 +78,22 @@ pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
         };
     }
 
+    let calendar_date = match input.len() {
+        7 => Some(NaiveDate::parse_from_str(
+            &format!("{input}-01"),
+            "%Y-%m-%d",
+        )),
+        10 => Some(NaiveDate::parse_from_str(input, "%Y-%m-%d")),
+        _ => None,
+    };
+    if let Some(calendar_date) = calendar_date {
+        let date = calendar_date.map_err(|_| time_parse_error())?;
+        let midnight = date
+            .and_hms_opt(0, 0, 0)
+            .expect("midnight is a valid time for every date");
+        return Ok(midnight.and_utc().timestamp_millis());
+    }
+
     // RFC3339 timestamp
     if input.contains('T') {
         let dt = chrono::DateTime::parse_from_rfc3339(input)?;
@@ -77,12 +101,7 @@ pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
     }
 
     // Relative time
-    let millis = parse_relative_duration_millis(input).map_err(|_| {
-        anyhow::anyhow!(
-            "unable to parse time: {input:?}\n\
-             Expected: now, 1h, 30m, 7d, 5minutes, RFC3339, or Unix timestamp"
-        )
-    })?;
+    let millis = parse_relative_duration_millis(input).map_err(|_| time_parse_error())?;
     Ok(now_millis() - millis)
 }
 
@@ -656,6 +675,18 @@ mod tests {
     }
 
     #[test]
+    fn test_calendar_month() {
+        let ms = parse_time_to_unix_millis("2024-01").unwrap();
+        assert_eq!(ms, 1704067200000);
+    }
+
+    #[test]
+    fn test_calendar_date() {
+        let ms = parse_time_to_unix_millis("2024-01-31").unwrap();
+        assert_eq!(ms, 1706659200000);
+    }
+
+    #[test]
     fn test_invalid() {
         assert!(parse_time_to_unix_millis("invalid").is_err());
         assert!(parse_time_to_unix_millis("").is_err());
@@ -685,6 +716,18 @@ mod tests {
     fn test_parse_time_to_datetime_rfc3339() {
         let dt = parse_time_to_datetime("2024-01-01T00:00:00Z").unwrap();
         assert_eq!(dt.timestamp_millis(), 1704067200000);
+    }
+
+    #[test]
+    fn test_parse_time_to_datetime_calendar_date() {
+        let dt = parse_time_to_datetime("2024-01-01").unwrap();
+        assert_eq!(dt.timestamp_millis(), 1704067200000);
+    }
+
+    #[test]
+    fn test_parse_time_to_datetime_invalid_calendar_date() {
+        let err = parse_time_to_datetime("2024-02-30").unwrap_err();
+        assert!(err.to_string().contains("unable to parse time"));
     }
 
     #[test]

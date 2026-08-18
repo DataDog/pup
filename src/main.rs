@@ -2854,10 +2854,10 @@ enum Commands {
     ///
     /// EXAMPLES:
     ///   # Get usage summary
-    ///   pup usage summary --start="2024-01-01" --end="2024-01-31"
+    ///   pup usage summary --from="2024-01" --to="2024-02"
     ///
     ///   # Get hourly usage
-    ///   pup usage hourly --start="2024-01-01" --end="2024-01-02"
+    ///   pup usage hourly --from="2024-01-01" --to="2024-01-02"
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication or API keys with billing permissions.
@@ -6372,10 +6372,10 @@ enum UsageActions {
         #[arg(
             long,
             default_value = "30d",
-            help = "Start time (30d, 60d, YYYY-MM-DD, or RFC3339)"
+            help = "Start time (30d, 60d, YYYY-MM, YYYY-MM-DD, or RFC3339)"
         )]
         from: String,
-        #[arg(long, help = "End time (now, YYYY-MM-DD, or RFC3339)")]
+        #[arg(long, help = "End time (now, YYYY-MM, YYYY-MM-DD, or RFC3339)")]
         to: Option<String>,
     },
     /// Get hourly usage
@@ -6383,10 +6383,10 @@ enum UsageActions {
         #[arg(
             long,
             default_value = "1d",
-            help = "Start time (1d, 7d, YYYY-MM-DD, or RFC3339)"
+            help = "Start time (1d, 7d, YYYY-MM, YYYY-MM-DD, or RFC3339)"
         )]
         from: String,
-        #[arg(long, help = "End time (now, YYYY-MM-DD, or RFC3339)")]
+        #[arg(long, help = "End time (now, YYYY-MM, YYYY-MM-DD, or RFC3339)")]
         to: Option<String>,
     },
 }

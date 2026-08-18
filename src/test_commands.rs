@@ -9,6 +9,59 @@
 use clap::CommandFactory;
 
 // -------------------------------------------------------------------------
+// Notebook discovery
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_notebooks_search_parses_without_query() {
+    use clap::Parser;
+
+    let cli =
+        crate::Cli::try_parse_from(["pup", "notebooks", "search", "--filter", "tags:production"])
+            .expect("notebooks search should not require --query");
+
+    let crate::Commands::Notebooks { action } = cli.command else {
+        panic!("expected Commands::Notebooks");
+    };
+    let crate::NotebookActions::Search { query, options } = action else {
+        panic!("expected NotebookActions::Search");
+    };
+    assert_eq!(query, None);
+    assert_eq!(options.filters, ["tags:production"]);
+    assert_eq!(options.limit, 20);
+}
+
+#[test]
+fn test_notebooks_list_is_a_hidden_search_alias() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "notebooks", "list"])
+        .expect("notebooks list should remain a compatibility alias");
+
+    let crate::Commands::Notebooks { action } = cli.command else {
+        panic!("expected Commands::Notebooks");
+    };
+    let crate::NotebookActions::Search { query, options } = action else {
+        panic!("expected the list alias to resolve to NotebookActions::Search");
+    };
+    assert_eq!(query, None);
+    assert!(options.filters.is_empty());
+    assert_eq!(options.sort, "name");
+    assert_eq!(options.limit, 20);
+
+    let help = crate::Cli::command()
+        .find_subcommand("notebooks")
+        .expect("notebooks command should exist")
+        .clone()
+        .render_long_help()
+        .to_string();
+    assert!(
+        !help.contains("list"),
+        "hidden alias leaked into help: {help}"
+    );
+}
+
+// -------------------------------------------------------------------------
 // Read-only mode
 // -------------------------------------------------------------------------
 

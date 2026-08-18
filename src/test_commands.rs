@@ -790,6 +790,94 @@ fn test_logs_saved_views_create_parses() {
 }
 
 #[test]
+fn test_logs_search_help_mentions_retention() {
+    let cmd = crate::Cli::command();
+    let logs_cmd = cmd
+        .find_subcommand("logs")
+        .expect("logs subcommand should exist");
+    let mut search_cmd = logs_cmd
+        .find_subcommand("search")
+        .expect("logs search subcommand should exist")
+        .clone();
+
+    let help = search_cmd.render_help().to_string();
+
+    // Verify help text mentions retention considerations for storage flag
+    assert!(
+        help.contains(
+            "Long lookback queries may require flex or online-archives for full retention"
+        ),
+        "logs search help should mention retention considerations for --storage flag"
+    );
+}
+
+#[test]
+fn test_logs_aggregate_help_mentions_retention() {
+    let cmd = crate::Cli::command();
+    let logs_cmd = cmd
+        .find_subcommand("logs")
+        .expect("logs subcommand should exist");
+    let mut aggregate_cmd = logs_cmd
+        .find_subcommand("aggregate")
+        .expect("logs aggregate subcommand should exist")
+        .clone();
+
+    let help = aggregate_cmd.render_help().to_string();
+
+    // Verify help text mentions retention considerations for storage flag
+    assert!(
+        help.contains(
+            "Long lookback queries may require flex or online-archives for full retention"
+        ),
+        "logs aggregate help should mention retention considerations for --storage flag"
+    );
+}
+
+#[test]
+fn test_logs_list_help_mentions_retention() {
+    let cmd = crate::Cli::command();
+    let logs_cmd = cmd
+        .find_subcommand("logs")
+        .expect("logs subcommand should exist");
+    let mut list_cmd = logs_cmd
+        .find_subcommand("list")
+        .expect("logs list subcommand should exist")
+        .clone();
+
+    let help = list_cmd.render_help().to_string();
+
+    // Verify help text mentions retention considerations for storage flag
+    assert!(
+        help.contains(
+            "Long lookback queries may require flex or online-archives for full retention"
+        ),
+        "logs list help should mention retention considerations for --storage flag"
+    );
+}
+
+#[test]
+fn test_logs_query_help_mentions_retention() {
+    let cmd = crate::Cli::command();
+    let logs_cmd = cmd
+        .find_subcommand("logs")
+        .expect("logs subcommand should exist");
+    let mut query_cmd = logs_cmd
+        .find_subcommand("query")
+        .expect("logs query subcommand should exist")
+        .clone();
+
+    let help = query_cmd.render_help().to_string();
+
+    // Verify help text mentions retention considerations for storage flag
+    assert!(
+        help.contains(
+            "Long lookback queries may require flex or online-archives for full retention"
+        ),
+        "logs query help should mention retention considerations for --storage flag"
+    );
+}
+
+#[test]
 fn test_traces_search_sort_accepts_hyphen_timestamp() {
     use clap::Parser;
 

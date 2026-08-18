@@ -16,6 +16,7 @@ pub async fn ask(
     agent_id: Option<String>,
     stream: bool,
     interactive: bool,
+    auto_create: bool,
 ) -> Result<()> {
     cfg.validate_auth()?;
 
@@ -33,6 +34,7 @@ pub async fn ask(
                 cfg.access_token.as_deref(),
                 cfg.api_key.as_deref(),
                 cfg.app_key.as_deref(),
+                auto_create,
             )
             .await?
         }
@@ -246,12 +248,15 @@ fn extract_text(val: &serde_json::Value) -> String {
 }
 
 /// Resolve the first available Bits AI agent ID from the API.
+///
+/// If `auto_create` is true and no agents are found, creates a new agent.
 #[cfg(not(target_arch = "wasm32"))]
 async fn resolve_agent_id(
     app_base: &str,
     access_token: Option<&str>,
     api_key: Option<&str>,
     app_key: Option<&str>,
+    auto_create: bool,
 ) -> Result<String> {
     let url = format!("{app_base}{LASSIE_BASE}/agents?limit=1");
     let client = reqwest::Client::new();
@@ -283,14 +288,30 @@ async fn resolve_agent_id(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to parse agents response: {e}"))?;
 
-    let agents = val
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("Unexpected agents response format"))?;
+    let agents = val.as_array().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unexpected response format from Bits AI agents API.\n\
+                 Expected a JSON array but got: {}\n\
+                 This may indicate an API version mismatch — please report this at\n\
+                 https://github.com/DataDog/pup/issues if the issue persists.",
+            serde_json::to_string(&val).unwrap_or_else(|_| "<unparseable>".to_string())
+        )
+    })?;
 
     if agents.is_empty() {
+        if auto_create {
+            eprintln!("No Bits AI agents found — creating one automatically...");
+            return create_agent(app_base, access_token, api_key, app_key).await;
+        }
         anyhow::bail!(
-            "No Datadog Bits AI agents found. Create one in the Datadog UI first,\n\
-             or pass --agent-id to specify one directly."
+            "No Bits AI agents found in your Datadog organization.\n\
+             \n\
+             To fix this, create a Bits AI agent at:\n\
+               https://app.datadoghq.com/actions/agents/create\n\
+             \n\
+             Once created, `pup bits ask` will auto-discover it.\n\
+             Alternatively, pass --auto-create to have pup create one for you,\n\
+             or pass an existing agent ID with --agent-id."
         );
     }
 
@@ -299,6 +320,62 @@ async fn resolve_agent_id(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Agent missing 'id' field"))?;
 
+    Ok(id.to_string())
+}
+
+/// Create a new Bits AI agent and return its ID.
+#[cfg(not(target_arch = "wasm32"))]
+async fn create_agent(
+    app_base: &str,
+    access_token: Option<&str>,
+    api_key: Option<&str>,
+    app_key: Option<&str>,
+) -> Result<String> {
+    let url = format!("{app_base}{LASSIE_BASE}/agents");
+    let body = serde_json::json!({
+        "name": "Pup CLI Agent",
+        "description": "Auto-created by pup CLI for bits ask",
+    });
+
+    let client = reqwest::Client::new();
+    let req = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .header("User-Agent", crate::useragent::get());
+
+    let req = if let Some(token) = access_token {
+        req.header("Authorization", format!("Bearer {token}"))
+    } else if let (Some(ak), Some(apk)) = (api_key, app_key) {
+        req.header("DD-API-KEY", ak)
+            .header("DD-APPLICATION-KEY", apk)
+    } else {
+        anyhow::bail!("no authentication configured");
+    };
+
+    let resp = req
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to create Bits AI agent: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let err_body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Failed to create Bits AI agent (HTTP {status}): {err_body}");
+    }
+
+    let val: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to parse create-agent response: {e}"))?;
+
+    let id = val
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Create-agent response missing 'id' field"))?;
+
+    eprintln!("Created Bits AI agent: {id}");
     Ok(id.to_string())
 }
 
@@ -328,6 +405,7 @@ pub async fn ask(
     _agent_id: Option<String>,
     _stream: bool,
     _interactive: bool,
+    _auto_create: bool,
 ) -> Result<()> {
     anyhow::bail!("bits ask is not supported in WASM builds")
 }

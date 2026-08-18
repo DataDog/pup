@@ -659,6 +659,9 @@ enum Commands {
     ///   # Disable streaming (collect the full response before printing)
     ///   pup bits ask --no-stream "which endpoints are slowest?"
     ///
+    ///   # Auto-create a Bits AI agent if none are found
+    ///   pup bits ask --auto-create "what just happened?"
+    ///
     /// AUTHENTICATION:
     ///   Requires OAuth2 (via 'pup auth login') or a valid API key + Application key.
     ///   OAuth2 is recommended for interactive use.
@@ -5133,6 +5136,8 @@ enum BitsActions {
             help = "Start an interactive conversation (Ctrl+D or 'exit' to quit)"
         )]
         interactive: bool,
+        #[arg(long, help = "Automatically create a Bits AI agent if none are found")]
+        auto_create: bool,
     },
 }
 
@@ -13653,9 +13658,17 @@ async fn main_inner() -> anyhow::Result<()> {
                 agent_id,
                 no_stream,
                 interactive,
+                auto_create,
             } => {
-                commands::bits::ask(&cfg, query.as_deref(), agent_id, !no_stream, interactive)
-                    .await?;
+                commands::bits::ask(
+                    &cfg,
+                    query.as_deref(),
+                    agent_id,
+                    !no_stream,
+                    interactive,
+                    auto_create,
+                )
+                .await?;
             }
         },
         // --- Security ---

@@ -115,14 +115,25 @@ async fn resolve_agent_id(
         .map_err(|e| anyhow::anyhow!("Failed to parse agents response: {e}"))?;
 
     // Response is an array of agents
-    let agents = val
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("Unexpected agents response format"))?;
+    let agents = val.as_array().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unexpected response format from Bits AI agents API.\n\
+                 Expected a JSON array but got: {}\n\
+                 This may indicate an API version mismatch — please report this at\n\
+                 https://github.com/DataDog/pup/issues if the issue persists.",
+            serde_json::to_string(&val).unwrap_or_else(|_| "<unparseable>".to_string())
+        )
+    })?;
 
     if agents.is_empty() {
         anyhow::bail!(
-            "No Datadog Bits AI agents found. Create one first or pass --agent-id.\n\
-             Hint: use the Datadog UI at app.datadoghq.com to create an agent."
+            "No Bits AI agents found in your Datadog organization.\n\
+             \n\
+             To fix this, create a Bits AI agent at:\n\
+               https://app.datadoghq.com/actions/agents/create\n\
+             \n\
+             Once created, `pup acp serve` will auto-discover it.\n\
+             Alternatively, pass an existing agent ID with --agent-id."
         );
     }
 

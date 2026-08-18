@@ -10455,6 +10455,9 @@ enum AcpActions {
     ///
     ///   # Start on a custom port
     ///   pup acp serve --port 8080
+    ///
+    ///   # Auto-create a Bits AI agent if none are found
+    ///   pup acp serve --auto-create
     #[command(verbatim_doc_comment)]
     Serve {
         #[arg(
@@ -10474,6 +10477,8 @@ enum AcpActions {
             help = "Datadog Bits AI agent ID to proxy (auto-discovered if omitted)"
         )]
         agent_id: Option<String>,
+        #[arg(long, help = "Automatically create a Bits AI agent if none are found")]
+        auto_create: bool,
     },
 }
 
@@ -16542,8 +16547,9 @@ async fn main_inner() -> anyhow::Result<()> {
                 port,
                 host,
                 agent_id,
+                auto_create,
             } => {
-                commands::acp::serve(&cfg, port, &host, agent_id).await?;
+                commands::acp::serve(&cfg, port, &host, agent_id, auto_create).await?;
             }
         },
         // --- Agent ---

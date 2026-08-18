@@ -42,7 +42,7 @@ pub struct SearchArgs {
     pub auto_storage: bool,
 }
 
-const FLEX_FALLBACK_WARNING: &str = "Flex log storage is unavailable for this account or credentials; retried with indexed logs. Use --storage indexes to skip this retry or --storage flex to require Flex.";
+const FLEX_FALLBACK_WARNING: &str = "Flex log storage is unavailable for this account or credentials; retried with indexed logs. Results may be incomplete if the requested time range exceeds indexed-log retention (often 7-15 days). Use --storage indexes to skip this retry or --storage flex to require Flex.";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum StorageSelection {
@@ -1875,5 +1875,23 @@ mod tests {
             result.err()
         );
         cleanup_env();
+    }
+
+    #[test]
+    fn test_flex_fallback_warning_mentions_indexed_log_retention() {
+        // Verify the fallback warning explicitly communicates retention risk
+        assert!(
+            FLEX_FALLBACK_WARNING.contains("Results may be incomplete"),
+            "Warning should mention potential incompleteness"
+        );
+        assert!(
+            FLEX_FALLBACK_WARNING.contains("retention"),
+            "Warning should mention retention limits"
+        );
+        assert!(
+            FLEX_FALLBACK_WARNING.contains("--storage indexes")
+                || FLEX_FALLBACK_WARNING.contains("--storage flex"),
+            "Warning should mention explicit storage options"
+        );
     }
 }

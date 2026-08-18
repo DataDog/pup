@@ -790,6 +790,29 @@ fn test_logs_saved_views_create_parses() {
 }
 
 #[test]
+fn test_logs_storage_help_mentions_long_lookback_storage() {
+    let cmd = crate::Cli::command();
+    let logs_cmd = cmd
+        .find_subcommand("logs")
+        .expect("logs subcommand should exist");
+
+    for subcommand in ["search", "aggregate", "list", "query"] {
+        let mut command = logs_cmd
+            .find_subcommand(subcommand)
+            .unwrap_or_else(|| panic!("logs {subcommand} subcommand should exist"))
+            .clone();
+        let help = command.render_help().to_string();
+
+        assert!(
+            help.contains(
+                "Long lookback queries may require flex or online-archives for full retention"
+            ),
+            "logs {subcommand} help should mention long-lookback storage guidance"
+        );
+    }
+}
+
+#[test]
 fn test_traces_search_sort_accepts_hyphen_timestamp() {
     use clap::Parser;
 

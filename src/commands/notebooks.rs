@@ -16,11 +16,12 @@ const RATE_LIMIT_RETRIES: u32 = 3;
 fn compact_validation_details(content: &str) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(content).ok()?;
     let errors = parsed.get("errors")?.as_array()?;
+    let detail_pattern =
+        regex::Regex::new(r#"'detail': '((?:\\.|[^'])*)'"#).expect("static detail regex");
     let mut messages = Vec::new();
     for error in errors {
         let message = error.as_str()?;
-        let details = regex::Regex::new(r#"'detail': '((?:\\.|[^'])*)'"#)
-            .expect("static detail regex")
+        let details = detail_pattern
             .captures_iter(message)
             .filter_map(|capture| capture.get(1).map(|value| value.as_str()))
             .collect::<Vec<_>>();

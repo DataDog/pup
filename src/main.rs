@@ -3161,7 +3161,7 @@ enum LogActions {
         index: Vec<String>,
         #[arg(
             long,
-            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto)"
+            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto). Long lookback queries may require flex or online-archives for full retention."
         )]
         storage: Option<String>,
     },
@@ -3188,7 +3188,10 @@ enum LogActions {
             help = "Sort order"
         )]
         sort: String,
-        #[arg(long, help = "Storage tier: auto, indexes, online-archives, or flex")]
+        #[arg(
+            long,
+            help = "Storage tier: auto, indexes, online-archives, or flex. Long lookback queries may require flex or online-archives for full retention."
+        )]
         storage: Option<String>,
         #[arg(
             long,
@@ -3220,7 +3223,10 @@ enum LogActions {
             help = "Sort order"
         )]
         sort: String,
-        #[arg(long, help = "Storage tier: auto, indexes, online-archives, or flex")]
+        #[arg(
+            long,
+            help = "Storage tier: auto, indexes, online-archives, or flex. Long lookback queries may require flex or online-archives for full retention."
+        )]
         storage: Option<String>,
         #[arg(
             long,
@@ -3293,7 +3299,7 @@ enum LogActions {
         limit: i32,
         #[arg(
             long,
-            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto)"
+            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto). Long lookback queries may require flex or online-archives for full retention."
         )]
         storage: Option<String>,
         #[arg(

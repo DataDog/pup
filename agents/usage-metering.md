@@ -1,5 +1,5 @@
 ---
-description: Query Datadog usage metering data with the implemented pup usage commands.
+description: Query Datadog usage and billing across all products including infrastructure hosts, logs, metrics, APM, synthetics, and view cost attribution by tags.
 ---
 
 # Usage Metering Agent

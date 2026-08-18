@@ -38,27 +38,6 @@ fn parse_relative_duration_millis(input: &str) -> Result<i64> {
     bail!("unable to parse duration: {input:?}")
 }
 
-fn time_parse_error(input: &str) -> anyhow::Error {
-    anyhow::anyhow!(
-        "unable to parse time: {input:?}\n\
-         Expected: now, 1h, 30m, 7d, 5minutes, YYYY-MM, YYYY-MM-DD, RFC3339, or Unix timestamp"
-    )
-}
-
-fn parse_calendar_date_millis(input: &str) -> Result<Option<i64>> {
-    let date = match input.len() {
-        7 => NaiveDate::parse_from_str(&format!("{input}-01"), "%Y-%m-%d"),
-        10 => NaiveDate::parse_from_str(input, "%Y-%m-%d"),
-        _ => return Ok(None),
-    }
-    .map_err(|_| time_parse_error(input))?;
-
-    let midnight = date
-        .and_hms_opt(0, 0, 0)
-        .expect("midnight is a valid time for every date");
-    Ok(Some(midnight.and_utc().timestamp_millis()))
-}
-
 /// Parses a time string into Unix milliseconds.
 ///
 /// Supported formats:
@@ -76,6 +55,12 @@ fn parse_calendar_date_millis(input: &str) -> Result<Option<i64>> {
 /// Returns second-aligned milliseconds (Unix seconds * 1000) to match Go behavior.
 pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
     let input = input.trim();
+    let time_parse_error = || {
+        anyhow::anyhow!(
+            "unable to parse time: {input:?}\n\
+             Expected: now, 1h, 30m, 7d, 5minutes, YYYY-MM, YYYY-MM-DD, RFC3339, or Unix timestamp"
+        )
+    };
 
     if input.eq_ignore_ascii_case("now") {
         return Ok(now_millis());
@@ -93,8 +78,20 @@ pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
         };
     }
 
-    if let Some(ms) = parse_calendar_date_millis(input)? {
-        return Ok(ms);
+    let calendar_date = match input.len() {
+        7 => Some(NaiveDate::parse_from_str(
+            &format!("{input}-01"),
+            "%Y-%m-%d",
+        )),
+        10 => Some(NaiveDate::parse_from_str(input, "%Y-%m-%d")),
+        _ => None,
+    };
+    if let Some(calendar_date) = calendar_date {
+        let date = calendar_date.map_err(|_| time_parse_error())?;
+        let midnight = date
+            .and_hms_opt(0, 0, 0)
+            .expect("midnight is a valid time for every date");
+        return Ok(midnight.and_utc().timestamp_millis());
     }
 
     // RFC3339 timestamp
@@ -104,7 +101,7 @@ pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
     }
 
     // Relative time
-    let millis = parse_relative_duration_millis(input).map_err(|_| time_parse_error(input))?;
+    let millis = parse_relative_duration_millis(input).map_err(|_| time_parse_error())?;
     Ok(now_millis() - millis)
 }
 

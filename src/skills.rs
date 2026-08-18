@@ -12,11 +12,183 @@ pub struct SkillEntry {
     /// Platform slug for entry_type == "extension". One of: "pi".
     /// Empty for skills and agents.
     pub platform: &'static str,
-    /// Files to materialize for entry_type == "extension".
-    /// Each tuple is `(relative_path_within_extension_dir, file_contents)`.
-    /// Empty for skills and agents.
+    /// Additional files bundled with a skill, or all files for an extension.
+    /// Each tuple is `(relative_path_within_entry_dir, file_contents)`.
+    /// Empty for agents and single-file skills.
     pub files: &'static [(&'static str, &'static str)],
 }
+
+/// Progressive-disclosure references and UI metadata for the notebook skill.
+static DD_CREATE_NOTEBOOKS_FILES: &[(&str, &str)] = &[
+    (
+        "agents/openai.yaml",
+        include_str!("../skills/dd-create-notebooks/agents/openai.yaml"),
+    ),
+    (
+        "references/notebook-cells.md",
+        include_str!("../skills/dd-create-notebooks/references/notebook-cells.md"),
+    ),
+    (
+        "references/surface-matrix.md",
+        include_str!("../skills/dd-create-notebooks/references/surface-matrix.md"),
+    ),
+    (
+        "references/widget-types.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types.md"),
+    ),
+    (
+        "references/widgets/analytical.md",
+        include_str!("../skills/dd-create-notebooks/references/widgets/analytical.md"),
+    ),
+    (
+        "references/widgets/content.md",
+        include_str!("../skills/dd-create-notebooks/references/widgets/content.md"),
+    ),
+    (
+        "references/widgets/handbook.md",
+        include_str!("../skills/dd-create-notebooks/references/widgets/handbook.md"),
+    ),
+    (
+        "references/widgets/local-datasets.md",
+        include_str!("../skills/dd-create-notebooks/references/widgets/local-datasets.md"),
+    ),
+    (
+        "references/widgets/queries.md",
+        include_str!("../skills/dd-create-notebooks/references/widgets/queries.md"),
+    ),
+    (
+        "references/widgets/status.md",
+        include_str!("../skills/dd-create-notebooks/references/widgets/status.md"),
+    ),
+    (
+        "references/widgets/streams.md",
+        include_str!("../skills/dd-create-notebooks/references/widgets/streams.md"),
+    ),
+    (
+        "references/widget-types/alert_graph.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/alert_graph.md"),
+    ),
+    (
+        "references/widget-types/alert_value.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/alert_value.md"),
+    ),
+    (
+        "references/widget-types/bar_chart.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/bar_chart.md"),
+    ),
+    (
+        "references/widget-types/change.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/change.md"),
+    ),
+    (
+        "references/widget-types/check_status.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/check_status.md"),
+    ),
+    (
+        "references/widget-types/cohort.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/cohort.md"),
+    ),
+    (
+        "references/widget-types/distribution.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/distribution.md"),
+    ),
+    (
+        "references/widget-types/funnel.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/funnel.md"),
+    ),
+    (
+        "references/widget-types/geomap.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/geomap.md"),
+    ),
+    (
+        "references/widget-types/heatmap.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/heatmap.md"),
+    ),
+    (
+        "references/widget-types/hostmap.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/hostmap.md"),
+    ),
+    (
+        "references/widget-types/iframe.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/iframe.md"),
+    ),
+    (
+        "references/widget-types/image.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/image.md"),
+    ),
+    (
+        "references/widget-types/list_stream.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/list_stream.md"),
+    ),
+    (
+        "references/widget-types/log_stream.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/log_stream.md"),
+    ),
+    (
+        "references/widget-types/manage_status.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/manage_status.md"),
+    ),
+    (
+        "references/widget-types/query_table.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/query_table.md"),
+    ),
+    (
+        "references/widget-types/query_value.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/query_value.md"),
+    ),
+    (
+        "references/widget-types/retention_curve.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/retention_curve.md"),
+    ),
+    (
+        "references/widget-types/run_workflow.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/run_workflow.md"),
+    ),
+    (
+        "references/widget-types/sankey.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/sankey.md"),
+    ),
+    (
+        "references/widget-types/scatterplot.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/scatterplot.md"),
+    ),
+    (
+        "references/widget-types/slo.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/slo.md"),
+    ),
+    (
+        "references/widget-types/slo_list.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/slo_list.md"),
+    ),
+    (
+        "references/widget-types/sunburst.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/sunburst.md"),
+    ),
+    (
+        "references/widget-types/timeseries.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/timeseries.md"),
+    ),
+    (
+        "references/widget-types/toplist.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/toplist.md"),
+    ),
+    (
+        "references/widget-types/topology_map.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/topology_map.md"),
+    ),
+    (
+        "references/widget-types/trace_service.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/trace_service.md"),
+    ),
+    (
+        "references/widget-types/treemap.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/treemap.md"),
+    ),
+    (
+        "references/widget-types/wildcard.md",
+        include_str!("../skills/dd-create-notebooks/references/widget-types/wildcard.md"),
+    ),
+];
 
 /// Files for the `dd-pup-pi` extension bundle (pi coding agent).
 static DD_PUP_PI_FILES: &[(&str, &str)] = &[
@@ -43,6 +215,14 @@ pub static SKILLS: &[SkillEntry] = &[
         content: include_str!("../skills/dd-pup/SKILL.md"),
         platform: "",
         files: &[],
+    },
+    SkillEntry {
+        name: "dd-create-notebooks",
+        description: "Create Datadog notebooks with valid cells, analysis chains, and surface-aware widgets.",
+        entry_type: "skill",
+        content: include_str!("../skills/dd-create-notebooks/SKILL.md"),
+        platform: "",
+        files: DD_CREATE_NOTEBOOKS_FILES,
     },
     SkillEntry {
         name: "dd-monitors",
@@ -978,18 +1158,44 @@ pub fn install_paths(
             };
             root.join(entry.name)
         };
-        return Ok(entry
-            .files
-            .iter()
-            .map(|(rel, body)| (base.join(rel), (*body).to_string()))
-            .collect());
+        let mut targets = Vec::with_capacity(entry.files.len());
+        for (rel, body) in entry.files {
+            targets.push((bundled_path(&base, rel)?, (*body).to_string()));
+        }
+        return Ok(targets);
     }
 
     let Some((path, fmt)) = install_path(entry, platform, project_root, dir_override, user_scope)
     else {
         return Ok(vec![]);
     };
-    Ok(vec![(path, format_content(entry, &fmt))])
+    let content = format_content(entry, &fmt);
+    let mut targets = vec![(path.clone(), content)];
+    if entry.entry_type == "skill" {
+        let base = path
+            .parent()
+            .expect("skill install path always has a parent directory");
+        for (rel, body) in entry.files {
+            targets.push((bundled_path(base, rel)?, (*body).to_string()));
+        }
+    }
+    Ok(targets)
+}
+
+fn bundled_path(base: &Path, relative: &str) -> anyhow::Result<PathBuf> {
+    let path = Path::new(relative);
+    if relative.is_empty()
+        || path.is_absolute()
+        || path.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+    {
+        anyhow::bail!("invalid bundled file path: {relative:?}");
+    }
+    Ok(base.join(path))
 }
 
 #[derive(Debug, PartialEq)]
@@ -1139,6 +1345,22 @@ mod tests {
                     "empty content for {}",
                     entry.name
                 );
+                if entry.entry_type == "agent" {
+                    assert!(
+                        entry.files.is_empty(),
+                        "agent {} must not bundle additional files",
+                        entry.name
+                    );
+                }
+                for (rel, body) in entry.files {
+                    assert!(!rel.is_empty(), "empty file path in {}", entry.name);
+                    assert!(
+                        !body.is_empty(),
+                        "empty file body for {}:{}",
+                        entry.name,
+                        rel
+                    );
+                }
             }
         }
     }
@@ -1146,7 +1368,106 @@ mod tests {
     #[test]
     fn test_skill_count() {
         let skills: Vec<_> = SKILLS.iter().filter(|e| e.entry_type == "skill").collect();
-        assert_eq!(skills.len(), 11, "expected 11 skills");
+        assert_eq!(skills.len(), 12, "expected 12 skills");
+    }
+
+    #[test]
+    fn test_dd_create_notebooks_skill_bundles_references() {
+        let entry = SKILLS
+            .iter()
+            .find(|entry| entry.name == "dd-create-notebooks")
+            .expect("dd-create-notebooks skill must be registered");
+        assert_eq!(entry.entry_type, "skill");
+        let paths: Vec<&str> = entry.files.iter().map(|(path, _)| *path).collect();
+
+        assert!(paths.contains(&"agents/openai.yaml"));
+        assert!(paths.contains(&"references/notebook-cells.md"));
+        assert!(paths.contains(&"references/surface-matrix.md"));
+        assert!(paths.contains(&"references/widget-types.md"));
+        assert!(paths.contains(&"references/widgets/handbook.md"));
+        assert!(paths.contains(&"references/widgets/queries.md"));
+        assert!(paths.contains(&"references/widget-types/toplist.md"));
+
+        let type_references = paths
+            .iter()
+            .filter(|path| path.starts_with("references/widget-types/"))
+            .count();
+        assert_eq!(type_references, 31, "every widget type must ship");
+
+        // The orphaned family router was replaced by direct links from SKILL.md.
+        assert!(!paths.contains(&"references/widgets.md"));
+    }
+
+    /// The installed skill previously routed into three references that were never
+    /// bundled, so widget construction dead-ended for anyone who ran
+    /// `pup skills install`. Assert the manifest covers every link instead.
+    #[test]
+    fn test_dd_create_notebooks_links_are_all_bundled() {
+        let entry = SKILLS
+            .iter()
+            .find(|entry| entry.name == "dd-create-notebooks")
+            .expect("dd-create-notebooks skill must be registered");
+        let bundled: Vec<&str> = entry.files.iter().map(|(path, _)| *path).collect();
+
+        let mut sources = vec![("SKILL.md", entry.content)];
+        sources.extend(
+            entry
+                .files
+                .iter()
+                .filter(|(path, _)| path.ends_with(".md"))
+                .map(|(path, body)| (*path, *body)),
+        );
+
+        let mut missing: Vec<String> = Vec::new();
+        for (source, body) in sources {
+            let parent = match source.rfind('/') {
+                Some(index) => &source[..index],
+                None => "",
+            };
+            for target in markdown_link_targets(body) {
+                let resolved = resolve_relative(parent, &target);
+                if !bundled.contains(&resolved.as_str()) {
+                    missing.push(format!("{source} -> {target}"));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "unbundled skill references: {missing:?}"
+        );
+    }
+
+    fn markdown_link_targets(body: &str) -> Vec<String> {
+        let mut targets = Vec::new();
+        let mut rest = body;
+        while let Some(open) = rest.find("](") {
+            rest = &rest[open + 2..];
+            let Some(close) = rest.find(')') else { break };
+            let target = &rest[..close];
+            if target.ends_with(".md") && !target.contains("://") {
+                targets.push(target.to_string());
+            }
+            rest = &rest[close..];
+        }
+        targets
+    }
+
+    fn resolve_relative(parent: &str, target: &str) -> String {
+        let mut parts: Vec<&str> = if parent.is_empty() {
+            Vec::new()
+        } else {
+            parent.split('/').collect()
+        };
+        for segment in target.split('/') {
+            match segment {
+                "." | "" => {}
+                ".." => {
+                    parts.pop();
+                }
+                other => parts.push(other),
+            }
+        }
+        parts.join("/")
     }
 
     #[test]
@@ -1730,6 +2051,45 @@ mod tests {
         let paths = install_paths(&e, "pi", &root, None, false).unwrap();
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].0, root.join(".pi/skills/dd-pup/SKILL.md"));
+    }
+
+    #[test]
+    fn test_install_paths_skill_expands_bundled_references() {
+        static FILES: &[(&str, &str)] = &[
+            ("agents/openai.yaml", "interface: {}"),
+            ("references/schema.md", "# Schema"),
+        ];
+        let e = SkillEntry {
+            files: FILES,
+            ..entry("dd-create-notebooks", "skill", "body")
+        };
+        let root = PathBuf::from("/tmp/proj");
+        let paths = install_paths(&e, "claude-code", &root, None, false).unwrap();
+        assert_eq!(paths.len(), 3);
+        assert_eq!(
+            paths[0].0,
+            root.join(".claude/skills/dd-create-notebooks/SKILL.md")
+        );
+        assert_eq!(
+            paths[1].0,
+            root.join(".claude/skills/dd-create-notebooks/agents/openai.yaml")
+        );
+        assert_eq!(
+            paths[2].0,
+            root.join(".claude/skills/dd-create-notebooks/references/schema.md")
+        );
+    }
+
+    #[test]
+    fn test_install_paths_rejects_parent_traversal_in_bundled_file() {
+        static FILES: &[(&str, &str)] = &[("../outside.md", "bad")];
+        let e = SkillEntry {
+            files: FILES,
+            ..entry("unsafe", "skill", "body")
+        };
+        let root = PathBuf::from("/tmp/proj");
+        let error = install_paths(&e, "claude-code", &root, None, false).unwrap_err();
+        assert!(error.to_string().contains("invalid bundled file path"));
     }
 
     #[test]

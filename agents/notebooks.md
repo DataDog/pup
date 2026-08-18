@@ -6,6 +6,10 @@ description: Manage Datadog Notebooks for collaborative investigation, documenta
 
 You are a specialized agent for interacting with Datadog's Notebooks API. Your role is to help users create, manage, and collaborate on notebooks that combine markdown documentation, visualizations, and data queries for investigation, reporting, and knowledge sharing.
 
+Load `$dd-create-notebooks` before authoring or changing notebook cells. It is
+the source of truth for notebook-only schemas, shared versus dashboard-only
+widgets, analysis dependencies, Mermaid, and upload-backed diagram cells.
+
 ## Your Capabilities
 
 ### Notebook Management
@@ -42,31 +46,49 @@ You are a specialized agent for interacting with Datadog's Notebooks API. Your r
 
 ### List Notebooks
 
-#### Basic List
+#### Find all notebooks
 ```bash
-pup notebooks list
+pup notebooks search
 ```
 
 #### Filter by Author
 ```bash
 # Get notebooks by specific author
-pup notebooks list \
-  --author="user@example.com"
+pup notebooks search \
+  --filter="author.handle:user@example.com"
 ```
 
-Exclude author:
+Combine filters by repeating the flag or separating filters with spaces:
 ```bash
-pup notebooks list \
-  --exclude-author="user@example.com"
+pup notebooks search \
+  --filter="tags:production deleted:false" \
+  --sort=-modified_at
 ```
 
-#### Pagination
+Supported filters include `author.handle`, `author`, `type`, `tags`,
+`metadata.has_computational_cells`, `modified_from`, `modified_to`, `id`,
+`dataset_id`, `experience_type`, `deleted`, and `show_favorites`.
+
+Pup returns up to 20 results by default. Use `--limit` to request more, up to
+1000. Responses preserve `meta.total` and add `meta.returned` and
+`meta.truncated`, so a caller can distinguish the full match count from the
+bounded result set.
+
+Supported sort fields are `name`, `created_at`, `modified_at`, `deleted_at`,
+and `favorited_by`. Prefix the field with `-` for descending order.
+
+### Search Notebook Contents
+
 ```bash
-# Get notebooks with pagination
-pup notebooks list \
-  --start=0 \
-  --count=50
+pup notebooks search \
+  --query="deployment rollback" \
+  --filter="tags:production" \
+  --limit=50
 ```
+
+Search matches notebook names and cell contents and returns backend highlights.
+Omit `--query` when only structured filters matter. Add `--query` when the user
+wants text found inside notebook names or cells.
 
 ### Get Notebook
 
@@ -82,131 +104,84 @@ pup notebooks get 123456
 
 ### Create Notebook
 
-#### Simple Markdown Notebook
-```bash
-pup notebooks create \
-  --name="Investigation: API Latency" \
-  --cells='[
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "markdown",
-          "text": "# API Latency Investigation\n\n## Problem\nAPI response times increased by 200ms starting at 2pm."
-        }
-      }
-    }
-  ]'
-```
+Create accepts a complete Datadog `NotebookCreateRequest` JSON document:
 
-#### Notebook with Timeseries
 ```bash
-pup notebooks create \
-  --name="Production Metrics Dashboard" \
-  --time='{"live_span": "1h"}' \
-  --cells='[
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "markdown",
-          "text": "## Production API Metrics"
-        }
-      }
-    },
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "timeseries",
-          "requests": [
-            {
-              "q": "avg:system.cpu.user{env:production}",
-              "display_type": "line"
+cat > notebook.json <<'JSON'
+{
+  "data": {
+    "type": "notebooks",
+    "attributes": {
+      "name": "Investigation: API Latency",
+      "cells": [
+        {
+          "type": "notebook_cells",
+          "attributes": {
+            "definition": {
+              "type": "markdown",
+              "text": "# API Latency Investigation\n\nAPI response times increased at 14:00 UTC."
             }
-          ],
-          "yaxis": {"scale": "linear"}
+          }
         },
-        "graph_size": "m",
-        "time": null
-      }
-    }
-  ]'
-```
-
-#### Notebook with Multiple Cell Types
-```bash
-pup notebooks create \
-  --name="Weekly Incident Report" \
-  --time='{"live_span": "1w"}' \
-  --cells='[
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "markdown",
-          "text": "# Weekly Incident Report\n\n## Summary\nReview of incidents from the past week."
+        {
+          "type": "notebook_cells",
+          "attributes": {
+            "definition": {
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:trace.web.request.duration{service:api}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
         }
-      }
-    },
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "timeseries",
-          "requests": [{"q": "sum:trace.web.request.errors{env:production}", "display_type": "bars"}]
-        },
-        "graph_size": "l"
-      }
-    },
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "toplist",
-          "requests": [{"q": "top(avg:system.cpu.user{*} by {host}, 10, \"mean\", \"desc\")"}]
-        },
-        "graph_size": "m"
-      }
-    },
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "log_stream",
-          "query": "status:error"
-        },
-        "graph_size": "m"
-      }
+      ],
+      "time": {"live_span": "4h"},
+      "metadata": {"type": "investigation"},
+      "tags": ["team:api"]
     }
-  ]'
+  }
+}
+JSON
+
+pup notebooks create --file notebook.json
 ```
 
 ### Update Notebook
 
+`update` is a full replacement. Fetch the current notebook first, preserve any
+fields and cells that should remain, modify the JSON, then submit the complete
+document:
+
 ```bash
-# Update notebook name and cells
-pup notebooks update <notebook-id> \
-  --name="Updated Notebook Name" \
-  --cells='[
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "markdown",
-          "text": "## Updated content"
-        }
-      }
-    }
-  ]'
+pup notebooks get <notebook-id> > notebook.json
+# Edit notebook.json while retaining the full data object.
+pup notebooks update <notebook-id> --file notebook.json
 ```
 
-Update with new time range:
+### Append Cells
+
+`edit` reads the existing notebook and appends the array of cells in the file.
+It does not replace existing cells:
+
 ```bash
-pup notebooks update <notebook-id> \
-  --name="Production Dashboard" \
-  --time='{"live_span": "4h"}' \
-  --cells='[...]'
+cat > cells.json <<'JSON'
+[
+  {
+    "type": "notebook_cells",
+    "attributes": {
+      "definition": {
+        "type": "markdown",
+        "text": "## Follow-up\n\nRollback completed successfully."
+      }
+    }
+  }
+]
+JSON
+
+pup notebooks edit <notebook-id> --file cells.json
 ```
 
 ### Delete Notebook
@@ -466,47 +441,18 @@ Present notebook data in clear, user-friendly formats:
 ## Common User Requests
 
 ### "Create a notebook for investigating an incident"
+
+Build the complete create request in `incident-notebook.json`, including the
+name, global time, metadata, tags, and cells, then run:
+
 ```bash
-pup notebooks create \
-  --name="Incident Investigation: API Timeout" \
-  --time='{"live_span": "4h"}' \
-  --cells='[
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "markdown",
-          "text": "# Incident: API Timeout Spike\n\n## Timeline\n- 14:23 UTC: First alerts\n- 14:25 UTC: Customer reports\n- 14:30 UTC: Investigation started\n\n## Hypothesis\nDatabase connection pool exhaustion"
-        }
-      }
-    },
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "timeseries",
-          "requests": [{"q": "avg:trace.web.request.duration{service:api}"}]
-        },
-        "graph_size": "l"
-      }
-    },
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "log_stream",
-          "query": "service:api status:error"
-        },
-        "graph_size": "m"
-      }
-    }
-  ]'
+pup notebooks create --file incident-notebook.json
 ```
 
 ### "List my notebooks"
 ```bash
-pup notebooks list \
-  --author="user@example.com"
+pup notebooks search \
+  --filter="author.handle:user@example.com"
 ```
 
 ### "Show notebook details"
@@ -515,62 +461,22 @@ pup notebooks get <notebook-id>
 ```
 
 ### "Create a weekly report notebook"
+
+Build the full weekly report request in `weekly-report.json`, then run:
+
 ```bash
-pup notebooks create \
-  --name="Weekly Performance Report" \
-  --time='{"live_span": "1w"}' \
-  --cells='[
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "markdown",
-          "text": "# Weekly Performance Report\n\n## Key Metrics\n- Average response time\n- Error rate\n- Throughput"
-        }
-      }
-    },
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "timeseries",
-          "requests": [
-            {"q": "avg:trace.web.request.duration{env:production}", "display_type": "line"}
-          ]
-        },
-        "graph_size": "l"
-      }
-    },
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "toplist",
-          "requests": [
-            {"q": "top(sum:trace.web.request.errors{env:production} by {service}, 10, \"sum\", \"desc\")"}
-          ]
-        },
-        "graph_size": "m"
-      }
-    }
-  ]'
+pup notebooks create --file weekly-report.json
 ```
 
 ### "Update notebook content"
+
+Fetch the current full document before modifying it so an update does not drop
+unmentioned cells or metadata:
+
 ```bash
-pup notebooks update <notebook-id> \
-  --name="Updated: API Investigation" \
-  --cells='[
-    {
-      "type": "notebook_cells",
-      "attributes": {
-        "definition": {
-          "type": "markdown",
-          "text": "# Updated Investigation\n\n## Resolution\nIssue resolved by scaling database connections."
-        }
-      }
-    }
-  ]'
+pup notebooks get <notebook-id> > notebook.json
+# Modify notebook.json.
+pup notebooks update <notebook-id> --file notebook.json
 ```
 
 ### "Delete a notebook"
@@ -665,7 +571,7 @@ You can now:
 ```
 I'll retrieve all notebooks you've created.
 
-<Execute notebooks list command>
+<Execute notebooks search command without a text query>
 
 Your Notebooks (8 total):
 

@@ -2062,21 +2062,31 @@ enum Commands {
     /// investigations, share findings, and create runbooks.
     ///
     /// CAPABILITIES:
-    ///   • List notebooks
+    ///   • Search notebooks with optional text, structured filters, sorting, and bounded pagination
+    ///   • Search notebook names and cell contents
     ///   • Get notebook details
     ///   • Create new notebooks
-    ///   • Update notebooks
+    ///   • Replace notebooks or append cells
     ///   • Delete notebooks
     ///
     /// EXAMPLES:
-    ///   # List all notebooks
-    ///   pup notebooks list
+    ///   # Find all notebooks
+    ///   pup notebooks search
+    ///
+    ///   # Find filtered notebooks, newest first
+    ///   pup notebooks search --filter "tags:production deleted:false" --sort=-modified_at
+    ///
+    ///   # Search notebook names and cell contents
+    ///   pup notebooks search --query "deployment rollback" --limit 50
     ///
     ///   # Get notebook details
     ///   pup notebooks get notebook-id
     ///
     ///   # Create a notebook from file
     ///   pup notebooks create --file notebook.json
+    ///
+    ///   # Install notebook cell and widget creation guidance for an AI assistant
+    ///   pup skills install codex --name dd-create-notebooks
     ///
     ///   # Update a notebook
     ///   pup notebooks update 12345 --file updated.json
@@ -2347,37 +2357,6 @@ enum Commands {
         #[command(subcommand)]
         action: RunbookActions,
     },
-    /// Manage saved widgets (CCM, logs, CSV, and product analytics reports)
-    ///
-    /// List, get, create, update, and delete saved reporting widgets scoped
-    /// to an experience type.
-    ///
-    /// EXPERIENCE TYPES:
-    ///   ccm_reports            Cloud Cost Management report widgets
-    ///   logs_reports           Log Management report widgets
-    ///   csv_reports            CSV export widgets
-    ///   product_analytics      Product analytics widgets
-    ///
-    /// COMMANDS:
-    ///   list    <experience-type>                  Search and list widgets
-    ///   get     <experience-type> <widget-uuid>    Get widget details
-    ///   create  <experience-type> --file w.json    Create a widget
-    ///   update  <experience-type> <widget-uuid> --file w.json  Update a widget
-    ///   delete  <experience-type> <widget-uuid>    Delete a widget
-    ///
-    /// EXAMPLES:
-    ///   pup saved-widgets list logs_reports
-    ///   pup saved-widgets get ccm_reports <uuid>
-    ///   pup saved-widgets create logs_reports --file widget.json
-    ///
-    /// AUTHENTICATION:
-    ///   Requires either OAuth2 authentication (pup auth login) or API keys
-    ///   (DD_API_KEY and DD_APP_KEY environment variables).
-    #[command(verbatim_doc_comment, name = "saved-widgets")]
-    SavedWidgets {
-        #[command(subcommand)]
-        action: WidgetActions,
-    },
     /// Manage service scorecards
     ///
     /// Manage service quality scorecards and rules.
@@ -2485,7 +2464,7 @@ enum Commands {
     /// compose pup commands.
     ///
     /// ENTRY TYPES:
-    ///   skill       Single-file markdown guide installed under the platform's skills dir
+    ///   skill       Markdown guide, optionally with references, installed under the platform's skills dir
     ///   agent       Domain subagent (Claude Code subagent format or SKILL.md fallback)
     ///   extension   Multi-file bundle for a coding-agent platform (e.g. pi)
     ///
@@ -2896,6 +2875,51 @@ enum Commands {
     },
     /// Print version information
     Version,
+    /// Manage saved widgets and discover dashboard or notebook widget schemas
+    ///
+    /// List, get, create, update, and delete saved reporting widgets scoped
+    /// to an experience type.
+    ///
+    /// EXPERIENCE TYPES:
+    ///   ccm_reports            Cloud Cost Management report widgets
+    ///   logs_reports           Log Management report widgets
+    ///   csv_reports            CSV export widgets
+    ///   product_analytics      Product analytics widgets
+    ///
+    /// COMMANDS:
+    ///   list    <experience-type>                  Search and list widgets
+    ///   get     <experience-type> <widget-uuid>    Get widget details
+    ///   create  <experience-type> --file w.json    Create a widget
+    ///   update  <experience-type> <widget-uuid> --file w.json  Update a widget
+    ///   delete  <experience-type> <widget-uuid>    Delete a widget
+    ///   types   --surface <surface>                List supported widget types
+    ///   schema  <type> --surface <surface>         Show a generated widget schema
+    ///
+    /// EXAMPLES:
+    ///   pup widgets list logs_reports
+    ///   pup widgets get ccm_reports <uuid>
+    ///   pup widgets create logs_reports --file widget.json
+    ///   pup widgets schema timeseries --surface notebook --data-source metrics
+    ///   pup widgets schema timeseries --surface notebook --section root
+    ///
+    /// SCHEMA SECTIONS:
+    ///   Full schemas are large. --section emits one slice at a time and reports
+    ///   what it left out, so nothing is dropped silently. Repeatable; defaults
+    ///   to all.
+    ///     root           Widget definition and its type discriminator
+    ///     request        Request, query, formula, and sort types (implies root)
+    ///     presentation   Style, palette, number format, time span, custom links
+    ///     local-dataset  Notebook local-dataset request types
+    ///     all            Everything (default)
+    ///
+    /// AUTHENTICATION:
+    ///   Saved-widget operations require OAuth2 authentication (pup auth login)
+    ///   or API keys (DD_API_KEY and DD_APP_KEY). Schema discovery is local.
+    #[command(verbatim_doc_comment, alias = "saved-widgets")]
+    Widgets {
+        #[command(subcommand)]
+        action: WidgetActions,
+    },
     /// Manage Datadog workflows
     ///
     /// Create, update, delete, and execute Datadog Workflow Automation workflows.
@@ -3871,6 +3895,12 @@ enum MetricTagActions {
             help = "Lookback window in seconds (SDK PR #1593; default 3600, max 2592000)"
         )]
         window_seconds: Option<i64>,
+        #[arg(
+            long,
+            help = "Return only the distinct tag keys, not every key:value pair. \
+                    A high-cardinality metric can otherwise return megabytes."
+        )]
+        keys_only: bool,
     },
 }
 
@@ -4815,6 +4845,28 @@ enum WidgetActions {
         experience_type: String,
         /// Widget UUID
         widget_id: String,
+    },
+    /// List widget types supported by a target surface
+    Types {
+        /// Target surface for the widget definition
+        #[arg(long, value_enum)]
+        surface: commands::widgets::WidgetSurface,
+    },
+    /// Return the generated TypeScript schema for a widget type
+    Schema {
+        /// Widget type string, for example timeseries or analysis_sql
+        r#type: String,
+        /// Target surface for the widget definition
+        #[arg(long, value_enum)]
+        surface: commands::widgets::WidgetSurface,
+        /// Limit query variants to a data source or product family
+        #[arg(long, value_name = "SOURCE")]
+        data_source: Option<String>,
+        /// Emit only part of the schema; repeatable. Defaults to all. `request`
+        /// implies `root`. Omitted sections are reported in the output with the
+        /// flag needed to fetch them
+        #[arg(long, value_enum, value_name = "SECTION")]
+        section: Vec<commands::widgets::SchemaSection>,
     },
 }
 
@@ -6392,10 +6444,36 @@ enum UsageActions {
 }
 
 // ---- Notebooks ----
+#[derive(clap::Args)]
+struct NotebookDiscoveryOptions {
+    /// Filter results using FIELD:VALUE. Repeat the flag or separate filters with spaces.
+    ///
+    /// Supported fields: author.handle, author, type, tags,
+    /// metadata.has_computational_cells, modified_from, modified_to, id,
+    /// dataset_id, experience_type, deleted, and show_favorites.
+    #[arg(long = "filter", value_name = "FIELD:VALUE")]
+    filters: Vec<String>,
+    /// Sort field. Prefix with '-' for descending order.
+    ///
+    /// Supported fields: name, created_at, modified_at, deleted_at, and favorited_by.
+    #[arg(long, default_value = "name", value_name = "FIELD")]
+    sort: String,
+    /// Maximum number of results to return (default 20, maximum 1000)
+    #[arg(long, default_value_t = 20, value_name = "COUNT")]
+    limit: usize,
+}
+
 #[derive(Subcommand)]
 enum NotebookActions {
-    /// List notebooks
-    List,
+    /// Search notebooks by optional text and structured filters
+    #[command(alias = "list")]
+    Search {
+        /// Optional text to find in notebook names or cell contents
+        #[arg(long, value_name = "TEXT")]
+        query: Option<String>,
+        #[command(flatten)]
+        options: NotebookDiscoveryOptions,
+    },
     /// Get notebook details
     Get { notebook_id: i64 },
     /// Create a new notebook
@@ -13076,9 +13154,11 @@ async fn main_inner() -> anyhow::Result<()> {
                     MetricTagActions::List {
                         metric_name,
                         window_seconds,
+                        keys_only,
                         ..
                     } => {
-                        commands::metrics::tags_list(&cfg, &metric_name, window_seconds).await?;
+                        commands::metrics::tags_list(&cfg, &metric_name, window_seconds, keys_only)
+                            .await?;
                     }
                 },
                 MetricActions::Timeseries { file } => {
@@ -14428,7 +14508,16 @@ async fn main_inner() -> anyhow::Result<()> {
             cfg.validate_auth()?;
             match action {
                 NotebookActions::Annotations { action } => run_annotations(&cfg, action).await?,
-                NotebookActions::List => commands::notebooks::list(&cfg).await?,
+                NotebookActions::Search { query, options } => {
+                    commands::notebooks::search(
+                        &cfg,
+                        query.as_deref(),
+                        &options.filters,
+                        &options.sort,
+                        options.limit,
+                    )
+                    .await?;
+                }
                 NotebookActions::Get { notebook_id } => {
                     commands::notebooks::get(&cfg, notebook_id).await?;
                 }
@@ -16795,12 +16884,23 @@ async fn main_inner() -> anyhow::Result<()> {
             // so it sends nothing to the host and needs no trust gate.
             AuthActions::Test => commands::test::run(&cfg)?,
         },
-        // --- SavedWidgets (top-level saved/reporting widgets) ---
-        Commands::SavedWidgets { action } => {
-            cfg.validate_auth()?;
-            match action {
-                WidgetActions::List {
-                    experience_type,
+        // --- Widgets (saved/reporting APIs plus local schema reference) ---
+        Commands::Widgets { action } => match action {
+            WidgetActions::List {
+                experience_type,
+                filter_widget_type,
+                filter_creator_handle,
+                filter_is_favorited,
+                filter_title,
+                filter_tags,
+                sort,
+                page_number,
+                page_size,
+            } => {
+                cfg.validate_auth()?;
+                commands::widgets::list(
+                    &cfg,
+                    &experience_type,
                     filter_widget_type,
                     filter_creator_handle,
                     filter_is_favorited,
@@ -16809,48 +16909,56 @@ async fn main_inner() -> anyhow::Result<()> {
                     sort,
                     page_number,
                     page_size,
-                } => {
-                    commands::widgets::list(
-                        &cfg,
-                        &experience_type,
-                        filter_widget_type,
-                        filter_creator_handle,
-                        filter_is_favorited,
-                        filter_title,
-                        filter_tags,
-                        sort,
-                        page_number,
-                        page_size,
-                    )
-                    .await?;
-                }
-                WidgetActions::Get {
-                    experience_type,
-                    widget_id,
-                } => {
-                    commands::widgets::get(&cfg, &experience_type, &widget_id).await?;
-                }
-                WidgetActions::Create {
-                    experience_type,
-                    file,
-                } => {
-                    commands::widgets::create(&cfg, &experience_type, &file).await?;
-                }
-                WidgetActions::Update {
-                    experience_type,
-                    widget_id,
-                    file,
-                } => {
-                    commands::widgets::update(&cfg, &experience_type, &widget_id, &file).await?;
-                }
-                WidgetActions::Delete {
-                    experience_type,
-                    widget_id,
-                } => {
-                    commands::widgets::delete(&cfg, &experience_type, &widget_id).await?;
-                }
+                )
+                .await?;
             }
-        }
+            WidgetActions::Get {
+                experience_type,
+                widget_id,
+            } => {
+                cfg.validate_auth()?;
+                commands::widgets::get(&cfg, &experience_type, &widget_id).await?;
+            }
+            WidgetActions::Create {
+                experience_type,
+                file,
+            } => {
+                cfg.validate_auth()?;
+                commands::widgets::create(&cfg, &experience_type, &file).await?;
+            }
+            WidgetActions::Update {
+                experience_type,
+                widget_id,
+                file,
+            } => {
+                cfg.validate_auth()?;
+                commands::widgets::update(&cfg, &experience_type, &widget_id, &file).await?;
+            }
+            WidgetActions::Delete {
+                experience_type,
+                widget_id,
+            } => {
+                cfg.validate_auth()?;
+                commands::widgets::delete(&cfg, &experience_type, &widget_id).await?;
+            }
+            WidgetActions::Types { surface } => {
+                commands::widgets::reference_types(&cfg, surface)?;
+            }
+            WidgetActions::Schema {
+                r#type,
+                surface,
+                data_source,
+                section,
+            } => {
+                commands::widgets::reference_schema(
+                    &cfg,
+                    &r#type,
+                    surface,
+                    data_source.as_deref(),
+                    &section,
+                )?;
+            }
+        },
         // --- Workflows ---
         Commands::Workflows { action } => match action {
             WorkflowActions::Get { workflow_id } => {

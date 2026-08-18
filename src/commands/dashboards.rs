@@ -428,7 +428,20 @@ fn widget_template(t: &str) -> Option<serde_json::Value> {
             "definition": {
                 "type": "toplist",
                 "title": "",
-                "requests": [{"q": ""}]
+                "requests": [{
+                    "queries": [{
+                        "data_source": "metrics",
+                        "name": "query1",
+                        "query": "",
+                        "aggregator": "sum"
+                    }],
+                    "formulas": [{"formula": "query1"}],
+                    "response_format": "scalar",
+                    "sort": {
+                        "order_by": [{"type": "formula", "index": 0, "order": "desc"}],
+                        "count": 10
+                    }
+                }]
             }
         }),
         "note" => serde_json::json!({
@@ -1005,7 +1018,40 @@ fn widget_json_schema(t: &str) -> Option<serde_json::Value> {
             "required": ["type", "requests"],
             "properties": {
                 "type": {"type": "string", "enum": ["toplist"], "description": "Type of the top list widget."},
-                "requests": {"type": "array", "description": "List of top list widget requests.", "items": {"type": "object", "properties": {"q": {"type": "string", "description": "Metric query."}}}},
+                "requests": {"type": "array", "description": "List of top list widget requests.", "items": {
+                    "type": "object",
+                    "required": ["queries", "formulas", "response_format"],
+                    "properties": {
+                        "queries": {"type": "array", "description": "Queries referenced by formulas.", "items": {
+                            "type": "object",
+                            "required": ["data_source", "name", "query"],
+                            "properties": {
+                                "data_source": {"type": "string", "enum": ["metrics"], "description": "Query data source."},
+                                "name": {"type": "string", "description": "Query alias referenced by formulas."},
+                                "query": {"type": "string", "description": "Raw metric query without top(). Example grouped total: sum:trace.web.request.errors{*} by {service}. Preserve the requested metric, scope, and grouping."},
+                                "aggregator": {"type": "string", "description": "Metric aggregation method. Use sum when the user asks for a total."}
+                            }
+                        }},
+                        "formulas": {"type": "array", "description": "Formula expressions over named queries.", "items": {
+                            "type": "object",
+                            "required": ["formula"],
+                            "properties": {"formula": {"type": "string", "description": "Formula expression."}}
+                        }},
+                        "response_format": {"type": "string", "enum": ["scalar"], "description": "Toplists use scalar responses."},
+                        "sort": {"type": "object", "description": "Ranking and result limit.", "properties": {
+                            "count": {"type": "integer", "description": "Maximum number of ranked results."},
+                            "order_by": {"type": "array", "description": "Formula sort order.", "items": {
+                                "type": "object",
+                                "required": ["type", "index", "order"],
+                                "properties": {
+                                    "type": {"type": "string", "enum": ["formula"]},
+                                    "index": {"type": "integer"},
+                                    "order": {"type": "string", "enum": ["asc", "desc"]}
+                                }
+                            }}
+                        }}
+                    }
+                }},
                 "style": {"type": "object", "description": "Style configuration.", "properties": {
                     "palette": {"type": "string", "description": "Color palette."},
                     "palette_flip": {"type": "boolean", "description": "Whether to flip the palette."}
@@ -1308,6 +1354,17 @@ mod tests {
             tmpl["definition"].get("requests").is_some(),
             "timeseries template must include requests"
         );
+    }
+
+    #[test]
+    fn test_toplist_template_uses_ranked_scalar_request() {
+        let tmpl = super::widget_template("toplist").expect("toplist should have a template");
+        let request = &tmpl["definition"]["requests"][0];
+
+        assert!(request.get("q").is_none());
+        assert_eq!(request["response_format"], "scalar");
+        assert_eq!(request["sort"]["count"], 10);
+        assert_eq!(request["sort"]["order_by"][0]["order"], "desc");
     }
 
     #[test]

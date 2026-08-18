@@ -73,7 +73,7 @@ list of commands as built.
 | SLOs | ✅ | `slos list`, `slos get`, `slos delete`, `slos status` | Full CRUD plus V2 status query |
 | Synthetics | ✅ | `synthetics tests`, `synthetics locations`, `synthetics suites` | Tests, locations, and V2 suites management |
 | Downtimes | ✅ | `downtime list`, `downtime get`, `downtime cancel` | Full downtime management |
-| Notebooks | ✅ | `notebooks list`, `notebooks get`, `notebooks delete` | Investigation notebooks supported |
+| Notebooks | ✅ | `notebooks search`, `notebooks get`, `notebooks create`, `notebooks update`, `notebooks edit`, `notebooks delete` | Filtered and content search plus full lifecycle supported |
 | Status Pages | ✅ | `status-pages pages`, `status-pages components`, `status-pages degradations` | **New** — Pages, components, and degradation management |
 | Powerpacks | ❌ | - | Not yet implemented |
 | Workflow Automation | ✅ | `workflows get`, `workflows create`, `workflows update`, `workflows delete`, `workflows run`, `workflows instances` | Full CRUD plus run and instance management (list, get, cancel) |
@@ -588,9 +588,10 @@ pup skills list --type=agent
 
 # Install a specific skill by name
 pup skills install claude --name dd-monitors
+pup skills install codex --name dd-create-notebooks
 ```
 
-For Claude Code, skills install to `~/.claude/skills/` (or `.claude/skills/` with `--project`) and agents install to `~/.claude/agents/` (native subagent format). If the `CLAUDE_CONFIG_DIR` environment variable is set, user-scope installs go to `$CLAUDE_CONFIG_DIR/skills/` and `$CLAUDE_CONFIG_DIR/agents/` instead of `~/.claude/`. For Cursor, Codex, opencode, and Devin, everything installs as `SKILL.md` under that tool's skills directory (e.g. `~/.cursor/skills/`, `~/.codex/skills/`, `~/.config/opencode/skills/`, and Devin's `~/.agents/skills/` — or `.agents/skills/` with `--project`).
+For Claude Code, skills install to `~/.claude/skills/` (or `.claude/skills/` with `--project`) and agents install to `~/.claude/agents/` (native subagent format). If the `CLAUDE_CONFIG_DIR` environment variable is set, user-scope installs go to `$CLAUDE_CONFIG_DIR/skills/` and `$CLAUDE_CONFIG_DIR/agents/` instead of `~/.claude/`. For Cursor, Codex, opencode, and Devin, skills install under that tool's skills directory (e.g. `~/.cursor/skills/`, `~/.codex/skills/`, `~/.config/opencode/skills/`, and Devin's `~/.agents/skills/` — or `.agents/skills/` with `--project`). A skill can include progressive-disclosure references alongside its `SKILL.md`.
 
 Pup ships plugin manifest files for several AI coding assistants:
 

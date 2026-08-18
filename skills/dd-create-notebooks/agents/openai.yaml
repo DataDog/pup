@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Datadog Notebooks"
+  short_description: "Build valid notebooks, cells, and widgets"
+  default_prompt: "Use $dd-create-notebooks to design a valid Datadog notebook with the appropriate cells and widgets."

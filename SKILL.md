@@ -43,6 +43,7 @@ pup skills list
 | Skill | Description |
 |-------|-------------|
 | **dd-pup** | Primary CLI - all pup commands, auth, site config |
+| **dd-create-notebooks** | Create notebooks with valid cells and surface-aware widgets |
 | **dd-monitors** | Create, manage, mute monitors and alerts |
 | **dd-logs** | Search logs, pipelines, archives |
 | **dd-apm** | Traces, services, performance analysis |

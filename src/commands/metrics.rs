@@ -137,7 +137,28 @@ pub async fn submit(cfg: &Config, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
-pub async fn tags_list(cfg: &Config, metric_name: &str, window_seconds: Option<i64>) -> Result<()> {
+/// Distinct tag keys from a list of `key:value` tags, sorted and deduplicated.
+///
+/// A high-cardinality metric returns every key paired with every value it has ever
+/// seen: `trace.http.request.hits` yields roughly 15 MB. Callers asking "is the key
+/// `bucketname` or `bucket_name`" want the keys, which is around a hundred of them.
+fn tag_keys(tags: &[String]) -> Vec<String> {
+    let mut keys: Vec<String> = tags
+        .iter()
+        .map(|tag| tag.split_once(':').map_or(tag.as_str(), |(key, _)| key))
+        .map(str::to_string)
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+pub async fn tags_list(
+    cfg: &Config,
+    metric_name: &str,
+    window_seconds: Option<i64>,
+    keys_only: bool,
+) -> Result<()> {
     use datadog_api_client::datadogV2::api_metrics::ListTagsByMetricNameOptionalParams;
 
     let api = crate::make_api!(MetricsV2API, cfg);
@@ -149,6 +170,24 @@ pub async fn tags_list(cfg: &Config, metric_name: &str, window_seconds: Option<i
         .list_tags_by_metric_name(metric_name.to_string(), params)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list tags for metric {metric_name}: {e:?}"))?;
+
+    if keys_only {
+        let tags = resp
+            .data
+            .as_ref()
+            .and_then(|data| data.attributes.as_ref())
+            .and_then(|attributes| attributes.tags.as_ref())
+            .map(|tags| tag_keys(tags))
+            .unwrap_or_default();
+        return formatter::output(
+            cfg,
+            &serde_json::json!({
+                "metric": metric_name,
+                "tag_keys": tags,
+                "tag_key_count": tags.len(),
+            }),
+        );
+    }
     formatter::output(cfg, &resp)
 }
 
@@ -276,6 +315,43 @@ mod tests {
         cleanup_env();
     }
 
+    #[test]
+    fn test_tag_keys_dedupes_and_sorts() {
+        let tags = vec![
+            "service:web".to_string(),
+            "service:api".to_string(),
+            "env:prod".to_string(),
+            "bucketname:logs".to_string(),
+            "service:web".to_string(),
+        ];
+
+        assert_eq!(
+            super::tag_keys(&tags),
+            vec!["bucketname", "env", "service"],
+            "one entry per key regardless of how many values it has"
+        );
+    }
+
+    #[test]
+    fn test_tag_keys_handles_tags_without_a_value() {
+        let tags = vec!["standalone".to_string(), "env:prod".to_string()];
+
+        assert_eq!(super::tag_keys(&tags), vec!["env", "standalone"]);
+    }
+
+    #[test]
+    fn test_tag_keys_splits_on_the_first_colon_only() {
+        // Kubernetes label keys contain slashes and values can contain colons.
+        let tags = vec!["k8s.io/role:node:worker".to_string()];
+
+        assert_eq!(super::tag_keys(&tags), vec!["k8s.io/role"]);
+    }
+
+    #[test]
+    fn test_tag_keys_on_empty_input() {
+        assert!(super::tag_keys(&[]).is_empty());
+    }
+
     #[tokio::test]
     async fn test_metrics_tags_list_no_window() {
         let _lock = lock_env().await;
@@ -283,7 +359,7 @@ mod tests {
         let cfg = test_config(&server.url());
         let _mock = mock_any(&mut server, "GET", r#"{"data": null}"#).await;
 
-        let result = super::tags_list(&cfg, "system.cpu.user", None).await;
+        let result = super::tags_list(&cfg, "system.cpu.user", None, false).await;
         assert!(
             result.is_ok(),
             "metrics tags list failed: {:?}",
@@ -299,7 +375,7 @@ mod tests {
         let cfg = test_config(&server.url());
         let _mock = mock_any(&mut server, "GET", r#"{"data": null}"#).await;
 
-        let result = super::tags_list(&cfg, "system.cpu.user", Some(3600)).await;
+        let result = super::tags_list(&cfg, "system.cpu.user", Some(3600), false).await;
         assert!(
             result.is_ok(),
             "metrics tags list with window_seconds failed: {:?}",

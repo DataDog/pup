@@ -91,7 +91,20 @@ pup logs aggregate --query "service:api" --compute count --from 1h
 pup metrics query --query "avg:system.cpu.user{*}" --from 1h
 pup metrics query --query "sum:trace.express.request.hits{service:api}" --from 1h
 pup metrics list --filter "system.*"
+
+# Verify a name or tag before building a query against it
+pup metrics list --filter "aws.s3.*"            # discover real metric names
+pup metrics metadata get aws.s3.all_requests    # type, unit, description
+pup metrics tags list aws.s3.all_requests --keys-only  # tag keys only (note: `tags list`)
 ```
+
+A plausible metric name is often a real metric that is not the one you want, so
+existence alone is not enough — read the description. `metrics tags list` takes
+the `list` subcommand; `pup metrics tags METRIC` is not valid.
+
+Always pass `--keys-only` unless you specifically need tag values. A high-cardinality
+metric returns every key:value pair it has ever seen — 11 MB for
+`trace.http.request.hits` against 44 KB for its 614 distinct keys.
 
 ### APM / Services
 ```bash
@@ -222,10 +235,34 @@ pup service-catalog get <service-name>
 
 ### Notebooks
 ```bash
-pup notebooks list
+pup notebooks search
+pup notebooks search --filter 'tags:production deleted:false' --sort=-modified_at
+pup notebooks search --query 'deployment rollback' --limit 50
 pup notebooks get 12345
 pup notebooks create --file notebook.json
+pup notebooks update 12345 --file notebook.json
+pup notebooks edit 12345 --file cells.json
 ```
+
+`search` returns at most 20 matches by default. Pass `--limit` to request more
+(maximum 1000). It covers notebook names and cell contents when `--query` is
+present; omit `--query` to use structured filters alone.
+
+Load `$dd-create-notebooks` before authoring notebook JSON. It documents the
+supported cell and widget surfaces, notebook-only schemas, analysis dependency
+rules, Mermaid and Excalidraw handling, and current validation limitations.
+
+### Widget Schemas
+```bash
+pup widgets types --surface notebooks
+pup widgets schema timeseries --surface notebooks
+pup widgets schema timeseries --surface notebooks --data-source metrics
+```
+
+Schema discovery is local and needs no auth. Omitting `--data-source` returns the
+union across every source, which is roughly three times larger — pass the source
+you are actually querying. Load `$dd-create-notebooks` for the construction rules
+that go with these schemas.
 
 ### Observability Pipelines
 ```bash
@@ -324,4 +361,3 @@ pup auth status
 | EU1 | `datadoghq.eu` |
 | AP1 | `ap1.datadoghq.com` |
 | US1-FED | `ddog-gov.com` |
-

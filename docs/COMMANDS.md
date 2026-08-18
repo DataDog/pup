@@ -49,7 +49,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | logs-restriction | list, get, create, update, delete, roles (list, add) | src/commands/logs_restriction.rs | ✅ |
 | processes | list | src/commands/processes.rs | ✅ |
 | users | list, get, roles, service-accounts (create, app-keys CRUD) | src/commands/users.rs | ✅ |
-| notebooks | list, get, create, update, diff, delete, annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
+| notebooks | search, get, create, update, edit, diff, delete, annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |
@@ -77,13 +77,14 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | code-coverage | branch-summary, commit-summary | src/commands/code_coverage.rs | ✅ |
 | hamr | connections (get, create) | src/commands/hamr.rs | ✅ |
 | fleet | agents (list, get, versions, tracers), deployments (list, get, configure, upgrade, cancel), schedules (list, get, create, update, delete, trigger), tracers (list), clusters (list), instrumented-pods (list) | src/commands/fleet.rs | ✅ |
-| skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/devin/all; `--name`, `--type`, `--project` for project-local scope) | src/commands/skills.rs | ✅ |
+| skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/devin/all; `--name`, `--type`, `--project` for project-local scope; installs bundled skill references) | src/commands/skills.rs | ✅ |
 | runbooks | list, describe, run, import, validate | src/commands/runbooks.rs | ✅ |
 | workflows | get, create, update, diff, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
 | investigations | list, get, trigger | src/commands/investigations.rs | ✅ |
 | change-requests | create, get, update, create-branch, decisions (update, delete) | src/commands/change_management.rs | ✅ |
 | change-stories | list | src/commands/change_stories.rs | ✅ |
 | app-builder | list, get, create, update, delete, delete-batch, publish, unpublish | src/commands/app_builder.rs | ✅ |
+| widgets | list, get, create, update, delete, types, schema (`--surface`, `--data-source`, `--section`) | src/commands/widgets.rs | ✅ |
 
 **Note:** RUM command is fully operational. Apps and sessions work completely. Metrics and retention-filters support list/get operations (create/update/delete operations pending due to complex API type structures).
 
@@ -139,6 +140,86 @@ pup security rules list
 pup infrastructure hosts list
 ```
 
+### Notebooks
+
+```bash
+# Search with structured filters and no text query.
+pup notebooks search \
+  --filter 'tags:production deleted:false' \
+  --sort=-modified_at
+
+# Search notebook names and cell contents.
+pup notebooks search \
+  --query 'deployment rollback' \
+  --filter 'author.handle:user@example.com' \
+  --limit 50
+
+# Read and mutate complete notebooks with JSON files.
+pup notebooks get 12345
+pup notebooks create --file notebook.json
+pup notebooks update 12345 --file notebook.json
+pup notebooks edit 12345 --file cells.json
+pup notebooks delete 12345
+```
+
+`search` accepts these discovery options, with or without `--query`:
+
+- `--filter FIELD:VALUE` — supported fields are `author.handle`, `author`,
+  `type`, `tags`, `metadata.has_computational_cells`, `modified_from`,
+  `modified_to`, `id`, `dataset_id`, `experience_type`, `deleted`, and
+  `show_favorites`.
+- `--sort FIELD` — `name`, `created_at`, `modified_at`, `deleted_at`, or
+  `favorited_by`; prefix with `-` for descending order. The default is `name`.
+- `--limit COUNT` — return at most this many matches (default 20, maximum
+  1000). Pup requests the requested result count from the backend.
+
+Discovery responses preserve the backend `{data, meta}` shape and add
+`meta.returned` and `meta.truncated`. `meta.total` is the backend's full match
+count even when Pup stops at the requested limit. Search results include the
+backend highlights showing where query text matched.
+
+### Widget schemas
+
+```bash
+# List the widget types a surface supports.
+pup widgets types --surface notebooks
+
+# Full TypeScript schema for a widget type.
+pup widgets schema toplist --surface notebooks
+
+# Narrow the query variants to one data source or product family.
+pup widgets schema toplist --surface notebooks --data-source metrics
+
+# Fetch only part of the schema (repeatable).
+pup widgets schema toplist --surface notebooks --data-source metrics --section root
+pup widgets schema toplist --surface notebooks --data-source metrics --section request
+pup widgets schema toplist --surface notebooks --data-source metrics --section presentation
+```
+
+`--section` trades completeness for payload size, which matters when the schema
+is being fed to an agent with a context budget. Values:
+
+- `root` — the widget definition and its `type` discriminator.
+- `request` — request, query, formula, and sort types. Implies `root`, because a
+  request type is unusable without the definition that contains it.
+- `presentation` — style, palette, number format, time span, and custom link
+  types.
+- `local-dataset` — the notebook local-dataset request types.
+- `all` — everything. This is the default when `--section` is not passed, so the
+  output is unchanged for existing callers.
+
+Omissions are never silent. Every section left out is reported twice: as a
+comment appended to the `schema` string, and as an entry in `omitted_sections`.
+
+```
+// omitted: presentation (37 types, 6638 bytes) -> --section presentation
+```
+
+The JSON payload also carries `sections` (what you got) and `root_types`. For
+`toplist --surface notebooks --data-source metrics`, `--section root` is 699
+bytes of schema against 11,861 for the full set, and `--section request` is
+3,744.
+
 ## Domain Categories
 
 ### Data & Observability
@@ -156,7 +237,7 @@ pup infrastructure hosts list
 - **dashboards** - Dashboard management (list, get, delete, url)
 - **slos** - Service Level Objectives (list, get, delete, status)
 - **synthetics** - Synthetic monitoring (tests, locations, suites, downtime)
-- **notebooks** - Investigation notebooks (list, get, delete)
+- **notebooks** - Investigation notebooks (filtered and content search, get, create, update, append cells, delete)
 - **downtime** - Monitor downtime (list, get, cancel)
 - **status-pages** - Status pages with components and degradations
 

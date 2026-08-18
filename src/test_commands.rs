@@ -9,6 +9,59 @@
 use clap::CommandFactory;
 
 // -------------------------------------------------------------------------
+// Notebook discovery
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_notebooks_search_parses_without_query() {
+    use clap::Parser;
+
+    let cli =
+        crate::Cli::try_parse_from(["pup", "notebooks", "search", "--filter", "tags:production"])
+            .expect("notebooks search should not require --query");
+
+    let crate::Commands::Notebooks { action } = cli.command else {
+        panic!("expected Commands::Notebooks");
+    };
+    let crate::NotebookActions::Search { query, options } = action else {
+        panic!("expected NotebookActions::Search");
+    };
+    assert_eq!(query, None);
+    assert_eq!(options.filters, ["tags:production"]);
+    assert_eq!(options.limit, 20);
+}
+
+#[test]
+fn test_notebooks_list_is_a_hidden_search_alias() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "notebooks", "list"])
+        .expect("notebooks list should remain a compatibility alias");
+
+    let crate::Commands::Notebooks { action } = cli.command else {
+        panic!("expected Commands::Notebooks");
+    };
+    let crate::NotebookActions::Search { query, options } = action else {
+        panic!("expected the list alias to resolve to NotebookActions::Search");
+    };
+    assert_eq!(query, None);
+    assert!(options.filters.is_empty());
+    assert_eq!(options.sort, "name");
+    assert_eq!(options.limit, 20);
+
+    let help = crate::Cli::command()
+        .find_subcommand("notebooks")
+        .expect("notebooks command should exist")
+        .clone()
+        .render_long_help()
+        .to_string();
+    assert!(
+        !help.contains("list"),
+        "hidden alias leaked into help: {help}"
+    );
+}
+
+// -------------------------------------------------------------------------
 // Read-only mode
 // -------------------------------------------------------------------------
 
@@ -1208,8 +1261,152 @@ fn test_dashboards_widgets_schema_parses() {
 }
 
 // -------------------------------------------------------------------------
-// Top-level saved widgets (pup saved-widgets *)
+// Surface-neutral widget reference (pup widgets *)
 // -------------------------------------------------------------------------
+
+#[test]
+fn test_widgets_types_requires_surface() {
+    let result = crate::Cli::command().try_get_matches_from(["pup", "widgets", "types"]);
+    assert!(result.is_err(), "widgets types must require --surface");
+}
+
+#[test]
+fn test_widgets_types_parses_notebook_surface() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "widgets", "types", "--surface", "notebook"])
+        .expect("widgets types should parse");
+
+    let crate::Commands::Widgets { action } = cli.command else {
+        panic!("expected Commands::Widgets");
+    };
+    let crate::WidgetActions::Types { surface } = action else {
+        panic!("expected WidgetActions::Types");
+    };
+    assert_eq!(surface, crate::commands::widgets::WidgetSurface::Notebook);
+}
+
+#[test]
+fn test_widgets_schema_accepts_plural_notebooks_surface() {
+    use clap::Parser;
+
+    crate::Cli::try_parse_from([
+        "pup",
+        "widgets",
+        "schema",
+        "timeseries",
+        "--surface",
+        "notebooks",
+        "--data-source",
+        "metrics",
+    ])
+    .expect("widgets schema should accept the user-facing plural surface name");
+}
+
+#[test]
+fn test_widgets_schema_parses_data_source() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "widgets",
+        "schema",
+        "timeseries",
+        "--surface",
+        "dashboard",
+        "--data-source",
+        "metrics",
+    ])
+    .expect("widgets schema should parse");
+
+    let crate::Commands::Widgets { action } = cli.command else {
+        panic!("expected Commands::Widgets");
+    };
+    let crate::WidgetActions::Schema {
+        r#type,
+        surface,
+        data_source,
+        section,
+    } = action
+    else {
+        panic!("expected WidgetActions::Schema");
+    };
+    assert_eq!(r#type, "timeseries");
+    assert_eq!(surface, crate::commands::widgets::WidgetSurface::Dashboard);
+    assert_eq!(data_source.as_deref(), Some("metrics"));
+    assert!(section.is_empty());
+}
+
+#[test]
+fn widgets_schema_parses_repeated_section_flag() {
+    use crate::commands::widgets::SchemaSection;
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "widgets",
+        "schema",
+        "toplist",
+        "--surface",
+        "notebooks",
+        "--section",
+        "root",
+        "--section",
+        "local-dataset",
+    ])
+    .expect("widgets schema should parse repeated --section");
+
+    let crate::Commands::Widgets { action } = cli.command else {
+        panic!("expected Commands::Widgets");
+    };
+    let crate::WidgetActions::Schema { section, .. } = action else {
+        panic!("expected WidgetActions::Schema");
+    };
+    assert_eq!(
+        section,
+        vec![SchemaSection::Root, SchemaSection::LocalDataset]
+    );
+
+    assert!(crate::Cli::try_parse_from([
+        "pup",
+        "widgets",
+        "schema",
+        "toplist",
+        "--surface",
+        "notebooks",
+        "--section",
+        "styles",
+    ])
+    .is_err());
+}
+
+// -------------------------------------------------------------------------
+// Top-level saved widgets (pup widgets *)
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_saved_widgets_is_a_hidden_widgets_alias() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "saved-widgets",
+        "get",
+        "ccm_reports",
+        "uuid-here-123",
+    ])
+    .expect("saved-widgets should remain a compatibility alias");
+
+    assert!(matches!(cli.command, crate::Commands::Widgets { .. }));
+
+    let help = crate::Cli::command().render_long_help().to_string();
+    assert!(
+        !help
+            .lines()
+            .any(|line| line.trim_start().starts_with("saved-widgets")),
+        "hidden alias leaked into help"
+    );
+}
 
 #[test]
 fn test_saved_widgets_list_parses() {
@@ -1217,16 +1414,16 @@ fn test_saved_widgets_list_parses() {
 
     let cli = crate::Cli::try_parse_from([
         "pup",
-        "saved-widgets",
+        "widgets",
         "list",
         "logs_reports",
         "--page-size",
         "10",
     ])
-    .expect("pup saved-widgets list should parse");
+    .expect("pup widgets list should parse");
 
     match cli.command {
-        crate::Commands::SavedWidgets { action } => match action {
+        crate::Commands::Widgets { action } => match action {
             crate::WidgetActions::List {
                 experience_type,
                 page_size,
@@ -1237,7 +1434,7 @@ fn test_saved_widgets_list_parses() {
             }
             _ => panic!("expected WidgetActions::List"),
         },
-        _ => panic!("expected Commands::SavedWidgets"),
+        _ => panic!("expected Commands::Widgets"),
     }
 }
 
@@ -1245,17 +1442,11 @@ fn test_saved_widgets_list_parses() {
 fn test_saved_widgets_get_parses() {
     use clap::Parser;
 
-    let cli = crate::Cli::try_parse_from([
-        "pup",
-        "saved-widgets",
-        "get",
-        "ccm_reports",
-        "uuid-here-123",
-    ])
-    .expect("pup saved-widgets get should parse");
+    let cli = crate::Cli::try_parse_from(["pup", "widgets", "get", "ccm_reports", "uuid-here-123"])
+        .expect("pup widgets get should parse");
 
     match cli.command {
-        crate::Commands::SavedWidgets { action } => match action {
+        crate::Commands::Widgets { action } => match action {
             crate::WidgetActions::Get {
                 experience_type,
                 widget_id,
@@ -1265,6 +1456,6 @@ fn test_saved_widgets_get_parses() {
             }
             _ => panic!("expected WidgetActions::Get"),
         },
-        _ => panic!("expected Commands::SavedWidgets"),
+        _ => panic!("expected Commands::Widgets"),
     }
 }

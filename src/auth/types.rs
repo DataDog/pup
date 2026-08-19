@@ -89,6 +89,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "rum_apps_read",
         "rum_retention_filters_read",
         "rum_session_replay_read",
+        "security_monitoring_cws_agent_rules_read",
         "security_monitoring_filters_read",
         "security_monitoring_findings_read",
         "security_monitoring_rules_read",
@@ -98,6 +99,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "synthetics_read",
         "synthetics_private_location_read",
         "teams_read",
+        "telemetry_rules_read",
         "timeseries_query",
         "usage_read",
         "user_access_read",
@@ -138,6 +140,8 @@ pub fn default_scopes() -> Vec<&'static str> {
         "ci_visibility_read",
         "code_coverage_read",
         // Cloud Cost Management
+        "ccm_budget_write",
+        "ccm_forecast_write",
         "cloud_cost_management_read",
         "cloud_cost_management_write",
         "dora_metrics_read",
@@ -201,6 +205,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "logs_write_pipelines",
         "saved_views_write",
         // Metrics
+        "metrics_metadata_write",
         "metrics_read",
         // Monitors
         "monitors_read",
@@ -234,6 +239,8 @@ pub fn default_scopes() -> Vec<&'static str> {
         "rum_retention_filters_write",
         "rum_session_replay_read",
         // Security
+        "security_monitoring_cws_agent_rules_read",
+        "security_monitoring_cws_agent_rules_write",
         "security_monitoring_filters_read",
         "security_monitoring_filters_write",
         "security_monitoring_findings_read",
@@ -249,9 +256,13 @@ pub fn default_scopes() -> Vec<&'static str> {
         "status_pages_settings_read",
         "status_pages_settings_write",
         // Synthetics
+        "synthetics_default_settings_write",
         "synthetics_read",
         "synthetics_write",
         "synthetics_private_location_read",
+        // Tag Policies
+        "telemetry_rules_create",
+        "telemetry_rules_read",
         // Teams
         "teams_manage",
         "teams_read",
@@ -349,6 +360,15 @@ mod tests {
         assert!(scopes.contains(&"saved_views_write"));
         // APM trace metrics
         assert!(scopes.contains(&"apm_generate_metrics"));
+        // Batch 3 additions
+        assert!(scopes.contains(&"synthetics_default_settings_write"));
+        assert!(scopes.contains(&"ccm_budget_write"));
+        assert!(scopes.contains(&"ccm_forecast_write"));
+        assert!(scopes.contains(&"metrics_metadata_write"));
+        assert!(scopes.contains(&"security_monitoring_cws_agent_rules_read"));
+        assert!(scopes.contains(&"security_monitoring_cws_agent_rules_write"));
+        assert!(scopes.contains(&"telemetry_rules_read"));
+        assert!(scopes.contains(&"telemetry_rules_create"));
     }
 
     #[test]
@@ -399,6 +419,13 @@ mod tests {
         assert!(!ro.contains(&"teams_manage"));
         assert!(!ro.contains(&"monitors_write"));
         assert!(!ro.contains(&"logs_write_pipelines"));
+        assert!(!ro.contains(&"ccm_budget_write"));
+        assert!(!ro.contains(&"ccm_forecast_write"));
+        assert!(!ro.contains(&"synthetics_default_settings_write"));
+        assert!(!ro.contains(&"security_monitoring_cws_agent_rules_write"));
+        assert!(!ro.contains(&"telemetry_rules_create"));
+        assert!(ro.contains(&"security_monitoring_cws_agent_rules_read"));
+        assert!(ro.contains(&"telemetry_rules_read"));
         // connections_read is a ReadOnly-tier permission; connections_write
         // is intentionally opt-in (see --extra-scopes) and must not appear.
         assert!(ro.contains(&"connections_read"));

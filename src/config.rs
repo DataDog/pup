@@ -359,18 +359,6 @@ impl Config {
         Ok(())
     }
 
-    /// Validate that both DD_API_KEY and DD_APP_KEY are configured.
-    /// Used for endpoints that require API key auth and do not accept OAuth2 tokens.
-    pub fn validate_api_and_app_keys(&self) -> Result<()> {
-        if self.api_key.is_none() || self.app_key.is_none() {
-            bail!(
-                "this command requires both DD_API_KEY and DD_APP_KEY — \
-                 OAuth2 bearer tokens are not supported here"
-            );
-        }
-        Ok(())
-    }
-
     /// Validate that DD_API_KEY is configured for API-key-only endpoints.
     pub fn validate_api_key_only(&self) -> Result<()> {
         if self.api_key.is_none() {
@@ -970,24 +958,6 @@ mod tests {
         assert_eq!(OutputFormat::Yaml.to_string(), "yaml");
         assert_eq!(OutputFormat::Csv.to_string(), "csv");
         assert_eq!(OutputFormat::Tsv.to_string(), "tsv");
-    }
-
-    #[test]
-    fn test_validate_api_and_app_keys_ok() {
-        let cfg = make_cfg(Some("key"), Some("app"), None);
-        assert!(cfg.validate_api_and_app_keys().is_ok());
-    }
-
-    #[test]
-    fn test_validate_api_and_app_keys_bearer_only_fails() {
-        let cfg = make_cfg(None, None, Some("token"));
-        assert!(cfg.validate_api_and_app_keys().is_err());
-    }
-
-    #[test]
-    fn test_validate_api_and_app_keys_missing_app_key_fails() {
-        let cfg = make_cfg(Some("key"), None, None);
-        assert!(cfg.validate_api_and_app_keys().is_err());
     }
 
     #[test]

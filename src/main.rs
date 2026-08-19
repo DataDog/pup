@@ -290,6 +290,9 @@ enum Commands {
     /// AUTHENTICATION:
     ///   Requires OAuth2 (via 'pup auth login') or a valid API key + Application key
     ///   combination. Note: You cannot use an API key to delete itself.
+    ///   OAuth2 requires the api_keys_read/api_keys_write/api_keys_delete scopes,
+    ///   which are not requested by default -- opt in with:
+    ///     pup auth login --extra-scopes api_keys_read,api_keys_write,api_keys_delete
     #[command(name = "api-keys", verbatim_doc_comment)]
     ApiKeys {
         #[command(subcommand)]
@@ -405,7 +408,7 @@ enum Commands {
     ///   # List your application keys
     ///   pup app-keys list
     ///
-    ///   # List all application keys in the org (requires API keys)
+    ///   # List all application keys in the org
     ///   pup app-keys list --all
     ///
     ///   # Get application key details
@@ -425,8 +428,11 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Most commands use the current_user endpoints and support OAuth2 (via
-    ///   'pup auth login'). The 'list --all' command uses the org-wide endpoint
-    ///   and requires API + Application keys (DD_API_KEY + DD_APP_KEY).
+    ///   'pup auth login'), gated by the user_app_keys scope. The 'list --all'
+    ///   command uses the org-wide endpoint (also OAuth2-capable, gated by
+    ///   org_app_keys_read/org_app_keys_write). None of these scopes are
+    ///   requested by default -- opt in with:
+    ///     pup auth login --extra-scopes user_app_keys,org_app_keys_read,org_app_keys_write
     #[command(name = "app-keys", verbatim_doc_comment)]
     AppKeys {
         #[command(subcommand)]
@@ -2182,6 +2188,10 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication or API keys with org management permissions.
+    ///   The policies/policy-overrides/policy-configs subcommands require the
+    ///   org_group_read (read) and org_group_write (write) scopes, which are
+    ///   not requested by default -- opt in with:
+    ///     pup auth login --extra-scopes org_group_read,org_group_write
     #[command(verbatim_doc_comment)]
     Organizations {
         #[command(subcommand)]
@@ -2899,6 +2909,10 @@ enum Commands {
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication or API keys.
+    ///   list/get/roles-list work with default OAuth scopes. service-accounts
+    ///   (create and app-keys) require the service_account_write scope, which
+    ///   is not requested by default -- opt in with:
+    ///     pup auth login --extra-scopes service_account_write
     #[command(verbatim_doc_comment)]
     Users {
         #[command(subcommand)]
@@ -14424,7 +14438,6 @@ async fn main_inner() -> anyhow::Result<()> {
                     all,
                 } => {
                     if all {
-                        cfg.validate_api_and_app_keys()?;
                         commands::app_keys::list_all(&cfg, page_size, page_number, &filter, &sort)
                             .await?
                     } else {

@@ -151,7 +151,7 @@ The examples above hand-roll HTTP and auth. You usually don't need to. Because p
 
 ### Make authenticated API calls with `pup api`
 
-`pup api <ENDPOINT>` reuses pup's full auth handler: it chooses OAuth bearer vs. API-key auth, applies the per-endpoint fallback for endpoints that don't accept OAuth (e.g. `/api/v2/api_keys`, fleet, cost), sets the branded User-Agent, and resolves the site. The extension already has a fresh `DD_ACCESS_TOKEN` (or the `DD_API_KEY`/`DD_APP_KEY` pair) in its environment, so these calls are authenticated automatically.
+`pup api <ENDPOINT>` reuses pup's full auth handler: it chooses OAuth bearer vs. API-key auth, applies the per-endpoint fallback for endpoints that don't accept OAuth, sets the branded User-Agent, and resolves the site. The extension already has a fresh `DD_ACCESS_TOKEN` (or the `DD_API_KEY`/`DD_APP_KEY` pair) in its environment, so these calls are authenticated automatically.
 
 ```bash
 #!/bin/bash

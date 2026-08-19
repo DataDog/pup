@@ -120,39 +120,6 @@ fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static Endpoi
 /// Endpoints that don't support OAuth.
 /// Trailing "/" means prefix match for ID-parameterized paths.
 static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
-    // API/App Keys (8)
-    EndpointRequirement {
-        path: "/api/v2/api_keys",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/api_keys/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/api_keys",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/api_keys/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys/",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys/",
-        method: "PATCH",
-    },
     // DDSQL editor tools (3)
     EndpointRequirement {
         path: "/api/unstable/ddsql-editor/tools/ddsql-docs",
@@ -165,10 +132,6 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
     EndpointRequirement {
         path: "/api/unstable/ddsql-editor/tools/table-data",
         method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/application_keys/",
-        method: "DELETE",
     },
     // Fleet Automation (15)
     EndpointRequirement {
@@ -857,10 +820,6 @@ mod tests {
     fn test_prefix_matching_with_id() {
         // Trailing "/" in the pattern should match paths with IDs
         assert!(requires_api_key_fallback(
-            "DELETE",
-            "/api/v2/api_keys/key-123"
-        ));
-        assert!(requires_api_key_fallback(
             "GET",
             "/api/v2/fleet/agents/agent-123"
         ));
@@ -877,7 +836,7 @@ mod tests {
 
     #[test]
     fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 55);
+        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 46);
     }
 
     #[test]
@@ -897,12 +856,28 @@ mod tests {
     }
 
     #[test]
-    fn test_requires_api_key_fallback_api_keys() {
-        assert!(requires_api_key_fallback("GET", "/api/v2/api_keys"));
-        assert!(requires_api_key_fallback("POST", "/api/v2/api_keys"));
-        assert!(requires_api_key_fallback(
+    fn test_no_fallback_for_api_keys() {
+        // /api/v2/api_keys and /api/v2/application_keys already accept OAuth
+        // server-side (DAL-514); the raw/generic `pup api` passthrough should
+        // use the OAuth bearer like the typed api-keys/app-keys commands do,
+        // not force an API+Application key fallback.
+        assert!(!requires_api_key_fallback("GET", "/api/v2/api_keys"));
+        assert!(!requires_api_key_fallback("POST", "/api/v2/api_keys"));
+        assert!(!requires_api_key_fallback(
             "DELETE",
             "/api/v2/api_keys/key-123"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/application_keys"
+        ));
+        assert!(!requires_api_key_fallback(
+            "DELETE",
+            "/api/v2/application_keys/key-123"
+        ));
+        assert!(!requires_api_key_fallback(
+            "PATCH",
+            "/api/v2/application_keys/key-123"
         ));
     }
 
@@ -1041,12 +1016,16 @@ mod tests {
 
     #[test]
     fn test_other_oauth_excluded_endpoints_still_require_both_keys() {
+        // Uses Fleet Automation as a currently-still-excluded example. This is
+        // just today's state of OAUTH_EXCLUDED_ENDPOINTS, not a claim that Fleet
+        // (or anything else in the table) is meant to stay that way -- update
+        // this example if/when its entries get OAuth support and are removed.
         let mut cfg = test_cfg();
         cfg.app_key = None;
-        let req = reqwest::Client::new().post("https://api.datadoghq.com/api/v2/api_keys");
+        let req = reqwest::Client::new().get("https://api.datadoghq.com/api/v2/fleet/agents");
 
-        let err = match apply_auth(req, &cfg, "POST", "/api/v2/api_keys") {
-            Ok(_) => panic!("API key management should require both keys"),
+        let err = match apply_auth(req, &cfg, "GET", "/api/v2/fleet/agents") {
+            Ok(_) => panic!("Fleet Automation should require both keys"),
             Err(err) => err,
         };
         assert!(err.to_string().contains("DD_API_KEY and DD_APP_KEY"));

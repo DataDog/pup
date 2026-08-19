@@ -2065,15 +2065,22 @@ enum Commands {
     /// investigations, share findings, and create runbooks.
     ///
     /// CAPABILITIES:
-    ///   • List notebooks
+    ///   • Search notebooks with optional text, structured filters, sorting, and bounded results
+    ///   • Search notebook names and cell contents
     ///   • Get notebook details
     ///   • Create new notebooks
-    ///   • Update notebooks
+    ///   • Replace notebooks or append cells
     ///   • Delete notebooks
     ///
     /// EXAMPLES:
-    ///   # List all notebooks
-    ///   pup notebooks list
+    ///   # Find all notebooks
+    ///   pup notebooks search
+    ///
+    ///   # Find filtered notebooks, newest first
+    ///   pup notebooks search --filter "tags:production deleted:false" --sort=-modified_at
+    ///
+    ///   # Search notebook names and cell contents
+    ///   pup notebooks search --query "deployment rollback" --limit 50
     ///
     ///   # Get notebook details
     ///   pup notebooks get notebook-id
@@ -6397,10 +6404,36 @@ enum UsageActions {
 }
 
 // ---- Notebooks ----
+#[derive(clap::Args)]
+struct NotebookDiscoveryOptions {
+    /// Filter results using FIELD:VALUE. Repeat the flag or separate filters with spaces.
+    ///
+    /// Supported fields: author.handle, author, type, tags,
+    /// metadata.has_computational_cells, modified_from, modified_to, id,
+    /// dataset_id, experience_type, deleted, and show_favorites.
+    #[arg(long = "filter", value_name = "FIELD:VALUE")]
+    filters: Vec<String>,
+    /// Sort field. Prefix with '-' for descending order.
+    ///
+    /// Supported fields: name, created_at, modified_at, deleted_at, and favorited_by.
+    #[arg(long, default_value = "name", value_name = "FIELD")]
+    sort: String,
+    /// Maximum number of results to return (default 20, maximum 1000)
+    #[arg(long, default_value_t = 20, value_name = "COUNT")]
+    limit: usize,
+}
+
 #[derive(Subcommand)]
 enum NotebookActions {
-    /// List notebooks
-    List,
+    /// Search notebooks by optional text and structured filters
+    #[command(alias = "list")]
+    Search {
+        /// Optional text to find in notebook names or cell contents
+        #[arg(long, value_name = "TEXT")]
+        query: Option<String>,
+        #[command(flatten)]
+        options: NotebookDiscoveryOptions,
+    },
     /// Get notebook details
     Get { notebook_id: i64 },
     /// Create a new notebook
@@ -14446,7 +14479,16 @@ async fn main_inner() -> anyhow::Result<()> {
             cfg.validate_auth()?;
             match action {
                 NotebookActions::Annotations { action } => run_annotations(&cfg, action).await?,
-                NotebookActions::List => commands::notebooks::list(&cfg).await?,
+                NotebookActions::Search { query, options } => {
+                    commands::notebooks::search(
+                        &cfg,
+                        query.as_deref(),
+                        &options.filters,
+                        &options.sort,
+                        options.limit,
+                    )
+                    .await?;
+                }
                 NotebookActions::Get { notebook_id } => {
                     commands::notebooks::get(&cfg, notebook_id).await?;
                 }

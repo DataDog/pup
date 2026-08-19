@@ -430,9 +430,9 @@ enum Commands {
     ///   Most commands use the current_user endpoints and support OAuth2 (via
     ///   'pup auth login'), gated by the user_app_keys scope. The 'list --all'
     ///   command uses the org-wide endpoint (also OAuth2-capable, gated by
-    ///   org_app_keys_read/org_app_keys_write). None of these scopes are
-    ///   requested by default -- opt in with:
-    ///     pup auth login --extra-scopes user_app_keys,org_app_keys_read,org_app_keys_write
+    ///   org_app_keys_read -- this command only lists, so org_app_keys_write
+    ///   is not needed). Neither scope is requested by default -- opt in with:
+    ///     pup auth login --extra-scopes user_app_keys,org_app_keys_read
     #[command(name = "app-keys", verbatim_doc_comment)]
     AppKeys {
         #[command(subcommand)]

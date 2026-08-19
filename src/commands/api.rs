@@ -718,12 +718,9 @@ mod tests {
     /// auth even when a bearer token is present. This exercises the reuse of
     /// raw_client::apply_auth's per-endpoint fallback table.
     ///
-    /// Note: GET /api/v2/api_keys used to be the example endpoint here, but it
-    /// (and /api/v2/application_keys) now accept OAuth server-side (DAL-514) and
-    /// were removed from the fallback table -- see raw_client's
-    /// test_no_fallback_for_api_keys. Fleet Automation is just today's example
-    /// of a still-excluded endpoint, not a claim it's meant to stay that way --
-    /// update this test if/when Fleet gets OAuth support too.
+    /// Fleet Automation is just today's example of a still-excluded endpoint,
+    /// not a claim it's meant to stay that way -- update this test if/when
+    /// Fleet gets OAuth support too.
     #[tokio::test]
     async fn test_api_oauth_excluded_uses_api_keys() {
         let _lock = lock_env().await;

@@ -6339,11 +6339,11 @@ enum AppKeyActions {
             help = "Sort field (name, -name, created_at, -created_at)"
         )]
         sort: String,
-        /// List all org keys (requires API keys, not OAuth)
+        /// List all org keys (OAuth requires the org_app_keys_read scope; see --extra-scopes)
         #[arg(
             long,
             default_value_t = false,
-            help = "List all org keys (requires API keys, not OAuth)"
+            help = "List all org keys (OAuth requires the org_app_keys_read scope; see --extra-scopes)"
         )]
         all: bool,
     },

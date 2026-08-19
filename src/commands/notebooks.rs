@@ -11,7 +11,6 @@ use crate::util_ext;
 
 const SEARCH_PATH: &str = "/api/v2/notebooks/search";
 const MAX_RESULTS: usize = 1000;
-const RATE_LIMIT_RETRIES: u32 = 3;
 
 fn compact_validation_details(content: &str) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(content).ok()?;
@@ -48,30 +47,6 @@ fn notebook_api_error<T: std::fmt::Debug>(
             )
         }
         other => anyhow::anyhow!("failed to {operation} notebook: {other}"),
-    }
-}
-
-fn is_rate_limited(error: &anyhow::Error) -> bool {
-    error
-        .downcast_ref::<raw_client::HttpError>()
-        .is_some_and(|error| error.status == 429)
-}
-
-async fn get_search_page(cfg: &Config, params: &[(&str, &str)]) -> Result<serde_json::Value> {
-    let mut retry = 0;
-    loop {
-        match raw_client::raw_get(cfg, SEARCH_PATH, params).await {
-            Ok(response) => return Ok(response),
-            Err(error) if is_rate_limited(&error) && retry < RATE_LIMIT_RETRIES => {
-                let delay = 10 * 2_u64.pow(retry);
-                retry += 1;
-                eprintln!(
-                    "Notebook search was rate limited; retrying in {delay}s ({retry}/{RATE_LIMIT_RETRIES})"
-                );
-                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-            }
-            Err(error) => return Err(anyhow::anyhow!("failed to search notebooks: {error}")),
-        }
     }
 }
 
@@ -120,7 +95,9 @@ async fn discover(
             .map(|(field, value)| (field.as_str(), value.as_str())),
     );
 
-    let response = get_search_page(cfg, &params).await?;
+    let response = raw_client::raw_get(cfg, SEARCH_PATH, &params)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to search notebooks: {error}"))?;
     let page_data = response
         .get("data")
         .and_then(serde_json::Value::as_array)
@@ -486,17 +463,5 @@ mod tests {
             filters,
             vec![("filter[tags]".into(), "pup-eval:abc".into())]
         );
-    }
-
-    #[test]
-    fn test_is_rate_limited_only_matches_http_429() {
-        let error = anyhow::Error::new(crate::raw_client::HttpError {
-            status: 429,
-            method: "GET".into(),
-            url: "https://example.test".into(),
-            body: "rate limited".into(),
-        });
-        assert!(super::is_rate_limited(&error));
-        assert!(!super::is_rate_limited(&anyhow::anyhow!("other error")));
     }
 }

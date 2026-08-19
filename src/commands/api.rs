@@ -191,12 +191,26 @@ pub async fn run(
         );
     }
 
-    req = req
-        .header("User-Agent", useragent::get())
-        .header("Accept", "application/json");
+    // Parse -H first: reqwest's `header()` appends rather than replaces, so a
+    // default set before the user's flag would leave both values on the request.
+    let user_headers = headers
+        .iter()
+        .map(|h| parse_header_str(h))
+        .collect::<Result<Vec<_>>>()?;
+    let user_supplied = |name: &str| {
+        user_headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case(name))
+    };
 
-    for h in headers {
-        let (k, v) = parse_header_str(h)?;
+    // User-Agent is deliberately not overridable: Datadog audit logs attribute
+    // writes by it, so letting a caller forge it would misattribute their actions.
+    req = req.header("User-Agent", useragent::get());
+    if !user_supplied("Accept") {
+        req = req.header("Accept", "application/json");
+    }
+
+    for (k, v) in &user_headers {
         req = req.header(k, v);
     }
 
@@ -211,7 +225,10 @@ pub async fn run(
     }
 
     if let Some(b) = body {
-        req = req.header("Content-Type", "application/json").body(b);
+        if !user_supplied("Content-Type") {
+            req = req.header("Content-Type", "application/json");
+        }
+        req = req.body(b);
     }
 
     if verbose {
@@ -282,6 +299,145 @@ mod tests {
             false,
         )
         .await
+    }
+
+    #[tokio::test]
+    async fn test_header_flag_overrides_default_accept() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/v2/thing")
+            .match_header("accept", "text/markdown")
+            .with_status(200)
+            .with_header("content-type", "text/markdown")
+            .with_body("## hi")
+            .create_async()
+            .await;
+
+        let result = super::run(
+            &cfg,
+            "/api/v2/thing",
+            "GET",
+            &["Accept: text/markdown".to_string()],
+            &[],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+
+        assert!(result.is_ok(), "request failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_header_flag_overrides_default_content_type() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/v2/thing")
+            .match_header("content-type", "text/markdown")
+            .with_status(201)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"ok":true}"#)
+            .create_async()
+            .await;
+
+        let path = write_temp_json("pup_api_markdown_body.md", "## hi");
+        let result = super::run(
+            &cfg,
+            "/api/v2/thing",
+            "POST",
+            &["Content-Type: text/markdown".to_string()],
+            &[],
+            &[],
+            Some(path.to_str().unwrap()),
+            false,
+            true,
+            false,
+        )
+        .await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok(), "request failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_header_flag_override_is_case_insensitive() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/v2/thing")
+            .match_header("accept", "text/markdown")
+            .match_header("content-type", "text/markdown")
+            .with_status(200)
+            .with_body("ok")
+            .create_async()
+            .await;
+
+        let path = write_temp_json("pup_api_mixed_case_headers.md", "## hi");
+        let result = super::run(
+            &cfg,
+            "/api/v2/thing",
+            "POST",
+            &[
+                "aCcEpT: text/markdown".to_string(),
+                "cOnTeNt-TyPe: text/markdown".to_string(),
+            ],
+            &[],
+            &[],
+            Some(path.to_str().unwrap()),
+            false,
+            true,
+            false,
+        )
+        .await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok(), "request failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_json_defaults_apply_when_no_header_flags() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/v2/thing")
+            .match_header("accept", "application/json")
+            .match_header("content-type", "application/json")
+            .with_status(200)
+            .with_body(r#"{"ok":true}"#)
+            .create_async()
+            .await;
+
+        let result = super::run(
+            &cfg,
+            "/api/v2/thing",
+            "POST",
+            &[],
+            &["a=b".to_string()],
+            &[],
+            None,
+            false,
+            true,
+            false,
+        )
+        .await;
+
+        assert!(result.is_ok(), "request failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
     }
 
     #[test]

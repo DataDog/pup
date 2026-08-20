@@ -12,6 +12,123 @@ use crate::util_ext;
 const SEARCH_PATH: &str = "/api/v2/notebooks/search";
 const MAX_RESULTS: usize = 1000;
 
+// Not yet promoted to /api/v2, so the path and response contract may change.
+const MARKDOWN_BASE: &str = "/api/unstable/notebooks";
+const MARKDOWN_MEDIA_TYPE: &str = "text/markdown";
+const JSONAPI_MEDIA_TYPE: &str = "application/vnd.api+json";
+
+async fn markdown_request(
+    cfg: &Config,
+    method: &str,
+    path: &str,
+    body: Option<String>,
+    accept: &str,
+) -> Result<raw_client::HttpResponse> {
+    let content_type = body.is_some().then_some(MARKDOWN_MEDIA_TYPE);
+    let body_bytes = body.map(String::into_bytes);
+    raw_client::raw_request(
+        cfg,
+        method,
+        path,
+        &[],
+        body_bytes,
+        content_type,
+        accept,
+        &[],
+    )
+    .await
+    .map_err(|error| translate_markdown_error(error, method))
+}
+
+fn translate_markdown_error(error: anyhow::Error, method: &str) -> anyhow::Error {
+    // Keyed on the detail string, not the status: seen as both 500 and 502.
+    if !error
+        .to_string()
+        .contains("Unable to render the notebook as Markdown")
+    {
+        return error;
+    }
+    if method.eq_ignore_ascii_case("GET") {
+        return error.context(
+            "this notebook has no Markdown representation \
+             (notebooks created through the older cells API cannot be projected); \
+             use the JSON form of this command instead",
+        );
+    }
+    // The render runs after the mutation, so this does not prove the write failed.
+    error.context(
+        "the notebook could not be rendered as Markdown after the write, \
+         so it is unknown whether the change was applied; \
+         check the notebook before retrying, and use the JSON form of this command for it",
+    )
+}
+
+fn media_type_of(content_type: &str) -> String {
+    content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn applied_write_context(error: anyhow::Error, operation: &str) -> anyhow::Error {
+    error.context(format!(
+        "the {operation} was accepted but its response could not be read, \
+         so the notebook has probably changed; check it before retrying"
+    ))
+}
+
+fn created_notebook_id(resp: raw_client::HttpResponse) -> Result<String> {
+    // JSON:API is negotiated because the Markdown projection carries no id.
+    let media_type = media_type_of(&resp.content_type);
+    if media_type != JSONAPI_MEDIA_TYPE && media_type != "application/json" {
+        anyhow::bail!(
+            "expected a JSON:API response but the server returned {:?}",
+            resp.content_type
+        );
+    }
+    let body: serde_json::Value = serde_json::from_slice(&resp.bytes)
+        .map_err(|e| anyhow::anyhow!("failed to parse the notebook create response: {e}"))?;
+    body.pointer("/data/id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| anyhow::anyhow!("notebook create response did not contain data.id"))
+}
+
+fn decode_markdown_response(resp: raw_client::HttpResponse) -> Result<String> {
+    if media_type_of(&resp.content_type) != MARKDOWN_MEDIA_TYPE {
+        anyhow::bail!(
+            "expected a Markdown response but the server returned {:?}",
+            resp.content_type
+        );
+    }
+    if resp.bytes.iter().all(u8::is_ascii_whitespace) {
+        anyhow::bail!("the server returned an empty Markdown document");
+    }
+    String::from_utf8(resp.bytes)
+        .map_err(|e| anyhow::anyhow!("notebook Markdown response was not valid UTF-8: {e}"))
+}
+
+fn read_markdown_file(file: &str) -> Result<String> {
+    // The endpoints take a JSON file verbatim as prose, so catch it here.
+    let content =
+        std::fs::read_to_string(file).map_err(|e| anyhow::anyhow!("failed to read {file}: {e}"))?;
+    // A byte-order mark would otherwise survive `trim` and hide the leading
+    // brace from the JSON check below.
+    let trimmed = content.trim_start_matches('\u{feff}').trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("{file} is empty");
+    }
+    // Bare scalars parse as JSON too, so require a leading brace or bracket
+    // before treating the file as a misrouted JSON document.
+    let looks_like_json = trimmed.starts_with('{') || trimmed.starts_with('[');
+    if looks_like_json && serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
+        anyhow::bail!("{file} contains JSON, not Markdown; drop --markdown to use the JSON API");
+    }
+    Ok(content)
+}
+
 fn compact_validation_details(content: &str) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(content).ok()?;
     let errors = parsed.get("errors")?.as_array()?;
@@ -154,7 +271,13 @@ pub async fn search(
     .await
 }
 
-pub async fn get(cfg: &Config, notebook_id: i64) -> Result<()> {
+pub async fn get(cfg: &Config, notebook_id: i64, markdown: bool) -> Result<()> {
+    if markdown {
+        let path = format!("{MARKDOWN_BASE}/{notebook_id}");
+        let resp = markdown_request(cfg, "GET", &path, None, MARKDOWN_MEDIA_TYPE).await?;
+        util_ext::print_text_document(&decode_markdown_response(resp)?);
+        return Ok(());
+    }
     let api = crate::make_api!(NotebooksAPI, cfg);
     let resp = api
         .get_notebook(notebook_id)
@@ -172,7 +295,20 @@ pub async fn delete(cfg: &Config, notebook_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn create(cfg: &Config, file: &str) -> Result<()> {
+pub async fn create(cfg: &Config, file: &str, markdown: bool) -> Result<()> {
+    if markdown {
+        let content = read_markdown_file(file)?;
+        let resp = markdown_request(
+            cfg,
+            "POST",
+            MARKDOWN_BASE,
+            Some(content),
+            JSONAPI_MEDIA_TYPE,
+        )
+        .await?;
+        println!("{}", created_notebook_id(resp)?);
+        return Ok(());
+    }
     let api = crate::make_api!(NotebooksAPI, cfg);
     let body: NotebookCreateRequest = util::read_json_file(file)?;
     let resp = api
@@ -182,7 +318,17 @@ pub async fn create(cfg: &Config, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
-pub async fn update(cfg: &Config, notebook_id: i64, file: &str) -> Result<()> {
+pub async fn update(cfg: &Config, notebook_id: i64, file: &str, markdown: bool) -> Result<()> {
+    if markdown {
+        let content = read_markdown_file(file)?;
+        let path = format!("{MARKDOWN_BASE}/{notebook_id}");
+        let resp =
+            markdown_request(cfg, "PATCH", &path, Some(content), MARKDOWN_MEDIA_TYPE).await?;
+        let document =
+            decode_markdown_response(resp).map_err(|e| applied_write_context(e, "update"))?;
+        util_ext::print_text_document(&document);
+        return Ok(());
+    }
     let api = crate::make_api!(NotebooksAPI, cfg);
     let body: NotebookUpdateRequest = util::read_json_file(file)?;
     let resp = api
@@ -220,7 +366,16 @@ pub async fn diff(
 
 /// Append-only update: fetches the current notebook, appends cells from
 /// `file` (an array of cell objects), then writes the full modified notebook back.
-pub async fn edit(cfg: &Config, notebook_id: i64, file: &str) -> Result<()> {
+pub async fn edit(cfg: &Config, notebook_id: i64, file: &str, markdown: bool) -> Result<()> {
+    if markdown {
+        let content = read_markdown_file(file)?;
+        let path = format!("{MARKDOWN_BASE}/{notebook_id}/content");
+        let resp = markdown_request(cfg, "POST", &path, Some(content), MARKDOWN_MEDIA_TYPE).await?;
+        let document =
+            decode_markdown_response(resp).map_err(|e| applied_write_context(e, "append"))?;
+        util_ext::print_text_document(&document);
+        return Ok(());
+    }
     let api = crate::make_api!(NotebooksAPI, cfg);
 
     // Fetch current notebook so we can append without clobbering existing cells.
@@ -266,6 +421,385 @@ pub async fn edit(cfg: &Config, notebook_id: i64, file: &str) -> Result<()> {
 mod tests {
     use crate::test_support::*;
     use mockito::Matcher;
+
+    fn markdown_response(content_type: &str, body: &str) -> super::raw_client::HttpResponse {
+        super::raw_client::HttpResponse {
+            content_type: content_type.to_string(),
+            bytes: body.as_bytes().to_vec(),
+        }
+    }
+
+    #[test]
+    fn test_decode_markdown_response_returns_body() {
+        let resp = markdown_response("text/markdown; charset=utf-8", "## hi\n");
+        assert_eq!(super::decode_markdown_response(resp).unwrap(), "## hi\n");
+    }
+
+    #[test]
+    fn test_decode_markdown_response_rejects_json() {
+        let resp = markdown_response("application/vnd.api+json", r#"{"data":{}}"#);
+        let err = super::decode_markdown_response(resp)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("expected a Markdown response"), "got: {err}");
+    }
+
+    #[test]
+    fn test_decode_markdown_response_rejects_empty_body() {
+        let resp = markdown_response("text/markdown", "  \n ");
+        let err = super::decode_markdown_response(resp)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("empty Markdown document"), "got: {err}");
+    }
+
+    #[test]
+    fn test_decode_markdown_response_rejects_absent_content_type() {
+        let resp = markdown_response("", "## hi");
+        let err = super::decode_markdown_response(resp)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("expected a Markdown response"), "got: {err}");
+    }
+
+    #[test]
+    fn test_translate_markdown_error_warns_write_outcome_is_unknown() {
+        for method in ["POST", "PATCH"] {
+            let raw = anyhow::anyhow!(
+                "{method} /api/unstable/notebooks/1 failed (HTTP 500): \
+                 Unable to render the notebook as Markdown."
+            );
+            let translated = super::translate_markdown_error(raw, method).to_string();
+            assert!(
+                translated.contains("unknown whether the change was applied"),
+                "{method} not warned: {translated}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_created_notebook_id_extracts_id() {
+        let resp = super::raw_client::HttpResponse {
+            content_type: "application/vnd.api+json".to_string(),
+            bytes: br###"{"data":{"id":"987654","attributes":{"markdown":"## created\n"}}}"###
+                .to_vec(),
+        };
+        assert_eq!(super::created_notebook_id(resp).unwrap(), "987654");
+    }
+
+    #[test]
+    fn test_applied_write_context_warns_the_change_may_have_landed() {
+        let wrapped = super::applied_write_context(anyhow::anyhow!("bad body"), "create");
+        assert!(
+            wrapped.to_string().contains("check it before retrying"),
+            "got: {wrapped}"
+        );
+        assert!(format!("{wrapped:#}").contains("bad body"), "source lost");
+    }
+
+    #[test]
+    fn test_created_notebook_id_rejects_neighbouring_json_media_type() {
+        let resp = markdown_response("text/json-garbage", r#"{"data":{"id":"1"}}"#);
+        let err = super::created_notebook_id(resp).unwrap_err().to_string();
+        assert!(err.contains("expected a JSON:API response"), "got: {err}");
+    }
+
+    #[test]
+    fn test_created_notebook_id_rejects_markdown_response() {
+        let resp = markdown_response("text/markdown", "## created\n");
+        let err = super::created_notebook_id(resp).unwrap_err().to_string();
+        assert!(err.contains("expected a JSON:API response"), "got: {err}");
+    }
+
+    #[test]
+    fn test_created_notebook_id_reports_missing_id() {
+        for (body, want) in [
+            (br#"{}"#.to_vec(), "did not contain data"),
+            (
+                br#"{"data":{"attributes":{"markdown":"x"}}}"#.to_vec(),
+                "data.id",
+            ),
+        ] {
+            let resp = super::raw_client::HttpResponse {
+                content_type: "application/vnd.api+json".to_string(),
+                bytes: body,
+            };
+            let err = super::created_notebook_id(resp).unwrap_err().to_string();
+            assert!(err.contains(want), "expected {want:?}, got: {err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_create_markdown_negotiates_jsonapi_for_the_id() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/unstable/notebooks")
+            .match_header("content-type", "text/markdown")
+            .match_header("accept", "application/vnd.api+json")
+            .match_body("## created\n")
+            .with_status(201)
+            .with_header("content-type", "application/vnd.api+json")
+            .with_body(r###"{"data":{"id":"987654","attributes":{"markdown":"## created\n"}}}"###)
+            .create_async()
+            .await;
+
+        let path = write_temp_json("pup_nb_create_id.md", "## created\n");
+        let result = super::create(&cfg, path.to_str().unwrap(), true).await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok(), "create failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_decode_markdown_response_rejects_neighbouring_media_type() {
+        let resp = markdown_response("text/markdown-json", "## hi");
+        let err = super::decode_markdown_response(resp)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("expected a Markdown response"), "got: {err}");
+    }
+
+    #[test]
+    fn test_read_markdown_file_rejects_bom_prefixed_json() {
+        let path = write_temp_json("pup_nb_bom_json.json", "\u{feff}{\"data\":{\"id\":\"1\"}}");
+        let err = super::read_markdown_file(path.to_str().unwrap())
+            .unwrap_err()
+            .to_string();
+        let _ = std::fs::remove_file(path);
+        assert!(err.contains("contains JSON, not Markdown"), "got: {err}");
+    }
+
+    #[test]
+    fn test_read_markdown_file_reports_missing_file() {
+        let err = super::read_markdown_file("/nonexistent/pup-nb-missing.md")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("failed to read"), "got: {err}");
+    }
+
+    #[test]
+    fn test_decode_markdown_response_accepts_uppercase_content_type() {
+        let resp = markdown_response("Text/Markdown; charset=utf-8", "## hi\n");
+        assert_eq!(super::decode_markdown_response(resp).unwrap(), "## hi\n");
+    }
+
+    #[test]
+    fn test_translate_markdown_error_preserves_original_on_chain() {
+        let raw = anyhow::anyhow!(
+            "GET /api/unstable/notebooks/1 failed (HTTP 500): \
+             Unable to render the notebook as Markdown."
+        );
+        let translated = super::translate_markdown_error(raw, "GET");
+        assert!(translated
+            .to_string()
+            .contains("no Markdown representation"));
+        let chain = format!("{translated:#}");
+        assert!(chain.contains("HTTP 500"), "source lost: {chain}");
+    }
+
+    #[test]
+    fn test_decode_markdown_response_rejects_invalid_utf8() {
+        let resp = super::raw_client::HttpResponse {
+            content_type: "text/markdown".to_string(),
+            bytes: vec![0xff, 0xfe],
+        };
+        let err = super::decode_markdown_response(resp)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not valid UTF-8"), "got: {err}");
+    }
+
+    #[test]
+    fn test_translate_markdown_error_explains_unprojectable_notebook() {
+        // The backend has returned this failure as both 500 and 502, so the
+        // translation must key on the detail string, not the status code.
+        for status in ["500", "502"] {
+            let raw = anyhow::anyhow!(
+                "GET https://api.datadoghq.com/api/unstable/notebooks/1 failed (HTTP {status}): \
+                 {{\"errors\":[{{\"detail\":\"Unable to render the notebook as Markdown.\"}}]}}"
+            );
+            let translated = super::translate_markdown_error(raw, "GET").to_string();
+            assert!(
+                translated.contains("no Markdown representation"),
+                "status {status} not translated: {translated}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_translate_markdown_error_passes_other_errors_through() {
+        let raw = anyhow::anyhow!("HTTP 404 not found");
+        assert_eq!(
+            super::translate_markdown_error(raw, "GET").to_string(),
+            "HTTP 404 not found"
+        );
+    }
+
+    #[test]
+    fn test_read_markdown_file_rejects_json_document() {
+        let path = write_temp_json("pup_nb_md_rejects_json.json", r#"{"data":{"id":"1"}}"#);
+        let err = super::read_markdown_file(path.to_str().unwrap())
+            .unwrap_err()
+            .to_string();
+        let _ = std::fs::remove_file(path);
+        assert!(err.contains("contains JSON, not Markdown"), "got: {err}");
+    }
+
+    #[test]
+    fn test_read_markdown_file_allows_bare_scalar_markdown() {
+        // `42` parses as valid JSON but is legitimate Markdown prose.
+        let path = write_temp_json("pup_nb_md_bare_scalar.md", "42");
+        let content = super::read_markdown_file(path.to_str().unwrap()).unwrap();
+        let _ = std::fs::remove_file(path);
+        assert_eq!(content, "42");
+    }
+
+    #[test]
+    fn test_read_markdown_file_rejects_empty() {
+        let path = write_temp_json("pup_nb_md_empty.md", "   \n");
+        let err = super::read_markdown_file(path.to_str().unwrap())
+            .unwrap_err()
+            .to_string();
+        let _ = std::fs::remove_file(path);
+        assert!(err.contains("is empty"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_get_markdown_requests_markdown_media_type() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/unstable/notebooks/123")
+            .match_header("accept", "text/markdown")
+            .with_status(200)
+            .with_header("content-type", "text/markdown; charset=utf-8")
+            .with_body("---\ntitle: test\n---\n\n## hi\n")
+            .create_async()
+            .await;
+
+        super::get(&cfg, 123, true).await.unwrap();
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_get_markdown_translates_unprojectable_notebook() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/unstable/notebooks/123")
+            .with_status(500)
+            .with_header("content-type", "application/vnd.api+json")
+            .with_body(r#"{"errors":[{"detail":"Unable to render the notebook as Markdown."}]}"#)
+            .create_async()
+            .await;
+
+        let err = super::get(&cfg, 123, true).await.unwrap_err().to_string();
+        mock.assert_async().await;
+        assert!(err.contains("no Markdown representation"), "got: {err}");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_create_markdown_posts_document() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/unstable/notebooks")
+            .match_header("content-type", "text/markdown")
+            .match_header("accept", "application/vnd.api+json")
+            .match_body("## new notebook\n")
+            .with_status(201)
+            .with_header("content-type", "application/vnd.api+json")
+            .with_body(r###"{"data":{"id":"1","attributes":{"markdown":"## new notebook\n"}}}"###)
+            .create_async()
+            .await;
+
+        let path = write_temp_json("pup_nb_create_md.md", "## new notebook\n");
+        let result = super::create(&cfg, path.to_str().unwrap(), true).await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok(), "create failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_update_markdown_patches_document() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("PATCH", "/api/unstable/notebooks/123")
+            .match_header("content-type", "text/markdown")
+            .match_header("accept", "text/markdown")
+            .match_body("## replaced\n")
+            .with_status(200)
+            .with_header("content-type", "text/markdown; charset=utf-8")
+            .with_body("## replaced\n")
+            .create_async()
+            .await;
+
+        let path = write_temp_json("pup_nb_update_md.md", "## replaced\n");
+        let result = super::update(&cfg, 123, path.to_str().unwrap(), true).await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok(), "update failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_edit_markdown_appends_to_content_endpoint() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/unstable/notebooks/123/content")
+            .match_header("content-type", "text/markdown")
+            .match_header("accept", "text/markdown")
+            .match_body("## appended\n")
+            .with_status(200)
+            .with_header("content-type", "text/markdown; charset=utf-8")
+            .with_body("## existing\n\n## appended\n")
+            .create_async()
+            .await;
+
+        let path = write_temp_json("pup_nb_edit_md.md", "## appended\n");
+        let result = super::edit(&cfg, 123, path.to_str().unwrap(), true).await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok(), "edit failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_markdown_rejects_json_file_before_any_request() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/unstable/notebooks")
+            .expect(0)
+            .create_async()
+            .await;
+
+        let path = write_temp_json("pup_nb_wrong_flag.json", r#"{"data":{"id":"1"}}"#);
+        let result = super::create(&cfg, path.to_str().unwrap(), true).await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
 
     #[test]
     fn test_compact_validation_details_reassembles_character_errors() {

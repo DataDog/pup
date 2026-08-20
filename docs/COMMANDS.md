@@ -49,7 +49,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | logs-restriction | list, get, create, update, delete, roles (list, add) | src/commands/logs_restriction.rs | ✅ |
 | processes | list | src/commands/processes.rs | ✅ |
 | users | list, get, roles, service-accounts (create, app-keys CRUD) | src/commands/users.rs | ✅ |
-| notebooks | list, get, create, update, diff, delete, annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
+| notebooks | list, get, create, update, edit, diff, delete (get/create/update/edit accept `--markdown`), annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |
@@ -272,6 +272,44 @@ pre-filter data, not the filtered result.
 steps) bypass `format_and_print` and do not honor `--jq`.
 
 ## Recent Enhancements
+
+### Notebooks — Markdown representation (experimental)
+
+`notebooks get`, `create`, `update`, and `edit` accept `--markdown` to work with a
+notebook as a Markdown document instead of a JSON cells array. These call
+`/api/unstable/notebooks`, which the notebooks team has not yet promoted to
+`/api/v2`; the path and response contract may still change.
+
+- `get --markdown` — print the notebook as Markdown (YAML frontmatter + body)
+- `create --markdown --file doc.md` — create from a Markdown file; prints the new id
+- `update --markdown --file doc.md` — replace the whole document
+- `edit --markdown --file fragment.md` — append the fragment server-side
+
+`create --markdown` prints the id rather than the document, so it composes:
+
+```bash
+ID=$(pup notebooks create --markdown --file doc.md)
+pup notebooks get "$ID" --markdown
+```
+
+The id is only available from the JSON:API representation — it is resource
+identity and deliberately absent from Markdown frontmatter — so create
+negotiates JSON:API and reports the id, leaving the document to `get`.
+
+Constraints worth knowing before relying on these:
+
+- **Rich-text notebooks only.** Notebooks created through the older cells API have
+  no Markdown projection, and the API returns an error for them.
+- **`update --markdown` is lossy.** It replaces the entire document, and anything
+  Markdown cannot represent is dropped. The JSON path preserves more.
+- **No conflict detection.** `document_revision` is returned but not enforced by
+  the API, so concurrent writers can overwrite each other on any write path.
+- **No targeted edits.** `update` replaces and `edit` appends; there is no way to
+  modify one section in place.
+- `--jq` is rejected with `--markdown`, since the output is not JSON.
+- `--output` and agent mode have no effect under `--markdown`: the document is
+  printed as-is, with no envelope and no format conversion. This matches
+  `skills remote get`, the other command that emits raw Markdown.
 
 ### v0.64.x — Error Tracking Issue Filters (SDK PRs #1568, #1480)
 

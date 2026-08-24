@@ -163,6 +163,18 @@ pub fn read_to_string(mut reader: impl Read, err_context: &str) -> Result<String
     Ok(buf)
 }
 
+/// Print a text document to stdout, terminated by at least one newline.
+///
+/// Shared by the commands that emit raw Markdown rather than a formatted
+/// payload, so a body that already ends in a newline does not gain a blank
+/// line on the way out.
+pub fn print_text_document(text: &str) {
+    print!("{text}");
+    if !text.ends_with('\n') {
+        println!();
+    }
+}
+
 // ---- JSON diff helpers ----
 
 /// Read-only server-managed fields that are stripped before diffing a monitor.

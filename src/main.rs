@@ -6449,17 +6449,37 @@ enum NotebookActions {
         options: NotebookDiscoveryOptions,
     },
     /// Get notebook details
-    Get { notebook_id: i64 },
+    Get {
+        notebook_id: i64,
+        #[arg(
+            long,
+            help = "Print the notebook as Markdown (experimental raw API; rich-text notebooks only)"
+        )]
+        markdown: bool,
+    },
     /// Create a new notebook
     Create {
         #[arg(long, help = "JSON file with notebook data (required)")]
         file: String,
+        #[arg(
+            long,
+            help = "Treat --file as Markdown instead of JSON (experimental raw API). \
+                    Prints the new notebook id; use 'get --markdown' to read the document back"
+        )]
+        markdown: bool,
     },
     /// Update a notebook (full replace)
     Update {
         notebook_id: i64,
         #[arg(long, help = "JSON file with notebook data (required)")]
         file: String,
+        #[arg(
+            long,
+            help = "Treat --file as Markdown instead of JSON (experimental raw API; \
+                    rich-text notebooks only). REPLACES the whole document, and drops \
+                    anything Markdown cannot represent — use 'edit --markdown' to append"
+        )]
+        markdown: bool,
     },
     /// Diff a candidate JSON definition against the live notebook
     Diff {
@@ -6486,6 +6506,13 @@ enum NotebookActions {
             help = "JSON file containing an array of cell objects to append (required)"
         )]
         file: String,
+        #[arg(
+            long,
+            help = "Treat --file as Markdown and APPEND it server-side (experimental raw API; \
+                    rich-text notebooks only). Existing content is preserved — use \
+                    'update --markdown' to replace the document"
+        )]
+        markdown: bool,
     },
     /// Delete a notebook
     Delete { notebook_id: i64 },
@@ -12415,6 +12442,21 @@ mod resolve_callback_port_tests {
 /// ignored. When the flag is absent, the format already resolved from env/config
 /// in `Config::from_env` is kept, so `DD_OUTPUT` / `PUP_OUTPUT` (and the format an
 /// extension inherits from its parent) survive.
+/// `--markdown` prints raw Markdown, so a jq filter has nothing to run against.
+///
+/// Keyed on the flag rather than `cfg.jq`, which is also populated from
+/// `PUP_FILTER` for extension subprocesses — those would otherwise be unable to
+/// use `--markdown` at all, and would be told to remove a flag they never passed.
+/// `--output` gets no equivalent check because `Config` does not record whether
+/// it was passed, so an explicit `--output json` is indistinguishable from the
+/// default.
+fn reject_jq_with_markdown(jq_flag_passed: bool, markdown: bool) -> anyhow::Result<()> {
+    if markdown && jq_flag_passed {
+        anyhow::bail!("--jq cannot be combined with --markdown (the response is not JSON)");
+    }
+    Ok(())
+}
+
 fn resolve_output_format(
     flag: Option<&str>,
     resolved: config::OutputFormat,
@@ -12429,8 +12471,26 @@ fn resolve_output_format(
 
 #[cfg(test)]
 mod resolve_output_format_tests {
+    use super::reject_jq_with_markdown;
     use super::resolve_output_format;
     use crate::config::OutputFormat;
+
+    #[test]
+    fn jq_flag_with_markdown_is_rejected() {
+        assert!(reject_jq_with_markdown(true, true).is_err());
+    }
+
+    #[test]
+    fn jq_flag_without_markdown_is_allowed() {
+        assert!(reject_jq_with_markdown(true, false).is_ok());
+    }
+
+    #[test]
+    fn markdown_without_jq_flag_is_allowed() {
+        // An inherited PUP_FILTER sets cfg.jq but not the flag, so --markdown
+        // must still work for extension subprocesses.
+        assert!(reject_jq_with_markdown(false, true).is_ok());
+    }
 
     #[test]
     fn explicit_flag_overrides_resolved() {
@@ -12591,6 +12651,9 @@ async fn main_inner() -> anyhow::Result<()> {
     if cli.read_only {
         cfg.read_only = true;
     }
+    // Captured before the merge: `cfg.jq` also carries an inherited `PUP_FILTER`,
+    // which must not be mistaken for an explicit `--jq`.
+    let jq_flag_passed = cli.jq.is_some();
     if cli.jq.is_some() {
         cfg.jq = cli.jq;
     }
@@ -14502,14 +14565,24 @@ async fn main_inner() -> anyhow::Result<()> {
                     )
                     .await?;
                 }
-                NotebookActions::Get { notebook_id } => {
-                    commands::notebooks::get(&cfg, notebook_id).await?;
+                NotebookActions::Get {
+                    notebook_id,
+                    markdown,
+                } => {
+                    reject_jq_with_markdown(jq_flag_passed, markdown)?;
+                    commands::notebooks::get(&cfg, notebook_id, markdown).await?;
                 }
-                NotebookActions::Create { file } => {
-                    commands::notebooks::create(&cfg, &file).await?;
+                NotebookActions::Create { file, markdown } => {
+                    reject_jq_with_markdown(jq_flag_passed, markdown)?;
+                    commands::notebooks::create(&cfg, &file, markdown).await?;
                 }
-                NotebookActions::Update { notebook_id, file } => {
-                    commands::notebooks::update(&cfg, notebook_id, &file).await?;
+                NotebookActions::Update {
+                    notebook_id,
+                    file,
+                    markdown,
+                } => {
+                    reject_jq_with_markdown(jq_flag_passed, markdown)?;
+                    commands::notebooks::update(&cfg, notebook_id, &file, markdown).await?;
                 }
                 NotebookActions::Diff {
                     notebook_id,
@@ -14519,8 +14592,13 @@ async fn main_inner() -> anyhow::Result<()> {
                 } => {
                     commands::notebooks::diff(&cfg, notebook_id, &file, &only, &ignore).await?;
                 }
-                NotebookActions::Edit { notebook_id, file } => {
-                    commands::notebooks::edit(&cfg, notebook_id, &file).await?;
+                NotebookActions::Edit {
+                    notebook_id,
+                    file,
+                    markdown,
+                } => {
+                    reject_jq_with_markdown(jq_flag_passed, markdown)?;
+                    commands::notebooks::edit(&cfg, notebook_id, &file, markdown).await?;
                 }
                 NotebookActions::Delete { notebook_id } => {
                     commands::notebooks::delete(&cfg, notebook_id).await?;

@@ -86,10 +86,7 @@ pub async fn get(
 
     let path = format!("{SKILLS_PATH}/{}", util_ext::percent_encode(skill_id));
     let markdown = get_markdown(cfg, &path, &query).await?;
-    print!("{markdown}");
-    if !markdown.ends_with('\n') {
-        println!();
-    }
+    util_ext::print_text_document(&markdown);
     Ok(())
 }
 

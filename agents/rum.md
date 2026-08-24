@@ -302,6 +302,14 @@ RUM Data Collection:
 - Session replay integration
 - Error stack traces and source maps
 
-Note: For detailed session replays and funnel analysis, use the Datadog RUM UI which provides visualizations and recordings.
+Session Replay via CLI:
+- Discover replay sessions: `pup rum sessions search --query='@session.has_replay:true' --from=1d`
+- Fetch replay segments: `pup rum replay segments get --session-id=<uuid> --view-id=<uuid>`
+- Manage playlists: `pup rum playlists list|create|update|delete` and `pup rum playlists sessions add|remove|list`
+- Viewership: `pup rum viewership history list --from=7d` and `pup rum viewership watchers list --session-id=<uuid>`
+
+Note: Session Replay metadata is in the RUM API, not the logs index. Use `pup rum` for discovery; use `pup logs search --query='@session.id:<uuid>'` only to correlate application logs once you have a session ID from RUM.
+
+For visual replay playback and funnel analysis, use the Datadog RUM UI.
 
 For RUM-based alerting, use the monitors agent to create alerts for error rates, performance degradation, or user experience issues.

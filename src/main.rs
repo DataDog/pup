@@ -2311,6 +2311,7 @@ enum Commands {
     ///   • Configure RUM metrics and custom metrics
     ///   • Set up retention filters for session replay and data
     ///   • Query session replay data and playlists
+    ///   • Fetch replay recording segments and viewership data
     ///   • Analyze user interaction heatmaps
     ///
     /// RUM DATA TYPES:
@@ -2345,6 +2346,13 @@ enum Commands {
     ///
     ///   # Query session replay data
     ///   pup rum sessions list --from="1h"
+    ///
+    ///   # Get replay segments for a session view
+    ///   pup rum replay segments get --session-id="..." --view-id="..."
+    ///
+    ///   # Manage replay playlists
+    ///   pup rum playlists list
+    ///   pup rum playlists create --file=playlist.json
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication (pup auth login) or API keys
@@ -6612,6 +6620,16 @@ enum RumActions {
         #[command(subcommand)]
         action: RumPlaylistActions,
     },
+    /// Session replay recording segments
+    Replay {
+        #[command(subcommand)]
+        action: RumReplayActions,
+    },
+    /// Session replay viewership
+    Viewership {
+        #[command(subcommand)]
+        action: RumViewershipActions,
+    },
     /// Query RUM interaction heatmaps
     Heatmaps {
         #[command(subcommand)]
@@ -6727,6 +6745,156 @@ enum RumPlaylistActions {
     List,
     /// Get playlist details
     Get { playlist_id: i32 },
+    /// Create a session replay playlist
+    Create {
+        #[arg(long)]
+        file: String,
+    },
+    /// Update a session replay playlist
+    Update {
+        playlist_id: i32,
+        #[arg(long)]
+        file: String,
+    },
+    /// Delete a session replay playlist
+    Delete { playlist_id: i32 },
+    /// Manage sessions in a playlist
+    Sessions {
+        #[command(subcommand)]
+        action: RumPlaylistSessionActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumPlaylistSessionActions {
+    /// List sessions in a playlist
+    List {
+        playlist_id: i32,
+        #[arg(long)]
+        page_number: Option<i64>,
+        #[arg(long, default_value_t = 100)]
+        page_size: i64,
+    },
+    /// Add a session to a playlist
+    Add {
+        playlist_id: i32,
+        #[arg(long)]
+        session_id: String,
+        #[arg(long, help = "Session timestamp in milliseconds (defaults to now)")]
+        ts: Option<i64>,
+        #[arg(long, help = "Data source: rum or product_analytics")]
+        data_source: Option<String>,
+    },
+    /// Remove a session from a playlist
+    Remove {
+        playlist_id: i32,
+        #[arg(long)]
+        session_id: String,
+    },
+    /// Bulk-remove sessions from a playlist
+    #[command(name = "bulk-remove")]
+    BulkRemove {
+        playlist_id: i32,
+        #[arg(long)]
+        file: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumReplayActions {
+    /// Session replay segment data
+    Segments {
+        #[command(subcommand)]
+        action: RumReplaySegmentActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumReplaySegmentActions {
+    /// Get replay segments for a session view
+    Get {
+        #[arg(long)]
+        session_id: String,
+        #[arg(long)]
+        view_id: String,
+        #[arg(long, help = "Storage source: event_platform or blob")]
+        source: Option<String>,
+        #[arg(long, help = "Server-side timestamp in milliseconds")]
+        ts: Option<i64>,
+        #[arg(long, help = "Maximum segment list size in bytes")]
+        max_list_size: Option<i64>,
+        #[arg(long, help = "Paging token for pagination")]
+        paging: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumViewershipActions {
+    /// Viewership history
+    History {
+        #[command(subcommand)]
+        action: RumViewershipHistoryActions,
+    },
+    /// Watch a replay session
+    Watch {
+        #[command(subcommand)]
+        action: RumViewershipWatchActions,
+    },
+    /// Session replay watchers
+    Watchers {
+        #[command(subcommand)]
+        action: RumViewershipWatchersActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumViewershipHistoryActions {
+    /// List viewership history sessions
+    List {
+        #[arg(long, default_value = "1h")]
+        from: String,
+        #[arg(long, default_value = "now")]
+        to: String,
+        #[arg(long)]
+        page_number: Option<i64>,
+        #[arg(long, default_value_t = 100)]
+        page_size: i64,
+        #[arg(long, help = "Comma-separated session IDs")]
+        session_ids: Option<String>,
+        #[arg(long)]
+        application_id: Option<String>,
+        #[arg(long, help = "Filter by user UUID")]
+        created_by: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumViewershipWatchActions {
+    /// Create a replay session watch
+    Create {
+        #[arg(long)]
+        session_id: String,
+        #[arg(long, help = "Optional JSON body (defaults to empty watch)")]
+        file: Option<String>,
+    },
+    /// Delete a replay session watch
+    Delete {
+        #[arg(long)]
+        session_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumViewershipWatchersActions {
+    /// List watchers for a replay session
+    List {
+        #[arg(long)]
+        session_id: String,
+        #[arg(long)]
+        page_number: Option<i64>,
+        #[arg(long, default_value_t = 100)]
+        page_size: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -14749,6 +14917,142 @@ async fn main_inner() -> anyhow::Result<()> {
                     RumPlaylistActions::Get { playlist_id } => {
                         commands::rum::playlists_get(&cfg, playlist_id).await?;
                     }
+                    RumPlaylistActions::Create { file } => {
+                        commands::rum::playlists_create(&cfg, &file).await?;
+                    }
+                    RumPlaylistActions::Update { playlist_id, file } => {
+                        commands::rum::playlists_update(&cfg, playlist_id, &file).await?;
+                    }
+                    RumPlaylistActions::Delete { playlist_id } => {
+                        if !cfg.auto_approve {
+                            eprint!(
+                                "Permanently delete RUM playlist {playlist_id}? Type 'yes' to confirm: "
+                            );
+                            let mut input = String::new();
+                            std::io::stdin().read_line(&mut input)?;
+                            if input.trim() != "yes" {
+                                println!("Operation cancelled.");
+                                return Ok(());
+                            }
+                        }
+                        commands::rum::playlists_delete(&cfg, playlist_id).await?;
+                    }
+                    RumPlaylistActions::Sessions { action } => match action {
+                        RumPlaylistSessionActions::List {
+                            playlist_id,
+                            page_number,
+                            page_size,
+                        } => {
+                            commands::rum::playlists_sessions_list(
+                                &cfg,
+                                playlist_id,
+                                page_number,
+                                page_size,
+                            )
+                            .await?;
+                        }
+                        RumPlaylistSessionActions::Add {
+                            playlist_id,
+                            session_id,
+                            ts,
+                            data_source,
+                        } => {
+                            commands::rum::playlists_sessions_add(
+                                &cfg,
+                                playlist_id,
+                                session_id,
+                                ts,
+                                data_source,
+                            )
+                            .await?;
+                        }
+                        RumPlaylistSessionActions::Remove {
+                            playlist_id,
+                            session_id,
+                        } => {
+                            commands::rum::playlists_sessions_remove(&cfg, playlist_id, session_id)
+                                .await?;
+                        }
+                        RumPlaylistSessionActions::BulkRemove { playlist_id, file } => {
+                            commands::rum::playlists_sessions_bulk_remove(&cfg, playlist_id, &file)
+                                .await?;
+                        }
+                    },
+                },
+                RumActions::Replay { action } => match action {
+                    RumReplayActions::Segments { action } => match action {
+                        RumReplaySegmentActions::Get {
+                            session_id,
+                            view_id,
+                            source,
+                            ts,
+                            max_list_size,
+                            paging,
+                        } => {
+                            commands::rum::replay_segments_get(
+                                &cfg,
+                                commands::rum::ReplaySegmentsGetArgs {
+                                    session_id,
+                                    view_id,
+                                    source,
+                                    ts,
+                                    max_list_size,
+                                    paging,
+                                },
+                            )
+                            .await?;
+                        }
+                    },
+                },
+                RumActions::Viewership { action } => match action {
+                    RumViewershipActions::History { action } => match action {
+                        RumViewershipHistoryActions::List {
+                            from,
+                            to,
+                            page_number,
+                            page_size,
+                            session_ids,
+                            application_id,
+                            created_by,
+                        } => {
+                            commands::rum::viewership_history_list(
+                                &cfg,
+                                commands::rum::ViewershipHistoryListArgs {
+                                    from,
+                                    to,
+                                    page_number,
+                                    page_size,
+                                    session_ids,
+                                    application_id,
+                                    created_by,
+                                },
+                            )
+                            .await?;
+                        }
+                    },
+                    RumViewershipActions::Watch { action } => match action {
+                        RumViewershipWatchActions::Create { session_id, file } => {
+                            commands::rum::viewership_watch_create(&cfg, session_id, file).await?;
+                        }
+                        RumViewershipWatchActions::Delete { session_id } => {
+                            commands::rum::viewership_watch_delete(&cfg, session_id).await?;
+                        }
+                    },
+                    RumViewershipActions::Watchers { action } => match action {
+                        RumViewershipWatchersActions::List {
+                            session_id,
+                            page_number,
+                            page_size,
+                        } => {
+                            commands::rum::viewership_watchers_list(
+                                &cfg,
+                                session_id,
+                                page_number,
+                                page_size,
+                            )
+                            .await?;
+                        }
+                    },
                 },
                 RumActions::Heatmaps { action } => match action {
                     RumHeatmapActions::Query { view_name, .. } => {

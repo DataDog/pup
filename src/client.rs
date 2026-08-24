@@ -377,6 +377,8 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.get_tag_rule_score",
     "v2.list_tag_rules",
     "v2.update_tag_rule",
+    // RUM Session Replay (1)
+    "v2.get_segments",
     // Model Lab (16)
     "v2.delete_model_lab_run",
     "v2.get_model_lab_artifact_content",
@@ -516,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 186);
+        assert_eq!(UNSTABLE_OPS.len(), 188);
     }
 
     #[test]

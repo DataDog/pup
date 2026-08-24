@@ -194,31 +194,6 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
         path: "/api/v2/fleet/schedules/",
         method: "POST",
     },
-    // Observability Pipelines (6) — API key only, no OAuth support
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/",
-        method: "PUT",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/validate",
-        method: "POST",
-    },
     // Cost / Billing (11) — API key only, no OAuth support
     EndpointRequirement {
         path: "/api/v2/usage/projected_cost",
@@ -836,7 +811,7 @@ mod tests {
 
     #[test]
     fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 46);
+        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 40);
     }
 
     #[test]

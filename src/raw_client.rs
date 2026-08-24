@@ -120,19 +120,6 @@ fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static Endpoi
 /// Endpoints that don't support OAuth.
 /// Trailing "/" means prefix match for ID-parameterized paths.
 static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
-    // DDSQL editor tools (3)
-    EndpointRequirement {
-        path: "/api/unstable/ddsql-editor/tools/ddsql-docs",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/unstable/ddsql-editor/tools/table-names",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/unstable/ddsql-editor/tools/table-data",
-        method: "POST",
-    },
     // Fleet Automation (15)
     EndpointRequirement {
         path: "/api/v2/fleet/agents",
@@ -836,7 +823,7 @@ mod tests {
 
     #[test]
     fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 46);
+        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 43);
     }
 
     #[test]
@@ -878,22 +865,6 @@ mod tests {
         assert!(!requires_api_key_fallback(
             "PATCH",
             "/api/v2/application_keys/key-123"
-        ));
-    }
-
-    #[test]
-    fn test_requires_api_key_fallback_ddsql_editor_tools() {
-        assert!(requires_api_key_fallback(
-            "GET",
-            "/api/unstable/ddsql-editor/tools/ddsql-docs"
-        ));
-        assert!(requires_api_key_fallback(
-            "GET",
-            "/api/unstable/ddsql-editor/tools/table-names"
-        ));
-        assert!(requires_api_key_fallback(
-            "POST",
-            "/api/unstable/ddsql-editor/tools/table-data"
         ));
     }
 

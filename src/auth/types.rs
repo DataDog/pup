@@ -47,6 +47,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "apm_remote_configuration_read",
         "apm_service_catalog_read",
         "apm_service_ingest_read",
+        "appsec_protect_read",
         "apps_run",
         "audit_logs_read",
         "aws_configuration_read",
@@ -119,6 +120,9 @@ pub fn default_scopes() -> Vec<&'static str> {
         "apm_service_ingest_read",
         "apm_service_ingest_write",
         "apm_service_renaming_write",
+        // AppSec
+        "appsec_protect_read",
+        "appsec_protect_write",
         // App Builder
         "apps_run",
         "apps_write",

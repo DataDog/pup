@@ -588,7 +588,7 @@ pub async fn suppressions_validate(cfg: &Config, file: &str) -> Result<()> {
 // ---- ASM WAF Custom Rules ----
 
 pub async fn asm_custom_rules_list(cfg: &Config) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .list_application_security_waf_custom_rules()
         .await
@@ -597,7 +597,7 @@ pub async fn asm_custom_rules_list(cfg: &Config) -> Result<()> {
 }
 
 pub async fn asm_custom_rules_get(cfg: &Config, custom_rule_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .get_application_security_waf_custom_rule(custom_rule_id.to_string())
         .await
@@ -607,7 +607,7 @@ pub async fn asm_custom_rules_get(cfg: &Config, custom_rule_id: &str) -> Result<
 
 pub async fn asm_custom_rules_create(cfg: &Config, file: &str) -> Result<()> {
     let body: ApplicationSecurityWafCustomRuleCreateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .create_application_security_waf_custom_rule(body)
         .await
@@ -617,7 +617,7 @@ pub async fn asm_custom_rules_create(cfg: &Config, file: &str) -> Result<()> {
 
 pub async fn asm_custom_rules_update(cfg: &Config, custom_rule_id: &str, file: &str) -> Result<()> {
     let body: ApplicationSecurityWafCustomRuleUpdateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .update_application_security_waf_custom_rule(custom_rule_id.to_string(), body)
         .await
@@ -626,7 +626,7 @@ pub async fn asm_custom_rules_update(cfg: &Config, custom_rule_id: &str, file: &
 }
 
 pub async fn asm_custom_rules_delete(cfg: &Config, custom_rule_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     api.delete_application_security_waf_custom_rule(custom_rule_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete ASM WAF custom rule: {e:?}"))?;
@@ -637,7 +637,7 @@ pub async fn asm_custom_rules_delete(cfg: &Config, custom_rule_id: &str) -> Resu
 // ---- ASM WAF Exclusion Filters ----
 
 pub async fn asm_exclusions_list(cfg: &Config) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .list_application_security_waf_exclusion_filters()
         .await
@@ -646,7 +646,7 @@ pub async fn asm_exclusions_list(cfg: &Config) -> Result<()> {
 }
 
 pub async fn asm_exclusions_get(cfg: &Config, exclusion_filter_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .get_application_security_waf_exclusion_filter(exclusion_filter_id.to_string())
         .await
@@ -656,7 +656,7 @@ pub async fn asm_exclusions_get(cfg: &Config, exclusion_filter_id: &str) -> Resu
 
 pub async fn asm_exclusions_create(cfg: &Config, file: &str) -> Result<()> {
     let body: ApplicationSecurityWafExclusionFilterCreateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .create_application_security_waf_exclusion_filter(body)
         .await
@@ -670,7 +670,7 @@ pub async fn asm_exclusions_update(
     file: &str,
 ) -> Result<()> {
     let body: ApplicationSecurityWafExclusionFilterUpdateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .update_application_security_waf_exclusion_filter(exclusion_filter_id.to_string(), body)
         .await
@@ -679,7 +679,7 @@ pub async fn asm_exclusions_update(
 }
 
 pub async fn asm_exclusions_delete(cfg: &Config, exclusion_filter_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     api.delete_application_security_waf_exclusion_filter(exclusion_filter_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete ASM WAF exclusion filter: {e:?}"))?;

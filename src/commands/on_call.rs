@@ -458,7 +458,7 @@ pub async fn pages_create(cfg: &Config, file: &str) -> Result<()> {
 /// Uses `raw_client::raw_get` because `datadog-api-client` does not yet
 /// expose a `get_on_call_page` binding.
 pub async fn pages_get(cfg: &Config, page_id: &str) -> Result<()> {
-    let path = format!("/api/v2/on-call/pages/{page_id}");
+    let path = format!("/api/unstable/on-call/pages/{page_id}");
     let resp = raw_client::raw_get(cfg, &path, &[])
         .await
         .map_err(|e| anyhow::anyhow!("failed to get page: {e:?}"))?;
@@ -890,7 +890,7 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        s.mock("GET", "/api/v2/on-call/pages/12345")
+        s.mock("GET", "/api/unstable/on-call/pages/12345")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"data": {"id": "12345", "type": "pages"}}"#)
@@ -909,7 +909,7 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        s.mock("GET", "/api/v2/on-call/pages/12345")
+        s.mock("GET", "/api/unstable/on-call/pages/12345")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body("")
@@ -929,7 +929,7 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        s.mock("GET", "/api/v2/on-call/pages/missing")
+        s.mock("GET", "/api/unstable/on-call/pages/missing")
             .with_status(404)
             .with_header("content-type", "application/json")
             .with_body(r#"{"errors": ["page not found"]}"#)
@@ -946,7 +946,7 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        s.mock("GET", "/api/v2/on-call/pages/abc/def?x")
+        s.mock("GET", "/api/unstable/on-call/pages/abc/def?x")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"data": {"id": "abc/def?x", "type": "pages"}}"#)

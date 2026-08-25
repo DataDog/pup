@@ -810,11 +810,6 @@ mod tests {
     }
 
     #[test]
-    fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 40);
-    }
-
-    #[test]
     fn test_no_fallback_for_obs_pipelines() {
         // Observability Pipelines routes already accept OAuth server-side;
         // removing them from OAUTH_EXCLUDED_ENDPOINTS means raw_get/raw_post

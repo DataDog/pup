@@ -481,7 +481,8 @@ fn pages_sort_params(sort: &str) -> Result<(&'static str, &'static str)> {
         "modified_at" => Ok(("modified_at", order)),
         _ => {
             anyhow::bail!(
-                "invalid --sort value: {sort:?}\nExpected one of: created_at, priority, status, modified_at (prefix with - for descending)"
+                "invalid --sort value: {sort:?}\nExpected one of: {} (prefix with - for descending)",
+                PAGES_SORT_FIELDS.join(", ")
             )
         }
     }

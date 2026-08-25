@@ -256,6 +256,7 @@ pub async fn run(
     let body_bytes = resp.bytes().await?;
 
     if !status.is_success() {
+        crate::rate_limit::store_last(crate::rate_limit::extract_from_headers(&resp_headers));
         let text = String::from_utf8_lossy(&body_bytes);
         bail!("HTTP {} {}: {}", status.as_u16(), url, text);
     }

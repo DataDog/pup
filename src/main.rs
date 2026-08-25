@@ -10,6 +10,7 @@ mod extensions;
 mod filter;
 mod formatter;
 mod generated;
+mod rate_limit;
 mod raw_client;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
@@ -12056,15 +12057,23 @@ mod reset_sigpipe_tests {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
     reset_sigpipe();
-    main_inner().await
+    if let Err(err) = main_inner().await {
+        let (msg, code) = rate_limit::cli_error(&err);
+        eprintln!("Error: {msg}");
+        std::process::exit(code);
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
-    main_inner().await
+async fn main() {
+    if let Err(err) = main_inner().await {
+        let (msg, code) = rate_limit::cli_error(&err);
+        eprintln!("Error: {msg}");
+        std::process::exit(code);
+    }
 }
 
 pub(crate) fn get_leaf_subcommand_name(matches: &clap::ArgMatches) -> Option<String> {

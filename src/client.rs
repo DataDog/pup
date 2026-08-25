@@ -31,6 +31,24 @@ impl Middleware for BearerAuthMiddleware {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+struct RateLimitCaptureMiddleware;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait]
+impl Middleware for RateLimitCaptureMiddleware {
+    async fn handle(
+        &self,
+        req: reqwest_middleware::reqwest::Request,
+        extensions: &mut Extensions,
+        next: Next<'_>,
+    ) -> reqwest_middleware::Result<reqwest_middleware::reqwest::Response> {
+        let resp = next.run(req, extensions).await?;
+        crate::rate_limit::store_last(crate::rate_limit::extract_from_headers(resp.headers()));
+        Ok(resp)
+    }
+}
+
 // The `datadog-api-client` SDK's `Configuration.user_agent` is `pub(crate)`
 // with no setter, so the only way to override it from outside the crate is
 // via middleware that mutates the header after the SDK builds the request.
@@ -130,7 +148,9 @@ pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddl
         let reqwest_client = reqwest_middleware::reqwest::Client::builder()
             .build()
             .expect("failed to build reqwest client");
-        let mut builder = ClientBuilder::new(reqwest_client).with(UserAgentMiddleware);
+        let mut builder = ClientBuilder::new(reqwest_client)
+            .with(UserAgentMiddleware)
+            .with(RateLimitCaptureMiddleware);
         if send_bearer {
             if let Some(token) = cfg.access_token.as_ref() {
                 builder = builder.with(BearerAuthMiddleware {

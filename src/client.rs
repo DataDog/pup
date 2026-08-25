@@ -370,13 +370,13 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.trigger_investigation",
     // Cloud Cost Management — Anomalies (1)
     "v2.list_cost_anomalies",
-    // Tag Policies (6)
-    "v2.create_tag_policy",
-    "v2.delete_tag_policy",
-    "v2.get_tag_policy",
-    "v2.get_tag_policy_score",
-    "v2.list_tag_policies",
-    "v2.update_tag_policy",
+    // Tag Rules (6)
+    "v2.create_tag_rule",
+    "v2.delete_tag_rule",
+    "v2.get_tag_rule",
+    "v2.get_tag_rule_score",
+    "v2.list_tag_rules",
+    "v2.update_tag_rule",
     // Model Lab (16)
     "v2.delete_model_lab_run",
     "v2.get_model_lab_artifact_content",

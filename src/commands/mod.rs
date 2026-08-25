@@ -85,7 +85,7 @@ pub mod static_analysis;
 pub mod status_pages;
 pub mod symdb;
 pub mod synthetics;
-pub mod tag_policies;
+pub mod tag_rules;
 pub mod tags;
 pub mod test;
 pub mod test_optimization;

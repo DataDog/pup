@@ -260,7 +260,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "synthetics_read",
         "synthetics_write",
         "synthetics_private_location_read",
-        // Tag Policies
+        // Tag Rules
         "telemetry_rules_create",
         "telemetry_rules_read",
         // Teams

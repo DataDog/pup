@@ -194,31 +194,6 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
         path: "/api/v2/fleet/schedules/",
         method: "POST",
     },
-    // Observability Pipelines (6) — API key only, no OAuth support
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/",
-        method: "PUT",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/obs-pipelines/pipelines/validate",
-        method: "POST",
-    },
     // Cost / Billing (11) — API key only, no OAuth support
     EndpointRequirement {
         path: "/api/v2/usage/projected_cost",
@@ -835,8 +810,67 @@ mod tests {
     }
 
     #[test]
-    fn test_oauth_excluded_count() {
-        assert_eq!(OAUTH_EXCLUDED_ENDPOINTS.len(), 46);
+    fn test_no_fallback_for_obs_pipelines() {
+        // Observability Pipelines routes already accept OAuth server-side;
+        // removing them from OAUTH_EXCLUDED_ENDPOINTS means raw_get/raw_post
+        // (used by `pup obs-pipelines diff` and the `pup api` passthrough)
+        // should send the OAuth bearer instead of forcing API-key fallback.
+        // Collection endpoint
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/obs-pipelines/pipelines"
+        ));
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/v2/obs-pipelines/pipelines"
+        ));
+        // ID-parameterized endpoints (prefix match via trailing "/")
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/obs-pipelines/pipelines/abc-123"
+        ));
+        assert!(!requires_api_key_fallback(
+            "PUT",
+            "/api/v2/obs-pipelines/pipelines/abc-123"
+        ));
+        assert!(!requires_api_key_fallback(
+            "DELETE",
+            "/api/v2/obs-pipelines/pipelines/abc-123"
+        ));
+        // Validation endpoint
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/v2/obs-pipelines/pipelines/validate"
+        ));
+        // Non-matching method on a formerly-excluded path
+        assert!(!requires_api_key_fallback(
+            "PATCH",
+            "/api/v2/obs-pipelines/pipelines"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_raw_get_obs_pipelines_uses_oauth_bearer() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.access_token = Some("token".into());
+        let mock = server
+            .mock("GET", "/api/v2/obs-pipelines/pipelines/abc-123")
+            .match_header("Authorization", "Bearer token")
+            .match_header("DD-API-KEY", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = raw_get(&cfg, "/api/v2/obs-pipelines/pipelines/abc-123", &[]).await;
+
+        assert!(result.is_ok(), "raw get failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
     }
 
     #[test]

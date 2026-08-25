@@ -7035,9 +7035,16 @@ enum OnCallPagesActions {
             long,
             default_value_t = 1000,
             value_parser = clap::value_parser!(u32).range(1..=1000),
-            help = "Results per page (1-1000; endpoint pagination is unsupported)"
+            help = "Results per page (1-1000; maps to page[size])"
         )]
         page_size: u32,
+        #[arg(
+            long,
+            default_value_t = 1,
+            value_parser = clap::value_parser!(u32).range(1..),
+            help = "Current page number, 1-indexed (maps to page[current])"
+        )]
+        page: u32,
     },
     /// Create an on-call page from a JSON file
     Create {
@@ -14990,12 +14997,14 @@ async fn main_inner() -> anyhow::Result<()> {
                         responder,
                         sort,
                         page_size,
+                        page,
                     } => {
                         commands::on_call::pages_list(
                             &cfg,
                             team.as_deref(),
                             responder.as_deref(),
                             page_size,
+                            page,
                             &sort,
                         )
                         .await?;

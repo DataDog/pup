@@ -7026,9 +7026,18 @@ enum OnCallPagesActions {
         #[arg(
             long,
             allow_hyphen_values = true,
-            value_parser = ["created_at", "-created_at"],
+            value_parser = [
+                "created_at",
+                "-created_at",
+                "priority",
+                "-priority",
+                "status",
+                "-status",
+                "modified_at",
+                "-modified_at",
+            ],
             default_value = "-created_at",
-            help = "Sort field (created_at or -created_at; defaults to newest first)"
+            help = "Sort field (created_at, priority, status, modified_at; prefix with - for descending; defaults to newest first)"
         )]
         sort: String,
         #[arg(

@@ -465,12 +465,24 @@ pub async fn pages_get(cfg: &Config, page_id: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+const PAGES_SORT_FIELDS: &[&str] = &["created_at", "priority", "status", "modified_at"];
+
 fn pages_sort_params(sort: &str) -> Result<(&'static str, &'static str)> {
-    match sort {
-        "created_at" => Ok(("created_at", "ASC")),
-        "-created_at" => Ok(("created_at", "DESC")),
-        other => {
-            anyhow::bail!("invalid --sort value: {other:?}\nExpected: created_at, -created_at")
+    let (field, order) = if let Some(stripped) = sort.strip_prefix('-') {
+        (stripped, "DESC")
+    } else {
+        (sort, "ASC")
+    };
+
+    match field {
+        "created_at" => Ok(("created_at", order)),
+        "priority" => Ok(("priority", order)),
+        "status" => Ok(("status", order)),
+        "modified_at" => Ok(("modified_at", order)),
+        _ => {
+            anyhow::bail!(
+                "invalid --sort value: {sort:?}\nExpected one of: created_at, priority, status, modified_at (prefix with - for descending)"
+            )
         }
     }
 }
@@ -1018,6 +1030,38 @@ mod tests {
         assert!(result.is_ok(), "pages_list failed: {:?}", result.err());
         mock.assert_async().await;
         cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_on_call_pages_list_sorts_by_priority() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let mock = s
+            .mock("GET", "/api/unstable/on-call/pages")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("page[size]".into(), "100".into()),
+                mockito::Matcher::UrlEncoded("page[current]".into(), "1".into()),
+                mockito::Matcher::UrlEncoded("sort[field]".into(), "priority".into()),
+                mockito::Matcher::UrlEncoded("sort[order]".into(), "ASC".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+        let result = super::pages_list(&cfg, None, None, 100, 1, "priority").await;
+        assert!(result.is_ok(), "pages_list failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_pages_sort_params_accepts_all_fields() {
+        for field in super::PAGES_SORT_FIELDS {
+            assert!(super::pages_sort_params(field).is_ok());
+            assert!(super::pages_sort_params(&format!("-{field}")).is_ok());
+        }
     }
 
     #[tokio::test]

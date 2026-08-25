@@ -54,12 +54,12 @@ list of commands as built.
 | Metrics | ✅ | `metrics search`, `metrics query`, `metrics list`, `metrics get` | V1 and V2 APIs supported |
 | Logs | ✅ | `logs search`, `logs list`, `logs aggregate` | V1 and V2 APIs supported |
 | Events | ✅ | `events list`, `events search`, `events get` | Infrastructure event management |
-| RUM | ✅ | `rum apps`, `rum sessions`, `rum metrics`, `rum retention-filters`, `rum playlists`, `rum heatmaps` | Apps, sessions, metrics, retention filters, replay playlists, heatmaps |
+| RUM | ✅ | `rum apps`, `rum sessions`, `rum events`, `rum aggregate`, `rum metrics`, `rum retention-filters`, `rum playlists`, `rum replay`, `rum viewership`, `rum heatmaps` | Apps, sessions, events, metrics, retention filters, replay playlists/segments/viewership, heatmaps |
 | APM Services | ✅ | `apm services`, `apm entities`, `apm dependencies`, `apm flow-map` | Services stats, operations, resources; entity queries; dependencies; flow visualization |
 | Traces | ✅ | `traces search`, `traces aggregate`, `traces metrics` | Span search/aggregation and span-based metric definitions |
 | Profiling | ⏳ | `profiling` | Not supported in pup yet. Use the Datadog MCP server: https://docs.datadoghq.com/bits_ai/mcp_server. Enable with: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,profiling |
 | Database Monitoring | ✅ | `dbm samples search` | DBM query sample search |
-| Session Replay | ❌ | - | Not yet implemented |
+| Session Replay | ✅ | `rum replay segments`, `rum playlists`, `rum viewership`, `rum sessions search` | Segments, playlist CRUD, viewership; discover sessions via RUM (not logs) |
 
 </details>
 

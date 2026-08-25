@@ -33,7 +33,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | debugger | probes (list, get, create, delete, watch) | src/commands/debugger.rs | ✅ |
 | slos | list, get, create, update, diff, delete, status | src/commands/slos.rs | ✅ |
 | incidents | list, get, attachments, settings, handles, postmortem-templates | src/commands/incidents.rs | ✅ |
-| rum | apps, metrics, retention-filters, sessions, playlists, heatmaps | src/commands/rum.rs | ✅ |
+| rum | apps, metrics, retention-filters, sessions, events, aggregate, playlists, replay, viewership, heatmaps | src/commands/rum.rs | ✅ |
 | cicd | pipelines, events, tests, dora, flaky-tests | src/commands/cicd.rs | ✅ |
 | static-analysis | custom-rulesets (get, update, delete), custom-rules (get, create, delete, revisions, revision) | src/commands/static_analysis.rs | ✅ |
 | downtime | list, get, cancel | src/commands/downtime.rs | ✅ |
@@ -312,6 +312,12 @@ Constraints worth knowing before relying on these:
 - `--output` and agent mode have no effect under `--markdown`: the document is
   printed as-is, with no envelope and no format conversion. This matches
   `skills remote get`, the other command that emits raw Markdown.
+
+### v1.13.x — Session Replay API Support (#182)
+
+- **rum replay segments get** — fetch replay recording segments for a session view (`--session-id`, `--view-id`, optional paging/source flags)
+- **rum playlists** — extended with create, update, delete, and `sessions list|add|remove|bulk-remove`
+- **rum viewership** — new subgroup: `history list`, `watch create|delete`, `watchers list`
 
 ### v0.64.x — Error Tracking Issue Filters (SDK PRs #1568, #1480)
 

@@ -4695,7 +4695,27 @@ enum UserActions {
 #[derive(Subcommand)]
 enum UserRoleActions {
     /// List roles
-    List,
+    List {
+        #[arg(
+            long = "page-size",
+            help = "Number of items to return per page (max 100)"
+        )]
+        page_size: Option<i64>,
+        #[arg(long = "page-number", help = "Specific page number to return")]
+        page_number: Option<i64>,
+        #[arg(
+            long,
+            help = "Sort field: name, -name, modified_at, -modified_at, user_count, -user_count"
+        )]
+        sort: Option<String>,
+        #[arg(long, help = "Filter all roles by the given string")]
+        filter: Option<String>,
+        #[arg(
+            long = "filter-id",
+            help = "Filter all roles by the given list of role IDs"
+        )]
+        filter_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -13638,7 +13658,23 @@ async fn main_inner() -> anyhow::Result<()> {
                 } => commands::users::list(&cfg, page_size, page_number).await?,
                 UserActions::Get { user_id } => commands::users::get(&cfg, &user_id).await?,
                 UserActions::Roles { action } => match action {
-                    UserRoleActions::List => commands::users::roles_list(&cfg).await?,
+                    UserRoleActions::List {
+                        page_size,
+                        page_number,
+                        sort,
+                        filter,
+                        filter_id,
+                    } => {
+                        commands::users::roles_list(
+                            &cfg,
+                            page_size,
+                            page_number,
+                            sort,
+                            filter,
+                            filter_id,
+                        )
+                        .await?
+                    }
                 },
                 UserActions::Seats { action } => match action {
                     SeatsActions::Users { action } => match action {

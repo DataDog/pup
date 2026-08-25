@@ -4,6 +4,7 @@ use datadog_api_client::datadogV2::api_service_accounts::{
     ListServiceAccountApplicationKeysOptionalParams, ServiceAccountsAPI,
 };
 use datadog_api_client::datadogV2::api_users::{ListUsersOptionalParams, UsersAPI};
+use datadog_api_client::datadogV2::model::RolesSort;
 
 use crate::config::Config;
 use crate::formatter;
@@ -31,10 +32,47 @@ pub async fn get(cfg: &Config, id: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
-pub async fn roles_list(cfg: &Config) -> Result<()> {
+fn parse_roles_sort(s: &str) -> Result<RolesSort> {
+    Ok(match s {
+        "name" => RolesSort::NAME_ASCENDING,
+        "-name" => RolesSort::NAME_DESCENDING,
+        "modified_at" => RolesSort::MODIFIED_AT_ASCENDING,
+        "-modified_at" => RolesSort::MODIFIED_AT_DESCENDING,
+        "user_count" => RolesSort::USER_COUNT_ASCENDING,
+        "-user_count" => RolesSort::USER_COUNT_DESCENDING,
+        other => anyhow::bail!(
+            "invalid sort '{other}': expected one of name, -name, modified_at, -modified_at, user_count, -user_count"
+        ),
+    })
+}
+
+pub async fn roles_list(
+    cfg: &Config,
+    page_size: Option<i64>,
+    page_number: Option<i64>,
+    sort: Option<String>,
+    filter: Option<String>,
+    filter_id: Option<String>,
+) -> Result<()> {
     let api = crate::make_api!(RolesAPI, cfg);
+    let mut params = ListRolesOptionalParams::default();
+    if let Some(n) = page_size {
+        params.page_size = Some(n);
+    }
+    if let Some(n) = page_number {
+        params.page_number = Some(n);
+    }
+    if let Some(s) = sort {
+        params.sort = Some(parse_roles_sort(&s)?);
+    }
+    if let Some(f) = filter {
+        params.filter = Some(f);
+    }
+    if let Some(f) = filter_id {
+        params.filter_id = Some(f);
+    }
     let resp = api
-        .list_roles(ListRolesOptionalParams::default())
+        .list_roles(params)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list roles: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -154,8 +192,52 @@ mod tests {
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": []}"#).await;
-        let _ = super::roles_list(&cfg).await;
+        let _ = super::roles_list(&cfg, None, None, None, None, None).await;
         cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_users_roles_list_with_pagination() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let result = super::roles_list(
+            &cfg,
+            Some(50),
+            Some(1),
+            Some("-name".to_string()),
+            Some("admin".to_string()),
+            Some("id1,id2".to_string()),
+        )
+        .await;
+        assert!(result.is_ok(), "roles list failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_users_roles_list_invalid_sort() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let result =
+            super::roles_list(&cfg, None, None, Some("bogus".to_string()), None, None).await;
+        assert!(result.is_err(), "expected error for invalid sort value");
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_parse_roles_sort() {
+        assert!(matches!(
+            super::parse_roles_sort("name").unwrap(),
+            super::RolesSort::NAME_ASCENDING
+        ));
+        assert!(matches!(
+            super::parse_roles_sort("-user_count").unwrap(),
+            super::RolesSort::USER_COUNT_DESCENDING
+        ));
+        assert!(super::parse_roles_sort("nope").is_err());
     }
 
     #[tokio::test]

@@ -120,6 +120,12 @@ fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static Endpoi
 /// Endpoints that don't support OAuth.
 /// Trailing "/" means prefix match for ID-parameterized paths.
 static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
+    // Test fixture (1) — not a real API; exists only so tests that need a
+    // "still excluded" example don't churn when real endpoints gain OAuth.
+    EndpointRequirement {
+        path: "/api/v2/test-oauth-excluded/",
+        method: "GET",
+    },
     // DDSQL editor tools (3)
     EndpointRequirement {
         path: "/api/unstable/ddsql-editor/tools/ddsql-docs",
@@ -663,10 +669,10 @@ mod tests {
     #[test]
     fn test_prefix_matching_with_id() {
         // Trailing "/" in the pattern should match paths with IDs.
-        // Uses Profiling (still excluded) as the example.
+        // Uses the test fixture entry (permanently excluded) as the example.
         assert!(requires_api_key_fallback(
             "GET",
-            "/profiling/api/v1/profiles/abc/info"
+            "/api/v2/test-oauth-excluded/some-id"
         ));
     }
 
@@ -871,18 +877,15 @@ mod tests {
 
     #[test]
     fn test_other_oauth_excluded_endpoints_still_require_both_keys() {
-        // Uses Profiling as a currently-still-excluded example. This is
-        // just today's state of OAUTH_EXCLUDED_ENDPOINTS, not a claim that
-        // Profiling (or anything else in the table) is meant to stay that
-        // way -- update this example if/when its entries get OAuth support
-        // and are removed.
+        // Uses the test fixture entry (permanently excluded) so this test
+        // doesn't churn when real endpoints gain OAuth support.
         let mut cfg = test_cfg();
         cfg.app_key = None;
         let req = reqwest::Client::new()
-            .get("https://api.datadoghq.com/profiling/api/v1/profiles/abc/info");
+            .get("https://api.datadoghq.com/api/v2/test-oauth-excluded/some-id");
 
-        let err = match apply_auth(req, &cfg, "GET", "/profiling/api/v1/profiles/abc/info") {
-            Ok(_) => panic!("Profiling should require both keys"),
+        let err = match apply_auth(req, &cfg, "GET", "/api/v2/test-oauth-excluded/some-id") {
+            Ok(_) => panic!("test fixture should require both keys"),
             Err(err) => err,
         };
         assert!(err.to_string().contains("DD_API_KEY and DD_APP_KEY"));

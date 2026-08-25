@@ -1474,6 +1474,27 @@ enum Commands {
         #[arg(long, value_name = "STR")]
         next_action: Option<String>,
     },
+    /// Manage tag governance
+    ///
+    /// Manage governance rules that control which tag values Datadog accepts.
+    ///
+    /// COMMANDS:
+    ///   tag-rules         Manage tag rules
+    ///
+    /// EXAMPLES:
+    ///   # List tag rules
+    ///   pup governance tag-rules list
+    ///
+    ///   # Get a tag rule with its compliance score
+    ///   pup governance tag-rules get rule-abc123 --include-score
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(verbatim_doc_comment)]
+    Governance {
+        #[command(subcommand)]
+        action: GovernanceActions,
+    },
     /// Manage High Availability Multi-Region (HAMR)
     ///
     /// Manage Datadog High Availability Multi-Region (HAMR) connections.
@@ -2749,34 +2770,15 @@ enum Commands {
         #[command(subcommand)]
         action: SyntheticsActions,
     },
-    /// Manage tag policies for governance and compliance
+    /// Deprecated alias for `pup governance tag-rules`
     ///
-    /// Create, list, get, update, and delete tag policies. Tag policies enforce
-    /// required tag keys and allowed values across your Datadog resources, and
-    /// provide compliance scoring to measure adherence.
-    ///
-    /// COMMANDS:
-    ///   list              List all tag policies
-    ///   get <id>          Get a tag policy by ID
-    ///   create --file     Create a tag policy from JSON
-    ///   update <id> -f    Update a tag policy
-    ///   delete <id>       Delete a tag policy
-    ///   score             Get the overall tag policy compliance score
-    ///
-    /// EXAMPLES:
-    ///   pup tag-policies list
-    ///   pup tag-policies list --include-score
-    ///   pup tag-policies list --filter-source api
-    ///   pup tag-policies get pol-abc123 --include-score
-    ///   pup tag-policies create --file policy.json
-    ///   pup tag-policies score pol-abc123
-    ///
-    /// AUTHENTICATION:
-    ///   Requires either OAuth2 authentication or API keys.
-    #[command(name = "tag-policies", verbatim_doc_comment)]
+    /// Tag policies were renamed to tag rules and moved under the governance
+    /// domain. This hidden alias keeps existing scripts working; use
+    /// `pup governance tag-rules` instead.
+    #[command(name = "tag-policies", hide = true, verbatim_doc_comment)]
     TagPolicies {
         #[command(subcommand)]
-        action: TagPoliciesActions,
+        action: TagRulesActions,
     },
     /// Manage host tags
     ///
@@ -4587,14 +4589,25 @@ enum TagActions {
     Delete { hostname: String },
 }
 
-// ---- Tag Policies ----
+// ---- Governance ----
 #[derive(Subcommand)]
-enum TagPoliciesActions {
-    /// List all tag policies
+enum GovernanceActions {
+    /// Manage tag rules
+    #[command(name = "tag-rules", alias = "tag-policies")]
+    TagRules {
+        #[command(subcommand)]
+        action: TagRulesActions,
+    },
+}
+
+// ---- Tag Rules ----
+#[derive(Subcommand)]
+enum TagRulesActions {
+    /// List all tag rules
     List {
-        #[arg(long, default_value_t = false, help = "Include disabled policies")]
+        #[arg(long, default_value_t = false, help = "Include disabled rules")]
         include_disabled: bool,
-        #[arg(long, default_value_t = false, help = "Include soft-deleted policies")]
+        #[arg(long, default_value_t = false, help = "Include soft-deleted rules")]
         include_deleted: bool,
         #[arg(
             long,
@@ -4602,12 +4615,15 @@ enum TagPoliciesActions {
             help = "Include compliance score in response"
         )]
         include_score: bool,
-        #[arg(long, help = "Filter by policy source: api, terraform, ui")]
+        #[arg(
+            long,
+            help = "Filter by telemetry source: logs, spans, metrics, rum, feed"
+        )]
         filter_source: Option<String>,
     },
-    /// Get a tag policy by ID
+    /// Get a tag rule by ID
     Get {
-        policy_id: String,
+        rule_id: String,
         #[arg(
             long,
             default_value_t = false,
@@ -4615,20 +4631,20 @@ enum TagPoliciesActions {
         )]
         include_score: bool,
     },
-    /// Create a tag policy from a JSON file
+    /// Create a tag rule from a JSON file
     Create {
-        #[arg(long, help = "JSON file with TagPolicyCreateRequest body")]
+        #[arg(long, help = "JSON file with TagRuleCreateRequest body")]
         file: String,
     },
-    /// Update a tag policy from a JSON file
+    /// Update a tag rule from a JSON file
     Update {
-        policy_id: String,
-        #[arg(long, short, help = "JSON file with TagPolicyUpdateRequest body")]
+        rule_id: String,
+        #[arg(long, short, help = "JSON file with TagRuleUpdateRequest body")]
         file: String,
     },
-    /// Delete a tag policy
+    /// Delete a tag rule
     Delete {
-        policy_id: String,
+        rule_id: String,
         #[arg(
             long,
             default_value_t = false,
@@ -4636,9 +4652,9 @@ enum TagPoliciesActions {
         )]
         hard_delete: bool,
     },
-    /// Get the compliance score for a tag policy
+    /// Get the compliance score for a tag rule
     Score {
-        policy_id: String,
+        rule_id: String,
         #[arg(long, help = "Start of scoring window (Unix ms timestamp)")]
         ts_start: Option<i64>,
         #[arg(long, help = "End of scoring window (Unix ms timestamp)")]
@@ -10680,6 +10696,46 @@ async fn run_annotations(cfg: &config::Config, action: AnnotationsActions) -> an
     }
 }
 
+/// Shared dispatch for tag rule subcommands, exposed under
+/// `pup governance tag-rules` and under the deprecated `pup tag-policies`
+/// alias kept for backwards compatibility.
+async fn run_tag_rules(cfg: &config::Config, action: TagRulesActions) -> anyhow::Result<()> {
+    match action {
+        TagRulesActions::List {
+            include_disabled,
+            include_deleted,
+            include_score,
+            filter_source,
+        } => {
+            commands::tag_rules::list(
+                cfg,
+                include_disabled,
+                include_deleted,
+                include_score,
+                filter_source,
+            )
+            .await
+        }
+        TagRulesActions::Get {
+            rule_id,
+            include_score,
+        } => commands::tag_rules::get(cfg, &rule_id, include_score).await,
+        TagRulesActions::Create { file } => commands::tag_rules::create(cfg, &file).await,
+        TagRulesActions::Update { rule_id, file } => {
+            commands::tag_rules::update(cfg, &rule_id, &file).await
+        }
+        TagRulesActions::Delete {
+            rule_id,
+            hard_delete,
+        } => commands::tag_rules::delete(cfg, &rule_id, hard_delete).await,
+        TagRulesActions::Score {
+            rule_id,
+            ts_start,
+            ts_end,
+        } => commands::tag_rules::score(cfg, &rule_id, ts_start, ts_end).await,
+    }
+}
+
 // ---- Skills ----
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Subcommand)]
@@ -13560,51 +13616,17 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
             }
         }
-        // --- Tag Policies ---
-        Commands::TagPolicies { action } => {
+        // --- Governance ---
+        Commands::Governance { action } => {
             cfg.validate_auth()?;
             match action {
-                TagPoliciesActions::List {
-                    include_disabled,
-                    include_deleted,
-                    include_score,
-                    filter_source,
-                } => {
-                    commands::tag_policies::list(
-                        &cfg,
-                        include_disabled,
-                        include_deleted,
-                        include_score,
-                        filter_source,
-                    )
-                    .await?;
-                }
-                TagPoliciesActions::Get {
-                    policy_id,
-                    include_score,
-                } => {
-                    commands::tag_policies::get(&cfg, &policy_id, include_score).await?;
-                }
-                TagPoliciesActions::Create { file } => {
-                    commands::tag_policies::create(&cfg, &file).await?;
-                }
-                TagPoliciesActions::Update { policy_id, file } => {
-                    commands::tag_policies::update(&cfg, &policy_id, &file).await?;
-                }
-                TagPoliciesActions::Delete {
-                    policy_id,
-                    hard_delete,
-                } => {
-                    commands::tag_policies::delete(&cfg, &policy_id, hard_delete).await?;
-                }
-                TagPoliciesActions::Score {
-                    policy_id,
-                    ts_start,
-                    ts_end,
-                } => {
-                    commands::tag_policies::score(&cfg, &policy_id, ts_start, ts_end).await?;
-                }
+                GovernanceActions::TagRules { action } => run_tag_rules(&cfg, action).await?,
             }
+        }
+        // --- Tag Policies (deprecated alias for `governance tag-rules`) ---
+        Commands::TagPolicies { action } => {
+            cfg.validate_auth()?;
+            run_tag_rules(&cfg, action).await?;
         }
         // --- Users ---
         Commands::Users { action } => {

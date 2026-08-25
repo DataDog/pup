@@ -1,6 +1,6 @@
 use anyhow::Result;
-use datadog_api_client::datadogV2::api_llm_observability::{
-    LLMObservabilityAPI, ListLLMObsAnnotationQueuesOptionalParams,
+use datadog_api_client::datadogV2::api_agent_observability::{
+    AgentObservabilityAPI, ListLLMObsAnnotationQueuesOptionalParams,
 };
 use datadog_api_client::datadogV2::model::{
     LLMObsAnnotationQueueInteractionsRequest, LLMObsAnnotationQueueRequest,
@@ -16,8 +16,8 @@ use crate::raw_client;
 use crate::util;
 use crate::util_ext;
 
-fn make_api(cfg: &Config) -> LLMObservabilityAPI {
-    crate::make_api!(LLMObservabilityAPI, cfg)
+fn make_api(cfg: &Config) -> AgentObservabilityAPI {
+    crate::make_api!(AgentObservabilityAPI, cfg)
 }
 
 // ---- Projects ----

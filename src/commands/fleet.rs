@@ -1,7 +1,7 @@
 use anyhow::Result;
 use datadog_api_client::datadogV2::api_fleet_automation::{
-    FleetAutomationAPI, GetFleetDeploymentOptionalParams, ListFleetAgentTracersOptionalParams,
-    ListFleetAgentsOptionalParams, ListFleetDeploymentsOptionalParams,
+    FleetAutomationAPI, GetFleetAgentDetailV2OptionalParams, ListFleetAgentTracersOptionalParams,
+    ListFleetAgentsV2OptionalParams, ListFleetDeploymentsV2OptionalParams,
     ListFleetTracersOptionalParams,
 };
 
@@ -15,7 +15,7 @@ pub async fn agents_list(
     filter: Option<String>,
 ) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
-    let mut params = ListFleetAgentsOptionalParams::default();
+    let mut params = ListFleetAgentsV2OptionalParams::default();
     if let Some(ps) = page_size {
         params = params.page_size(ps);
     }
@@ -23,7 +23,7 @@ pub async fn agents_list(
         params = params.filter(f);
     }
     let resp = api
-        .list_fleet_agents(params)
+        .list_fleet_agents_v2(params)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list fleet agents: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -32,7 +32,10 @@ pub async fn agents_list(
 pub async fn agents_get(cfg: &Config, agent_key: &str) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
     let resp = api
-        .get_fleet_agent_info(agent_key.to_string())
+        .get_fleet_agent_detail_v2(
+            agent_key.to_string(),
+            GetFleetAgentDetailV2OptionalParams::default(),
+        )
         .await
         .map_err(|e| anyhow::anyhow!("failed to get fleet agent: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -41,7 +44,7 @@ pub async fn agents_get(cfg: &Config, agent_key: &str) -> Result<()> {
 pub async fn agents_versions(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
     let resp = api
-        .list_fleet_agent_versions()
+        .list_fleet_agent_versions_v2()
         .await
         .map_err(|e| anyhow::anyhow!("failed to list agent versions: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -49,12 +52,12 @@ pub async fn agents_versions(cfg: &Config) -> Result<()> {
 
 pub async fn deployments_list(cfg: &Config, page_size: Option<i64>) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
-    let mut params = ListFleetDeploymentsOptionalParams::default();
+    let mut params = ListFleetDeploymentsV2OptionalParams::default();
     if let Some(ps) = page_size {
         params = params.page_size(ps);
     }
     let resp = api
-        .list_fleet_deployments(params)
+        .list_fleet_deployments_v2(params)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list deployments: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -63,10 +66,7 @@ pub async fn deployments_list(cfg: &Config, page_size: Option<i64>) -> Result<()
 pub async fn deployments_get(cfg: &Config, deployment_id: &str) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
     let resp = api
-        .get_fleet_deployment(
-            deployment_id.to_string(),
-            GetFleetDeploymentOptionalParams::default(),
-        )
+        .get_fleet_deployment_v2(deployment_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to get deployment: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -75,7 +75,7 @@ pub async fn deployments_get(cfg: &Config, deployment_id: &str) -> Result<()> {
 pub async fn schedules_list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
     let resp = api
-        .list_fleet_schedules()
+        .list_fleet_schedules_v2()
         .await
         .map_err(|e| anyhow::anyhow!("failed to list schedules: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -84,7 +84,7 @@ pub async fn schedules_list(cfg: &Config) -> Result<()> {
 pub async fn schedules_get(cfg: &Config, schedule_id: &str) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
     let resp = api
-        .get_fleet_schedule(schedule_id.to_string())
+        .get_fleet_schedule_v2(schedule_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to get schedule: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -111,7 +111,7 @@ pub async fn schedules_delete(cfg: &Config, schedule_id: &str) -> Result<()> {
 
 pub async fn deployments_cancel(cfg: &Config, deployment_id: &str) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
-    api.cancel_fleet_deployment(deployment_id.to_string())
+    api.cancel_fleet_deployment_v2(deployment_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to cancel deployment: {e:?}"))?;
     println!("Fleet deployment {deployment_id} cancelled.");
@@ -122,7 +122,7 @@ pub async fn deployments_configure(cfg: &Config, file: &str) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
     let body = util::read_json_file(file)?;
     let resp = api
-        .create_fleet_deployment_configure(body)
+        .create_fleet_deployment_configure_v2(body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to configure deployment: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -132,7 +132,7 @@ pub async fn deployments_upgrade(cfg: &Config, file: &str) -> Result<()> {
     let api = crate::make_api!(FleetAutomationAPI, cfg);
     let body = util::read_json_file(file)?;
     let resp = api
-        .create_fleet_deployment_upgrade(body)
+        .create_fleet_deployment_upgrade_v2(body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to upgrade deployment: {e:?}"))?;
     formatter::output(cfg, &resp)

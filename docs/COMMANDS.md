@@ -84,6 +84,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | change-requests | create, get, update, create-branch, decisions (update, delete) | src/commands/change_management.rs | ✅ |
 | change-stories | list | src/commands/change_stories.rs | ✅ |
 | app-builder | list, get, create, update, delete, delete-batch, publish, unpublish | src/commands/app_builder.rs | ✅ |
+| governance | tag-rules (list, get, create, update, delete, score) | src/commands/tag_rules.rs | ✅ |
 
 **Note:** RUM command is fully operational. Apps and sessions work completely. Metrics and retention-filters support list/get operations (create/update/delete operations pending due to complex API type structures).
 
@@ -173,6 +174,7 @@ pup infrastructure hosts list
 - **static-analysis** - Code security (custom-rulesets, custom-rules)
 - **audit-logs** - Audit trail (list, search)
 - **data-governance** - Sensitive data scanning (scanner-rules list)
+- **governance** - Tag governance (tag-rules list/get/create/update/delete/score)
 
 ### Cloud & Integrations
 - **cloud** - Cloud providers (aws, gcp, azure, oci)

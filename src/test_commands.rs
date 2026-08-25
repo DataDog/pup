@@ -175,6 +175,13 @@ fn test_on_call_pages_list_rejects_invalid_page_size() {
 }
 
 #[test]
+fn test_on_call_pages_list_accepts_page_zero() {
+    let result = crate::Cli::command()
+        .try_get_matches_from(["pup", "on-call", "pages", "list", "--page", "0"]);
+    assert!(result.is_ok());
+}
+
+#[test]
 fn test_on_call_pages_list_rejects_invalid_sort() {
     let result = crate::Cli::command().try_get_matches_from([
         "pup",

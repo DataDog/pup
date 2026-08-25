@@ -157,6 +157,7 @@ pub fn format_and_print<T: Serialize>(
         }
         let json = go_html_escape(&serde_json::to_string_pretty(&envelope)?);
         println!("{json}");
+        #[cfg(not(feature = "browser"))]
         if crate::rate_limit::verbose_enabled() {
             crate::rate_limit::eprint_verbose_response(format, agent_mode)?;
         }
@@ -171,6 +172,7 @@ pub fn format_and_print<T: Serialize>(
         OutputFormat::Tsv => print_tsv(&value),
     }?;
 
+    #[cfg(not(feature = "browser"))]
     if crate::rate_limit::verbose_enabled() {
         crate::rate_limit::eprint_verbose_response(format, agent_mode)?;
     }

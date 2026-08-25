@@ -2,8 +2,8 @@ use anyhow::{bail, Result};
 use datadog_api_client::datadogV2::api_incidents::{
     CreateGlobalIncidentHandleOptionalParams, GetIncidentOptionalParams,
     ImportIncidentOptionalParams, IncidentsAPI, ListGlobalIncidentHandlesOptionalParams,
-    ListIncidentAttachmentsOptionalParams, SearchIncidentsOptionalParams,
-    UpdateGlobalIncidentHandleOptionalParams,
+    ListIncidentAttachmentsOptionalParams, ListIncidentPostmortemTemplatesOptionalParams,
+    SearchIncidentsOptionalParams, UpdateGlobalIncidentHandleOptionalParams,
 };
 use datadog_api_client::datadogV2::model::{IncidentImportRequest, IncidentSearchSortOrder};
 
@@ -171,8 +171,10 @@ pub async fn handles_delete(cfg: &Config, _handle_id: &str) -> Result<()> {
 
 pub async fn postmortem_templates_list(cfg: &Config) -> Result<()> {
     let api = make_api(cfg);
-    let resp = api
-        .list_incident_postmortem_templates()
+    let resp =
+        api.list_incident_postmortem_templates(
+            ListIncidentPostmortemTemplatesOptionalParams::default(),
+        )
         .await
         .map_err(|e| anyhow::anyhow!("failed to list postmortem templates: {:?}", e))?;
     formatter::output(cfg, &resp)

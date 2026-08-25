@@ -870,13 +870,13 @@ mod tests {
         cleanup_env();
     }
 
-    /// OAuth-excluded endpoints (e.g. GET /api/v2/fleet/agents) must use API-key
+    /// OAuth-excluded endpoints (e.g. GET /profiling/api/v1/profiles/abc/info) must use API-key
     /// auth even when a bearer token is present. This exercises the reuse of
     /// raw_client::apply_auth's per-endpoint fallback table.
     ///
-    /// Fleet Automation is just today's example of a still-excluded endpoint,
+    /// Profiling is just today's example of a still-excluded endpoint,
     /// not a claim it's meant to stay that way -- update this test if/when
-    /// Fleet gets OAuth support too.
+    /// Profiling gets OAuth support too.
     #[tokio::test]
     async fn test_api_oauth_excluded_uses_api_keys() {
         let _lock = lock_env().await;
@@ -886,7 +886,7 @@ mod tests {
         // must prefer the API keys.
         cfg.access_token = Some("bearer-token".into());
         let _mock = server
-            .mock("GET", "/api/v2/fleet/agents")
+            .mock("GET", "/profiling/api/v1/profiles/abc/info")
             .match_query(mockito::Matcher::Any)
             .match_header("DD-API-KEY", "test-api-key")
             .match_header("DD-APPLICATION-KEY", "test-app-key")
@@ -899,7 +899,7 @@ mod tests {
 
         let result = super::run(
             &cfg,
-            "v2/fleet/agents",
+            "profiling/api/v1/profiles/abc/info",
             "GET",
             &[],
             &[],
@@ -927,7 +927,7 @@ mod tests {
         let mut cfg = test_config(&server.url());
         cfg.access_token = Some("bearer-token".into());
         let _mock = server
-            .mock("GET", "/api/v2/fleet/agents")
+            .mock("GET", "/profiling/api/v1/profiles/abc/info")
             .match_query(mockito::Matcher::Any)
             .match_header("DD-API-KEY", "test-api-key")
             .match_header("authorization", mockito::Matcher::Missing)
@@ -938,7 +938,7 @@ mod tests {
             .await;
 
         // Pass the fully-qualified URL, not a relative path.
-        let absolute = format!("{}/api/v2/fleet/agents", server.url());
+        let absolute = format!("{}/profiling/api/v1/profiles/abc/info", server.url());
         let result = super::run(
             &cfg,
             &absolute,

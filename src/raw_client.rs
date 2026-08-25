@@ -662,10 +662,11 @@ mod tests {
 
     #[test]
     fn test_prefix_matching_with_id() {
-        // Trailing "/" in the pattern should match paths with IDs
+        // Trailing "/" in the pattern should match paths with IDs.
+        // Uses Profiling (still excluded) as the example.
         assert!(requires_api_key_fallback(
             "GET",
-            "/api/v2/fleet/agents/agent-123"
+            "/profiling/api/v1/profiles/abc/info"
         ));
     }
 

@@ -816,8 +816,14 @@ mod tests {
         // (used by `pup obs-pipelines diff` and the `pup api` passthrough)
         // should send the OAuth bearer instead of forcing API-key fallback.
         // Collection endpoint
-        assert!(!requires_api_key_fallback("GET", "/api/v2/obs-pipelines/pipelines"));
-        assert!(!requires_api_key_fallback("POST", "/api/v2/obs-pipelines/pipelines"));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/obs-pipelines/pipelines"
+        ));
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/v2/obs-pipelines/pipelines"
+        ));
         // ID-parameterized endpoints (prefix match via trailing "/")
         assert!(!requires_api_key_fallback(
             "GET",

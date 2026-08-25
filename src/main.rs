@@ -7041,8 +7041,8 @@ enum OnCallPagesActions {
         #[arg(
             long,
             default_value_t = 1,
-            value_parser = clap::value_parser!(u32).range(1..),
-            help = "Current page number, 1-indexed (maps to page[current])"
+            value_parser = clap::value_parser!(u32).range(0..),
+            help = "Current page number, 1-indexed (maps to page[current]; 0 defaults to 1)"
         )]
         page: u32,
     },

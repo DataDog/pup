@@ -455,30 +455,14 @@ pub async fn pages_create(cfg: &Config, file: &str) -> Result<()> {
 
 /// Fetches a single on-call page by ID.
 ///
-/// Uses the unstable list endpoint with an `id:` filter because the stable
-/// `GET /api/v2/on-call/pages/{id}` endpoint returns an empty body (#638, #758).
+/// Uses `raw_client::raw_get` because `datadog-api-client` does not yet
+/// expose a `get_on_call_page` binding.
 pub async fn pages_get(cfg: &Config, page_id: &str) -> Result<()> {
-    let filter = format!("id:{page_id}");
-    let query = vec![
-        ("filter", filter.as_str()),
-        ("page[size]", "1"),
-        ("page[current]", "1"),
-    ];
-    let resp = raw_client::raw_get(cfg, "/api/unstable/on-call/pages", &query)
+    let path = format!("/api/v2/on-call/pages/{page_id}");
+    let resp = raw_client::raw_get(cfg, &path, &[])
         .await
         .map_err(|e| anyhow::anyhow!("failed to get page: {e:?}"))?;
-
-    let page = resp
-        .get("data")
-        .and_then(serde_json::Value::as_array)
-        .and_then(|pages| {
-            pages
-                .iter()
-                .find(|page| page.get("id").and_then(serde_json::Value::as_str) == Some(page_id))
-        })
-        .ok_or_else(|| anyhow::anyhow!("page not found: {page_id}"))?;
-
-    formatter::output(cfg, &serde_json::json!({ "data": page }))
+    formatter::output(cfg, &resp)
 }
 
 fn pages_sort_params(sort: &str) -> Result<(&'static str, &'static str)> {
@@ -508,9 +492,7 @@ pub async fn pages_list(
     if !(1..=1000).contains(&page_size) {
         anyhow::bail!("invalid page_size: {page_size}. Expected a value from 1 to 1000");
     }
-    if page_current == 0 {
-        anyhow::bail!("invalid page: {page_current}. Expected a value from 1");
-    }
+    let page_current = if page_current == 0 { 1 } else { page_current };
     let (sort_field, sort_order) = pages_sort_params(sort)?;
 
     let page_size = page_size.to_string();
@@ -908,19 +890,37 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        s.mock("GET", "/api/unstable/on-call/pages")
-            .match_query(mockito::Matcher::AllOf(vec![
-                mockito::Matcher::UrlEncoded("filter".into(), "id:12345".into()),
-                mockito::Matcher::UrlEncoded("page[size]".into(), "1".into()),
-                mockito::Matcher::UrlEncoded("page[current]".into(), "1".into()),
-            ]))
+        s.mock("GET", "/api/v2/on-call/pages/12345")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": [{"id": "12345", "type": "pages"}]}"#)
+            .with_body(r#"{"data": {"id": "12345", "type": "pages"}}"#)
             .create_async()
             .await;
         let result = super::pages_get(&cfg, "12345").await;
         assert!(result.is_ok(), "pages_get failed: {:?}", result.err());
+        cleanup_env();
+    }
+
+    // Regression test for #638: the on-call pages GET endpoint can return a 200
+    // with an empty body (content-length: 0). pages_get must succeed instead of
+    // failing with "EOF while parsing value at line 1 column 0".
+    #[tokio::test]
+    async fn test_on_call_pages_get_empty_body() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        s.mock("GET", "/api/v2/on-call/pages/12345")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("")
+            .create_async()
+            .await;
+        let result = super::pages_get(&cfg, "12345").await;
+        assert!(
+            result.is_ok(),
+            "pages_get with empty body failed: {:?}",
+            result.err()
+        );
         cleanup_env();
     }
 
@@ -929,37 +929,27 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        s.mock("GET", "/api/unstable/on-call/pages")
-            .match_query(mockito::Matcher::AllOf(vec![
-                mockito::Matcher::UrlEncoded("filter".into(), "id:missing".into()),
-                mockito::Matcher::UrlEncoded("page[size]".into(), "1".into()),
-                mockito::Matcher::UrlEncoded("page[current]".into(), "1".into()),
-            ]))
-            .with_status(200)
+        s.mock("GET", "/api/v2/on-call/pages/missing")
+            .with_status(404)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": []}"#)
+            .with_body(r#"{"errors": ["page not found"]}"#)
             .create_async()
             .await;
         let result = super::pages_get(&cfg, "missing").await;
-        assert!(result.is_err(), "expected error when page is missing");
-        assert!(result.unwrap_err().to_string().contains("page not found"));
+        assert!(result.is_err(), "expected error on 404 response");
         cleanup_env();
     }
 
+    // Page IDs are passed through to the path without percent-encoding.
     #[tokio::test]
-    async fn test_on_call_pages_get_percent_encodes_id_in_filter() {
+    async fn test_on_call_pages_get_does_not_percent_encode_id() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        s.mock("GET", "/api/unstable/on-call/pages")
-            .match_query(mockito::Matcher::AllOf(vec![
-                mockito::Matcher::UrlEncoded("filter".into(), "id:abc/def?x".into()),
-                mockito::Matcher::UrlEncoded("page[size]".into(), "1".into()),
-                mockito::Matcher::UrlEncoded("page[current]".into(), "1".into()),
-            ]))
+        s.mock("GET", "/api/v2/on-call/pages/abc/def?x")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": [{"id": "abc/def?x", "type": "pages"}]}"#)
+            .with_body(r#"{"data": {"id": "abc/def?x", "type": "pages"}}"#)
             .create_async()
             .await;
         let result = super::pages_get(&cfg, "abc/def?x").await;
@@ -1007,12 +997,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_on_call_pages_list_rejects_invalid_page() {
+    async fn test_on_call_pages_list_defaults_page_zero_to_one() {
         let _lock = lock_env().await;
-        let cfg = test_config("http://unused.local");
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let mock = s
+            .mock("GET", "/api/unstable/on-call/pages")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("page[size]".into(), "100".into()),
+                mockito::Matcher::UrlEncoded("page[current]".into(), "1".into()),
+                mockito::Matcher::UrlEncoded("sort[field]".into(), "created_at".into()),
+                mockito::Matcher::UrlEncoded("sort[order]".into(), "DESC".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
         let result = super::pages_list(&cfg, None, None, 100, 0, "-created_at").await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("invalid page"));
+        assert!(result.is_ok(), "pages_list failed: {:?}", result.err());
+        mock.assert_async().await;
         cleanup_env();
     }
 

@@ -3,9 +3,18 @@
 //! Typed SDK commands discard response headers; middleware in `client.rs` captures
 //! rate-limit metadata so 429 errors can name the throttling rule.
 
+use std::cell::Cell;
 use std::sync::Mutex;
 
+use anyhow::Result;
 use reqwest::header::HeaderMap;
+
+use crate::config::OutputFormat;
+use crate::formatter;
+
+thread_local! {
+    static VERBOSE_ENABLED: Cell<bool> = const { Cell::new(false) };
+}
 
 /// Process exit code for HTTP 429 rate-limit failures.
 ///
@@ -14,6 +23,16 @@ use reqwest::header::HeaderMap;
 pub const EXIT_RATE_LIMITED: i32 = 429;
 
 static LAST_CAPTURED: Mutex<Option<RateLimitInfo>> = Mutex::new(None);
+
+/// Enable or disable verbose rate-limit reporting for the current thread.
+pub fn set_verbose(enabled: bool) {
+    VERBOSE_ENABLED.with(|v| v.set(enabled));
+}
+
+/// Returns true when `--verbose` was passed for this invocation.
+pub fn verbose_enabled() -> bool {
+    VERBOSE_ENABLED.with(|v| v.get())
+}
 
 /// Parsed Datadog rate-limit response headers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -54,6 +73,26 @@ impl RateLimitInfo {
         }
         lines.join("\n")
     }
+
+    pub fn to_json_value(&self) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(name) = &self.name {
+            map.insert("name".into(), name.clone().into());
+        }
+        if let Some(limit) = &self.limit {
+            map.insert("limit".into(), limit.clone().into());
+        }
+        if let Some(remaining) = &self.remaining {
+            map.insert("remaining".into(), remaining.clone().into());
+        }
+        if let Some(period) = &self.period {
+            map.insert("period".into(), period.clone().into());
+        }
+        if let Some(reset) = &self.reset {
+            map.insert("reset".into(), reset.clone().into());
+        }
+        serde_json::Value::Object(map)
+    }
 }
 
 /// Extract Datadog `X-RateLimit-*` headers from an HTTP response.
@@ -93,6 +132,23 @@ pub fn store_last(info: Option<RateLimitInfo>) {
 /// Take rate-limit headers captured by SDK middleware (clears the store).
 pub fn take_last_captured() -> Option<RateLimitInfo> {
     LAST_CAPTURED.lock().ok().and_then(|mut guard| guard.take())
+}
+
+/// Peek at captured rate-limit headers without clearing the store.
+pub fn peek_last_captured() -> Option<RateLimitInfo> {
+    LAST_CAPTURED.lock().ok().and_then(|guard| guard.clone())
+}
+
+/// When `--verbose` is set, print captured rate-limit headers to stderr using
+/// the same output format as the command payload.
+pub fn eprint_verbose_response(format: &OutputFormat, agent_mode: bool) -> Result<()> {
+    let Some(info) = peek_last_captured() else {
+        return Ok(());
+    };
+    if info.is_empty() {
+        return Ok(());
+    }
+    formatter::eprint_formatted(&info.to_json_value(), format, agent_mode)
 }
 
 /// Returns true when `err` represents an HTTP 429 rate-limit failure.
@@ -248,5 +304,49 @@ mod tests {
         let (msg, code) = cli_error(&err);
         assert_eq!(code, 1);
         assert!(msg.contains("404"));
+    }
+
+    #[test]
+    fn test_eprint_verbose_response_json() {
+        set_verbose(true);
+        store_last(Some(RateLimitInfo {
+            name: Some("get_all_monitors".into()),
+            limit: Some("1000".into()),
+            remaining: Some("999".into()),
+            ..Default::default()
+        }));
+        let rendered = formatter::format_value_to_string(
+            &RateLimitInfo {
+                name: Some("get_all_monitors".into()),
+                limit: Some("1000".into()),
+                remaining: Some("999".into()),
+                ..Default::default()
+            }
+            .to_json_value(),
+            &OutputFormat::Json,
+            false,
+        )
+        .expect("json format");
+        assert!(rendered.contains("\"limit\": \"1000\""));
+        assert!(rendered.contains("\"name\": \"get_all_monitors\""));
+        set_verbose(false);
+    }
+
+    #[test]
+    fn test_eprint_verbose_response_table() {
+        let rendered = formatter::format_value_to_string(
+            &RateLimitInfo {
+                name: Some("logs_public_search_api".into()),
+                limit: Some("10".into()),
+                remaining: Some("7".into()),
+                ..Default::default()
+            }
+            .to_json_value(),
+            &OutputFormat::Table,
+            false,
+        )
+        .expect("table format");
+        assert!(rendered.contains("logs_public_search_api"));
+        assert!(rendered.contains("10"));
     }
 }

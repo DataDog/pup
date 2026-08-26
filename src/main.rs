@@ -10,6 +10,7 @@ mod extensions;
 mod filter;
 mod formatter;
 mod generated;
+mod rate_limit;
 mod raw_client;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
@@ -72,6 +73,9 @@ pub(crate) struct Cli {
     /// trust prompt). For durable trust, use `trusted_sites` in config instead.
     #[arg(long, global = true)]
     trust_site: bool,
+    /// Print Datadog rate-limit response headers to stderr (formatted like --output)
+    #[arg(short = 'v', long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -12260,15 +12264,23 @@ mod reset_sigpipe_tests {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
     reset_sigpipe();
-    main_inner().await
+    if let Err(err) = main_inner().await {
+        let (msg, code) = rate_limit::cli_error(&err);
+        eprintln!("Error: {msg}");
+        std::process::exit(code);
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
-    main_inner().await
+async fn main() {
+    if let Err(err) = main_inner().await {
+        let (msg, code) = rate_limit::cli_error(&err);
+        eprintln!("Error: {msg}");
+        std::process::exit(code);
+    }
 }
 
 pub(crate) fn get_leaf_subcommand_name(matches: &clap::ArgMatches) -> Option<String> {
@@ -12911,6 +12923,7 @@ async fn main_inner() -> anyhow::Result<()> {
     if cli.read_only {
         cfg.read_only = true;
     }
+    crate::rate_limit::set_verbose(cli.verbose);
     // Captured before the merge: `cfg.jq` also carries an inherited `PUP_FILTER`,
     // which must not be mistaken for an explicit `--jq`.
     let jq_flag_passed = cli.jq.is_some();
@@ -17097,6 +17110,9 @@ async fn main_inner() -> anyhow::Result<()> {
             silent,
             verbose,
         } => {
+            if verbose {
+                crate::rate_limit::set_verbose(true);
+            }
             commands::api::run(
                 &cfg,
                 &endpoint,

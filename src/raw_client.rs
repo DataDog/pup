@@ -12,6 +12,24 @@ pub struct HttpError {
     pub method: String,
     pub url: String,
     pub body: String,
+    pub rate_limit: Option<crate::rate_limit::RateLimitInfo>,
+}
+
+/// Build an [`HttpError`] from a non-success response, capturing rate-limit headers.
+pub fn http_error(
+    status: u16,
+    method: impl Into<String>,
+    url: impl Into<String>,
+    body: impl Into<String>,
+    headers: &reqwest::header::HeaderMap,
+) -> HttpError {
+    HttpError {
+        status,
+        method: method.into(),
+        url: url.into(),
+        body: body.into(),
+        rate_limit: crate::rate_limit::extract_from_headers(headers),
+    }
 }
 
 impl std::fmt::Display for HttpError {
@@ -20,7 +38,13 @@ impl std::fmt::Display for HttpError {
             f,
             "{} {} failed (HTTP {}): {}",
             self.method, self.url, self.status, self.body
-        )
+        )?;
+        if let Some(ref info) = self.rate_limit {
+            if !info.is_empty() {
+                write!(f, "\n{}", info.format_lines())?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -355,14 +379,9 @@ pub async fn raw_request(
     let resp = req.send().await?;
     if !resp.status().is_success() {
         let status = resp.status();
+        let headers = resp.headers().clone();
         let text = resp.text().await.unwrap_or_default();
-        return Err(HttpError {
-            status: status.as_u16(),
-            method: method_name,
-            url,
-            body: text,
-        }
-        .into());
+        return Err(http_error(status.as_u16(), method_name, url, text, &headers).into());
     }
 
     let resp_ct = resp
@@ -411,14 +430,9 @@ pub async fn raw_get(
         .await?;
     if !resp.status().is_success() {
         let status = resp.status();
+        let headers = resp.headers().clone();
         let body = resp.text().await.unwrap_or_default();
-        return Err(HttpError {
-            status: status.as_u16(),
-            method: "GET".into(),
-            url,
-            body,
-        }
-        .into());
+        return Err(http_error(status.as_u16(), "GET", url, body, &headers).into());
     }
     parse_response_json(resp).await
 }
@@ -446,14 +460,9 @@ pub async fn raw_patch(
         .await?;
     if !resp.status().is_success() {
         let status = resp.status();
+        let headers = resp.headers().clone();
         let body = resp.text().await.unwrap_or_default();
-        return Err(HttpError {
-            status: status.as_u16(),
-            method: "PATCH".into(),
-            url,
-            body,
-        }
-        .into());
+        return Err(http_error(status.as_u16(), "PATCH", url, body, &headers).into());
     }
     parse_response_json(resp).await
 }
@@ -501,14 +510,9 @@ async fn raw_post_impl(
         .await?;
     if !resp.status().is_success() {
         let status = resp.status();
+        let headers = resp.headers().clone();
         let body = resp.text().await.unwrap_or_default();
-        return Err(HttpError {
-            status: status.as_u16(),
-            method: "POST".into(),
-            url: url.to_string(),
-            body,
-        }
-        .into());
+        return Err(http_error(status.as_u16(), "POST", url, body, &headers).into());
     }
     parse_response_json(resp).await
 }
@@ -671,14 +675,9 @@ pub async fn raw_delete(cfg: &Config, path: &str) -> anyhow::Result<()> {
         .await?;
     if !resp.status().is_success() {
         let status = resp.status();
+        let headers = resp.headers().clone();
         let body = resp.text().await.unwrap_or_default();
-        return Err(HttpError {
-            status: status.as_u16(),
-            method: "DELETE".into(),
-            url,
-            body,
-        }
-        .into());
+        return Err(http_error(status.as_u16(), "DELETE", url, body, &headers).into());
     }
     Ok(())
 }
@@ -1219,6 +1218,43 @@ mod tests {
             .await
             .expect("raw_get with JSON body should succeed");
         assert_eq!(resp["data"]["id"], "12345");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_raw_get_rate_limit_includes_headers() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        std::env::set_var("PUP_MOCK_SERVER", server.url());
+
+        let cfg = test_cfg();
+        server
+            .mock("GET", "/api/v1/monitor")
+            .with_status(429)
+            .with_header("x-ratelimit-name", "get_all_monitors")
+            .with_header("x-ratelimit-limit", "1000")
+            .with_header("x-ratelimit-remaining", "0")
+            .with_body(r#"{"errors":["Too Many Requests"]}"#)
+            .create_async()
+            .await;
+
+        let err = super::raw_get(&cfg, "/api/v1/monitor", &[])
+            .await
+            .expect_err("429 should fail");
+        let http_err = err
+            .downcast_ref::<super::HttpError>()
+            .expect("expected HttpError");
+        assert_eq!(http_err.status, 429);
+        let info = http_err
+            .rate_limit
+            .as_ref()
+            .expect("expected rate limit headers");
+        assert_eq!(info.name.as_deref(), Some("get_all_monitors"));
+        assert_eq!(info.limit.as_deref(), Some("1000"));
+        assert_eq!(info.remaining.as_deref(), Some("0"));
+        let (msg, code) = crate::rate_limit::cli_error(&err);
+        assert_eq!(code, crate::rate_limit::EXIT_RATE_LIMITED);
+        assert!(msg.contains("rule: get_all_monitors"));
         cleanup_env();
     }
 }

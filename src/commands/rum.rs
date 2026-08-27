@@ -5,14 +5,23 @@ use datadog_api_client::datadogV2::api_rum_replay_heatmaps::{
     ListReplayHeatmapSnapshotsOptionalParams, RumReplayHeatmapsAPI,
 };
 use datadog_api_client::datadogV2::api_rum_replay_playlists::{
+    AddRumReplaySessionToPlaylistOptionalParams, ListRumReplayPlaylistSessionsOptionalParams,
     ListRumReplayPlaylistsOptionalParams, RumReplayPlaylistsAPI,
+};
+use datadog_api_client::datadogV2::api_rum_replay_sessions::{
+    GetSegmentsOptionalParams, RumReplaySessionsAPI,
+};
+use datadog_api_client::datadogV2::api_rum_replay_viewership::{
+    ListRumReplaySessionWatchersOptionalParams,
+    ListRumReplayViewershipHistorySessionsOptionalParams, RumReplayViewershipAPI,
 };
 use datadog_api_client::datadogV2::api_rum_retention_filters::RumRetentionFiltersAPI;
 use datadog_api_client::datadogV2::model::{
-    RUMApplicationCreate, RUMApplicationCreateAttributes, RUMApplicationCreateRequest,
+    Playlist, RUMApplicationCreate, RUMApplicationCreateAttributes, RUMApplicationCreateRequest,
     RUMApplicationCreateType, RUMApplicationUpdateRequest, RUMQueryFilter, RUMQueryPageOptions,
     RUMSearchEventsRequest, RUMSort, RumMetricCreateRequest, RumMetricUpdateRequest,
-    RumRetentionFilterCreateRequest, RumRetentionFilterUpdateRequest,
+    RumRetentionFilterCreateRequest, RumRetentionFilterUpdateRequest, SessionIdArray, Watch,
+    WatchData, WatchDataType,
 };
 
 use crate::config::Config;
@@ -288,6 +297,248 @@ pub async fn playlists_get(cfg: &Config, playlist_id: i32) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+pub async fn playlists_create(cfg: &Config, file: &str) -> Result<()> {
+    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let body: Playlist = crate::util::read_json_file(file)?;
+    let resp = api
+        .create_rum_replay_playlist(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create RUM playlist: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn playlists_update(cfg: &Config, playlist_id: i32, file: &str) -> Result<()> {
+    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let body: Playlist = crate::util::read_json_file(file)?;
+    let resp = api
+        .update_rum_replay_playlist(playlist_id as i64, body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update RUM playlist: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn playlists_delete(cfg: &Config, playlist_id: i32) -> Result<()> {
+    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    api.delete_rum_replay_playlist(playlist_id as i64)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete RUM playlist: {e:?}"))?;
+    println!("RUM playlist {playlist_id} deleted.");
+    Ok(())
+}
+
+pub async fn playlists_sessions_list(
+    cfg: &Config,
+    playlist_id: i32,
+    page_number: Option<i64>,
+    page_size: i64,
+) -> Result<()> {
+    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let mut params = ListRumReplayPlaylistSessionsOptionalParams::default().page_size(page_size);
+    if let Some(page_number) = page_number {
+        params = params.page_number(page_number);
+    }
+    let resp = api
+        .list_rum_replay_playlist_sessions(playlist_id as i64, params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list RUM playlist sessions: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn playlists_sessions_add(
+    cfg: &Config,
+    playlist_id: i32,
+    session_id: String,
+    ts: Option<i64>,
+    data_source: Option<String>,
+) -> Result<()> {
+    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let ts = ts.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+    let mut params = AddRumReplaySessionToPlaylistOptionalParams::default();
+    if let Some(data_source) = data_source {
+        params = params.data_source(data_source);
+    }
+    let resp = api
+        .add_rum_replay_session_to_playlist(ts, playlist_id as i64, session_id, params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to add session to RUM playlist: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn playlists_sessions_remove(
+    cfg: &Config,
+    playlist_id: i32,
+    session_id: String,
+) -> Result<()> {
+    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    api.remove_rum_replay_session_from_playlist(playlist_id as i64, session_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to remove session from RUM playlist: {e:?}"))?;
+    println!("Session removed from RUM playlist {playlist_id}.");
+    Ok(())
+}
+
+pub async fn playlists_sessions_bulk_remove(
+    cfg: &Config,
+    playlist_id: i32,
+    file: &str,
+) -> Result<()> {
+    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let body: SessionIdArray = crate::util::read_json_file(file)?;
+    api.bulk_remove_rum_replay_playlist_sessions(playlist_id as i64, body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to bulk-remove RUM playlist sessions: {e:?}"))?;
+    println!("Sessions removed from RUM playlist {playlist_id}.");
+    Ok(())
+}
+
+// ---- RUM Replay Segments ----
+
+pub struct ReplaySegmentsGetArgs {
+    pub session_id: String,
+    pub view_id: String,
+    pub source: Option<String>,
+    pub ts: Option<i64>,
+    pub max_list_size: Option<i64>,
+    pub paging: Option<String>,
+}
+
+fn output_response_content(cfg: &Config, content: &str) -> Result<()> {
+    if content.trim().is_empty() {
+        formatter::output(cfg, &serde_json::Value::Null)?;
+        return Ok(());
+    }
+    let value: serde_json::Value = serde_json::from_str(content)
+        .map_err(|e| anyhow::anyhow!("failed to parse API response JSON: {e}"))?;
+    formatter::output(cfg, &value)
+}
+
+pub async fn replay_segments_get(cfg: &Config, args: ReplaySegmentsGetArgs) -> Result<()> {
+    let api = crate::make_api!(RumReplaySessionsAPI, cfg);
+    let ReplaySegmentsGetArgs {
+        session_id,
+        view_id,
+        source,
+        ts,
+        max_list_size,
+        paging,
+    } = args;
+
+    let mut params = GetSegmentsOptionalParams::default();
+    if let Some(source) = source {
+        params = params.source(source);
+    }
+    if let Some(ts) = ts {
+        params = params.ts(ts);
+    }
+    if let Some(max_list_size) = max_list_size {
+        params = params.max_list_size(max_list_size);
+    }
+    if let Some(paging) = paging {
+        params = params.paging(paging);
+    }
+
+    let resp = api
+        .get_segments_with_http_info(view_id, session_id, params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get RUM replay segments: {e:?}"))?;
+    output_response_content(cfg, &resp.content)
+}
+
+// ---- RUM Viewership ----
+
+pub struct ViewershipHistoryListArgs {
+    pub from: String,
+    pub to: String,
+    pub page_number: Option<i64>,
+    pub page_size: i64,
+    pub session_ids: Option<String>,
+    pub application_id: Option<String>,
+    pub created_by: Option<String>,
+}
+
+pub async fn viewership_history_list(cfg: &Config, args: ViewershipHistoryListArgs) -> Result<()> {
+    let api = crate::make_api!(RumReplayViewershipAPI, cfg);
+    let ViewershipHistoryListArgs {
+        from,
+        to,
+        page_number,
+        page_size,
+        session_ids,
+        application_id,
+        created_by,
+    } = args;
+    let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
+    let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
+
+    let mut params = ListRumReplayViewershipHistorySessionsOptionalParams::default()
+        .filter_watched_at_start(from_ms)
+        .filter_watched_at_end(to_ms)
+        .page_size(page_size);
+    if let Some(page_number) = page_number {
+        params = params.page_number(page_number);
+    }
+    if let Some(session_ids) = session_ids {
+        params = params.filter_session_ids(session_ids);
+    }
+    if let Some(application_id) = application_id {
+        params = params.filter_application_id(application_id);
+    }
+    if let Some(created_by) = created_by {
+        params = params.filter_created_by(created_by);
+    }
+
+    let resp = api
+        .list_rum_replay_viewership_history_sessions(params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list RUM viewership history: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn viewership_watch_create(
+    cfg: &Config,
+    session_id: String,
+    file: Option<String>,
+) -> Result<()> {
+    let api = crate::make_api!(RumReplayViewershipAPI, cfg);
+    let body: Watch = if let Some(file) = file {
+        crate::util::read_json_file(&file)?
+    } else {
+        Watch::new(WatchData::new(WatchDataType::RUM_REPLAY_WATCH))
+    };
+    let resp = api
+        .create_rum_replay_session_watch(session_id, body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create RUM replay watch: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn viewership_watch_delete(cfg: &Config, session_id: String) -> Result<()> {
+    let api = crate::make_api!(RumReplayViewershipAPI, cfg);
+    api.delete_rum_replay_session_watch(session_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete RUM replay watch: {e:?}"))?;
+    println!("RUM replay watch deleted.");
+    Ok(())
+}
+
+pub async fn viewership_watchers_list(
+    cfg: &Config,
+    session_id: String,
+    page_number: Option<i64>,
+    page_size: i64,
+) -> Result<()> {
+    let api = crate::make_api!(RumReplayViewershipAPI, cfg);
+    let mut params = ListRumReplaySessionWatchersOptionalParams::default().page_size(page_size);
+    if let Some(page_number) = page_number {
+        params = params.page_number(page_number);
+    }
+    let resp = api
+        .list_rum_replay_session_watchers(session_id, params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list RUM replay watchers: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
 // ---- RUM Heatmaps ----
 
 pub async fn heatmaps_query(cfg: &Config, view_name: &str) -> Result<()> {
@@ -539,6 +790,138 @@ mod tests {
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": []}"#).await;
         let _ = super::playlists_list(&cfg).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_playlists_create() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(
+            &mut s,
+            r#"{"data": {"id": "1", "type": "rum_replay_playlist"}}"#,
+        )
+        .await;
+        let path =
+            std::env::temp_dir().join(format!("pup-rum-playlist-{}.json", std::process::id()));
+        std::fs::write(
+            &path,
+            r#"{"data":{"type":"rum_replay_playlist","attributes":{"name":"test"}}}"#,
+        )
+        .unwrap();
+        let _ = super::playlists_create(&cfg, path.to_str().unwrap()).await;
+        let _ = std::fs::remove_file(path);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_playlists_delete() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{}"#).await;
+        let _ = super::playlists_delete(&cfg, 123).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_playlists_sessions_list() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let _ = super::playlists_sessions_list(&cfg, 123, None, 100).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_replay_segments_get() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let result = super::replay_segments_get(
+            &cfg,
+            super::ReplaySegmentsGetArgs {
+                session_id: "sess-1".into(),
+                view_id: "view-1".into(),
+                source: None,
+                ts: None,
+                max_list_size: None,
+                paging: None,
+            },
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "replay segments get failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_viewership_history_list() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let _ = super::viewership_history_list(
+            &cfg,
+            super::ViewershipHistoryListArgs {
+                from: "1h".into(),
+                to: "now".into(),
+                page_number: None,
+                page_size: 100,
+                session_ids: None,
+                application_id: None,
+                created_by: None,
+            },
+        )
+        .await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_viewership_watch_create() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(
+            &mut s,
+            r#"{"data": {"id": "watch-1", "type": "rum_replay_watch"}}"#,
+        )
+        .await;
+        let _ = super::viewership_watch_create(&cfg, "sess-1".into(), None).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_viewership_watchers_list() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let _ = super::viewership_watchers_list(&cfg, "sess-1".into(), None, 100).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_output_response_content_parses_json() {
+        let _lock = lock_env().await;
+        let cfg = test_config("https://example.com");
+        let result = super::output_response_content(&cfg, r#"{"ok":true}"#);
+        assert!(result.is_ok());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_output_response_content_rejects_invalid_json() {
+        let _lock = lock_env().await;
+        let cfg = test_config("https://example.com");
+        let result = super::output_response_content(&cfg, "not-json");
+        assert!(result.is_err());
         cleanup_env();
     }
 

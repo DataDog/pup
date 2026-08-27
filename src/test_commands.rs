@@ -687,6 +687,188 @@ fn test_logs_patterns_parses_and_is_read_only() {
 }
 
 #[test]
+fn test_idp_entity_graph_commands_parse() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "idp",
+        "entities",
+        "query",
+        "kind:service AND owner:payments",
+        "--field",
+        "name,owner",
+        "--include",
+        "owner_teams",
+        "--order-by",
+        "name:desc",
+        "--limit",
+        "50",
+        "--cursor",
+        "next-page",
+        "--free-text-match",
+        "fuzzy",
+        "--include-total-count",
+        "--timeseries-interval",
+        "24h",
+        "--relation-limit",
+        "10",
+        "--raw",
+    ])
+    .expect("IDP entity query should parse");
+
+    match cli.command {
+        crate::Commands::Idp {
+            action:
+                crate::IdpActions::Entities {
+                    action:
+                        crate::IdpEntitiesActions::Query {
+                            query,
+                            field,
+                            include,
+                            order_by,
+                            limit,
+                            cursor,
+                            free_text_match,
+                            include_total_count,
+                            timeseries_interval,
+                            relation_limit,
+                            raw,
+                        },
+                },
+        } => {
+            assert_eq!(query, "kind:service AND owner:payments");
+            assert_eq!(field, vec!["name", "owner"]);
+            assert_eq!(include, vec!["owner_teams"]);
+            assert_eq!(order_by, vec!["name:desc"]);
+            assert_eq!(limit, 50);
+            assert_eq!(cursor.as_deref(), Some("next-page"));
+            assert_eq!(free_text_match.as_deref(), Some("fuzzy"));
+            assert!(include_total_count);
+            assert_eq!(timeseries_interval, "24h");
+            assert_eq!(relation_limit, 10);
+            assert!(raw);
+        }
+        _ => panic!("expected IdpEntitiesActions::Query"),
+    }
+
+    let kinds = crate::Cli::try_parse_from([
+        "pup",
+        "idp",
+        "kinds",
+        "list",
+        "--all",
+        "--include-custom",
+        "--include-low-level",
+        "--exclude-experimental",
+    ])
+    .expect("IDP kinds list should parse");
+    match kinds.command {
+        crate::Commands::Idp {
+            action:
+                crate::IdpActions::Kinds {
+                    action:
+                        crate::IdpKindsActions::List {
+                            all,
+                            include_custom,
+                            include_low_level,
+                            exclude_experimental,
+                        },
+                },
+        } => {
+            assert!(all);
+            assert!(include_custom);
+            assert!(include_low_level);
+            assert!(exclude_experimental);
+        }
+        _ => panic!("expected IdpKindsActions::List"),
+    }
+}
+
+#[test]
+fn test_idp_entity_query_rejects_unknown_free_text_match_mode() {
+    use clap::Parser;
+
+    let result = crate::Cli::try_parse_from([
+        "pup",
+        "idp",
+        "entities",
+        "query",
+        "kind:service",
+        "--free-text-match",
+        "exact",
+    ]);
+    let Err(error) = result else {
+        panic!("unsupported matching modes should fail during CLI parsing");
+    };
+
+    let message = error.to_string();
+    assert!(message.contains("invalid value 'exact'"));
+    assert!(message.contains("partial"));
+    assert!(message.contains("fuzzy"));
+}
+
+#[test]
+fn test_idp_entity_graph_schema_marks_commands_read_only() {
+    use clap::CommandFactory;
+
+    let schema = crate::build_agent_schema(&crate::Cli::command());
+    let idp = schema["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "idp")
+        .unwrap();
+    let kinds = idp["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "kinds")
+        .unwrap();
+    let describe = kinds["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "describe")
+        .unwrap();
+    assert_eq!(describe["read_only"], true);
+
+    let entities = idp["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "entities")
+        .unwrap();
+    let query = entities["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|command| command["name"] == "query")
+        .unwrap();
+    assert_eq!(query["read_only"], true);
+    assert!(query["flags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|flag| flag["name"] == "--relation-limit"));
+}
+
+#[test]
+fn test_read_only_guard_allows_idp_entity_graph_commands() {
+    use clap::CommandFactory;
+
+    for args in [
+        vec!["pup", "idp", "kinds", "list"],
+        vec!["pup", "idp", "kinds", "describe", "service"],
+        vec!["pup", "idp", "entities", "query", "kind:service"],
+    ] {
+        let matches = crate::Cli::command().try_get_matches_from(args).unwrap();
+        let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
+        assert!(!crate::is_write_command_name(&leaf));
+    }
+}
+
+#[test]
 fn test_logs_search_and_aggregate_default_to_auto_storage() {
     use clap::Parser;
 

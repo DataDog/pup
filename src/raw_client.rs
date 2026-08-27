@@ -144,16 +144,9 @@ fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static Endpoi
 /// Endpoints that don't support OAuth.
 /// Trailing "/" means prefix match for ID-parameterized paths.
 static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
-    // Fleet Automation unstable surface (DAL-509) — real API, currently
-    // doesn't support OAuth server-side. This is a status, not a contract:
-    // it's not expected to stay excluded forever, just not there yet. Used
-    // as the "still excluded" example in tests below because it's more
-    // durable than a v2 fleet path (those already flipped once, see
-    // `test_no_fallback_for_fleet`) -- but if/when DAL-509 ships, delete
-    // this entry (and update the tests that reference it) rather than
-    // patching it forward again. Only affects the raw `pup api` passthrough;
-    // `fleet.rs`'s typed commands go through a separate SDK client untouched
-    // by this table.
+    // Fleet Automation unstable surface — doesn't support OAuth server-side
+    // yet. Current status, not a permanent contract; delete this entry (and
+    // the tests referencing it) once it does, rather than patching forward.
     EndpointRequirement {
         path: "/api/unstable/fleet/",
         method: "GET",
@@ -676,7 +669,7 @@ mod tests {
     #[test]
     fn test_prefix_matching_with_id() {
         // Trailing "/" in the pattern should match paths with IDs.
-        // Uses the unstable Fleet entry (DAL-509) as the example.
+        // Uses the still-excluded unstable Fleet entry as the example.
         assert!(requires_api_key_fallback(
             "GET",
             "/api/unstable/fleet/some-id"
@@ -1004,8 +997,7 @@ mod tests {
 
     #[test]
     fn test_other_oauth_excluded_endpoints_still_require_both_keys() {
-        // Uses the unstable Fleet entry (DAL-509, see OAUTH_EXCLUDED_ENDPOINTS)
-        // as the "still excluded" example.
+        // Uses the still-excluded unstable Fleet entry as the example.
         let mut cfg = test_cfg();
         cfg.app_key = None;
         let req =

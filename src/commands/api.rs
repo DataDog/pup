@@ -876,8 +876,7 @@ mod tests {
     /// auth even when a bearer token is present. This exercises the reuse of
     /// raw_client::apply_auth's per-endpoint fallback table.
     ///
-    /// Uses the unstable Fleet entry (DAL-509, not yet OAuth-capable
-    /// server-side) as the "still excluded" example.
+    /// Uses the still-excluded unstable Fleet entry as the example.
     #[tokio::test]
     async fn test_api_oauth_excluded_uses_api_keys() {
         let _lock = lock_env().await;

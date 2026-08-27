@@ -157,6 +157,10 @@ pub fn format_and_print<T: Serialize>(
         }
         let json = go_html_escape(&serde_json::to_string_pretty(&envelope)?);
         println!("{json}");
+        #[cfg(not(feature = "browser"))]
+        if crate::rate_limit::verbose_enabled() {
+            crate::rate_limit::eprint_verbose_response(format, agent_mode)?;
+        }
         return Ok(());
     }
 
@@ -166,7 +170,14 @@ pub fn format_and_print<T: Serialize>(
         OutputFormat::Table => print_table(&value),
         OutputFormat::Csv => print_csv(&value),
         OutputFormat::Tsv => print_tsv(&value),
+    }?;
+
+    #[cfg(not(feature = "browser"))]
+    if crate::rate_limit::verbose_enabled() {
+        crate::rate_limit::eprint_verbose_response(format, agent_mode)?;
     }
+
+    Ok(())
 }
 
 /// Convenience: format and print using config settings (respects -o flag, agent mode, and --jq).
@@ -187,48 +198,50 @@ pub fn print_json(data: &serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-fn print_yaml(data: &serde_json::Value) -> Result<()> {
-    let sorted_data = sort_json_value(data.clone());
-    let yaml = serde_norway::to_string(&sorted_data)?;
-    print!("{yaml}");
-    Ok(())
-}
+/// Render a JSON value to a string using the selected output format.
+pub fn format_value_to_string(
+    data: &serde_json::Value,
+    format: &OutputFormat,
+    agent_mode: bool,
+) -> Result<String> {
+    if agent_mode && *format == OutputFormat::Json {
+        let envelope = build_agent_envelope(data, None)?;
+        return Ok(go_html_escape(&serde_json::to_string_pretty(&envelope)?));
+    }
 
-/// Flatten up to two levels of nested objects into dot-notation keys.
-/// e.g. {"id": "x", "attributes": {"host": "foo", "tags": {"env": "prod"}}}
-///   → {"id": "x", "attributes.host": "foo", "attributes.tags.env": "prod"}
-fn flatten_row(value: &serde_json::Value) -> serde_json::Value {
-    if let serde_json::Value::Object(map) = value {
-        let mut flat = serde_json::Map::new();
-        for (k, v) in map {
-            if let serde_json::Value::Object(inner) = v {
-                for (ik, iv) in inner {
-                    if let serde_json::Value::Object(inner2) = iv {
-                        for (iik, iiv) in inner2 {
-                            flat.insert(format!("{k}.{ik}.{iik}"), iiv.clone());
-                        }
-                    } else {
-                        flat.insert(format!("{k}.{ik}"), iv.clone());
-                    }
-                }
-            } else {
-                flat.insert(k.clone(), v.clone());
-            }
+    match format {
+        OutputFormat::Json => {
+            let sorted_data = sort_json_value(data.clone());
+            Ok(go_html_escape(&serde_json::to_string_pretty(&sorted_data)?))
         }
-        serde_json::Value::Object(flat)
-    } else {
-        value.clone()
+        OutputFormat::Yaml => {
+            let sorted_data = sort_json_value(data.clone());
+            Ok(serde_norway::to_string(&sorted_data)?)
+        }
+        OutputFormat::Table => format_table_to_string(data),
+        OutputFormat::Csv => format_csv_to_string(data),
+        OutputFormat::Tsv => format_tsv_to_string(data),
     }
 }
 
-fn print_table(data: &serde_json::Value) -> Result<()> {
+/// Format and print a JSON value to stderr (same renderers as stdout).
+pub fn eprint_formatted(
+    data: &serde_json::Value,
+    format: &OutputFormat,
+    agent_mode: bool,
+) -> Result<()> {
+    let rendered = format_value_to_string(data, format, agent_mode)?;
+    eprintln!("{rendered}");
+    Ok(())
+}
+
+fn format_table_to_string(data: &serde_json::Value) -> Result<String> {
     let raw_rows = extract_rows(data);
     let owned_rows: Vec<serde_json::Value> = raw_rows.iter().map(|r| flatten_row(r)).collect();
     let rows: Vec<&serde_json::Value> = owned_rows.iter().collect();
 
     if rows.is_empty() {
-        println!("No results found");
-        return Ok(());
+        return Ok("No results found".to_string());
     }
 
     // Collect headers from all rows
@@ -295,7 +308,45 @@ fn print_table(data: &serde_json::Value) -> Result<()> {
         table.add_row(cells);
     }
 
-    println!("{table}");
+    Ok(table.to_string())
+}
+
+fn print_yaml(data: &serde_json::Value) -> Result<()> {
+    let sorted_data = sort_json_value(data.clone());
+    let yaml = serde_norway::to_string(&sorted_data)?;
+    print!("{yaml}");
+    Ok(())
+}
+
+/// Flatten up to two levels of nested objects into dot-notation keys.
+/// e.g. {"id": "x", "attributes": {"host": "foo", "tags": {"env": "prod"}}}
+///   → {"id": "x", "attributes.host": "foo", "attributes.tags.env": "prod"}
+fn flatten_row(value: &serde_json::Value) -> serde_json::Value {
+    if let serde_json::Value::Object(map) = value {
+        let mut flat = serde_json::Map::new();
+        for (k, v) in map {
+            if let serde_json::Value::Object(inner) = v {
+                for (ik, iv) in inner {
+                    if let serde_json::Value::Object(inner2) = iv {
+                        for (iik, iiv) in inner2 {
+                            flat.insert(format!("{k}.{ik}.{iik}"), iiv.clone());
+                        }
+                    } else {
+                        flat.insert(format!("{k}.{ik}"), iv.clone());
+                    }
+                }
+            } else {
+                flat.insert(k.clone(), v.clone());
+            }
+        }
+        serde_json::Value::Object(flat)
+    } else {
+        value.clone()
+    }
+}
+
+fn print_table(data: &serde_json::Value) -> Result<()> {
+    println!("{}", format_table_to_string(data)?);
     Ok(())
 }
 
@@ -344,14 +395,13 @@ fn csv_cell(value: Option<&serde_json::Value>) -> String {
     }
 }
 
-fn print_csv(data: &serde_json::Value) -> Result<()> {
+fn format_csv_to_string(data: &serde_json::Value) -> Result<String> {
     let raw_rows = extract_rows(data);
 
     if raw_rows.is_empty() {
-        return Ok(());
+        return Ok(String::new());
     }
 
-    // Deep-flatten every row so all nested sub-fields become columns.
     let flat_rows: Vec<serde_json::Map<String, serde_json::Value>> = raw_rows
         .iter()
         .map(|r| {
@@ -361,7 +411,6 @@ fn print_csv(data: &serde_json::Value) -> Result<()> {
         })
         .collect();
 
-    // Collect all headers, preserving first-seen insertion order.
     let mut header_set = std::collections::HashSet::new();
     let mut headers: Vec<String> = Vec::new();
     for row in &flat_rows {
@@ -373,26 +422,28 @@ fn print_csv(data: &serde_json::Value) -> Result<()> {
     }
     headers.sort();
 
-    // Print header row.
-    println!(
-        "{}",
-        headers
-            .iter()
-            .map(|h| csv_escape(h))
-            .collect::<Vec<_>>()
-            .join(",")
-    );
-
-    // Print data rows.
+    let mut lines = vec![headers
+        .iter()
+        .map(|h| csv_escape(h))
+        .collect::<Vec<_>>()
+        .join(",")];
     for row in &flat_rows {
-        let line = headers
-            .iter()
-            .map(|h| csv_escape(&csv_cell(row.get(h.as_str()))))
-            .collect::<Vec<_>>()
-            .join(",");
-        println!("{line}");
+        lines.push(
+            headers
+                .iter()
+                .map(|h| csv_escape(&csv_cell(row.get(h.as_str()))))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
     }
+    Ok(lines.join("\n"))
+}
 
+fn print_csv(data: &serde_json::Value) -> Result<()> {
+    let rendered = format_csv_to_string(data)?;
+    if !rendered.is_empty() {
+        println!("{rendered}");
+    }
     Ok(())
 }
 
@@ -402,14 +453,13 @@ fn tsv_escape(s: &str) -> String {
     s.replace('\t', "\\t")
 }
 
-fn print_tsv(data: &serde_json::Value) -> Result<()> {
+fn format_tsv_to_string(data: &serde_json::Value) -> Result<String> {
     let raw_rows = extract_rows(data);
 
     if raw_rows.is_empty() {
-        return Ok(());
+        return Ok(String::new());
     }
 
-    // Deep-flatten every row so all nested sub-fields become columns.
     let flat_rows: Vec<serde_json::Map<String, serde_json::Value>> = raw_rows
         .iter()
         .map(|r| {
@@ -419,7 +469,6 @@ fn print_tsv(data: &serde_json::Value) -> Result<()> {
         })
         .collect();
 
-    // Collect all headers, preserving first-seen insertion order.
     let mut header_set = std::collections::HashSet::new();
     let mut headers: Vec<String> = Vec::new();
     for row in &flat_rows {
@@ -431,26 +480,28 @@ fn print_tsv(data: &serde_json::Value) -> Result<()> {
     }
     headers.sort();
 
-    // Print header row.
-    println!(
-        "{}",
-        headers
-            .iter()
-            .map(|h| tsv_escape(h))
-            .collect::<Vec<_>>()
-            .join("\t")
-    );
-
-    // Print data rows.
+    let mut lines = vec![headers
+        .iter()
+        .map(|h| tsv_escape(h))
+        .collect::<Vec<_>>()
+        .join("\t")];
     for row in &flat_rows {
-        let line = headers
-            .iter()
-            .map(|h| tsv_escape(&csv_cell(row.get(h.as_str()))))
-            .collect::<Vec<_>>()
-            .join("\t");
-        println!("{line}");
+        lines.push(
+            headers
+                .iter()
+                .map(|h| tsv_escape(&csv_cell(row.get(h.as_str()))))
+                .collect::<Vec<_>>()
+                .join("\t"),
+        );
     }
+    Ok(lines.join("\n"))
+}
 
+fn print_tsv(data: &serde_json::Value) -> Result<()> {
+    let rendered = format_tsv_to_string(data)?;
+    if !rendered.is_empty() {
+        println!("{rendered}");
+    }
     Ok(())
 }
 

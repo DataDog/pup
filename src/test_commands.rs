@@ -175,6 +175,13 @@ fn test_on_call_pages_list_rejects_invalid_page_size() {
 }
 
 #[test]
+fn test_on_call_pages_list_accepts_page_zero() {
+    let result = crate::Cli::command()
+        .try_get_matches_from(["pup", "on-call", "pages", "list", "--page", "0"]);
+    assert!(result.is_ok());
+}
+
+#[test]
 fn test_on_call_pages_list_rejects_invalid_sort() {
     let result = crate::Cli::command().try_get_matches_from([
         "pup",
@@ -1320,4 +1327,141 @@ fn test_saved_widgets_get_parses() {
         },
         _ => panic!("expected Commands::SavedWidgets"),
     }
+}
+
+// -------------------------------------------------------------------------
+// Agent-mode --help intercept: subcommand resolution
+//
+// The `--help` intercept in `main_inner` emits a JSON schema only when the
+// requested command resolves. `find_subcommand` drives that decision:
+//   Some(_)          -> scoped schema
+//   None (empty)     -> root schema
+//   None (non-empty) -> fall through to clap, which reports the typo
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_find_subcommand_resolves_when_name_valid() {
+    let cmd = crate::Cli::command();
+    let found = crate::find_subcommand(&cmd, &["monitors"]);
+    assert_eq!(
+        found.map(|c| c.get_name()),
+        Some("monitors"),
+        "a valid top-level subcommand should resolve to itself"
+    );
+}
+
+#[test]
+fn test_find_subcommand_returns_none_when_name_is_typo() {
+    let cmd = crate::Cli::command();
+    // `monitor` (singular) is a typo for `monitors`; it must not resolve so the
+    // intercept falls through to clap's "did you mean" suggestion.
+    assert!(
+        crate::find_subcommand(&cmd, &["monitor"]).is_none(),
+        "an unknown subcommand must not resolve"
+    );
+}
+
+#[test]
+fn test_find_subcommand_returns_none_when_path_empty() {
+    let cmd = crate::Cli::command();
+    // No subcommand given -> root schema branch, not scoped.
+    assert!(
+        crate::find_subcommand(&cmd, &[]).is_none(),
+        "an empty path must not resolve to any subcommand"
+    );
+}
+
+#[test]
+fn test_find_subcommand_resolves_when_alias_used() {
+    let cmd = crate::Cli::command();
+    // `audit` is a visible alias of `audit-logs`; it must resolve so agents
+    // still get the scoped JSON schema rather than clap's plain-text help.
+    let found = crate::find_subcommand(&cmd, &["audit"]);
+    assert_eq!(
+        found.map(|c| c.get_name()),
+        Some("audit-logs"),
+        "a visible alias should resolve to its canonical command"
+    );
+}
+
+#[test]
+fn test_clap_reports_invalid_nested_subcommand_with_suggestion() {
+    let result = crate::Cli::command()
+        .try_get_matches_from(["pup", "monitors", "lits", "--help", "--agent"]);
+    let err = result.expect_err("clap should reject an unknown subcommand");
+    assert_eq!(
+        err.kind(),
+        clap::error::ErrorKind::InvalidSubcommand,
+        "unknown subcommand should surface as InvalidSubcommand"
+    );
+    let rendered = err.to_string();
+    assert!(rendered.contains("unrecognized subcommand 'lits'"));
+    assert!(rendered.contains("a similar subcommand exists: 'list'"));
+}
+
+#[test]
+fn test_find_subcommand_resolves_nested_path() {
+    let cmd = crate::Cli::command();
+    // A valid two-level path resolves to the leaf command.
+    let found = crate::find_subcommand(&cmd, &["monitors", "list"]);
+    assert_eq!(
+        found.map(|c| c.get_name()),
+        Some("list"),
+        "a valid nested path should resolve to the leaf subcommand"
+    );
+}
+
+fn owned(args: &[&str]) -> Vec<String> {
+    args.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn test_top_level_subcommand_returns_first_positional() {
+    let args = owned(&["pup", "monitors", "list", "--help", "--agent"]);
+    assert_eq!(crate::top_level_subcommand(&args), Some("monitors"));
+}
+
+#[test]
+fn test_top_level_subcommand_skips_value_global_before_subcommand() {
+    // The value of `--org` must not be mistaken for the subcommand.
+    let args = owned(&["pup", "--org", "myorg", "monitors", "--help", "--agent"]);
+    assert_eq!(crate::top_level_subcommand(&args), Some("monitors"));
+}
+
+#[test]
+fn test_top_level_subcommand_skips_short_value_global() {
+    let args = owned(&["pup", "-o", "table", "logs", "--help", "--agent"]);
+    assert_eq!(crate::top_level_subcommand(&args), Some("logs"));
+}
+
+#[test]
+fn test_top_level_subcommand_handles_attached_value_form() {
+    // `--output=table` is one token and consumes no following token.
+    let args = owned(&["pup", "--output=table", "logs", "--help"]);
+    assert_eq!(crate::top_level_subcommand(&args), Some("logs"));
+}
+
+#[test]
+fn test_top_level_subcommand_returns_none_when_flags_only() {
+    let args = owned(&["pup", "--agent", "--help"]);
+    assert_eq!(crate::top_level_subcommand(&args), None);
+}
+
+#[test]
+fn test_agent_help_schema_for_valid_nested_subcommand() {
+    let cmd = crate::Cli::command();
+    let args = owned(&["pup", "monitors", "list", "--help", "--agent"]);
+
+    let schema = crate::agent_help_schema(&cmd, &args)
+        .expect("valid nested agent help should return a schema");
+
+    assert_eq!(schema["description"], "Manage monitors");
+}
+
+#[test]
+fn test_agent_help_falls_through_for_invalid_nested_subcommand() {
+    let cmd = crate::Cli::command();
+    let args = owned(&["pup", "monitors", "lits", "--help", "--agent"]);
+
+    assert!(crate::agent_help_schema(&cmd, &args).is_none());
 }

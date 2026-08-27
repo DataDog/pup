@@ -10,6 +10,7 @@ mod extensions;
 mod filter;
 mod formatter;
 mod generated;
+mod rate_limit;
 mod raw_client;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
@@ -72,6 +73,9 @@ pub(crate) struct Cli {
     /// trust prompt). For durable trust, use `trusted_sites` in config instead.
     #[arg(long, global = true)]
     trust_site: bool,
+    /// Print Datadog rate-limit response headers to stderr (formatted like --output)
+    #[arg(short = 'v', long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -1474,6 +1478,27 @@ enum Commands {
         #[arg(long, value_name = "STR")]
         next_action: Option<String>,
     },
+    /// Manage tag governance
+    ///
+    /// Manage governance rules that control which tag values Datadog accepts.
+    ///
+    /// COMMANDS:
+    ///   tag-rules         Manage tag rules
+    ///
+    /// EXAMPLES:
+    ///   # List tag rules
+    ///   pup governance tag-rules list
+    ///
+    ///   # Get a tag rule with its compliance score
+    ///   pup governance tag-rules get rule-abc123 --include-score
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(verbatim_doc_comment)]
+    Governance {
+        #[command(subcommand)]
+        action: GovernanceActions,
+    },
     /// Manage High Availability Multi-Region (HAMR)
     ///
     /// Manage Datadog High Availability Multi-Region (HAMR) connections.
@@ -2290,6 +2315,7 @@ enum Commands {
     ///   • Configure RUM metrics and custom metrics
     ///   • Set up retention filters for session replay and data
     ///   • Query session replay data and playlists
+    ///   • Fetch replay recording segments and viewership data
     ///   • Analyze user interaction heatmaps
     ///
     /// RUM DATA TYPES:
@@ -2324,6 +2350,13 @@ enum Commands {
     ///
     ///   # Query session replay data
     ///   pup rum sessions list --from="1h"
+    ///
+    ///   # Get replay segments for a session view
+    ///   pup rum replay segments get --session-id="..." --view-id="..."
+    ///
+    ///   # Manage replay playlists
+    ///   pup rum playlists list
+    ///   pup rum playlists create --file=playlist.json
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication (pup auth login) or API keys
@@ -2749,34 +2782,15 @@ enum Commands {
         #[command(subcommand)]
         action: SyntheticsActions,
     },
-    /// Manage tag policies for governance and compliance
+    /// Deprecated alias for `pup governance tag-rules`
     ///
-    /// Create, list, get, update, and delete tag policies. Tag policies enforce
-    /// required tag keys and allowed values across your Datadog resources, and
-    /// provide compliance scoring to measure adherence.
-    ///
-    /// COMMANDS:
-    ///   list              List all tag policies
-    ///   get <id>          Get a tag policy by ID
-    ///   create --file     Create a tag policy from JSON
-    ///   update <id> -f    Update a tag policy
-    ///   delete <id>       Delete a tag policy
-    ///   score             Get the overall tag policy compliance score
-    ///
-    /// EXAMPLES:
-    ///   pup tag-policies list
-    ///   pup tag-policies list --include-score
-    ///   pup tag-policies list --filter-source api
-    ///   pup tag-policies get pol-abc123 --include-score
-    ///   pup tag-policies create --file policy.json
-    ///   pup tag-policies score pol-abc123
-    ///
-    /// AUTHENTICATION:
-    ///   Requires either OAuth2 authentication or API keys.
-    #[command(name = "tag-policies", verbatim_doc_comment)]
+    /// Tag policies were renamed to tag rules and moved under the governance
+    /// domain. This hidden alias keeps existing scripts working; use
+    /// `pup governance tag-rules` instead.
+    #[command(name = "tag-policies", hide = true, verbatim_doc_comment)]
     TagPolicies {
         #[command(subcommand)]
-        action: TagPoliciesActions,
+        action: TagRulesActions,
     },
     /// Manage host tags
     ///
@@ -4587,14 +4601,25 @@ enum TagActions {
     Delete { hostname: String },
 }
 
-// ---- Tag Policies ----
+// ---- Governance ----
 #[derive(Subcommand)]
-enum TagPoliciesActions {
-    /// List all tag policies
+enum GovernanceActions {
+    /// Manage tag rules
+    #[command(name = "tag-rules", alias = "tag-policies")]
+    TagRules {
+        #[command(subcommand)]
+        action: TagRulesActions,
+    },
+}
+
+// ---- Tag Rules ----
+#[derive(Subcommand)]
+enum TagRulesActions {
+    /// List all tag rules
     List {
-        #[arg(long, default_value_t = false, help = "Include disabled policies")]
+        #[arg(long, default_value_t = false, help = "Include disabled rules")]
         include_disabled: bool,
-        #[arg(long, default_value_t = false, help = "Include soft-deleted policies")]
+        #[arg(long, default_value_t = false, help = "Include soft-deleted rules")]
         include_deleted: bool,
         #[arg(
             long,
@@ -4602,12 +4627,15 @@ enum TagPoliciesActions {
             help = "Include compliance score in response"
         )]
         include_score: bool,
-        #[arg(long, help = "Filter by policy source: api, terraform, ui")]
+        #[arg(
+            long,
+            help = "Filter by telemetry source: logs, spans, metrics, rum, feed"
+        )]
         filter_source: Option<String>,
     },
-    /// Get a tag policy by ID
+    /// Get a tag rule by ID
     Get {
-        policy_id: String,
+        rule_id: String,
         #[arg(
             long,
             default_value_t = false,
@@ -4615,20 +4643,20 @@ enum TagPoliciesActions {
         )]
         include_score: bool,
     },
-    /// Create a tag policy from a JSON file
+    /// Create a tag rule from a JSON file
     Create {
-        #[arg(long, help = "JSON file with TagPolicyCreateRequest body")]
+        #[arg(long, help = "JSON file with TagRuleCreateRequest body")]
         file: String,
     },
-    /// Update a tag policy from a JSON file
+    /// Update a tag rule from a JSON file
     Update {
-        policy_id: String,
-        #[arg(long, short, help = "JSON file with TagPolicyUpdateRequest body")]
+        rule_id: String,
+        #[arg(long, short, help = "JSON file with TagRuleUpdateRequest body")]
         file: String,
     },
-    /// Delete a tag policy
+    /// Delete a tag rule
     Delete {
-        policy_id: String,
+        rule_id: String,
         #[arg(
             long,
             default_value_t = false,
@@ -4636,9 +4664,9 @@ enum TagPoliciesActions {
         )]
         hard_delete: bool,
     },
-    /// Get the compliance score for a tag policy
+    /// Get the compliance score for a tag rule
     Score {
-        policy_id: String,
+        rule_id: String,
         #[arg(long, help = "Start of scoring window (Unix ms timestamp)")]
         ts_start: Option<i64>,
         #[arg(long, help = "End of scoring window (Unix ms timestamp)")]
@@ -4679,7 +4707,27 @@ enum UserActions {
 #[derive(Subcommand)]
 enum UserRoleActions {
     /// List roles
-    List,
+    List {
+        #[arg(
+            long = "page-size",
+            help = "Number of items to return per page (max 100)"
+        )]
+        page_size: Option<i64>,
+        #[arg(long = "page-number", help = "Specific page number to return")]
+        page_number: Option<i64>,
+        #[arg(
+            long,
+            help = "Sort field: name, -name, modified_at, -modified_at, user_count, -user_count"
+        )]
+        sort: Option<String>,
+        #[arg(long, help = "Filter all roles by the given string")]
+        filter: Option<String>,
+        #[arg(
+            long = "filter-id",
+            help = "Filter all roles by the given list of role IDs"
+        )]
+        filter_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -6596,6 +6644,16 @@ enum RumActions {
         #[command(subcommand)]
         action: RumPlaylistActions,
     },
+    /// Session replay recording segments
+    Replay {
+        #[command(subcommand)]
+        action: RumReplayActions,
+    },
+    /// Session replay viewership
+    Viewership {
+        #[command(subcommand)]
+        action: RumViewershipActions,
+    },
     /// Query RUM interaction heatmaps
     Heatmaps {
         #[command(subcommand)]
@@ -6711,6 +6769,156 @@ enum RumPlaylistActions {
     List,
     /// Get playlist details
     Get { playlist_id: i32 },
+    /// Create a session replay playlist
+    Create {
+        #[arg(long)]
+        file: String,
+    },
+    /// Update a session replay playlist
+    Update {
+        playlist_id: i32,
+        #[arg(long)]
+        file: String,
+    },
+    /// Delete a session replay playlist
+    Delete { playlist_id: i32 },
+    /// Manage sessions in a playlist
+    Sessions {
+        #[command(subcommand)]
+        action: RumPlaylistSessionActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumPlaylistSessionActions {
+    /// List sessions in a playlist
+    List {
+        playlist_id: i32,
+        #[arg(long)]
+        page_number: Option<i64>,
+        #[arg(long, default_value_t = 100)]
+        page_size: i64,
+    },
+    /// Add a session to a playlist
+    Add {
+        playlist_id: i32,
+        #[arg(long)]
+        session_id: String,
+        #[arg(long, help = "Session timestamp in milliseconds (defaults to now)")]
+        ts: Option<i64>,
+        #[arg(long, help = "Data source: rum or product_analytics")]
+        data_source: Option<String>,
+    },
+    /// Remove a session from a playlist
+    Remove {
+        playlist_id: i32,
+        #[arg(long)]
+        session_id: String,
+    },
+    /// Bulk-remove sessions from a playlist
+    #[command(name = "bulk-remove")]
+    BulkRemove {
+        playlist_id: i32,
+        #[arg(long)]
+        file: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumReplayActions {
+    /// Session replay segment data
+    Segments {
+        #[command(subcommand)]
+        action: RumReplaySegmentActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumReplaySegmentActions {
+    /// Get replay segments for a session view
+    Get {
+        #[arg(long)]
+        session_id: String,
+        #[arg(long)]
+        view_id: String,
+        #[arg(long, help = "Storage source: event_platform or blob")]
+        source: Option<String>,
+        #[arg(long, help = "Server-side timestamp in milliseconds")]
+        ts: Option<i64>,
+        #[arg(long, help = "Maximum segment list size in bytes")]
+        max_list_size: Option<i64>,
+        #[arg(long, help = "Paging token for pagination")]
+        paging: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumViewershipActions {
+    /// Viewership history
+    History {
+        #[command(subcommand)]
+        action: RumViewershipHistoryActions,
+    },
+    /// Watch a replay session
+    Watch {
+        #[command(subcommand)]
+        action: RumViewershipWatchActions,
+    },
+    /// Session replay watchers
+    Watchers {
+        #[command(subcommand)]
+        action: RumViewershipWatchersActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumViewershipHistoryActions {
+    /// List viewership history sessions
+    List {
+        #[arg(long, default_value = "1h")]
+        from: String,
+        #[arg(long, default_value = "now")]
+        to: String,
+        #[arg(long)]
+        page_number: Option<i64>,
+        #[arg(long, default_value_t = 100)]
+        page_size: i64,
+        #[arg(long, help = "Comma-separated session IDs")]
+        session_ids: Option<String>,
+        #[arg(long)]
+        application_id: Option<String>,
+        #[arg(long, help = "Filter by user UUID")]
+        created_by: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumViewershipWatchActions {
+    /// Create a replay session watch
+    Create {
+        #[arg(long)]
+        session_id: String,
+        #[arg(long, help = "Optional JSON body (defaults to empty watch)")]
+        file: Option<String>,
+    },
+    /// Delete a replay session watch
+    Delete {
+        #[arg(long)]
+        session_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RumViewershipWatchersActions {
+    /// List watchers for a replay session
+    List {
+        #[arg(long)]
+        session_id: String,
+        #[arg(long)]
+        page_number: Option<i64>,
+        #[arg(long, default_value_t = 100)]
+        page_size: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -7026,18 +7234,34 @@ enum OnCallPagesActions {
         #[arg(
             long,
             allow_hyphen_values = true,
-            value_parser = ["created_at", "-created_at"],
+            value_parser = [
+                "created_at",
+                "-created_at",
+                "priority",
+                "-priority",
+                "status",
+                "-status",
+                "modified_at",
+                "-modified_at",
+            ],
             default_value = "-created_at",
-            help = "Sort field (created_at or -created_at; defaults to newest first)"
+            help = "Sort field (created_at, priority, status, modified_at; prefix with - for descending; defaults to newest first)"
         )]
         sort: String,
         #[arg(
             long,
             default_value_t = 1000,
             value_parser = clap::value_parser!(u32).range(1..=1000),
-            help = "Results per page (1-1000; endpoint pagination is unsupported)"
+            help = "Results per page (1-1000; maps to page[size])"
         )]
         page_size: u32,
+        #[arg(
+            long,
+            default_value_t = 1,
+            value_parser = clap::value_parser!(u32).range(0..),
+            help = "Current page number, 1-indexed (maps to page[current]; 0 defaults to 1)"
+        )]
+        page: u32,
     },
     /// Create an on-call page from a JSON file
     Create {
@@ -10680,6 +10904,46 @@ async fn run_annotations(cfg: &config::Config, action: AnnotationsActions) -> an
     }
 }
 
+/// Shared dispatch for tag rule subcommands, exposed under
+/// `pup governance tag-rules` and under the deprecated `pup tag-policies`
+/// alias kept for backwards compatibility.
+async fn run_tag_rules(cfg: &config::Config, action: TagRulesActions) -> anyhow::Result<()> {
+    match action {
+        TagRulesActions::List {
+            include_disabled,
+            include_deleted,
+            include_score,
+            filter_source,
+        } => {
+            commands::tag_rules::list(
+                cfg,
+                include_disabled,
+                include_deleted,
+                include_score,
+                filter_source,
+            )
+            .await
+        }
+        TagRulesActions::Get {
+            rule_id,
+            include_score,
+        } => commands::tag_rules::get(cfg, &rule_id, include_score).await,
+        TagRulesActions::Create { file } => commands::tag_rules::create(cfg, &file).await,
+        TagRulesActions::Update { rule_id, file } => {
+            commands::tag_rules::update(cfg, &rule_id, &file).await
+        }
+        TagRulesActions::Delete {
+            rule_id,
+            hard_delete,
+        } => commands::tag_rules::delete(cfg, &rule_id, hard_delete).await,
+        TagRulesActions::Score {
+            rule_id,
+            ts_start,
+            ts_end,
+        } => commands::tag_rules::score(cfg, &rule_id, ts_start, ts_end).await,
+    }
+}
+
 // ---- Skills ----
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Subcommand)]
@@ -11068,16 +11332,66 @@ enum AuthActions {
 
 // ---- Agent-mode JSON schema for --help ----
 
+/// Extract the top-level subcommand token from raw CLI args (the value passed
+/// to `pup`, including the binary name at index 0). Used by the agent-mode
+/// `--help` intercept, which runs before clap parses.
+///
+/// Skips the binary name, flags, `--help`/`-h`, and any value belonging to a
+/// value-taking global flag — so `--org myorg logs` yields `logs`, not `myorg`.
+/// The `--flag=value` form is a single `-`-prefixed token and needs no lookahead.
+fn top_level_subcommand(args: &[String]) -> Option<&str> {
+    // Global flags that consume the following token as their value.
+    const VALUE_GLOBALS: &[&str] = &["-o", "--output", "--org", "--jq"];
+    let mut prev_consumes_value = false;
+    for arg in args.iter().skip(1) {
+        if prev_consumes_value {
+            prev_consumes_value = false;
+            continue;
+        }
+        if arg.starts_with('-') {
+            prev_consumes_value = VALUE_GLOBALS.contains(&arg.as_str());
+            continue;
+        }
+        return Some(arg.as_str());
+    }
+    None
+}
+
 /// Walk the clap command tree to find the subcommand matching the given path.
 fn find_subcommand<'a>(cmd: &'a clap::Command, path: &[&str]) -> Option<&'a clap::Command> {
     let mut current = cmd;
     for name in path {
-        current = current.get_subcommands().find(|s| s.get_name() == *name)?;
+        // Match canonical names and aliases so `audit` resolves the same way
+        // clap would resolve it to `audit-logs`.
+        current = current
+            .get_subcommands()
+            .find(|s| s.get_name() == *name || s.get_all_aliases().any(|a| a == *name))?;
     }
     if path.is_empty() {
         None
     } else {
         Some(current)
+    }
+}
+
+/// Return the agent-help schema for a valid command, or `None` when clap should
+/// handle an unknown command or invalid nested subcommand normally.
+fn agent_help_schema(cmd: &clap::Command, args: &[String]) -> Option<serde_json::Value> {
+    let top_level: Vec<&str> = top_level_subcommand(args).into_iter().collect();
+    let target_cmd = find_subcommand(cmd, &top_level);
+    let has_invalid_subcommand = target_cmd.is_some()
+        && cmd
+            .clone()
+            .try_get_matches_from(args)
+            .is_err_and(|error| error.kind() == clap::error::ErrorKind::InvalidSubcommand);
+
+    match target_cmd {
+        Some(target) if !has_invalid_subcommand => {
+            Some(build_agent_schema_scoped(cmd, target, &top_level))
+        }
+        Some(_) => None,
+        None if top_level.is_empty() => Some(build_agent_schema(cmd)),
+        None => None,
     }
 }
 
@@ -12000,15 +12314,23 @@ mod reset_sigpipe_tests {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
     reset_sigpipe();
-    main_inner().await
+    if let Err(err) = main_inner().await {
+        let (msg, code) = rate_limit::cli_error(&err);
+        eprintln!("Error: {msg}");
+        std::process::exit(code);
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
-    main_inner().await
+async fn main() {
+    if let Err(err) = main_inner().await {
+        let (msg, code) = rate_limit::cli_error(&err);
+        eprintln!("Error: {msg}");
+        std::process::exit(code);
+    }
 }
 
 pub(crate) fn get_leaf_subcommand_name(matches: &clap::ArgMatches) -> Option<String> {
@@ -12524,24 +12846,10 @@ async fn main_inner() -> anyhow::Result<()> {
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
     if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
         let cmd = Cli::command();
-        // Collect subcommand path from args (skip binary name, flags, and --help/-h)
-        let sub_path: Vec<&str> = args
-            .iter()
-            .skip(1)
-            .filter(|a| *a != "--help" && *a != "-h" && !a.starts_with('-'))
-            .map(|s| s.as_str())
-            .collect();
-        // Always scope to the top-level subcommand (e.g., "logs" even if "logs search")
-        let top_level: Vec<&str> = sub_path.iter().take(1).copied().collect();
-        let target_cmd = find_subcommand(&cmd, &top_level);
-        let schema = match target_cmd {
-            Some(target) if !top_level.is_empty() => {
-                build_agent_schema_scoped(&cmd, target, &top_level)
-            }
-            _ => build_agent_schema(&cmd),
-        };
-        println!("{}", serde_json::to_string_pretty(&schema).unwrap());
-        return Ok(());
+        if let Some(schema) = agent_help_schema(&cmd, &args) {
+            println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+            return Ok(());
+        }
     }
 
     // --- Extension interception (before clap parsing) ---
@@ -12651,6 +12959,7 @@ async fn main_inner() -> anyhow::Result<()> {
     if cli.read_only {
         cfg.read_only = true;
     }
+    crate::rate_limit::set_verbose(cli.verbose);
     // Captured before the merge: `cfg.jq` also carries an inherited `PUP_FILTER`,
     // which must not be mistaken for an explicit `--jq`.
     let jq_flag_passed = cli.jq.is_some();
@@ -13560,51 +13869,17 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
             }
         }
-        // --- Tag Policies ---
-        Commands::TagPolicies { action } => {
+        // --- Governance ---
+        Commands::Governance { action } => {
             cfg.validate_auth()?;
             match action {
-                TagPoliciesActions::List {
-                    include_disabled,
-                    include_deleted,
-                    include_score,
-                    filter_source,
-                } => {
-                    commands::tag_policies::list(
-                        &cfg,
-                        include_disabled,
-                        include_deleted,
-                        include_score,
-                        filter_source,
-                    )
-                    .await?;
-                }
-                TagPoliciesActions::Get {
-                    policy_id,
-                    include_score,
-                } => {
-                    commands::tag_policies::get(&cfg, &policy_id, include_score).await?;
-                }
-                TagPoliciesActions::Create { file } => {
-                    commands::tag_policies::create(&cfg, &file).await?;
-                }
-                TagPoliciesActions::Update { policy_id, file } => {
-                    commands::tag_policies::update(&cfg, &policy_id, &file).await?;
-                }
-                TagPoliciesActions::Delete {
-                    policy_id,
-                    hard_delete,
-                } => {
-                    commands::tag_policies::delete(&cfg, &policy_id, hard_delete).await?;
-                }
-                TagPoliciesActions::Score {
-                    policy_id,
-                    ts_start,
-                    ts_end,
-                } => {
-                    commands::tag_policies::score(&cfg, &policy_id, ts_start, ts_end).await?;
-                }
+                GovernanceActions::TagRules { action } => run_tag_rules(&cfg, action).await?,
             }
+        }
+        // --- Tag Policies (deprecated alias for `governance tag-rules`) ---
+        Commands::TagPolicies { action } => {
+            cfg.validate_auth()?;
+            run_tag_rules(&cfg, action).await?;
         }
         // --- Users ---
         Commands::Users { action } => {
@@ -13616,7 +13891,23 @@ async fn main_inner() -> anyhow::Result<()> {
                 } => commands::users::list(&cfg, page_size, page_number).await?,
                 UserActions::Get { user_id } => commands::users::get(&cfg, &user_id).await?,
                 UserActions::Roles { action } => match action {
-                    UserRoleActions::List => commands::users::roles_list(&cfg).await?,
+                    UserRoleActions::List {
+                        page_size,
+                        page_number,
+                        sort,
+                        filter,
+                        filter_id,
+                    } => {
+                        commands::users::roles_list(
+                            &cfg,
+                            page_size,
+                            page_number,
+                            sort,
+                            filter,
+                            filter_id,
+                        )
+                        .await?
+                    }
                 },
                 UserActions::Seats { action } => match action {
                     SeatsActions::Users { action } => match action {
@@ -14727,6 +15018,142 @@ async fn main_inner() -> anyhow::Result<()> {
                     RumPlaylistActions::Get { playlist_id } => {
                         commands::rum::playlists_get(&cfg, playlist_id).await?;
                     }
+                    RumPlaylistActions::Create { file } => {
+                        commands::rum::playlists_create(&cfg, &file).await?;
+                    }
+                    RumPlaylistActions::Update { playlist_id, file } => {
+                        commands::rum::playlists_update(&cfg, playlist_id, &file).await?;
+                    }
+                    RumPlaylistActions::Delete { playlist_id } => {
+                        if !cfg.auto_approve {
+                            eprint!(
+                                "Permanently delete RUM playlist {playlist_id}? Type 'yes' to confirm: "
+                            );
+                            let mut input = String::new();
+                            std::io::stdin().read_line(&mut input)?;
+                            if input.trim() != "yes" {
+                                println!("Operation cancelled.");
+                                return Ok(());
+                            }
+                        }
+                        commands::rum::playlists_delete(&cfg, playlist_id).await?;
+                    }
+                    RumPlaylistActions::Sessions { action } => match action {
+                        RumPlaylistSessionActions::List {
+                            playlist_id,
+                            page_number,
+                            page_size,
+                        } => {
+                            commands::rum::playlists_sessions_list(
+                                &cfg,
+                                playlist_id,
+                                page_number,
+                                page_size,
+                            )
+                            .await?;
+                        }
+                        RumPlaylistSessionActions::Add {
+                            playlist_id,
+                            session_id,
+                            ts,
+                            data_source,
+                        } => {
+                            commands::rum::playlists_sessions_add(
+                                &cfg,
+                                playlist_id,
+                                session_id,
+                                ts,
+                                data_source,
+                            )
+                            .await?;
+                        }
+                        RumPlaylistSessionActions::Remove {
+                            playlist_id,
+                            session_id,
+                        } => {
+                            commands::rum::playlists_sessions_remove(&cfg, playlist_id, session_id)
+                                .await?;
+                        }
+                        RumPlaylistSessionActions::BulkRemove { playlist_id, file } => {
+                            commands::rum::playlists_sessions_bulk_remove(&cfg, playlist_id, &file)
+                                .await?;
+                        }
+                    },
+                },
+                RumActions::Replay { action } => match action {
+                    RumReplayActions::Segments { action } => match action {
+                        RumReplaySegmentActions::Get {
+                            session_id,
+                            view_id,
+                            source,
+                            ts,
+                            max_list_size,
+                            paging,
+                        } => {
+                            commands::rum::replay_segments_get(
+                                &cfg,
+                                commands::rum::ReplaySegmentsGetArgs {
+                                    session_id,
+                                    view_id,
+                                    source,
+                                    ts,
+                                    max_list_size,
+                                    paging,
+                                },
+                            )
+                            .await?;
+                        }
+                    },
+                },
+                RumActions::Viewership { action } => match action {
+                    RumViewershipActions::History { action } => match action {
+                        RumViewershipHistoryActions::List {
+                            from,
+                            to,
+                            page_number,
+                            page_size,
+                            session_ids,
+                            application_id,
+                            created_by,
+                        } => {
+                            commands::rum::viewership_history_list(
+                                &cfg,
+                                commands::rum::ViewershipHistoryListArgs {
+                                    from,
+                                    to,
+                                    page_number,
+                                    page_size,
+                                    session_ids,
+                                    application_id,
+                                    created_by,
+                                },
+                            )
+                            .await?;
+                        }
+                    },
+                    RumViewershipActions::Watch { action } => match action {
+                        RumViewershipWatchActions::Create { session_id, file } => {
+                            commands::rum::viewership_watch_create(&cfg, session_id, file).await?;
+                        }
+                        RumViewershipWatchActions::Delete { session_id } => {
+                            commands::rum::viewership_watch_delete(&cfg, session_id).await?;
+                        }
+                    },
+                    RumViewershipActions::Watchers { action } => match action {
+                        RumViewershipWatchersActions::List {
+                            session_id,
+                            page_number,
+                            page_size,
+                        } => {
+                            commands::rum::viewership_watchers_list(
+                                &cfg,
+                                session_id,
+                                page_number,
+                                page_size,
+                            )
+                            .await?;
+                        }
+                    },
                 },
                 RumActions::Heatmaps { action } => match action {
                     RumHeatmapActions::Query { view_name, .. } => {
@@ -14990,12 +15417,14 @@ async fn main_inner() -> anyhow::Result<()> {
                         responder,
                         sort,
                         page_size,
+                        page,
                     } => {
                         commands::on_call::pages_list(
                             &cfg,
                             team.as_deref(),
                             responder.as_deref(),
                             page_size,
+                            page,
                             &sort,
                         )
                         .await?;
@@ -16717,6 +17146,9 @@ async fn main_inner() -> anyhow::Result<()> {
             silent,
             verbose,
         } => {
+            if verbose {
+                crate::rate_limit::set_verbose(true);
+            }
             commands::api::run(
                 &cfg,
                 &endpoint,

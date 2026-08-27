@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::config::Config;
 use crate::formatter;
-use crate::raw_client::HttpError;
+use crate::raw_client;
 use crate::useragent;
 use crate::util_ext;
 
@@ -163,15 +163,10 @@ async fn get_markdown(cfg: &Config, path: &str, query: &[(&str, &str)]) -> Resul
     let resp = send_get(cfg, &url, query, "text/markdown").await?;
     if !resp.status().is_success() {
         let status = resp.status();
+        let headers = resp.headers().clone();
         let url = resp.url().to_string();
         let body = resp.text().await.unwrap_or_default();
-        return Err(HttpError {
-            status: status.as_u16(),
-            method: "GET".to_string(),
-            url,
-            body,
-        }
-        .into());
+        return Err(raw_client::http_error(status.as_u16(), "GET", url, body, &headers).into());
     }
     Ok(resp.text().await?)
 }
@@ -213,15 +208,10 @@ async fn post(cfg: &Config, path: &str, body: serde_json::Value) -> Result<serde
 async fn read_json(resp: reqwest::Response, method: &str) -> Result<serde_json::Value> {
     if !resp.status().is_success() {
         let status = resp.status();
+        let headers = resp.headers().clone();
         let url = resp.url().to_string();
         let body = resp.text().await.unwrap_or_default();
-        return Err(HttpError {
-            status: status.as_u16(),
-            method: method.to_string(),
-            url,
-            body,
-        }
-        .into());
+        return Err(raw_client::http_error(status.as_u16(), method, url, body, &headers).into());
     }
     Ok(resp.json().await?)
 }

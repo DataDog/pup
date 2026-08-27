@@ -31,6 +31,24 @@ impl Middleware for BearerAuthMiddleware {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+struct RateLimitCaptureMiddleware;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait]
+impl Middleware for RateLimitCaptureMiddleware {
+    async fn handle(
+        &self,
+        req: reqwest_middleware::reqwest::Request,
+        extensions: &mut Extensions,
+        next: Next<'_>,
+    ) -> reqwest_middleware::Result<reqwest_middleware::reqwest::Response> {
+        let resp = next.run(req, extensions).await?;
+        crate::rate_limit::store_last(crate::rate_limit::extract_from_headers(resp.headers()));
+        Ok(resp)
+    }
+}
+
 // The `datadog-api-client` SDK's `Configuration.user_agent` is `pub(crate)`
 // with no setter, so the only way to override it from outside the crate is
 // via middleware that mutates the header after the SDK builds the request.
@@ -130,7 +148,9 @@ pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddl
         let reqwest_client = reqwest_middleware::reqwest::Client::builder()
             .build()
             .expect("failed to build reqwest client");
-        let mut builder = ClientBuilder::new(reqwest_client).with(UserAgentMiddleware);
+        let mut builder = ClientBuilder::new(reqwest_client)
+            .with(UserAgentMiddleware)
+            .with(RateLimitCaptureMiddleware);
         if send_bearer {
             if let Some(token) = cfg.access_token.as_ref() {
                 builder = builder.with(BearerAuthMiddleware {
@@ -370,13 +390,15 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.trigger_investigation",
     // Cloud Cost Management — Anomalies (1)
     "v2.list_cost_anomalies",
-    // Tag Policies (6)
-    "v2.create_tag_policy",
-    "v2.delete_tag_policy",
-    "v2.get_tag_policy",
-    "v2.get_tag_policy_score",
-    "v2.list_tag_policies",
-    "v2.update_tag_policy",
+    // Tag Rules (6)
+    "v2.create_tag_rule",
+    "v2.delete_tag_rule",
+    "v2.get_tag_rule",
+    "v2.get_tag_rule_score",
+    "v2.list_tag_rules",
+    "v2.update_tag_rule",
+    // RUM Session Replay (1)
+    "v2.get_segments",
     // Model Lab (16)
     "v2.delete_model_lab_run",
     "v2.get_model_lab_artifact_content",
@@ -516,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 186);
+        assert_eq!(UNSTABLE_OPS.len(), 187);
     }
 
     #[test]

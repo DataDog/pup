@@ -780,6 +780,62 @@ mod tests {
     }
 
     #[test]
+    fn test_no_fallback_for_cost_billing() {
+        // Cost/Billing routes already accept OAuth server-side (DAL-959); the
+        // raw/generic `pup api` passthrough should use the OAuth bearer
+        // instead of forcing API-key fallback.
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/usage/projected_cost"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/usage/cost_by_org"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/cost_by_tag/monthly_cost_attribution"
+        ));
+    }
+
+    #[test]
+    fn test_no_fallback_for_ccm() {
+        // Cloud Cost Management config routes already accept OAuth
+        // server-side (DAL-959); the raw/generic `pup api` passthrough
+        // should use the OAuth bearer instead of forcing API-key fallback.
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/cost/aws_cur_config"
+        ));
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/v2/cost/aws_cur_config"
+        ));
+        assert!(!requires_api_key_fallback(
+            "DELETE",
+            "/api/v2/cost/aws_cur_config/config-123"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/cost/azure_uc_config"
+        ));
+        assert!(!requires_api_key_fallback(
+            "DELETE",
+            "/api/v2/cost/azure_uc_config/config-123"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/cost/gcp_uc_config"
+        ));
+        assert!(!requires_api_key_fallback(
+            "DELETE",
+            "/api/v2/cost/gcp_uc_config/config-123"
+        ));
+        assert!(!requires_api_key_fallback("GET", "/api/v2/cost/oci_config"));
+        assert!(!requires_api_key_fallback("GET", "/api/v2/cost/anomalies"));
+    }
+
+    #[test]
     fn test_no_fallback_for_api_keys() {
         // /api/v2/api_keys and /api/v2/application_keys already accept OAuth
         // server-side (DAL-514); the raw/generic `pup api` passthrough should

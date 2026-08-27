@@ -144,10 +144,18 @@ fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static Endpoi
 /// Endpoints that don't support OAuth.
 /// Trailing "/" means prefix match for ID-parameterized paths.
 static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
-    // Test fixture (1) — not a real API; exists only so tests that need a
-    // "still excluded" example don't churn when real endpoints gain OAuth.
+    // Fleet Automation unstable surface (DAL-509) — real API, currently
+    // doesn't support OAuth server-side. This is a status, not a contract:
+    // it's not expected to stay excluded forever, just not there yet. Used
+    // as the "still excluded" example in tests below because it's more
+    // durable than a v2 fleet path (those already flipped once, see
+    // `test_no_fallback_for_fleet`) -- but if/when DAL-509 ships, delete
+    // this entry (and update the tests that reference it) rather than
+    // patching it forward again. Only affects the raw `pup api` passthrough;
+    // `fleet.rs`'s typed commands go through a separate SDK client untouched
+    // by this table.
     EndpointRequirement {
-        path: "/api/v2/test-oauth-excluded/",
+        path: "/api/unstable/fleet/",
         method: "GET",
     },
     // DDSQL editor tools (3)
@@ -668,10 +676,10 @@ mod tests {
     #[test]
     fn test_prefix_matching_with_id() {
         // Trailing "/" in the pattern should match paths with IDs.
-        // Uses the test fixture entry (permanently excluded) as the example.
+        // Uses the unstable Fleet entry (DAL-509) as the example.
         assert!(requires_api_key_fallback(
             "GET",
-            "/api/v2/test-oauth-excluded/some-id"
+            "/api/unstable/fleet/some-id"
         ));
     }
 
@@ -996,15 +1004,15 @@ mod tests {
 
     #[test]
     fn test_other_oauth_excluded_endpoints_still_require_both_keys() {
-        // Uses the test fixture entry (permanently excluded) so this test
-        // doesn't churn when real endpoints gain OAuth support.
+        // Uses the unstable Fleet entry (DAL-509, see OAUTH_EXCLUDED_ENDPOINTS)
+        // as the "still excluded" example.
         let mut cfg = test_cfg();
         cfg.app_key = None;
-        let req = reqwest::Client::new()
-            .get("https://api.datadoghq.com/api/v2/test-oauth-excluded/some-id");
+        let req =
+            reqwest::Client::new().get("https://api.datadoghq.com/api/unstable/fleet/some-id");
 
-        let err = match apply_auth(req, &cfg, "GET", "/api/v2/test-oauth-excluded/some-id") {
-            Ok(_) => panic!("test fixture should require both keys"),
+        let err = match apply_auth(req, &cfg, "GET", "/api/unstable/fleet/some-id") {
+            Ok(_) => panic!("excluded endpoint should require both keys"),
             Err(err) => err,
         };
         assert!(err.to_string().contains("DD_API_KEY and DD_APP_KEY"));

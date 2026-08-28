@@ -26,6 +26,28 @@ export DD_APP_KEY="your-app-key"
 export DD_SITE="datadoghq.com"
 ```
 
+## LLM Observability
+
+### Export an Annotated Interaction
+```bash
+# Print the annotation and complete interaction data as JSON
+pup llm-obs annotations export \
+  --queue quality-review \
+  --interaction-id 23851556-a8c7-41c1-be75-03eb665a132f
+
+# Select part of the standard JSON output
+pup --jq '.interaction_data.events' llm-obs annotations export \
+  --queue 13851556-a8c7-41c1-be75-03eb665a132f \
+  --interaction-id 23851556-a8c7-41c1-be75-03eb665a132f
+
+# Write JSONL to a file; --force is required to replace an existing file
+pup llm-obs annotations export \
+  --queue quality-review \
+  --interaction-id 23851556-a8c7-41c1-be75-03eb665a132f \
+  --out interaction.jsonl \
+  --format jsonl
+```
+
 ## Metrics
 
 ### List Metrics

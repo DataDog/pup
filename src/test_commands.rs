@@ -44,9 +44,66 @@ fn test_llm_obs_annotations_export_parses() {
     } = action;
     assert_eq!(queue, "quality-review");
     assert_eq!(interaction_id, "23851556-a8c7-41c1-be75-03eb665a132f");
-    assert_eq!(format, "jsonl");
+    assert_eq!(format.as_deref(), Some("jsonl"));
     assert_eq!(out.as_deref(), Some("interaction.jsonl"));
     assert!(force);
+}
+
+#[test]
+fn test_llm_obs_annotations_export_defaults_to_standard_json_output() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "llm-obs",
+        "annotations",
+        "export",
+        "--queue",
+        "quality-review",
+        "--interaction-id",
+        "23851556-a8c7-41c1-be75-03eb665a132f",
+    ])
+    .expect("annotation export should parse without file flags");
+
+    let crate::Commands::LlmObs { action } = cli.command else {
+        panic!("expected Commands::LlmObs");
+    };
+    let crate::LlmObsActions::Annotations { action } = action else {
+        panic!("expected LlmObsActions::Annotations");
+    };
+    let crate::LlmObsAnnotationsActions::Export {
+        format, out, force, ..
+    } = action;
+    assert!(format.is_none());
+    assert!(out.is_none());
+    assert!(!force);
+}
+
+#[test]
+fn test_llm_obs_annotations_export_file_flags_require_out() {
+    use clap::Parser;
+
+    for flag in ["--format", "--force"] {
+        let mut args = vec![
+            "pup",
+            "llm-obs",
+            "annotations",
+            "export",
+            "--queue",
+            "quality-review",
+            "--interaction-id",
+            "23851556-a8c7-41c1-be75-03eb665a132f",
+            flag,
+        ];
+        if flag == "--format" {
+            args.push("jsonl");
+        }
+        let error = match crate::Cli::try_parse_from(args) {
+            Ok(_) => panic!("file-only flags should require --out"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("--out"));
+    }
 }
 
 // -------------------------------------------------------------------------

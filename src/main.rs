@@ -9544,14 +9544,14 @@ enum LlmObsAnnotationsActions {
         interaction_id: String,
         #[arg(
             long,
-            default_value = "jsonl",
             value_parser = ["json", "jsonl"],
-            help = "Export format: json or jsonl"
+            requires = "out",
+            help = "Output-file format: json (default) or jsonl; requires --out"
         )]
-        format: String,
+        format: Option<String>,
         #[arg(long, help = "Output file; writes to stdout when omitted")]
         out: Option<String>,
-        #[arg(long, help = "Overwrite an existing output file")]
+        #[arg(long, requires = "out", help = "Overwrite an existing output file")]
         force: bool,
     },
 }
@@ -17548,7 +17548,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             &cfg,
                             &queue,
                             &interaction_id,
-                            &format,
+                            format.as_deref(),
                             out.as_deref(),
                             force,
                         )

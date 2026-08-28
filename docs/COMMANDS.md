@@ -66,7 +66,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
 | obs-pipelines | list, get, create, update, diff, delete, validate | src/commands/obs_pipelines.rs | ✅ |
-| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get), runs (list, status), topics, topics-with-points, points), agent-insights (list, get, update-status, submit-feedback), annotation-queues (create, list, update, delete, interactions (add, delete, list), schema (get, update), annotations (upsert, delete)), model-pricing | src/commands/llm_obs.rs | ✅ |
+| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get), runs (list, status), topics, topics-with-points, points), agent-insights (list, get, update-status, submit-feedback), annotations (export), annotation-queues (create, list, update, delete, interactions (add, delete, list), schema (get, update), annotations (upsert, delete)), model-pricing | src/commands/llm_obs.rs | ✅ |
 | reference-tables | list, get, create, batch-query | src/commands/reference_tables.rs | ✅ |
 | network | flows list, devices (list, get, interfaces, tags), interfaces (list, update) | src/commands/network.rs | ✅ |
 | cloud | aws, gcp, azure, oci | src/commands/cloud.rs | ✅ |
@@ -93,6 +93,18 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 **Profiling note:** `pup profiling` has no subcommands yet. Use the Datadog MCP server instead: https://docs.datadoghq.com/bits_ai/mcp_server. Enable profiling in the MCP toolset with: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,profiling
 
 ## Common Patterns
+
+### Export an LLM Observability annotated interaction
+
+Export one annotation together with all event data for its trace, span, experiment trace, or session. `--queue` accepts either the queue ID or its exact name. The command writes JSONL by default and refuses to replace an existing file unless `--force` is provided.
+
+```bash
+pup llm-obs annotations export \
+  --queue quality-review \
+  --interaction-id 23851556-a8c7-41c1-be75-03eb665a132f \
+  --format jsonl \
+  --out interaction.jsonl
+```
 
 ### List Operations
 ```bash

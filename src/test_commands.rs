@@ -8,6 +8,47 @@
 
 use clap::CommandFactory;
 
+#[test]
+fn test_llm_obs_annotations_export_parses() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "llm-obs",
+        "annotations",
+        "export",
+        "--queue",
+        "quality-review",
+        "--interaction-id",
+        "23851556-a8c7-41c1-be75-03eb665a132f",
+        "--format",
+        "jsonl",
+        "--out",
+        "interaction.jsonl",
+        "--force",
+    ])
+    .expect("LLM Observability annotation export should parse");
+
+    let crate::Commands::LlmObs { action } = cli.command else {
+        panic!("expected Commands::LlmObs");
+    };
+    let crate::LlmObsActions::Annotations { action } = action else {
+        panic!("expected LlmObsActions::Annotations");
+    };
+    let crate::LlmObsAnnotationsActions::Export {
+        queue,
+        interaction_id,
+        format,
+        out,
+        force,
+    } = action;
+    assert_eq!(queue, "quality-review");
+    assert_eq!(interaction_id, "23851556-a8c7-41c1-be75-03eb665a132f");
+    assert_eq!(format, "jsonl");
+    assert_eq!(out.as_deref(), Some("interaction.jsonl"));
+    assert!(force);
+}
+
 // -------------------------------------------------------------------------
 // Notebook discovery
 // -------------------------------------------------------------------------

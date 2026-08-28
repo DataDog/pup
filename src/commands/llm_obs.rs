@@ -16,6 +16,11 @@ use crate::raw_client;
 use crate::util;
 use crate::util_ext;
 
+use std::collections::HashSet;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
 fn make_api(cfg: &Config) -> AgentObservabilityAPI {
     crate::make_api!(AgentObservabilityAPI, cfg)
 }
@@ -594,6 +599,233 @@ pub async fn annotation_queue_interactions_list(cfg: &Config, queue_id: &str) ->
         .await
         .map_err(|e| anyhow::anyhow!("failed to list annotated interactions: {e:?}"))?;
     formatter::output(cfg, &resp)
+}
+
+const ANNOTATED_INTERACTION_DATA_PAGE_SIZE: &str = "500";
+
+#[derive(Debug, serde::Deserialize)]
+struct AnnotatedInteractionDataPage {
+    annotated_interaction: serde_json::Value,
+    interaction_data: InteractionDataPage,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InteractionDataPage {
+    #[serde(rename = "type")]
+    interaction_type: String,
+    events: Vec<serde_json::Value>,
+    #[serde(default)]
+    next_cursor: Option<String>,
+}
+
+fn parse_annotated_interaction_data_page(
+    response: serde_json::Value,
+) -> Result<AnnotatedInteractionDataPage> {
+    let attributes = response
+        .get("data")
+        .and_then(|data| data.get("attributes"))
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("response is missing data.attributes"))?;
+    serde_json::from_value(attributes)
+        .map_err(|e| anyhow::anyhow!("invalid annotated interaction response: {e}"))
+}
+
+async fn resolve_annotation_queue_id(cfg: &Config, queue: &str) -> Result<String> {
+    if uuid::Uuid::parse_str(queue).is_ok() {
+        return Ok(queue.to_string());
+    }
+    if queue.is_empty() {
+        anyhow::bail!("--queue cannot be empty");
+    }
+
+    let response = raw_client::raw_get(cfg, "/api/v2/llm-obs/v1/annotation-queues", &[])
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to resolve annotation queue '{queue}': {e:?}"))?;
+    let queues = response
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("annotation queue list response is missing data"))?;
+
+    let matching_ids: Vec<&str> = queues
+        .iter()
+        .filter(|item| {
+            item.pointer("/attributes/name")
+                .and_then(serde_json::Value::as_str)
+                == Some(queue)
+        })
+        .filter_map(|item| {
+            item.pointer("/attributes/queue_id")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| item.get("id").and_then(serde_json::Value::as_str))
+        })
+        .collect();
+
+    match matching_ids.as_slice() {
+        [queue_id] if uuid::Uuid::parse_str(queue_id).is_ok() => Ok((*queue_id).to_string()),
+        [_] => anyhow::bail!("annotation queue '{queue}' returned an invalid queue ID"),
+        [] => anyhow::bail!("no annotation queue found with exact name '{queue}'"),
+        _ => anyhow::bail!(
+            "multiple annotation queues are named '{queue}'; pass the queue ID instead"
+        ),
+    }
+}
+
+async fn fetch_annotated_interaction_export(
+    cfg: &Config,
+    queue_id: &str,
+    interaction_id: &str,
+) -> Result<serde_json::Value> {
+    let path = format!(
+        "/api/v2/llm-obs/v1/annotation-queues/{queue_id}/annotated-interactions/{interaction_id}"
+    );
+    let mut cursor: Option<String> = None;
+    let mut seen_cursors = HashSet::new();
+    let mut annotated_interaction: Option<serde_json::Value> = None;
+    let mut interaction_type: Option<String> = None;
+    let mut events = Vec::new();
+
+    loop {
+        let mut query = vec![("limit", ANNOTATED_INTERACTION_DATA_PAGE_SIZE)];
+        if let Some(ref value) = cursor {
+            query.push(("cursor", value.as_str()));
+        }
+        let response = raw_client::raw_get(cfg, &path, &query)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to fetch annotated interaction data: {e:?}"))?;
+        let page = parse_annotated_interaction_data_page(response)?;
+
+        if let Some(existing) = &annotated_interaction {
+            if existing != &page.annotated_interaction {
+                anyhow::bail!("annotated interaction changed while the export was being fetched");
+            }
+        } else {
+            annotated_interaction = Some(page.annotated_interaction);
+        }
+        if let Some(existing) = &interaction_type {
+            if existing != &page.interaction_data.interaction_type {
+                anyhow::bail!("interaction type changed while the export was being fetched");
+            }
+        } else {
+            interaction_type = Some(page.interaction_data.interaction_type);
+        }
+
+        events.extend(page.interaction_data.events);
+        let Some(next_cursor) = page
+            .interaction_data
+            .next_cursor
+            .filter(|value| !value.is_empty())
+        else {
+            break;
+        };
+        if !seen_cursors.insert(next_cursor.clone()) {
+            anyhow::bail!("the server returned a repeated pagination cursor");
+        }
+        cursor = Some(next_cursor);
+    }
+
+    Ok(serde_json::json!({
+        "annotated_interaction": annotated_interaction
+            .ok_or_else(|| anyhow::anyhow!("response did not contain an annotated interaction"))?,
+        "interaction_data": {
+            "type": interaction_type
+                .ok_or_else(|| anyhow::anyhow!("response did not contain an interaction type"))?,
+            "events": events,
+        },
+    }))
+}
+
+fn serialize_annotation_export(value: &serde_json::Value, format: &str) -> Result<Vec<u8>> {
+    let mut bytes = match format {
+        "json" => serde_json::to_vec_pretty(value)?,
+        "jsonl" => serde_json::to_vec(value)?,
+        _ => anyhow::bail!("unsupported export format '{format}'"),
+    };
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
+fn temporary_export_path(path: &Path, attempt: u8) -> Result<PathBuf> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("output path must name a file"))?;
+    Ok(path.with_file_name(format!(".{name}.pup-{}-{attempt}.tmp", std::process::id())))
+}
+
+fn write_annotation_export(path: &Path, bytes: &[u8], force: bool) -> Result<()> {
+    if path.exists() && !force {
+        anyhow::bail!(
+            "output file '{}' already exists; pass --force to overwrite it",
+            path.display()
+        );
+    }
+
+    let mut temporary = None;
+    for attempt in 0..100 {
+        let candidate = temporary_export_path(path, attempt)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&candidate) {
+            Ok(file) => {
+                temporary = Some((candidate, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(anyhow::anyhow!(
+                    "failed to create export beside '{}': {error}",
+                    path.display()
+                ))
+            }
+        }
+    }
+    let (temporary_path, mut file) =
+        temporary.ok_or_else(|| anyhow::anyhow!("could not allocate a temporary export file"))?;
+
+    let result = (|| -> Result<()> {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        #[cfg(windows)]
+        if force && path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        std::fs::rename(&temporary_path, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary_path);
+    }
+    result.map_err(|e| anyhow::anyhow!("failed to write export '{}': {e}", path.display()))
+}
+
+pub async fn annotations_export(
+    cfg: &Config,
+    queue: &str,
+    interaction_id: &str,
+    format: &str,
+    out: Option<&str>,
+    force: bool,
+) -> Result<()> {
+    if uuid::Uuid::parse_str(interaction_id).is_err() {
+        anyhow::bail!("--interaction-id must be a UUID");
+    }
+    let queue_id = resolve_annotation_queue_id(cfg, queue).await?;
+    let export = fetch_annotated_interaction_export(cfg, &queue_id, interaction_id).await?;
+    let bytes = serialize_annotation_export(&export, format)?;
+
+    if let Some(path) = out {
+        write_annotation_export(Path::new(path), &bytes, force)?;
+        eprintln!("Exported annotated interaction to {path}");
+    } else {
+        std::io::stdout().write_all(&bytes)?;
+    }
+    Ok(())
 }
 
 /// Uses the raw client rather than the typed one: a queue with no schema yet answers with
@@ -1444,6 +1676,221 @@ mod tests {
         );
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_annotations_export_fetches_all_pages() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let queue_id = "13851556-a8c7-41c1-be75-03eb665a132f";
+        let interaction_id = "23851556-a8c7-41c1-be75-03eb665a132f";
+        let path = format!(
+            "/api/v2/llm-obs/v1/annotation-queues/{queue_id}/annotated-interactions/{interaction_id}"
+        );
+        let annotated_interaction = serde_json::json!({
+            "interaction_id": interaction_id,
+            "queue_id": queue_id,
+            "queue_name": "quality-review",
+            "can_annotate": true,
+            "annotations": [{"label": "quality", "value": "good"}],
+        });
+        let first_body = serde_json::json!({
+            "data": {
+                "id": interaction_id,
+                "type": "annotated_interaction_data",
+                "attributes": {
+                    "annotated_interaction": annotated_interaction,
+                    "interaction_data": {
+                        "type": "session",
+                        "events": [{"content": {"span_id": "span-1"}}],
+                        "next_cursor": "cursor-1",
+                    }
+                }
+            }
+        });
+        let second_body = serde_json::json!({
+            "data": {
+                "id": interaction_id,
+                "type": "annotated_interaction_data",
+                "attributes": {
+                    "annotated_interaction": annotated_interaction,
+                    "interaction_data": {
+                        "type": "session",
+                        "events": [{"content": {"span_id": "span-2", "expected_output": "ok"}}]
+                    }
+                }
+            }
+        });
+        let _first = server
+            .mock("GET", path.as_str())
+            .match_query(mockito::Matcher::Exact("limit=500".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(first_body.to_string())
+            .create_async()
+            .await;
+        let _second = server
+            .mock("GET", path.as_str())
+            .match_query(mockito::Matcher::Exact("limit=500&cursor=cursor-1".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(second_body.to_string())
+            .create_async()
+            .await;
+
+        let export = super::fetch_annotated_interaction_export(&cfg, queue_id, interaction_id)
+            .await
+            .expect("multi-page export should succeed");
+
+        assert_eq!(export["annotated_interaction"], annotated_interaction);
+        assert_eq!(export["interaction_data"]["type"], "session");
+        assert_eq!(
+            export["interaction_data"]["events"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            export["interaction_data"]["events"][1]["content"]["expected_output"],
+            "ok"
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotations_export_resolves_exact_queue_name() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let queue_id = "13851556-a8c7-41c1-be75-03eb665a132f";
+        let interaction_id = "23851556-a8c7-41c1-be75-03eb665a132f";
+        let _queues = server
+            .mock("GET", "/api/v2/llm-obs/v1/annotation-queues")
+            .match_query(mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "data": [{
+                        "id": queue_id,
+                        "type": "queues",
+                        "attributes": {"queue_id": queue_id, "name": "quality-review"}
+                    }]
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let interaction_path = format!(
+            "/api/v2/llm-obs/v1/annotation-queues/{queue_id}/annotated-interactions/{interaction_id}"
+        );
+        let _interaction = server
+            .mock("GET", interaction_path.as_str())
+            .match_query(mockito::Matcher::Exact("limit=500".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "data": {"attributes": {
+                        "annotated_interaction": {"interaction_id": interaction_id},
+                        "interaction_data": {"type": "experiment_trace", "events": []}
+                    }}
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let temp = TempDir::new("annotation_export");
+        let output = temp.path().join("interaction.jsonl");
+
+        super::annotations_export(
+            &cfg,
+            "quality-review",
+            interaction_id,
+            "jsonl",
+            output.to_str(),
+            false,
+        )
+        .await
+        .expect("named queue export should succeed");
+
+        let exported: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(output).expect("export should be readable"),
+        )
+        .expect("export should contain JSON");
+        assert_eq!(exported["interaction_data"]["type"], "experiment_trace");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_annotations_export_rejects_repeated_cursor() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let queue_id = "13851556-a8c7-41c1-be75-03eb665a132f";
+        let interaction_id = "23851556-a8c7-41c1-be75-03eb665a132f";
+        let path = format!(
+            "/api/v2/llm-obs/v1/annotation-queues/{queue_id}/annotated-interactions/{interaction_id}"
+        );
+        let body = serde_json::json!({
+            "data": {"attributes": {
+                "annotated_interaction": {"interaction_id": interaction_id},
+                "interaction_data": {
+                    "type": "trace",
+                    "events": [],
+                    "next_cursor": "same-cursor"
+                }
+            }}
+        });
+        let _first = server
+            .mock("GET", path.as_str())
+            .match_query(mockito::Matcher::Exact("limit=500".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body.to_string())
+            .create_async()
+            .await;
+        let _second = server
+            .mock("GET", path.as_str())
+            .match_query(mockito::Matcher::Exact(
+                "limit=500&cursor=same-cursor".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body.to_string())
+            .create_async()
+            .await;
+
+        let error = super::fetch_annotated_interaction_export(&cfg, queue_id, interaction_id)
+            .await
+            .expect_err("repeated cursor should fail");
+        assert!(error.to_string().contains("repeated pagination cursor"));
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_annotation_export_refuses_overwrite_without_force() {
+        let temp = TempDir::new("annotation_export_overwrite");
+        let output = temp.path().join("interaction.jsonl");
+        std::fs::write(&output, b"existing\n").unwrap();
+
+        let error = super::write_annotation_export(&output, b"replacement\n", false)
+            .expect_err("existing output should be protected");
+
+        assert!(error.to_string().contains("--force"));
+        assert_eq!(std::fs::read(&output).unwrap(), b"existing\n");
+        super::write_annotation_export(&output, b"replacement\n", true)
+            .expect("--force should replace the output");
+        assert_eq!(std::fs::read(&output).unwrap(), b"replacement\n");
+    }
+
+    #[test]
+    fn test_parse_annotated_interaction_data_page_rejects_missing_attributes() {
+        let error = super::parse_annotated_interaction_data_page(serde_json::json!({"data": {}}))
+            .expect_err("missing attributes should fail");
+        assert!(error.to_string().contains("data.attributes"));
     }
 
     #[tokio::test]

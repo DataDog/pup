@@ -9487,6 +9487,11 @@ enum LlmObsActions {
         #[command(subcommand)]
         action: LlmObsSpansActions,
     },
+    /// Export an annotated interaction with its complete interaction data
+    Annotations {
+        #[command(subcommand)]
+        action: LlmObsAnnotationsActions,
+    },
     /// Manage LLM Observability annotation queues
     #[command(name = "annotation-queues")]
     AnnotationQueues {
@@ -9526,6 +9531,28 @@ enum LlmObsActions {
         limit: Option<u32>,
         #[arg(long, help = "Pagination cursor from a prior call")]
         cursor: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum LlmObsAnnotationsActions {
+    /// Export one annotated interaction and all of its event data
+    Export {
+        #[arg(long, help = "Annotation queue ID or exact queue name")]
+        queue: String,
+        #[arg(long, help = "Interaction ID")]
+        interaction_id: String,
+        #[arg(
+            long,
+            default_value = "jsonl",
+            value_parser = ["json", "jsonl"],
+            help = "Export format: json or jsonl"
+        )]
+        format: String,
+        #[arg(long, help = "Output file; writes to stdout when omitted")]
+        out: Option<String>,
+        #[arg(long, help = "Overwrite an existing output file")]
+        force: bool,
     },
 }
 
@@ -17508,6 +17535,25 @@ async fn main_inner() -> anyhow::Result<()> {
                             .await?;
                         }
                     },
+                },
+                LlmObsActions::Annotations { action } => match action {
+                    LlmObsAnnotationsActions::Export {
+                        queue,
+                        interaction_id,
+                        format,
+                        out,
+                        force,
+                    } => {
+                        commands::llm_obs::annotations_export(
+                            &cfg,
+                            &queue,
+                            &interaction_id,
+                            &format,
+                            out.as_deref(),
+                            force,
+                        )
+                        .await?;
+                    }
                 },
                 LlmObsActions::EvalConfig { action } => match action {
                     LlmObsEvalConfigActions::Get { eval_name } => {

@@ -9,6 +9,7 @@ mod config;
 mod extensions;
 mod filter;
 mod formatter;
+mod formatter_ext;
 mod generated;
 mod rate_limit;
 mod raw_client;

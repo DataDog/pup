@@ -1243,6 +1243,8 @@ Single-resource responses use field/value rows, while collections remain horizon
 
 Scalar table results are rendered in a `VALUE` column instead of producing an empty table.
 
+Table cells use compact previews for long strings, arrays, nested objects, and null values.
+
 ### CSV and TSV Output
 ```bash
 pup monitors list --output=csv

@@ -1245,6 +1245,9 @@ Scalar table results are rendered in a `VALUE` column instead of producing an em
 
 Table cells use compact previews for long strings, arrays, nested objects, and null values.
 
+Common resource lists use concise, opinionated columns; unknown shapes keep the generic
+priority-and-fallback selection.
+
 ### CSV and TSV Output
 ```bash
 pup monitors list --output=csv

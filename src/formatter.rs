@@ -315,7 +315,7 @@ fn format_table_to_string_with_order(
     data: &serde_json::Value,
     output_order: OutputOrder,
 ) -> Result<String> {
-    let table_data = unwrap_data(data);
+    let table_data = unwrap_table_data(data);
     match table_data {
         serde_json::Value::Array(values)
             if values
@@ -332,64 +332,24 @@ fn format_table_to_string_with_order(
 
 fn format_horizontal_table(data: &serde_json::Value, output_order: OutputOrder) -> Result<String> {
     let raw_rows = extract_rows(data);
-    let owned_rows: Vec<serde_json::Value> = raw_rows.iter().map(|r| flatten_row(r)).collect();
+    let owned_rows: Vec<serde_json::Value> = raw_rows
+        .iter()
+        .map(|row| flatten_row(unwrap_table_row(row)))
+        .collect();
     let rows: Vec<&serde_json::Value> = owned_rows.iter().collect();
 
     if rows.is_empty() {
         return Ok("No results found".to_string());
     }
 
-    // Collect headers from all rows
-    let mut headers: Vec<String> = Vec::new();
-    let mut header_set = std::collections::HashSet::new();
-    for row in &rows {
-        if let serde_json::Value::Object(map) = row {
-            for key in map.keys() {
-                if header_set.insert(key.clone()) {
-                    headers.push(key.clone());
-                }
-            }
-        }
-    }
-
-    // Prioritize common fields (including flattened log attribute fields)
-    let priority = [
-        "id",
-        "title",
-        "name",
-        "type",
-        "status",
-        "state",
-        "severity",
-        "created_at",
-        "updated_at",
-        "created",
-        "modified",
-        "attributes.timestamp",
-        "attributes.service",
-        "attributes.host",
-        "attributes.status",
-        "attributes.message",
-    ];
-    let mut final_headers: Vec<String> = Vec::new();
-    if output_order == OutputOrder::Default {
-        for &p in &priority {
-            if header_set.contains(p) {
-                final_headers.push(p.to_string());
-            }
-        }
-        for h in &headers {
-            if final_headers.len() >= 12 {
-                break;
-            }
-            if !final_headers.contains(h) {
-                final_headers.push(h.clone());
-            }
-        }
+    let final_headers = if output_order == OutputOrder::Default {
+        select_list_headers(&rows, 12)
     } else {
-        final_headers.extend(headers.into_iter().take(12));
+        collect_headers(&rows).0.into_iter().take(12).collect()
+    };
+    if final_headers.is_empty() {
+        return format_scalar_table(raw_rows);
     }
-
     let mut table = comfy_table::Table::new();
     table.set_header(&final_headers);
 
@@ -441,6 +401,213 @@ fn format_scalar_table<'a>(
         return Ok("No results found".to_string());
     }
     Ok(table.to_string())
+}
+
+fn collect_headers(
+    rows: &[&serde_json::Value],
+) -> (Vec<String>, std::collections::HashSet<String>) {
+    let mut headers = Vec::new();
+    let mut header_set = std::collections::HashSet::new();
+    for row in rows {
+        if let serde_json::Value::Object(map) = row {
+            for key in map.keys() {
+                if header_set.insert(key.clone()) {
+                    headers.push(key.clone());
+                }
+            }
+        }
+    }
+    (headers, header_set)
+}
+
+fn select_list_headers(rows: &[&serde_json::Value], max: usize) -> Vec<String> {
+    let (headers, header_set) = collect_headers(rows);
+    if let Some(mut headers) = shape_preset_headers(&header_set) {
+        headers.truncate(max);
+        return headers;
+    }
+
+    let priority = [
+        "id",
+        "public_id",
+        "title",
+        "name",
+        "type",
+        "overall_state",
+        "status",
+        "state",
+        "severity",
+        "created_at",
+        "updated_at",
+        "created",
+        "modified",
+        "attributes.timestamp",
+        "attributes.service",
+        "attributes.host",
+        "attributes.status",
+        "attributes.message",
+    ];
+    let mut final_headers = Vec::new();
+    for &p in &priority {
+        if final_headers.len() >= max {
+            break;
+        }
+        if header_set.contains(p) {
+            final_headers.push(p.to_string());
+        }
+    }
+    for header in headers {
+        if final_headers.len() >= max {
+            break;
+        }
+        if !final_headers.contains(&header) {
+            final_headers.push(header);
+        }
+    }
+    final_headers
+}
+
+fn shape_preset_headers(header_set: &std::collections::HashSet<String>) -> Option<Vec<String>> {
+    const PRESETS: &[(&[&str], &[&str])] = &[
+        // Logs
+        (
+            &["attributes.timestamp", "attributes.message"],
+            &[
+                "attributes.timestamp",
+                "attributes.service",
+                "attributes.status",
+                "attributes.host",
+                "attributes.message",
+            ],
+        ),
+        // Monitors
+        (
+            &["id", "name", "overall_state"],
+            &[
+                "id",
+                "name",
+                "overall_state",
+                "type",
+                "priority",
+                "tags",
+                "modified",
+            ],
+        ),
+        // Monitor search results
+        (
+            &["id", "name", "status", "type", "tags"],
+            &["id", "name", "status", "type", "tags", "last_triggered_ts"],
+        ),
+        // Incidents
+        (
+            &[
+                "attributes.title",
+                "attributes.severity",
+                "attributes.state",
+            ],
+            &[
+                "attributes.public_id",
+                "attributes.title",
+                "attributes.severity",
+                "attributes.state",
+                "attributes.customer_impacted",
+                "attributes.created",
+            ],
+        ),
+        // Dashboards
+        (
+            &["id", "title", "layout_type"],
+            &[
+                "id",
+                "title",
+                "layout_type",
+                "author_handle",
+                "modified_at",
+                "url",
+            ],
+        ),
+        // SLOs
+        (
+            &["id", "name", "thresholds"],
+            &["id", "name", "type", "tags", "thresholds", "modified_at"],
+        ),
+        // Users
+        (
+            &["id", "attributes.email", "attributes.status"],
+            &[
+                "id",
+                "attributes.name",
+                "attributes.email",
+                "attributes.status",
+                "attributes.created_at",
+                "attributes.modified_at",
+            ],
+        ),
+    ];
+
+    PRESETS.iter().find_map(|(required, columns)| {
+        required
+            .iter()
+            .all(|header| header_set.contains(*header))
+            .then(|| available_columns(columns, header_set))
+    })
+}
+
+fn available_columns(
+    columns: &[&str],
+    header_set: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    columns
+        .iter()
+        .filter(|header| header_set.contains(**header))
+        .map(|header| (*header).to_string())
+        .collect()
+}
+
+fn unwrap_table_data(value: &serde_json::Value) -> &serde_json::Value {
+    let value = unwrap_data(value);
+    match value {
+        serde_json::Value::Object(map) => collection_envelope_rows(map)
+            .or_else(|| search_result_rows(value))
+            .unwrap_or(value),
+        _ => value,
+    }
+}
+
+fn collection_envelope_rows(
+    map: &serde_json::Map<String, serde_json::Value>,
+) -> Option<&serde_json::Value> {
+    if map.contains_key("id") {
+        return None;
+    }
+
+    let mut arrays = map
+        .values()
+        .filter(|field| matches!(field, serde_json::Value::Array(_)));
+    let rows = arrays.next()?;
+    arrays.next().is_none().then_some(rows)
+}
+
+fn search_result_rows(value: &serde_json::Value) -> Option<&serde_json::Value> {
+    let resource_type = value.get("type")?.as_str()?;
+    if !resource_type.ends_with("_search_results") {
+        return None;
+    }
+    let attributes = value.get("attributes")?.as_object()?;
+    let mut arrays = attributes
+        .values()
+        .filter(|field| matches!(field, serde_json::Value::Array(_)));
+    let rows = arrays.next()?;
+    arrays.next().is_none().then_some(rows)
+}
+
+fn unwrap_table_row(value: &serde_json::Value) -> &serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) if map.len() == 1 && map.contains_key("data") => {
+            unwrap_data(value)
+        }
+        _ => value,
+    }
 }
 
 fn print_yaml(data: &serde_json::Value) -> Result<()> {
@@ -795,6 +962,216 @@ mod tests {
             format_table_to_string(&serde_json::json!([])).unwrap(),
             "No results found"
         );
+    }
+
+    #[test]
+    fn test_monitor_shape_uses_opinionated_columns() {
+        let row = serde_json::json!({
+            "id": 123,
+            "name": "API latency",
+            "overall_state": "Alert",
+            "type": "query alert",
+            "priority": 1,
+            "tags": ["service:api"],
+            "modified": "2026-08-28T12:00:00Z",
+            "query": "avg(last_5m):avg:latency{*} > 1",
+            "message": "not useful in a list view"
+        });
+        assert_eq!(
+            select_list_headers(&[&flatten_row(&row)], 12),
+            [
+                "id",
+                "name",
+                "overall_state",
+                "type",
+                "priority",
+                "tags",
+                "modified"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_known_api_shapes_have_column_presets() {
+        let cases: &[(&[&str], &[&str])] = &[
+            (
+                &[
+                    "attributes.timestamp",
+                    "attributes.message",
+                    "attributes.service",
+                ],
+                &[
+                    "attributes.timestamp",
+                    "attributes.service",
+                    "attributes.message",
+                ],
+            ),
+            (
+                &[
+                    "attributes.public_id",
+                    "attributes.title",
+                    "attributes.severity",
+                    "attributes.state",
+                ],
+                &[
+                    "attributes.public_id",
+                    "attributes.title",
+                    "attributes.severity",
+                    "attributes.state",
+                ],
+            ),
+            (
+                &["id", "title", "layout_type", "url", "description"],
+                &["id", "title", "layout_type", "url"],
+            ),
+            (
+                &["id", "name", "type", "tags", "thresholds", "query"],
+                &["id", "name", "type", "tags", "thresholds"],
+            ),
+            (
+                &[
+                    "id",
+                    "attributes.name",
+                    "attributes.email",
+                    "attributes.status",
+                ],
+                &[
+                    "id",
+                    "attributes.name",
+                    "attributes.email",
+                    "attributes.status",
+                ],
+            ),
+        ];
+
+        for (available, expected) in cases {
+            let header_set = available
+                .iter()
+                .map(|header| (*header).to_string())
+                .collect();
+            assert_eq!(shape_preset_headers(&header_set).unwrap(), *expected);
+        }
+    }
+
+    #[test]
+    fn test_common_collection_wrappers_render_as_lists() {
+        for collection in ["dashboards", "monitors", "users"] {
+            let data = serde_json::Value::Object(
+                [(
+                    collection.to_string(),
+                    serde_json::json!([{"id": "abc", "name": "API"}]),
+                )]
+                .into_iter()
+                .collect(),
+            );
+            let rendered = format_table_to_string(&data).unwrap();
+            assert!(
+                rendered.contains("| id  | name |"),
+                "collection: {collection}"
+            );
+        }
+
+        let monitors = serde_json::json!({
+            "monitors": [{"id": 42, "name": "API"}],
+            "counts": {"status": []},
+            "metadata": {"total_count": 1},
+            "total": 1
+        });
+        let rendered = format_table_to_string(&monitors).unwrap();
+        assert!(rendered.contains("| 42 | API  |"));
+    }
+
+    #[test]
+    fn test_collection_fields_on_resources_are_not_unwrapped() {
+        let resource = serde_json::json!({
+            "id": "group-1",
+            "name": "Owners",
+            "users": [{"id": "user-1"}]
+        });
+        assert_eq!(unwrap_table_data(&resource), &resource);
+
+        let envelope = serde_json::json!({
+            "widgets": [{"id": "widget-1"}],
+            "meta": {"total": 1}
+        });
+        assert_eq!(
+            unwrap_table_data(&envelope),
+            &serde_json::json!([{"id": "widget-1"}])
+        );
+    }
+
+    #[test]
+    fn test_incident_search_wrapper_requires_array_results() {
+        let response = serde_json::json!({
+            "type": "incidents_search_results",
+            "attributes": {"incidents": [{"id": "incident-1"}]}
+        });
+        assert_eq!(
+            unwrap_table_data(&response),
+            &serde_json::json!([{"id": "incident-1"}])
+        );
+
+        for value in [
+            serde_json::json!({
+                "type": "incident",
+                "attributes": {"incidents": [{"id": "related-1"}]}
+            }),
+            serde_json::json!({
+                "type": "incidents_search_results",
+                "attributes": {"incidents": {"id": "not-a-list"}}
+            }),
+        ] {
+            assert_eq!(unwrap_table_data(&value), &value);
+        }
+    }
+
+    #[test]
+    fn test_row_with_data_and_siblings_is_not_unwrapped() {
+        let row = serde_json::json!({"data": {"id": 1}, "meta": "keep"});
+        assert_eq!(unwrap_table_row(&row), &row);
+    }
+
+    #[test]
+    fn test_generic_column_selection_caps_fallback_fields() {
+        let row = serde_json::json!({
+            "extra_1": 1,
+            "status": "ok",
+            "name": "api",
+            "id": 42,
+            "extra_2": 2,
+        });
+        assert_eq!(
+            select_list_headers(&[&row], 4),
+            ["id", "name", "status", "extra_1"]
+        );
+        assert!(select_list_headers(&[], 4).is_empty());
+    }
+
+    #[test]
+    fn test_column_budget_caps_priority_and_preset_fields() {
+        let priority = serde_json::json!({
+            "id": 42,
+            "title": "API",
+            "name": "api",
+            "status": "ok"
+        });
+        assert_eq!(select_list_headers(&[&priority], 2), ["id", "title"]);
+
+        let monitor = serde_json::json!({
+            "id": 42,
+            "name": "API",
+            "overall_state": "OK",
+            "type": "query alert"
+        });
+        assert_eq!(select_list_headers(&[&monitor], 2), ["id", "name"]);
+        assert!(select_list_headers(&[&monitor], 0).is_empty());
+    }
+
+    #[test]
+    fn test_rows_without_columns_render_object_previews() {
+        let rendered = format_table_to_string(&serde_json::json!([{}, {}])).unwrap();
+        assert!(rendered.contains("| VALUE      |"));
+        assert_eq!(rendered.matches("| {0 fields} |").count(), 2);
     }
 
     #[test]

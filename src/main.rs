@@ -48,7 +48,7 @@ use std::io::IsTerminal;
 #[derive(Parser)]
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
 pub(crate) struct Cli {
-    /// Output format (json, table, yaml, csv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
+    /// Output format (json, table, yaml, csv, tsv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
     #[arg(short, long, global = true)]
     output: Option<String>,
     /// Auto-approve destructive operations
@@ -11591,7 +11591,7 @@ fn build_agent_schema_scoped(
                 "name": "--output",
                 "type": "string",
                 "default": "json",
-                "description": "Output format (json, table, yaml, csv)"
+                "description": "Output format (json, table, yaml, csv, tsv)"
             },
             {
                 "name": "--yes",
@@ -11720,7 +11720,7 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
                 "name": "--output",
                 "type": "string",
                 "default": "json",
-                "description": "Output format (json, table, yaml, csv)"
+                "description": "Output format (json, table, yaml, csv, tsv)"
             },
             {
                 "name": "--yes",

@@ -254,7 +254,7 @@ Available on all commands:
 ```bash
 --config string      Config file path (default: ~/.config/pup/config.yaml)
 --site string        Datadog site (default: datadoghq.com)
---output string      Output format: json, yaml, table (default: json)
+--output string      Output format: json, table, yaml, csv, tsv (default: json)
 --jq string          Filter/transform output with a jq expression (applied before formatting)
 --verbose            Enable verbose logging
 --yes                Skip confirmation prompts

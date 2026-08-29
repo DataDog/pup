@@ -1,5 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::IsTerminal;
 
 use crate::config::OutputFormat;
 use crate::filter;
@@ -101,6 +103,49 @@ pub const AGENT_ENVELOPE_NOTE: &str = "This envelope (status/data/metadata) \
 pub const JQ_FILTER_NOTE: &str = "This output was filtered by --jq, which runs on \
     the response payload (the value shown under .data), not on this envelope. \
     Write jq expressions against the payload (e.g. .[]), not .data[].";
+
+const ANSI_RESET: &str = "\x1b[0m";
+const ANSI_BOLD_CYAN: &str = "\x1b[1;36m";
+const ANSI_GREEN: &str = "\x1b[32m";
+const ANSI_YELLOW: &str = "\x1b[33m";
+const ANSI_MAGENTA: &str = "\x1b[35m";
+const ANSI_DIM: &str = "\x1b[2m";
+const ANSI_GRAY: &str = "\x1b[90m";
+const NO_RESULTS: &str = "No results found";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct TerminalCapabilities {
+    colors: bool,
+}
+
+fn color_enabled(
+    is_terminal: bool,
+    no_color: Option<&std::ffi::OsStr>,
+    clicolor: Option<&str>,
+    term: Option<&str>,
+) -> bool {
+    is_terminal
+        && !no_color.is_some_and(|value| !value.is_empty())
+        && clicolor != Some("0")
+        && !term.is_some_and(|value| value.eq_ignore_ascii_case("dumb"))
+}
+
+fn stdout_terminal_capabilities() -> TerminalCapabilities {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        TerminalCapabilities {
+            colors: color_enabled(
+                std::io::stdout().is_terminal(),
+                std::env::var_os("NO_COLOR").as_deref(),
+                std::env::var("CLICOLOR").ok().as_deref(),
+                std::env::var("TERM").ok().as_deref(),
+            ),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    TerminalCapabilities::default()
+}
 
 /// Recursively sort all JSON object keys alphabetically.
 fn sort_json_value(v: serde_json::Value) -> serde_json::Value {
@@ -294,26 +339,40 @@ fn format_and_print_with_order<T: Serialize>(
         return Ok(());
     }
 
-    match output_order {
-        OutputOrder::Default => match format {
-            OutputFormat::Json => print_json(&value),
-            OutputFormat::Yaml => print_yaml(&value),
-            OutputFormat::Table => print_table_with_options(&value, table_input),
-            OutputFormat::Csv => print_csv(&value),
-            OutputFormat::Tsv => print_tsv(&value),
-        }?,
-        OutputOrder::Preserve => {
-            let rendered = format_value_to_string_with_options(
-                &value,
-                format,
-                false,
-                OutputOrder::Preserve,
-                table_input,
-            )?;
-            if !rendered.is_empty() {
-                print!("{rendered}");
-                if !rendered.ends_with('\n') {
-                    println!();
+    let capabilities = if agent_mode {
+        TerminalCapabilities::default()
+    } else {
+        stdout_terminal_capabilities()
+    };
+    if capabilities.colors
+        && matches!(
+            format,
+            OutputFormat::Json | OutputFormat::Yaml | OutputFormat::Table
+        )
+    {
+        print_formatted(&value, format, capabilities, output_order, table_input)?;
+    } else {
+        match output_order {
+            OutputOrder::Default => match format {
+                OutputFormat::Json => print_json(&value),
+                OutputFormat::Yaml => print_yaml(&value),
+                OutputFormat::Table => print_table_with_options(&value, table_input),
+                OutputFormat::Csv => print_csv(&value),
+                OutputFormat::Tsv => print_tsv(&value),
+            }?,
+            OutputOrder::Preserve => {
+                let rendered = format_value_to_string_with_options(
+                    &value,
+                    format,
+                    false,
+                    OutputOrder::Preserve,
+                    table_input,
+                )?;
+                if !rendered.is_empty() {
+                    print!("{rendered}");
+                    if !rendered.ends_with('\n') {
+                        println!();
+                    }
                 }
             }
         }
@@ -455,6 +514,250 @@ pub fn eprint_formatted(
     Ok(())
 }
 
+fn print_formatted(
+    data: &serde_json::Value,
+    format: &OutputFormat,
+    capabilities: TerminalCapabilities,
+    output_order: OutputOrder,
+    table_input: TableInput<'_>,
+) -> Result<()> {
+    let rendered = if *format == OutputFormat::Table {
+        format_table_with_options(data, output_order, table_input, capabilities.colors)?
+    } else {
+        format_value_to_string_with_options(data, format, false, output_order, table_input)?
+    };
+    let Some(rendered) = visible_output(rendered, format) else {
+        return Ok(());
+    };
+
+    let rendered = highlight_output(rendered, format, capabilities);
+    if *format == OutputFormat::Yaml {
+        print!("{rendered}");
+    } else {
+        println!("{rendered}");
+    }
+    Ok(())
+}
+
+fn visible_output(rendered: String, format: &OutputFormat) -> Option<String> {
+    if rendered.is_empty() {
+        return (*format == OutputFormat::Table).then(|| NO_RESULTS.to_string());
+    }
+    Some(rendered)
+}
+
+fn highlight_output(
+    rendered: String,
+    format: &OutputFormat,
+    capabilities: TerminalCapabilities,
+) -> String {
+    if !capabilities.colors {
+        return rendered;
+    }
+
+    match format {
+        OutputFormat::Json => highlight_json(&rendered),
+        OutputFormat::Yaml => highlight_yaml(&rendered),
+        OutputFormat::Table | OutputFormat::Csv | OutputFormat::Tsv => rendered,
+    }
+}
+
+fn push_styled(output: &mut String, style: &str, value: &str) {
+    output.push_str(style);
+    output.push_str(value);
+    output.push_str(ANSI_RESET);
+}
+
+// Pup only highlights output it generated itself. These scanners intentionally
+// recognize the common structures emitted by serde_json and serde_norway rather
+// than implementing general-purpose JSON and YAML parsers.
+fn highlight_json(json: &str) -> String {
+    let bytes = json.as_bytes();
+    let mut output = String::with_capacity(json.len() + json.len() / 4);
+    let mut index = 0;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                let start = index;
+                index += 1;
+                while index < bytes.len() {
+                    match bytes[index] {
+                        b'\\' => index = (index + 2).min(bytes.len()),
+                        b'"' => {
+                            index += 1;
+                            break;
+                        }
+                        _ => index += 1,
+                    }
+                }
+                let style = if json[index..].trim_start().starts_with(':') {
+                    ANSI_BOLD_CYAN
+                } else {
+                    ANSI_GREEN
+                };
+                push_styled(&mut output, style, &json[start..index]);
+            }
+            b'-' | b'0'..=b'9' => {
+                let start = index;
+                index += 1;
+                while index < bytes.len()
+                    && matches!(bytes[index], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
+                {
+                    index += 1;
+                }
+                push_styled(&mut output, ANSI_YELLOW, &json[start..index]);
+            }
+            b't' if json[index..].starts_with("true") => {
+                push_styled(&mut output, ANSI_MAGENTA, "true");
+                index += 4;
+            }
+            b'f' if json[index..].starts_with("false") => {
+                push_styled(&mut output, ANSI_MAGENTA, "false");
+                index += 5;
+            }
+            b'n' if json[index..].starts_with("null") => {
+                push_styled(&mut output, ANSI_GRAY, "null");
+                index += 4;
+            }
+            b'{' | b'}' | b'[' | b']' | b',' | b':' => {
+                push_styled(&mut output, ANSI_DIM, &json[index..index + 1]);
+                index += 1;
+            }
+            _ => {
+                let character = json[index..]
+                    .chars()
+                    .next()
+                    .expect("index is within the string");
+                output.push(character);
+                index += character.len_utf8();
+            }
+        }
+    }
+    output
+}
+
+fn highlight_yaml(yaml: &str) -> String {
+    let mut output = String::with_capacity(yaml.len() + yaml.len() / 4);
+    let mut block_scalar_indent = None;
+    for line in yaml.split_inclusive('\n') {
+        let content = line.strip_suffix('\n').unwrap_or(line);
+        let body = content.trim_start();
+        let indent = content.len() - body.len();
+        if block_scalar_indent
+            .is_some_and(|parent_indent| body.is_empty() || indent > parent_indent)
+        {
+            output.push_str(content);
+        } else {
+            block_scalar_indent = highlight_yaml_line(&mut output, content).then_some(indent);
+        }
+        if line.ends_with('\n') {
+            output.push('\n');
+        }
+    }
+    output
+}
+
+fn highlight_yaml_line(output: &mut String, line: &str) -> bool {
+    let body = line.trim_start();
+    output.push_str(&line[..line.len() - body.len()]);
+
+    let body = if let Some(rest) = body.strip_prefix("- ") {
+        push_styled(output, ANSI_DIM, "-");
+        output.push(' ');
+        rest
+    } else {
+        body
+    };
+
+    if matches!(body, "---" | "...") {
+        push_styled(output, ANSI_DIM, body);
+        return false;
+    }
+
+    if let Some(colon) = find_yaml_mapping_colon(body) {
+        push_styled(output, ANSI_BOLD_CYAN, &body[..colon]);
+        push_styled(output, ANSI_DIM, ":");
+        highlight_yaml_scalar(output, &body[colon + 1..])
+    } else {
+        highlight_yaml_scalar(output, body)
+    }
+}
+
+fn find_yaml_mapping_colon(value: &str) -> Option<usize> {
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut escaped = false;
+    for (index, character) in value.char_indices() {
+        if double_quoted && character == '\\' && !escaped {
+            escaped = true;
+            continue;
+        }
+        if character == '"' && !single_quoted && !escaped {
+            double_quoted = !double_quoted;
+        } else if character == '\'' && !double_quoted {
+            single_quoted = !single_quoted;
+        } else if character == ':' && !single_quoted && !double_quoted {
+            let rest = &value[index + 1..];
+            if rest.is_empty() || rest.starts_with(char::is_whitespace) {
+                return Some(index);
+            }
+        }
+        escaped = false;
+    }
+    None
+}
+
+fn highlight_yaml_scalar(output: &mut String, scalar: &str) -> bool {
+    let value = scalar.trim_start();
+    output.push_str(&scalar[..scalar.len() - value.len()]);
+    if value.is_empty() {
+        return false;
+    }
+
+    let is_block_scalar = is_yaml_block_scalar(value);
+    let style = match value {
+        "null" | "Null" | "NULL" | "~" => ANSI_GRAY,
+        "true" | "True" | "TRUE" | "false" | "False" | "FALSE" => ANSI_MAGENTA,
+        _ if value.parse::<f64>().is_ok_and(|number| number.is_finite()) => ANSI_YELLOW,
+        _ if is_block_scalar => ANSI_MAGENTA,
+        _ => ANSI_GREEN,
+    };
+    push_styled(output, style, value);
+    is_block_scalar
+}
+
+fn is_yaml_block_scalar(value: &str) -> bool {
+    let Some(indicator) = value.split_ascii_whitespace().next() else {
+        return false;
+    };
+    let mut characters = indicator.chars();
+    if !matches!(characters.next(), Some('|' | '>')) {
+        return false;
+    }
+
+    let mut has_chomping = false;
+    let mut has_indent = false;
+    characters.all(|character| match character {
+        '+' | '-' if !has_chomping => {
+            has_chomping = true;
+            true
+        }
+        '1'..='9' if !has_indent => {
+            has_indent = true;
+            true
+        }
+        _ => false,
+    })
+}
+
+fn print_yaml(data: &serde_json::Value) -> Result<()> {
+    let sorted_data = sort_json_value(data.clone());
+    let yaml = serde_norway::to_string(&sorted_data)?;
+    print!("{yaml}");
+    Ok(())
+}
+
 #[cfg(test)]
 fn format_table_to_string(data: &serde_json::Value) -> Result<String> {
     format_table_to_string_with_options(data, OutputOrder::Default, TableInput::Generic)
@@ -465,30 +768,39 @@ fn format_table_to_string_with_options(
     output_order: OutputOrder,
     table_input: TableInput<'_>,
 ) -> Result<String> {
+    format_table_with_options(data, output_order, table_input, false)
+}
+
+fn format_table_with_options(
+    data: &serde_json::Value,
+    output_order: OutputOrder,
+    table_input: TableInput<'_>,
+    colors: bool,
+) -> Result<String> {
     let table_data = select_table_data(data, table_input)?;
     let has_row_hints = table_input.has_row_hints();
     match table_data {
         serde_json::Value::Array(_) if has_row_hints => {
-            format_horizontal_table(table_data, output_order, table_input)
+            format_horizontal_table(table_data, output_order, table_input, colors)
         }
         serde_json::Value::Array(values)
             if values
                 .iter()
                 .all(|value| !matches!(value, serde_json::Value::Object(_))) =>
         {
-            format_scalar_table(values.iter())
+            format_scalar_table(values.iter(), colors)
         }
         serde_json::Value::Array(_) => {
-            format_horizontal_table(table_data, output_order, table_input)
+            format_horizontal_table(table_data, output_order, table_input, colors)
         }
         serde_json::Value::Object(_) if has_row_hints => {
-            format_horizontal_table(table_data, output_order, table_input)
+            format_horizontal_table(table_data, output_order, table_input, colors)
         }
-        serde_json::Value::Object(_) => format_vertical_table(table_data),
+        serde_json::Value::Object(_) => format_vertical_table(table_data, colors),
         _ if has_row_hints => {
             anyhow::bail!("table row and column hints require an array or object response")
         }
-        value => format_scalar_table(std::iter::once(value)),
+        value => format_scalar_table(std::iter::once(value), colors),
     }
 }
 
@@ -512,6 +824,7 @@ fn format_horizontal_table(
     data: &serde_json::Value,
     output_order: OutputOrder,
     table_input: TableInput<'_>,
+    colors: bool,
 ) -> Result<String> {
     let raw_rows = match data {
         serde_json::Value::Array(rows) => rows.iter().collect(),
@@ -520,7 +833,7 @@ fn format_horizontal_table(
     };
     let selected_rows = select_table_rows(raw_rows, table_input)?;
     if selected_rows.is_empty() {
-        return Ok("No results found".to_string());
+        return Ok(NO_RESULTS.to_string());
     }
 
     let requested_columns = table_input
@@ -533,6 +846,7 @@ fn format_horizontal_table(
             &selected_rows,
             &headers,
             flattened_value,
+            colors,
         ));
     }
 
@@ -545,24 +859,35 @@ fn format_horizontal_table(
         collect_headers(&rows).0.into_iter().take(12).collect()
     };
     if final_headers.is_empty() {
-        return format_scalar_table(selected_rows);
+        return format_scalar_table(selected_rows, colors);
     }
 
-    Ok(render_horizontal_rows(&rows, &final_headers, object_value))
+    Ok(render_horizontal_rows(
+        &rows,
+        &final_headers,
+        object_value,
+        colors,
+    ))
 }
 
 fn render_horizontal_rows(
     rows: &[&serde_json::Value],
     headers: &[String],
     value_at: for<'a> fn(&'a serde_json::Value, &str) -> Option<&'a serde_json::Value>,
+    colors: bool,
 ) -> String {
     let mut table = comfy_table::Table::new();
-    table.set_header(headers);
+    table.set_header(
+        headers
+            .iter()
+            .map(|header| table_header_cell(header, colors))
+            .collect::<Vec<_>>(),
+    );
 
     for row in rows {
-        let cells: Vec<String> = headers
+        let cells: Vec<comfy_table::Cell> = headers
             .iter()
-            .map(|header| format_cell(value_at(row, header)))
+            .map(|header| table_cell(value_at(row, header), header, colors))
             .collect();
         table.add_row(cells);
     }
@@ -627,7 +952,7 @@ fn object_value<'a>(row: &'a serde_json::Value, column: &str) -> Option<&'a serd
     row.as_object()?.get(column)
 }
 
-fn format_vertical_table(data: &serde_json::Value) -> Result<String> {
+fn format_vertical_table(data: &serde_json::Value, colors: bool) -> Result<String> {
     let flat = flatten_row(data);
     let Some(fields) = flat.as_object() else {
         return Ok("No results found".to_string());
@@ -637,21 +962,28 @@ fn format_vertical_table(data: &serde_json::Value) -> Result<String> {
     }
 
     let mut table = comfy_table::Table::new();
-    table.set_header(["FIELD", "VALUE"]);
+    table.set_header([
+        table_header_cell("FIELD", colors),
+        table_header_cell("VALUE", colors),
+    ]);
     for (field, value) in fields {
-        table.add_row([field.clone(), format_cell(Some(value))]);
+        table.add_row([
+            comfy_table::Cell::new(field),
+            table_cell(Some(value), field, colors),
+        ]);
     }
     Ok(table.to_string())
 }
 
 fn format_scalar_table<'a>(
     values: impl IntoIterator<Item = &'a serde_json::Value>,
+    colors: bool,
 ) -> Result<String> {
     let mut table = comfy_table::Table::new();
-    table.set_header(["VALUE"]);
+    table.set_header([table_header_cell("VALUE", colors)]);
     let mut has_values = false;
     for value in values {
-        table.add_row([format_cell(Some(value))]);
+        table.add_row([table_cell(Some(value), "", colors)]);
         has_values = true;
     }
     if !has_values {
@@ -719,11 +1051,110 @@ fn select_list_headers(rows: &[&serde_json::Value], max: usize) -> Vec<String> {
     final_headers
 }
 
-fn print_yaml(data: &serde_json::Value) -> Result<()> {
-    let sorted_data = sort_json_value(data.clone());
-    let yaml = serde_norway::to_string(&sorted_data)?;
-    print!("{yaml}");
-    Ok(())
+fn table_header_cell(header: &str, colors: bool) -> comfy_table::Cell {
+    let cell = comfy_table::Cell::new(header);
+    #[cfg(feature = "native")]
+    if colors {
+        return cell
+            .fg(comfy_table::Color::Cyan)
+            .add_attribute(comfy_table::Attribute::Bold);
+    }
+    #[cfg(not(feature = "native"))]
+    let _ = colors;
+    cell
+}
+
+// Table colors are best-effort: JSON value types are exact, while semantic
+// states are recognized from a small set of conventional columns and values.
+#[cfg(feature = "native")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TableTone {
+    Success,
+    Warning,
+    Error,
+    Number,
+    Boolean,
+    Muted,
+    Identifier,
+}
+
+fn table_cell(value: Option<&serde_json::Value>, header: &str, colors: bool) -> comfy_table::Cell {
+    let display = format_cell(value);
+    #[cfg(feature = "native")]
+    let tone = colors
+        .then(|| table_cell_tone(header, value, &display))
+        .flatten();
+    let cell = comfy_table::Cell::new_owned(display);
+
+    #[cfg(feature = "native")]
+    if let Some(tone) = tone {
+        let color = match tone {
+            TableTone::Success => comfy_table::Color::Green,
+            TableTone::Warning | TableTone::Number => comfy_table::Color::Yellow,
+            TableTone::Error => comfy_table::Color::Red,
+            TableTone::Boolean => comfy_table::Color::Magenta,
+            TableTone::Muted => comfy_table::Color::DarkGrey,
+            TableTone::Identifier => comfy_table::Color::Cyan,
+        };
+        let mut cell = cell.fg(color);
+        if matches!(
+            tone,
+            TableTone::Success | TableTone::Warning | TableTone::Error
+        ) {
+            cell = cell.add_attribute(comfy_table::Attribute::Bold);
+        } else if tone == TableTone::Muted {
+            cell = cell.add_attribute(comfy_table::Attribute::Dim);
+        }
+        return cell;
+    }
+
+    #[cfg(not(feature = "native"))]
+    let _ = (header, colors);
+    cell
+}
+
+#[cfg(feature = "native")]
+fn table_cell_tone(
+    header: &str,
+    value: Option<&serde_json::Value>,
+    display: &str,
+) -> Option<TableTone> {
+    let field = header.rsplit('.').next();
+    if matches!(
+        field,
+        Some("overall_state" | "status" | "state" | "severity")
+    ) {
+        if let Some(tone) = semantic_table_tone(display) {
+            return Some(tone);
+        }
+    }
+    if matches!(field, Some("id" | "public_id"))
+        && !matches!(value, None | Some(serde_json::Value::Null))
+    {
+        return Some(TableTone::Identifier);
+    }
+
+    match value {
+        None | Some(serde_json::Value::Null) => Some(TableTone::Muted),
+        Some(serde_json::Value::Number(_)) => Some(TableTone::Number),
+        Some(serde_json::Value::Bool(_)) => Some(TableTone::Boolean),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "native")]
+fn semantic_table_tone(value: &str) -> Option<TableTone> {
+    let normalized = value.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+    match normalized.as_str() {
+        "ok" | "success" | "healthy" | "active" | "enabled" | "resolved" | "completed"
+        | "published" | "passing" | "up" => Some(TableTone::Success),
+        "warn" | "warning" | "pending" | "degraded" | "unstable" | "muted" | "no_data"
+        | "draft" | "skipped" => Some(TableTone::Warning),
+        "error" | "failed" | "failure" | "alert" | "critical" | "down" | "unhealthy"
+        | "triggered" => Some(TableTone::Error),
+        "null" | "none" | "unknown" | "disabled" | "—" => Some(TableTone::Muted),
+        _ => None,
+    }
 }
 
 /// Flatten up to two levels of nested objects into dot-notation keys.
@@ -1057,6 +1488,164 @@ pub fn format_api_error(operation: &str, status: Option<u16>, body: Option<&str>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn strip_test_colors(value: &str) -> String {
+        [
+            ANSI_RESET,
+            ANSI_BOLD_CYAN,
+            ANSI_GREEN,
+            ANSI_YELLOW,
+            ANSI_MAGENTA,
+            ANSI_DIM,
+            ANSI_GRAY,
+        ]
+        .into_iter()
+        .fold(value.to_string(), |plain, style| plain.replace(style, ""))
+    }
+
+    const COLORS: TerminalCapabilities = TerminalCapabilities { colors: true };
+
+    #[test]
+    fn test_color_enabled_only_for_capable_terminal() {
+        let no_color = std::ffi::OsStr::new("1");
+        let empty_no_color = std::ffi::OsStr::new("");
+
+        assert!(color_enabled(true, None, None, Some("xterm-256color")));
+        assert!(color_enabled(
+            true,
+            Some(empty_no_color),
+            None,
+            Some("xterm-256color")
+        ));
+        assert!(!color_enabled(false, None, None, Some("xterm-256color")));
+        assert!(!color_enabled(
+            true,
+            Some(no_color),
+            None,
+            Some("xterm-256color")
+        ));
+        assert!(!color_enabled(true, None, Some("0"), None));
+        assert!(!color_enabled(true, None, None, Some("dumb")));
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn test_table_tones_use_types_and_common_field_names() {
+        assert_eq!(semantic_table_tone("OK"), Some(TableTone::Success));
+        assert_eq!(semantic_table_tone("No Data"), Some(TableTone::Warning));
+        assert_eq!(semantic_table_tone("critical"), Some(TableTone::Error));
+        assert_eq!(semantic_table_tone("custom"), None);
+
+        assert_eq!(
+            table_cell_tone("id", Some(&serde_json::json!("abc")), "abc"),
+            Some(TableTone::Identifier)
+        );
+        assert_eq!(
+            table_cell_tone("count", Some(&serde_json::json!(3)), "3"),
+            Some(TableTone::Number)
+        );
+        assert_eq!(
+            table_cell_tone("message", Some(&serde_json::json!("critical")), "critical"),
+            None
+        );
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn test_table_cells_apply_styles_only_when_enabled() {
+        assert_eq!(
+            table_header_cell("status", true),
+            comfy_table::Cell::new("status")
+                .fg(comfy_table::Color::Cyan)
+                .add_attribute(comfy_table::Attribute::Bold)
+        );
+
+        let value = serde_json::json!("Alert");
+        assert_eq!(
+            table_cell(Some(&value), "status", true),
+            comfy_table::Cell::new("Alert")
+                .fg(comfy_table::Color::Red)
+                .add_attribute(comfy_table::Attribute::Bold)
+        );
+        assert_eq!(
+            table_cell(Some(&value), "status", false),
+            comfy_table::Cell::new("Alert")
+        );
+    }
+
+    #[test]
+    fn test_json_highlighting_preserves_content() {
+        let json =
+            "{\n  \"active\": true,\n  \"count\": 2,\n  \"name\": \"café\",\n  \"value\": null\n}";
+        let highlighted = highlight_json(json);
+        assert!(highlighted.contains(&format!("{ANSI_BOLD_CYAN}\"active\"")));
+        assert!(highlighted.contains(&format!("{ANSI_GREEN}\"café\"")));
+        assert!(highlighted.contains(&format!("{ANSI_YELLOW}2")));
+        assert_eq!(strip_test_colors(&highlighted), json);
+    }
+
+    #[test]
+    fn test_yaml_highlighting_preserves_content_and_quoted_colons() {
+        let yaml = "name: api\nenabled: true\nurl: 'https://example.com:443'\n";
+        let highlighted = highlight_yaml(yaml);
+        assert!(highlighted.contains(&format!("{ANSI_BOLD_CYAN}name")));
+        assert!(highlighted.contains(&format!("{ANSI_MAGENTA}true")));
+        assert_eq!(strip_test_colors(&highlighted), yaml);
+    }
+
+    #[test]
+    fn test_yaml_block_scalar_bodies_are_not_highlighted() {
+        let yaml = "note: |-\n  status: error\n  https://example.com\nnext: true\nsummary: >2\n  name: api\n";
+        let highlighted = highlight_yaml(yaml);
+
+        assert!(highlighted.contains("\n  status: error\n  https://example.com\n"));
+        assert!(highlighted.contains("\n  name: api\n"));
+        assert!(highlighted.contains(&format!("{ANSI_BOLD_CYAN}next")));
+        assert_eq!(strip_test_colors(&highlighted), yaml);
+    }
+
+    #[test]
+    fn test_yaml_only_highlights_finite_numbers_as_numeric() {
+        let highlighted = highlight_yaml("finite: 12.5\ninf: inf\nnegative_inf: -inf\nnan: nan\n");
+        assert!(highlighted.contains(&format!("{ANSI_YELLOW}12.5")));
+        for value in ["inf", "-inf", "nan"] {
+            assert!(
+                highlighted.contains(&format!("{ANSI_GREEN}{value}")),
+                "expected string styling for {value}: {highlighted:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_empty_table_output_remains_visible() {
+        assert_eq!(
+            visible_output(String::new(), &OutputFormat::Table),
+            Some(NO_RESULTS.to_string())
+        );
+        assert_eq!(visible_output(String::new(), &OutputFormat::Csv), None);
+        assert_eq!(
+            visible_output("value".to_string(), &OutputFormat::Table),
+            Some("value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_text_highlighting_does_not_modify_other_formats() {
+        for format in [OutputFormat::Table, OutputFormat::Csv, OutputFormat::Tsv] {
+            assert_eq!(
+                highlight_output("value".to_string(), &format, COLORS),
+                "value"
+            );
+        }
+        assert_eq!(
+            highlight_output(
+                "{\"value\":1}".to_string(),
+                &OutputFormat::Json,
+                TerminalCapabilities::default()
+            ),
+            "{\"value\":1}"
+        );
+    }
 
     #[test]
     fn test_scalar_array_table_uses_value_column() {

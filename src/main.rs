@@ -1526,6 +1526,8 @@ enum Commands {
     /// suggested next actions from the Datadog Service Catalog / IDP.
     ///
     /// CAPABILITIES:
+    ///   • Discover entity kinds and inspect their live query schemas
+    ///   • Query entities and traverse declared relationships
     ///   • Get a full context summary for any entity (assist)
     ///   • Find entities by name or query (find)
     ///   • Resolve ownership and on-call (owner)
@@ -1539,6 +1541,13 @@ enum Commands {
     ///
     ///   # Find entities matching a query
     ///   pup idp find "catalog"
+    ///
+    ///   # Discover entity kinds and their schemas
+    ///   pup idp kinds list
+    ///   pup idp kinds describe service
+    ///
+    ///   # Query across the Datadog entity graph
+    ///   pup idp entities query 'kind:service AND owner:payments'
     ///
     ///   # Who owns this service?
     ///   pup idp owner catalog-http
@@ -5046,6 +5055,16 @@ enum InfraHostActions {
 // ---- IDP (Internal Developer Portal) ----
 #[derive(Subcommand)]
 enum IdpActions {
+    /// Discover the kinds, fields, and relations available in the entity graph
+    Kinds {
+        #[command(subcommand)]
+        action: IdpKindsActions,
+    },
+    /// Query entities and traverse their relations
+    Entities {
+        #[command(subcommand)]
+        action: IdpEntitiesActions,
+    },
     /// Get full context summary with suggested next actions
     ///
     /// The flagship IDP command. Makes parallel API calls to return
@@ -5147,6 +5166,108 @@ enum IdpActions {
     MigrateSchema {
         /// Path to the YAML file (optional — auto-discovers *.datadog.yaml if omitted)
         file: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum IdpKindsActions {
+    /// List useful entity kinds, grouped by common agent workflows
+    ///
+    /// By default this returns a curated local index. Use --all to source the
+    /// inventory from the server, --include-custom for organization-defined
+    /// kinds, and --include-low-level for noisy infrastructure kinds.
+    ///
+    /// EXAMPLES:
+    ///   pup idp kinds list
+    ///   pup idp kinds list --all --include-custom
+    ///   pup idp kinds list --include-low-level --exclude-experimental
+    #[command(verbatim_doc_comment)]
+    List {
+        /// Source the filtered inventory from the live server instead of the curated index
+        #[arg(long)]
+        all: bool,
+        /// Include organization-defined idp_custom_entities.* kinds
+        #[arg(long)]
+        include_custom: bool,
+        /// Include low-level infrastructure kinds such as pods and containers
+        #[arg(long)]
+        include_low_level: bool,
+        /// Hide experimental integration and agent-native kinds
+        #[arg(long)]
+        exclude_experimental: bool,
+    },
+    /// Describe one entity kind's queryable fields and expandable relations
+    ///
+    /// Returns live schema details, supported operators, default fields,
+    /// examples, hints, and known caveats. Curated kinds fall back to local
+    /// guidance when the server's detail endpoint is unavailable.
+    ///
+    /// EXAMPLES:
+    ///   pup idp kinds describe service
+    ///   pup idp kinds describe integration.github.pull_request
+    ///   pup idp kinds describe service --no-examples
+    #[command(verbatim_doc_comment)]
+    Describe {
+        /// Entity kind, for example service, team, or integration.github.pull_request
+        kind: String,
+        /// Omit query examples from the response
+        #[arg(long)]
+        no_examples: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum IdpEntitiesActions {
+    /// Query entities using the Datadog entity graph DSL
+    ///
+    /// The query must select exactly one top-level kind with kind:<kind> or a
+    /// concrete ref:"ref:<kind>:<id>". Group alternatives beneath that shared
+    /// kind, for example: kind:service AND (owner:idp OR team:idp).
+    ///
+    /// Use --field for returned attributes and --include only for relations.
+    /// Discover valid names with `pup idp kinds describe <kind>`.
+    /// Results are normalized for agents by default; use --raw for the original
+    /// JSON:API response. Pagination is explicit through --cursor.
+    ///
+    /// EXAMPLES:
+    ///   pup idp entities query 'kind:service AND owner:payments'
+    ///   pup idp entities query 'kind:service AND name:*catalog*' --field name,owner,contacts
+    ///   pup idp entities query 'kind:team AND name:idp' --include users,owned_services
+    ///   pup idp entities query 'kind:incident AND state:active' --timeseries-interval 24h
+    #[command(verbatim_doc_comment)]
+    Query {
+        /// Entity graph query DSL expression
+        query: String,
+        /// Attributes to return (comma-separated or repeated)
+        #[arg(long, value_delimiter = ',')]
+        field: Vec<String>,
+        /// Relations to expand (comma-separated or repeated)
+        #[arg(long, value_delimiter = ',')]
+        include: Vec<String>,
+        /// Sort expression <field>[:asc|desc] (comma-separated or repeated)
+        #[arg(long, value_delimiter = ',')]
+        order_by: Vec<String>,
+        /// Maximum entities in this page (1-100)
+        #[arg(long, default_value_t = 25)]
+        limit: usize,
+        /// Cursor returned by the previous page
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Text matching mode: partial or fuzzy
+        #[arg(long, value_parser = ["partial", "fuzzy"])]
+        free_text_match: Option<String>,
+        /// Ask the API to return the total matching entity count
+        #[arg(long)]
+        include_total_count: bool,
+        /// Lookback for timeseries-backed calculated fields (for example 1h or 24h)
+        #[arg(long, default_value = "1h")]
+        timeseries_interval: String,
+        /// Maximum related entities sampled per expanded relation (1-100)
+        #[arg(long, default_value_t = 25)]
+        relation_limit: usize,
+        /// Return the original JSON:API response instead of normalized output
+        #[arg(long)]
+        raw: bool,
     },
 }
 
@@ -14016,6 +14137,60 @@ async fn main_inner() -> anyhow::Result<()> {
         }
         // --- IDP (Internal Developer Portal) ---
         Commands::Idp { action } => match action {
+            IdpActions::Kinds { action } => match action {
+                IdpKindsActions::List {
+                    all,
+                    include_custom,
+                    include_low_level,
+                    exclude_experimental,
+                } => {
+                    commands::idp::list_kinds(
+                        &cfg,
+                        all,
+                        include_custom,
+                        include_low_level,
+                        exclude_experimental,
+                    )
+                    .await?;
+                }
+                IdpKindsActions::Describe { kind, no_examples } => {
+                    commands::idp::describe_kind(&cfg, &kind, no_examples).await?;
+                }
+            },
+            IdpActions::Entities { action } => match action {
+                IdpEntitiesActions::Query {
+                    query,
+                    field,
+                    include,
+                    order_by,
+                    limit,
+                    cursor,
+                    free_text_match,
+                    include_total_count,
+                    timeseries_interval,
+                    relation_limit,
+                    raw,
+                } => {
+                    cfg.validate_auth()?;
+                    commands::idp::query_entities(
+                        &cfg,
+                        commands::idp::EntityQueryOptions {
+                            query,
+                            fields: field,
+                            include,
+                            order_by,
+                            limit,
+                            cursor,
+                            free_text_match,
+                            include_total_count,
+                            timeseries_interval,
+                            relation_limit,
+                            raw,
+                        },
+                    )
+                    .await?;
+                }
+            },
             IdpActions::Assist { entity } => {
                 cfg.validate_auth()?;
                 commands::idp::assist(&cfg, &entity).await?;

@@ -225,6 +225,11 @@ commands. The list below is illustrative — see
 ### APM/Traces
 - `apm_read` - Read APM data and traces
 
+### IDP Entity Graph
+- `repo_info_read` - Read repository context connected to entities
+- `code_analysis_read` - Read code analysis context connected to entities
+- `appsec_vm_read` - Read application-security vulnerability context connected to entities
+
 ### SLOs
 - `slos_read` - Read SLOs
 - `slos_write` - Create/update SLOs

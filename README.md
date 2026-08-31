@@ -426,6 +426,19 @@ pup incidents list
 pup incidents get abc-123-def
 ```
 
+### IDP Entity Graph
+
+```bash
+# Discover available entity kinds and their query schema
+pup idp kinds list
+pup idp kinds describe service
+
+# Query services and walk ownership and system relations
+pup idp entities query 'kind:service AND owner:payments' \
+  --field name,owner,contacts \
+  --include owner_teams,systems
+```
+
 ## Global Flags
 
 - `-o, --output`: Output format (json, table, yaml) - default: json

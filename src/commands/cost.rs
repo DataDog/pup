@@ -182,17 +182,6 @@ pub async fn gcp_config_delete(cfg: &Config, id: i64) -> Result<()> {
     Ok(())
 }
 
-// ---- Cloud Cost Management — OCI Configs ----
-
-pub async fn oci_configs_list(cfg: &Config) -> Result<()> {
-    let api = make_ccm_api(cfg);
-    let resp = api
-        .list_cost_oci_configs()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to list OCI configs: {e:?}"))?;
-    formatter::output(cfg, &resp)
-}
-
 // ---- Cloud Cost Management — Anomalies ----
 
 pub async fn anomalies_list(cfg: &Config) -> Result<()> {
@@ -216,38 +205,6 @@ mod tests {
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": []}"#).await;
         let _ = super::projected(&cfg).await;
-        cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_oci_configs_list() {
-        let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
-        let cfg = test_config(&server.url());
-        let _mock = mock_any(&mut server, "GET", r#"{"data":[]}"#).await;
-        let result = super::oci_configs_list(&cfg).await;
-        assert!(
-            result.is_ok(),
-            "oci_configs_list failed: {:?}",
-            result.err()
-        );
-        cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_oci_configs_list_error() {
-        let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
-        let cfg = test_config(&server.url());
-        let _mock = server
-            .mock("GET", mockito::Matcher::Any)
-            .with_status(403)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"errors":["Forbidden"]}"#)
-            .create_async()
-            .await;
-        let result = super::oci_configs_list(&cfg).await;
-        assert!(result.is_err(), "expected error for 403 response");
         cleanup_env();
     }
 

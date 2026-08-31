@@ -6,10 +6,14 @@ use datadog_api_client::datadogV2::api_service_definition::{
 use crate::config::Config;
 use crate::formatter;
 
-pub async fn list(cfg: &Config) -> Result<()> {
+pub async fn list(cfg: &Config, page_size: i64, page_number: i64) -> Result<()> {
     let api = crate::make_api!(ServiceDefinitionAPI, cfg);
     let resp = api
-        .list_service_definitions(ListServiceDefinitionsOptionalParams::default())
+        .list_service_definitions(
+            ListServiceDefinitionsOptionalParams::default()
+                .page_size(page_size)
+                .page_number(page_number),
+        )
         .await
         .map_err(|e| anyhow::anyhow!("failed to list services: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -38,7 +42,17 @@ mod tests {
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": []}"#).await;
-        let _ = super::list(&cfg).await;
+        let _ = super::list(&cfg, 10, 0).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_service_catalog_list_with_pagination() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        mock_all(&mut s, r#"{"data": []}"#).await;
+        let _ = super::list(&cfg, 50, 2).await;
         cleanup_env();
     }
 

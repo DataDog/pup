@@ -6333,7 +6333,12 @@ enum CaseNotificationRuleActions {
 #[derive(Subcommand)]
 enum ServiceCatalogActions {
     /// List services
-    List,
+    List {
+        #[arg(long, default_value_t = 10, help = "Results per page (max 100)")]
+        page_size: i64,
+        #[arg(long, default_value_t = 0, help = "Page number (0-indexed)")]
+        page_number: i64,
+    },
     /// Get service details
     Get { service_name: String },
 }
@@ -14857,7 +14862,10 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::ServiceCatalog { action } => {
             cfg.validate_auth()?;
             match action {
-                ServiceCatalogActions::List => commands::service_catalog::list(&cfg).await?,
+                ServiceCatalogActions::List {
+                    page_size,
+                    page_number,
+                } => commands::service_catalog::list(&cfg, page_size, page_number).await?,
                 ServiceCatalogActions::Get { service_name } => {
                     commands::service_catalog::get(&cfg, &service_name).await?;
                 }

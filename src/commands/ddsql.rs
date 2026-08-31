@@ -206,28 +206,6 @@ fn is_rate_limited(err: &anyhow::Error) -> bool {
     err.to_string().contains("HTTP 429 Too Many Requests")
 }
 
-fn output_items<T: Serialize>(
-    cfg: &Config,
-    items: &T,
-    count: usize,
-    truncated: bool,
-    next_action: Option<String>,
-) -> Result<()> {
-    let meta = formatter::Metadata {
-        count: Some(count),
-        truncated,
-        command: None,
-        next_action,
-    };
-    formatter::format_and_print(
-        items,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
-}
-
 fn parse_ddsql_docs(resp: Value) -> Result<DdsqlDocsResponse> {
     serde_json::from_value(resp).map_err(|e| anyhow!("failed to parse DDSQL docs response: {e}"))
 }
@@ -461,7 +439,7 @@ pub async fn schema_tables(
     let public_table_names = get_public_table_names(cfg).await?;
     let mut items = build_public_table_items(&public_table_names, query);
     let reference_target = offset.saturating_add(limit).saturating_add(1);
-    let (reference_items, references_truncated, rate_limit_note) =
+    let (reference_items, _references_truncated, rate_limit_note) =
         match search_reference_tables(cfg, query, reference_target).await {
             Ok((items, truncated)) => (items, truncated, None),
             Err(err) if is_rate_limited(&err) => (
@@ -477,13 +455,11 @@ pub async fn schema_tables(
     items.extend(reference_items);
     items.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let total = items.len();
     let paged: Vec<DdsqlSchemaTable> = items.into_iter().skip(offset).take(limit).collect();
-    let truncated = references_truncated || offset.saturating_add(paged.len()) < total;
-    let next_action = rate_limit_note.unwrap_or_else(|| {
-        "use `pup ddsql schema columns --table-id <id>` for column details".to_string()
-    });
-    output_items(cfg, &paged, paged.len(), truncated, Some(next_action))
+    if let Some(note) = rate_limit_note {
+        eprintln!("{note}");
+    }
+    formatter::output(cfg, &paged)
 }
 
 pub async fn schema_columns(
@@ -505,16 +481,8 @@ pub async fn schema_columns(
         parse_public_columns(resp)?
     };
 
-    let total = columns.len();
     let paged: Vec<DdsqlSchemaColumn> = columns.into_iter().skip(offset).take(limit).collect();
-    let truncated = offset.saturating_add(paged.len()) < total;
-    output_items(
-        cfg,
-        &paged,
-        paged.len(),
-        truncated,
-        Some("rerun with `--offset <n>` to inspect additional columns".to_string()),
-    )
+    formatter::output(cfg, &paged)
 }
 
 /// Build a request for the Advanced Query API (tabular/scalar endpoint).

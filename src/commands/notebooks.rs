@@ -4,7 +4,7 @@ use datadog_api_client::datadogV1::api_notebooks::NotebooksAPI;
 use datadog_api_client::datadogV1::model::{NotebookCreateRequest, NotebookUpdateRequest};
 
 use crate::config::Config;
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 use crate::raw_client;
 use crate::util;
 use crate::util_ext;
@@ -191,7 +191,6 @@ async fn discover(
     filters: &[String],
     sort: &str,
     limit: usize,
-    command: &str,
 ) -> Result<()> {
     if !(1..=MAX_RESULTS).contains(&limit) {
         anyhow::bail!("--limit must be between 1 and {MAX_RESULTS}, got {limit}");
@@ -238,19 +237,7 @@ async fn discover(
         "data": notebooks,
         "meta": meta,
     });
-    let metadata = Metadata {
-        count: Some(count),
-        truncated,
-        command: Some(command.to_string()),
-        next_action: None,
-    };
-    formatter::format_and_print(
-        &payload,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&metadata),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &payload)
 }
 
 pub async fn search(
@@ -260,15 +247,7 @@ pub async fn search(
     sort: &str,
     limit: usize,
 ) -> Result<()> {
-    discover(
-        cfg,
-        query.unwrap_or_default(),
-        filters,
-        sort,
-        limit,
-        "notebooks search",
-    )
-    .await
+    discover(cfg, query.unwrap_or_default(), filters, sort, limit).await
 }
 
 pub async fn get(cfg: &Config, notebook_id: i64, markdown: bool) -> Result<()> {
@@ -351,12 +330,7 @@ pub async fn diff(
         .map_err(|e| anyhow::anyhow!("failed to get notebook: {e:?}"))?;
 
     let resource_id = notebook_id.to_string();
-    let mut options = util_ext::ResourceDiffOptions::new(
-        "notebooks diff",
-        "pup notebooks update",
-        "notebook",
-        &resource_id,
-    );
+    let mut options = util_ext::ResourceDiffOptions::new("notebook", &resource_id);
     options.readonly_paths = util_ext::READONLY_NOTEBOOK_FIELDS;
     options.only = only;
     options.ignore = ignore;

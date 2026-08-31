@@ -25,7 +25,6 @@ pub(crate) struct ParsedArgs {
 pub(crate) struct PreParsedGlobals {
     pub output: Option<String>,
     pub yes: bool,
-    pub agent: bool,
     pub read_only: bool,
     pub org: Option<String>,
     pub jq: Option<String>,
@@ -38,7 +37,6 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
     let mut globals = PreParsedGlobals {
         output: None,
         yes: false,
-        agent: false,
         read_only: false,
         org: None,
         jq: None,
@@ -74,7 +72,6 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
             }
             // Boolean flags
             "--yes" | "-y" => globals.yes = true,
-            "--agent" => globals.agent = true,
             "--read-only" => globals.read_only = true,
             "--trust-site" => globals.trust_site = true,
             // Equals-syntax value flags: --output=table, --org=prod
@@ -132,7 +129,7 @@ impl PreParsedGlobals {
         if self.yes {
             cfg.auto_approve = true;
         }
-        cfg.agent_mode = self.agent || useragent::is_agent_mode();
+        cfg.agent_mode = useragent::is_agent_mode();
         if cfg.agent_mode {
             cfg.auto_approve = true;
         }
@@ -214,10 +211,9 @@ mod tests {
 
     #[test]
     fn test_parse_boolean_flags() {
-        let parsed = parse_extension_args(&args("pup --yes --agent --read-only terraform"));
+        let parsed = parse_extension_args(&args("pup --yes --read-only terraform"));
         assert_eq!(parsed.candidate.as_deref(), Some("terraform"));
         assert!(parsed.globals.yes);
-        assert!(parsed.globals.agent);
         assert!(parsed.globals.read_only);
     }
 

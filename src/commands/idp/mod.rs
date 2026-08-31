@@ -514,22 +514,7 @@ pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
         suggested_next_actions: next_actions,
     };
 
-    let meta = formatter::Metadata {
-        count: Some(1),
-        truncated: false,
-        command: Some(format!("idp assist {entity}")),
-        next_action: Some(format!(
-            "Use `pup idp owner {entity}` for full ownership details, or `pup idp deps {entity}` for dependency graph"
-        )),
-    };
-
-    formatter::format_and_print(
-        &response,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &response)
 }
 
 /// Find entities matching a query.
@@ -544,22 +529,7 @@ pub async fn find(cfg: &Config, query: &str) -> Result<()> {
     let path = format!("/api/v2/idp/entity_graph/entities?query={encoded}&page%5Blimit%5D=10");
     let data = raw_client::raw_get(cfg, &path, &[]).await?;
 
-    let meta = formatter::Metadata {
-        count: data.get("data").and_then(|d| d.as_array()).map(|a| a.len()),
-        truncated: false,
-        command: Some(format!("idp find {query}")),
-        next_action: Some(
-            "Use `pup idp assist <entity>` for full context on a specific entity".into(),
-        ),
-    };
-
-    formatter::format_and_print(
-        &data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &data)
 }
 
 /// Resolve owner, team, and on-call context for an entity.
@@ -598,20 +568,7 @@ pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
         response["on_call"] = serde_json::to_value(oc)?;
     }
 
-    let meta = formatter::Metadata {
-        count: Some(1),
-        truncated: false,
-        command: Some(format!("idp owner {entity}")),
-        next_action: None,
-    };
-
-    formatter::format_and_print(
-        &response,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &response)
 }
 
 /// Show dependency and relationship context for an entity.
@@ -628,20 +585,7 @@ pub async fn deps(cfg: &Config, entity: &str) -> Result<()> {
         }
     });
 
-    let meta = formatter::Metadata {
-        count: Some(upstream.len() + downstream.len()),
-        truncated: false,
-        command: Some(format!("idp deps {entity}")),
-        next_action: Some("Use `pup idp assist <dep_name>` to inspect any dependency".to_string()),
-    };
-
-    formatter::format_and_print(
-        &response,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &response)
 }
 
 /// Register a service definition from a YAML file.
@@ -654,30 +598,7 @@ pub async fn register(cfg: &Config, file: &str) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to parse YAML in {file}: {e}"))?;
 
     let data = raw_client::raw_post(cfg, "/api/v2/services/definitions", yaml_value).await?;
-
-    let service_name = content
-        .lines()
-        .find(|l| l.starts_with("dd-service:"))
-        .and_then(|l| l.strip_prefix("dd-service:"))
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| file.to_string());
-
-    let meta = formatter::Metadata {
-        count: Some(1),
-        truncated: false,
-        command: Some(format!("idp register {file}")),
-        next_action: Some(format!(
-            "Use `pup idp assist {service_name}` to verify the registered service"
-        )),
-    };
-
-    formatter::format_and_print(
-        &data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &data)
 }
 
 #[cfg(test)]

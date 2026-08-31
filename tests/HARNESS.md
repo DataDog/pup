@@ -34,10 +34,7 @@ Every catalogued command runs **twice** per harness invocation:
 | Human  | DD_* vars only, no `FORCE_AGENT_MODE`          | Simulates a developer at a shell   |
 | Agent  | Same DD_* vars + `FORCE_AGENT_MODE=1`          | Simulates an AI agent (Claude, etc.) calling pup |
 
-The two modes can produce different output: agent mode activates a structured
-JSON envelope, different formatting, and the agent-schema command path. The
-harness captures both runs independently and shows a **diff** between them in
-the HTML report so regressions in either mode are immediately visible.
+The two modes can produce different `--help` output (JSON schema vs text) and skip confirmation prompts in agent mode. JSON command payloads are the same shape in both modes.
 
 ### Why a Clean Environment?
 
@@ -113,8 +110,8 @@ tests/snapshots/monitors_list__human.json
 tests/snapshots/monitors_list__agent.json
 ```
 
-Human-mode and agent-mode responses can differ structurally (the agent envelope
-wraps output differently), so they need separate baselines.
+Human-mode and agent-mode `--help` output differs (text vs JSON schema), so
+they need separate baselines. Command JSON payloads should match.
 
 ---
 

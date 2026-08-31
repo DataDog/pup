@@ -264,15 +264,8 @@ pub async fn run(
 
     if !silent && !body_bytes.is_empty() {
         if let Ok(json) = serde_json::from_slice::<Value>(&body_bytes) {
-            // Render through the shared formatter so `--output`/agent mode are
-            // honored, matching every other pup command.
-            crate::formatter::format_and_print(
-                &json,
-                &cfg.output_format,
-                cfg.agent_mode,
-                None,
-                cfg.jq.as_deref(),
-            )?;
+            // Render through the shared formatter so `--output` is honored.
+            crate::formatter::output(cfg, &json)?;
         } else {
             print!("{}", String::from_utf8_lossy(&body_bytes));
         }

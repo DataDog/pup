@@ -77,8 +77,9 @@ pub async fn search(
         SymdbView::ProbeLocations => {
             let mut collector = ProbeCollector::new();
             let mut all = collector.collect(cfg, &data).await?;
+            let stream = stream_probe_locations(cfg);
 
-            if !cfg.agent_mode {
+            if stream {
                 print_lines(&all);
             }
 
@@ -92,7 +93,7 @@ pub async fn search(
                         fetch(cfg, "/api/unstable/symdb-api/v2/scopes/search", &params).await?;
                     let new = collector.collect(cfg, &data).await?;
                     if !new.is_empty() {
-                        if !cfg.agent_mode {
+                        if stream {
                             print_lines(&new);
                         }
                         all.extend(new);
@@ -103,12 +104,26 @@ pub async fn search(
                 }
             }
 
-            if cfg.agent_mode {
-                output_lines(cfg, &all)
-            } else {
+            if stream {
                 Ok(())
+            } else {
+                output_lines(cfg, &all)
             }
         }
+    }
+}
+
+/// Stream one line per item on a TTY when not in agent mode; otherwise emit JSON.
+fn stream_probe_locations(cfg: &Config) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::io::IsTerminal;
+        !cfg.agent_mode && std::io::stdout().is_terminal()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = cfg;
+        false
     }
 }
 
@@ -131,13 +146,9 @@ fn all_indexing_complete(data: &serde_json::Value) -> bool {
     })
 }
 
-/// In agent mode, emit a structured envelope; otherwise print one line per item.
+/// Emit names as formatted output (JSON by default).
 fn output_lines(cfg: &Config, lines: &[String]) -> Result<()> {
-    if cfg.agent_mode {
-        return formatter::output(cfg, &lines.to_vec());
-    }
-    print_lines(lines);
-    Ok(())
+    formatter::output(cfg, &lines.to_vec())
 }
 
 fn collect_names(data: &serde_json::Value) -> Vec<String> {

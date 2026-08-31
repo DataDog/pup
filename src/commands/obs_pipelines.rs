@@ -69,12 +69,7 @@ pub async fn diff(
     .await
     .map_err(|e| anyhow::anyhow!("failed to get pipeline: {e:?}"))?;
 
-    let mut options = util_ext::ResourceDiffOptions::new(
-        "obs-pipelines diff",
-        "pup obs-pipelines update",
-        "pipeline",
-        pipeline_id,
-    );
+    let mut options = util_ext::ResourceDiffOptions::new("pipeline", pipeline_id);
     options.readonly_paths = util_ext::READONLY_OBS_PIPELINE_FIELDS;
     options.only = only;
     options.ignore = ignore;

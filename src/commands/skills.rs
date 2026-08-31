@@ -68,13 +68,7 @@ pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<(
         })
         .collect();
 
-    crate::formatter::format_and_print(
-        &items,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-    )?;
+    crate::formatter::output(cfg, &items)?;
     Ok(())
 }
 
@@ -244,33 +238,14 @@ pub fn install(
     }
 
     let installed_entries = entry_hits.len();
-    if cfg.agent_mode {
-        let directories: Vec<_> = dirs_used.into_iter().collect();
-        let result = serde_json::json!({
-            "installed": installed_entries,
-            "files": installed_files,
-            "directories": directories,
-            "platforms": platforms_hit.iter().collect::<Vec<_>>(),
-        });
-        crate::formatter::format_and_print(
-            &result,
-            &cfg.output_format,
-            cfg.agent_mode,
-            None,
-            cfg.jq.as_deref(),
-        )?;
-    } else {
-        for d in &dirs_used {
-            println!("  {d}");
-        }
-        println!(
-            "Installed {} entry(ies), {} file(s) across {} platform(s)",
-            installed_entries,
-            installed_files,
-            platforms_hit.len(),
-        );
-    }
-
+    let directories: Vec<_> = dirs_used.into_iter().collect();
+    let result = serde_json::json!({
+        "installed": installed_entries,
+        "files": installed_files,
+        "directories": directories,
+        "platforms": platforms_hit.iter().collect::<Vec<_>>(),
+    });
+    crate::formatter::output(cfg, &result)?;
     Ok(())
 }
 

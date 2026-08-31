@@ -11,7 +11,7 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 
 fn parse_relative_duration_millis(input: &str) -> Result<i64> {
     let stripped = input.trim_start_matches('-').trim();
@@ -284,8 +284,6 @@ pub const READONLY_OBS_PIPELINE_FIELDS: &[&str] = &[
 
 /// Options for diffing a live resource against a candidate JSON value.
 pub struct ResourceDiffOptions<'a> {
-    pub command: &'a str,
-    pub update_command: &'a str,
     pub resource_kind: &'a str,
     pub resource_id: &'a str,
     pub readonly_paths: &'a [&'a str],
@@ -293,20 +291,12 @@ pub struct ResourceDiffOptions<'a> {
     pub ignore: &'a [String],
     pub live_root: Option<&'a str>,
     pub candidate_root: Option<&'a str>,
-    pub removed_entries_next_action: Option<&'a str>,
     pub no_changes_message: Option<String>,
 }
 
 impl<'a> ResourceDiffOptions<'a> {
-    pub fn new(
-        command: &'a str,
-        update_command: &'a str,
-        resource_kind: &'a str,
-        resource_id: &'a str,
-    ) -> Self {
+    pub fn new(resource_kind: &'a str, resource_id: &'a str) -> Self {
         Self {
-            command,
-            update_command,
             resource_kind,
             resource_id,
             readonly_paths: &[],
@@ -314,7 +304,6 @@ impl<'a> ResourceDiffOptions<'a> {
             ignore: &[],
             live_root: None,
             candidate_root: None,
-            removed_entries_next_action: None,
             no_changes_message: None,
         }
     }
@@ -400,38 +389,7 @@ pub fn format_resource_diff(
     options: &ResourceDiffOptions<'_>,
 ) -> Result<()> {
     let entries = diff_resource_values(live, candidate, options)?;
-    let has_removed = entries.iter().any(|e| e.change == ChangeKind::Removed);
-    let next_action = if entries.is_empty() {
-        None
-    } else if has_removed {
-        options
-            .removed_entries_next_action
-            .map(ToString::to_string)
-            .or_else(|| {
-                Some(format!(
-                    "review changes, then run `{}`",
-                    options.update_command
-                ))
-            })
-    } else {
-        Some(format!(
-            "review changes, then run `{}`",
-            options.update_command
-        ))
-    };
-    let meta = Metadata {
-        count: Some(entries.len()),
-        truncated: false,
-        command: Some(options.command.to_string()),
-        next_action,
-    };
-    formatter::format_and_print(
-        &entries,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )?;
+    formatter::format_and_print(&entries, &cfg.output_format, cfg.jq.as_deref())?;
     if entries.is_empty() && !cfg.agent_mode {
         let message = options.no_changes_message.clone().unwrap_or_else(|| {
             format!(
@@ -1119,7 +1077,7 @@ mod tests {
         });
         let only = vec!["spec".to_string()];
         let readonly = ["updatedAt"];
-        let mut options = ResourceDiffOptions::new("test diff", "test update", "thing", "id");
+        let mut options = ResourceDiffOptions::new("thing", "id");
         options.readonly_paths = &readonly;
         options.only = &only;
         options.live_root = Some("data.attributes");

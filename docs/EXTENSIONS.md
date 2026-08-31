@@ -164,7 +164,7 @@ pup api v2/tags/hosts/myhost -X POST -F source=web
 
 ### Render output with `pup format`
 
-`pup format` (alias `fmt`) reads a JSON document from stdin (or `--input FILE`) and prints it using the caller's output format and agent mode — the same JSON / YAML / table / CSV / TSV rendering and agent envelope every built-in command uses. Because pup forwards `PUP_OUTPUT` and a child `pup` reads it back, your extension inherits the format the user originally requested.
+`pup format` (alias `fmt`) reads a JSON document from stdin (or `--input FILE`) and prints it using the caller's output format — the same JSON / YAML / table / CSV / TSV rendering every built-in command uses. Because pup forwards `PUP_OUTPUT` and a child `pup` reads it back, your extension inherits the format the user originally requested.
 
 ```bash
 #!/bin/bash
@@ -175,9 +175,6 @@ echo "$results" | pup format
 
 # Or force a specific format.
 echo "$results" | pup format --output table
-
-# Populate the agent-mode envelope metadata.
-echo "$results" | pup format --count 2 --command "foo list"
 ```
 
 ### Combine them
@@ -191,7 +188,7 @@ pup api v2/monitors --silent | pup format
 
 ## Global Flags
 
-Pup's global flags (`--output`, `--yes`, `--agent`, `--read-only`, `--org`) are parsed by pup before dispatching to the extension. They are NOT passed as CLI arguments to the extension - instead, they are forwarded as environment variables (see the table above).
+Pup's global flags (`--output`, `--yes`, `--read-only`, `--org`) are parsed by pup before dispatching to the extension. They are NOT passed as CLI arguments to the extension - instead, they are forwarded as environment variables (see the table above).
 
 ```bash
 # --output table is consumed by pup, extension receives PUP_OUTPUT=table
@@ -470,5 +467,5 @@ To extract an existing pup feature into an extension:
 ## Limitations
 
 - **Source must be a regular file**: `pup extension install --local` requires the source path to be a regular file, not a directory.
-- **Agent-mode help**: `pup --agent <ext-name> --help` prints pup's top-level schema, not the extension's help. In normal mode, `--help` is passed through to the extension.
+- **Agent-mode help**: when agent mode is auto-detected, `pup <ext-name> --help` prints pup's top-level schema, not the extension's help. In normal mode, `--help` is passed through to the extension.
 - **No signing**: Downloaded binaries are not signed. If a release includes `checksums.txt`, pup verifies the selected archive checksum before installing. Only install extensions from trusted sources.

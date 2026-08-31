@@ -27,7 +27,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | logs | search, list, aggregate, patterns, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
-| dashboards | list, get, create, update, diff, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
+| dashboards | list, get, create, update, diff, delete, url, widgets (types, schema), annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
 | ddsql | table, time-series, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |
 | debugger | probes (list, get, create, delete, watch) | src/commands/debugger.rs | ✅ |
@@ -182,7 +182,7 @@ pup infrastructure hosts list
 
 ### Monitoring & Alerting
 - **monitors** - Monitor management (list, get, delete)
-- **dashboards** - Dashboard management (list, get, delete, url)
+- **dashboards** - Dashboard management (list, get, delete, url, widgets types/schema)
 - **slos** - Service Level Objectives (list, get, delete, status)
 - **synthetics** - Synthetic monitoring (tests, locations, suites, downtime)
 - **notebooks** - Investigation notebooks (list, get, delete)
@@ -197,6 +197,7 @@ pup infrastructure hosts list
 
 ### Security & Compliance
 - **security** - Security monitoring (rules, signals, findings, content-packs, risk-scores)
+  - `pup security findings schema` — JSON Schema for findings query fields
   - `pup security findings mute --file <body.json>` — Mute or unmute up to 100 findings (stable, SDK #1519/#1660)
   - `pup security rules bulk-convert --file <payload.json>` — Bulk convert existing rules to Terraform ZIP archive (SDK #1675)
 - **static-analysis** - Code security (custom-rulesets, custom-rules)
@@ -261,6 +262,16 @@ Available on all commands:
 --read-only          Block all write operations (create, update, delete)
 ```
 
+### Payload schema discovery
+
+JSON stdout is always the raw API payload (same shape for humans and agents). `--help` describes flags, not request bodies. Commands that take JSON payloads advertise `schema_refs` in agent `--help` / `pup agent schema`:
+
+```bash
+pup dashboards widgets types
+pup dashboards widgets schema timeseries
+pup security findings schema
+```
+
 ### `--jq` filtering
 
 `--jq` applies a [jq](https://jqlang.github.io/jq/) expression to the raw JSON response
@@ -281,22 +292,6 @@ pup logs search --query="status:error" --jq '.data | length'
 - 0 outputs → `null`
 - 1 output → the value (unwrapped)
 - 2+ outputs → an array
-
-**Agent mode — filter target:** `--jq` runs on the **raw response payload**, which
-is the value that appears under `.data` in agent mode. Write expressions against the
-payload (e.g. `.[]`), **not** against the envelope (`.data[]` will not work):
-
-```bash
-# correct — targets the payload array
-pup monitors list --agent --jq '.[0]'
-
-# wrong — .data does not exist in the payload --jq sees
-pup monitors list --agent --jq '.data[0]'
-```
-
-**Agent mode — metadata:** when `--jq` is active, `metadata.count` and
-`metadata.truncated` are omitted from the envelope because they describe the
-pre-filter data, not the filtered result.
 
 **Limitation:** commands that print output directly (e.g. `pup auth login`, some runbook
 steps) bypass `format_and_print` and do not honor `--jq`.

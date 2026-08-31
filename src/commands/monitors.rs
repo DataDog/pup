@@ -6,7 +6,7 @@ use datadog_api_client::datadogV1::api_monitors::{
 use datadog_api_client::datadogV1::model::Monitor;
 
 use crate::config::Config;
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 use crate::util;
 use crate::util_ext;
 
@@ -42,20 +42,7 @@ pub async fn list(
         return Ok(());
     }
 
-    let meta = Metadata {
-        count: Some(monitors.len()),
-        truncated: false,
-        command: Some("monitors list".to_string()),
-        next_action: None,
-    };
-    formatter::format_and_print(
-        &monitors,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )?;
-    Ok(())
+    formatter::output(cfg, &monitors)
 }
 
 pub async fn get(cfg: &Config, monitor_id: i64) -> Result<()> {
@@ -64,19 +51,7 @@ pub async fn get(cfg: &Config, monitor_id: i64) -> Result<()> {
         .get_monitor(monitor_id, GetMonitorOptionalParams::default())
         .await
         .map_err(|e| anyhow::anyhow!("failed to get monitor: {:?}", e))?;
-    let meta = Metadata {
-        count: None,
-        truncated: false,
-        command: Some("monitors get".to_string()),
-        next_action: None,
-    };
-    formatter::format_and_print(
-        &resp,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &resp)
 }
 
 pub async fn create(cfg: &Config, file: &str) -> Result<()> {
@@ -132,19 +107,10 @@ pub async fn diff(
     // changes; "removed" entries require no action unless you want to add those
     // fields to the candidate explicitly.
     let resource_id = monitor_id.to_string();
-    let mut options = util_ext::ResourceDiffOptions::new(
-        "monitors diff",
-        "pup monitors update",
-        "monitor",
-        &resource_id,
-    );
+    let mut options = util_ext::ResourceDiffOptions::new("monitor", &resource_id);
     options.readonly_paths = util_ext::READONLY_MONITOR_FIELDS;
     options.only = only;
     options.ignore = ignore;
-    options.removed_entries_next_action = Some(
-        "review changes — note: 'removed' entries will NOT be deleted by \
-         `pup monitors update` (partial update)",
-    );
     options.no_changes_message = Some(format!("No changes — monitor {monitor_id} is in sync."));
     util_ext::format_resource_diff(cfg, &live, &candidate, &options)
 }

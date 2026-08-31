@@ -4,36 +4,6 @@ use serde::Serialize;
 use crate::config::OutputFormat;
 use crate::filter;
 
-/// Agent mode metadata envelope.
-#[derive(Serialize)]
-pub struct Metadata {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub count: Option<usize>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub truncated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub command: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_action: Option<String>,
-}
-
-/// Note injected into `metadata.note` of every agent-mode JSON envelope so
-/// an LLM authoring a script for the user to run later is reminded that
-/// this envelope only appears in agent mode — without `--no-agent` the
-/// user will get raw JSON and any script depending on `.data` / `.status`
-/// will silently break.
-pub const AGENT_ENVELOPE_NOTE: &str = "This envelope (status/data/metadata) \
-    only appears in agent mode. If you are writing a script the user will \
-    run outside this agent session, append --no-agent so the output format \
-    matches what they will see.";
-
-/// Appended to `metadata.note` when `--jq` ran, so an agent reading the
-/// enveloped output knows to write jq expressions against the raw payload
-/// (the value under `.data`), not against the envelope itself.
-pub const JQ_FILTER_NOTE: &str = "This output was filtered by --jq, which runs on \
-    the response payload (the value shown under .data), not on this envelope. \
-    Write jq expressions against the payload (e.g. .[]), not .data[].";
-
 /// Recursively sort all JSON object keys alphabetically.
 fn sort_json_value(v: serde_json::Value) -> serde_json::Value {
     match v {
@@ -60,108 +30,20 @@ fn go_html_escape(json: &str) -> String {
         .replace('>', "\\u003e")
 }
 
-/// After a `--jq` filter rewrites the payload, the caller's `count`/`truncated`
-/// describe the pre-filter data and would mislead agents. Drop them, keeping
-/// `command`/`next_action`. `None` in → `None` out (envelope behaves as for a
-/// command that supplies no metadata). `Metadata`'s `skip_serializing_if` on
-/// both fields makes them disappear from the JSON.
-fn strip_counts_after_filter(meta: Option<&Metadata>) -> Option<Metadata> {
-    let m = meta?;
-    Some(Metadata {
-        count: None,
-        truncated: false,
-        command: m.command.clone(),
-        next_action: m.next_action.clone(),
-    })
-}
-
-/// Append `JQ_FILTER_NOTE` to the `metadata.note` field of an agent envelope.
-/// Called only when `--jq` ran so agents learn the filter targets the payload,
-/// not the envelope.
-fn append_jq_note(envelope: &mut serde_json::Value) {
-    if let Some(serde_json::Value::String(note)) = envelope.pointer_mut("/metadata/note") {
-        note.push(' ');
-        note.push_str(JQ_FILTER_NOTE);
-    }
-}
-
-/// Build the agent-mode envelope as a JSON value. Always sets `status`,
-/// `data`, and `metadata` — `metadata.note` is always present so an LLM
-/// authoring a script for the user is reminded to pass `--no-agent`.
-/// Extracted from `format_and_print` for unit-testability.
-pub fn build_agent_envelope(
-    data: &serde_json::Value,
-    meta: Option<&Metadata>,
-) -> Result<serde_json::Value> {
-    let sorted_data = sort_json_value(data.clone());
-    // Hoist: when the API wraps its list/object in a nested "data" key,
-    // use that inner value directly so agents see .data[*] instead of .data.data[*].
-    let effective_data = match &sorted_data {
-        serde_json::Value::Object(obj) if obj.contains_key("data") => obj["data"].clone(),
-        _ => sorted_data.clone(),
-    };
-    let mut metadata_value = match meta {
-        Some(m) => serde_json::to_value(m)?,
-        None => serde_json::Value::Object(serde_json::Map::new()),
-    };
-    // `Metadata` is a struct and serializes to an object; an empty map
-    // is constructed above when `meta` is None. The branch is defensive
-    // against future changes that might serialize a non-object type.
-    if let serde_json::Value::Object(ref mut map) = metadata_value {
-        map.insert(
-            "note".to_string(),
-            serde_json::Value::String(AGENT_ENVELOPE_NOTE.to_string()),
-        );
-    }
-    Ok(serde_json::json!({
-        "status": "success",
-        "data": effective_data,
-        "metadata": metadata_value,
-    }))
-}
-
 /// Format and print data to stdout.
 ///
-/// The `jq` parameter, when `Some`, applies a jq expression to the serialized
-/// data **before** envelope wrapping or format rendering. The filter runs on
-/// the raw API payload regardless of `--agent`/`-o`, so the same expression
-/// works consistently across all output modes.
+/// JSON stdout is always the raw payload — the same shape for humans and
+/// agents. The `jq` parameter, when `Some`, applies a jq expression to the
+/// serialized data before format rendering.
 pub fn format_and_print<T: Serialize>(
     data: &T,
     format: &OutputFormat,
-    agent_mode: bool,
-    meta: Option<&Metadata>,
     jq: Option<&str>,
 ) -> Result<()> {
     // Serialize once; all renderers and the filter operate on this Value.
     let mut value = serde_json::to_value(data)?;
     if let Some(expr) = jq {
         value = filter::apply_jq(value, expr)?;
-    }
-
-    if agent_mode && *format == OutputFormat::Json {
-        // A --jq filter rewrites the payload, so the caller's count/truncated
-        // (computed on the pre-filter data) no longer describe .data. Drop them;
-        // keep command/next_action.
-        let stripped_meta;
-        let meta = if jq.is_some() {
-            stripped_meta = strip_counts_after_filter(meta);
-            stripped_meta.as_ref()
-        } else {
-            meta
-        };
-        let mut envelope = build_agent_envelope(&value, meta)?;
-        if jq.is_some() {
-            // Extend the inline note so agents learn --jq targets the payload.
-            append_jq_note(&mut envelope);
-        }
-        let json = go_html_escape(&serde_json::to_string_pretty(&envelope)?);
-        println!("{json}");
-        #[cfg(not(feature = "browser"))]
-        if crate::rate_limit::verbose_enabled() {
-            crate::rate_limit::eprint_verbose_response(format, agent_mode)?;
-        }
-        return Ok(());
     }
 
     match format {
@@ -174,21 +56,15 @@ pub fn format_and_print<T: Serialize>(
 
     #[cfg(not(feature = "browser"))]
     if crate::rate_limit::verbose_enabled() {
-        crate::rate_limit::eprint_verbose_response(format, agent_mode)?;
+        crate::rate_limit::eprint_verbose_response(format)?;
     }
 
     Ok(())
 }
 
-/// Convenience: format and print using config settings (respects -o flag, agent mode, and --jq).
+/// Convenience: format and print using config settings (respects -o and --jq).
 pub fn output<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
-    format_and_print(
-        data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-    )
+    format_and_print(data, &cfg.output_format, cfg.jq.as_deref())
 }
 
 pub fn print_json(data: &serde_json::Value) -> Result<()> {
@@ -199,16 +75,7 @@ pub fn print_json(data: &serde_json::Value) -> Result<()> {
 }
 
 /// Render a JSON value to a string using the selected output format.
-pub fn format_value_to_string(
-    data: &serde_json::Value,
-    format: &OutputFormat,
-    agent_mode: bool,
-) -> Result<String> {
-    if agent_mode && *format == OutputFormat::Json {
-        let envelope = build_agent_envelope(data, None)?;
-        return Ok(go_html_escape(&serde_json::to_string_pretty(&envelope)?));
-    }
-
+pub fn format_value_to_string(data: &serde_json::Value, format: &OutputFormat) -> Result<String> {
     match format {
         OutputFormat::Json => {
             let sorted_data = sort_json_value(data.clone());
@@ -225,12 +92,8 @@ pub fn format_value_to_string(
 }
 
 /// Format and print a JSON value to stderr (same renderers as stdout).
-pub fn eprint_formatted(
-    data: &serde_json::Value,
-    format: &OutputFormat,
-    agent_mode: bool,
-) -> Result<()> {
-    let rendered = format_value_to_string(data, format, agent_mode)?;
+pub fn eprint_formatted(data: &serde_json::Value, format: &OutputFormat) -> Result<()> {
+    let rendered = format_value_to_string(data, format)?;
     eprintln!("{rendered}");
     Ok(())
 }
@@ -944,112 +807,42 @@ mod tests {
     #[test]
     fn test_format_and_print_json() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Json, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Json, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_format_and_print_yaml() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Yaml, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Yaml, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_format_and_print_table() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Table, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Table, None);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_format_and_print_agent_mode() {
+    fn test_format_and_print_json_is_raw_payload() {
+        // JSON stdout is the payload itself — never a {status, data, metadata} envelope.
         let data = serde_json::json!({"name": "test"});
-        let meta = Metadata {
-            count: Some(1),
-            truncated: false,
-            command: Some("test".into()),
-            next_action: None,
-        };
-        let result = format_and_print(&data, &OutputFormat::Json, true, Some(&meta), None);
-        assert!(result.is_ok());
+        let rendered = format_value_to_string(&data, &OutputFormat::Json).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(parsed, serde_json::json!({"name": "test"}));
+        assert!(parsed.get("status").is_none());
+        assert!(parsed.get("metadata").is_none());
     }
 
     #[test]
-    fn test_agent_envelope_injects_script_authoring_note_with_meta() {
-        let data = serde_json::json!({"name": "test"});
-        let meta = Metadata {
-            count: Some(1),
-            truncated: false,
-            command: Some("monitors list".into()),
-            next_action: None,
-        };
-        let envelope = build_agent_envelope(&data, Some(&meta)).unwrap();
-        assert_eq!(envelope["status"], "success");
-        assert_eq!(envelope["metadata"]["count"], 1);
-        assert_eq!(envelope["metadata"]["command"], "monitors list");
-        assert_eq!(envelope["metadata"]["note"], AGENT_ENVELOPE_NOTE);
-        assert!(
-            envelope["metadata"]["note"]
-                .as_str()
-                .unwrap()
-                .contains("--no-agent"),
-            "note must point agents at --no-agent so the gaslighting case is fixed: {envelope}"
-        );
-    }
-
-    #[test]
-    fn test_agent_envelope_injects_script_authoring_note_without_meta() {
-        let data = serde_json::json!({"name": "test"});
-        let envelope = build_agent_envelope(&data, None).unwrap();
-        // Even when callers pass no Metadata, the note must still appear —
-        // otherwise the "envelope only in agent mode" warning is invisible
-        // for the many commands that don't construct a Metadata.
-        assert_eq!(envelope["metadata"]["note"], AGENT_ENVELOPE_NOTE);
-        assert_eq!(envelope["status"], "success");
-        assert!(envelope["metadata"]["count"].is_null());
-        assert!(
-            envelope["metadata"]["note"]
-                .as_str()
-                .unwrap()
-                .contains("--no-agent"),
-            "note constant itself must mention --no-agent so the rule survives if the constant is rewritten"
-        );
-    }
-
-    #[test]
-    fn test_agent_envelope_hoists_inner_data_and_keeps_note() {
-        // When the caller's payload is `{ "data": [...] }`, the envelope
-        // hoists the inner array so agents see `.data[*]` instead of
-        // `.data.data[*]`. Verify that the hoist and the metadata.note
-        // injection don't interfere with each other — both must happen.
+    fn test_format_and_print_json_with_nested_data_key() {
+        // A payload that already has a "data" key is printed as-is, not hoisted.
         let payload = serde_json::json!({"data": [{"id": 1}, {"id": 2}]});
-        let envelope = build_agent_envelope(&payload, None).unwrap();
-        assert_eq!(envelope["data"], serde_json::json!([{"id": 1}, {"id": 2}]));
-        assert_eq!(envelope["metadata"]["note"], AGENT_ENVELOPE_NOTE);
-    }
-
-    #[test]
-    fn test_format_and_print_agent_mode_no_meta() {
-        let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Json, true, None, None);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_format_and_print_agent_mode_respects_yaml_flag() {
-        // In agent mode, -o yaml should bypass the agent envelope and use YAML output.
-        let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Yaml, true, None, None);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_format_and_print_agent_mode_respects_table_flag() {
-        // In agent mode, -o table should bypass the agent envelope and use table output.
-        let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Table, true, None, None);
-        assert!(result.is_ok());
+        let rendered = format_value_to_string(&payload, &OutputFormat::Json).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(parsed, payload);
     }
 
     #[test]
@@ -1181,7 +974,7 @@ mod tests {
     #[test]
     fn test_format_and_print_csv() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Csv, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Csv, None);
         assert!(result.is_ok());
     }
 
@@ -1260,126 +1053,20 @@ mod tests {
     #[test]
     fn test_format_and_print_tsv() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Tsv, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Tsv, None);
         assert!(result.is_ok());
     }
 
-    // --- strip_counts_after_filter -------------------------------------------
-
     #[test]
-    fn test_strip_counts_none_meta_returns_none() {
-        assert!(strip_counts_after_filter(None).is_none());
-    }
-
-    #[test]
-    fn test_strip_counts_drops_count_and_truncated() {
-        let meta = Metadata {
-            count: Some(10),
-            truncated: true,
-            command: Some("monitors list".into()),
-            next_action: Some("next".into()),
-        };
-        let stripped = strip_counts_after_filter(Some(&meta)).unwrap();
-        assert!(stripped.count.is_none(), "count should be dropped");
-        assert!(!stripped.truncated, "truncated should be cleared");
-        assert_eq!(stripped.command.as_deref(), Some("monitors list"));
-        assert_eq!(stripped.next_action.as_deref(), Some("next"));
-    }
-
-    // --- append_jq_note ------------------------------------------------------
-
-    #[test]
-    fn test_append_jq_note_extends_note_field() {
-        let data = serde_json::json!({"id": 1});
-        let mut envelope = build_agent_envelope(&data, None).unwrap();
-        // Before: note contains only AGENT_ENVELOPE_NOTE.
-        let before = envelope["metadata"]["note"].as_str().unwrap().to_string();
-        assert!(before.contains("agent mode"), "pre-condition: {before}");
-
-        append_jq_note(&mut envelope);
-
-        let after = envelope["metadata"]["note"].as_str().unwrap();
-        assert!(
-            after.contains(AGENT_ENVELOPE_NOTE),
-            "original note must be preserved: {after}"
-        );
-        assert!(
-            after.contains(JQ_FILTER_NOTE),
-            "jq note must be appended: {after}"
-        );
-        assert!(
-            after.contains(".data"),
-            "jq note must mention .data: {after}"
-        );
-    }
-
-    // --- integration: strip + append through the real builder ----------------
-
-    #[test]
-    fn test_jq_filter_path_drops_count_and_appends_note() {
-        let filtered = serde_json::json!({"id": 1, "name": "foo"});
-        let meta = Metadata {
-            count: Some(10),
-            truncated: false,
-            command: Some("monitors list".into()),
-            next_action: None,
-        };
-
-        let stripped = strip_counts_after_filter(Some(&meta));
-        let mut env = build_agent_envelope(&filtered, stripped.as_ref()).unwrap();
-        append_jq_note(&mut env);
-
-        assert!(
-            env["metadata"]["count"].is_null(),
-            "count must be omitted after filter: {}",
-            env["metadata"]["count"]
-        );
-        assert!(
-            env["metadata"]["truncated"].is_null(),
-            "truncated must be omitted after filter"
-        );
-        assert_eq!(
-            env["metadata"]["command"],
-            serde_json::json!("monitors list"),
-            "command must be preserved"
-        );
-        let note = env["metadata"]["note"].as_str().unwrap();
-        assert!(
-            note.contains(AGENT_ENVELOPE_NOTE),
-            "original note must survive: {note}"
-        );
-        assert!(
-            note.contains(JQ_FILTER_NOTE),
-            "jq note must be appended: {note}"
-        );
-        assert_eq!(env["status"], "success");
-    }
-
-    #[test]
-    fn test_no_jq_path_keeps_count_and_note_unchanged() {
-        // Regression: when --jq is NOT used, the envelope must be byte-for-byte
-        // identical to pre-change behavior: count stays, only AGENT_ENVELOPE_NOTE.
-        let data = serde_json::json!([{"id": 1}, {"id": 2}]);
-        let meta = Metadata {
-            count: Some(2),
-            truncated: false,
-            command: Some("monitors list".into()),
-            next_action: None,
-        };
-        let env = build_agent_envelope(&data, Some(&meta)).unwrap();
-        assert_eq!(
-            env["metadata"]["count"],
-            serde_json::json!(2),
-            "count must survive without --jq"
-        );
-        let note = env["metadata"]["note"].as_str().unwrap();
-        assert!(
-            !note.contains(JQ_FILTER_NOTE),
-            "jq note must NOT appear without --jq: {note}"
-        );
-        assert!(
-            note.contains(AGENT_ENVELOPE_NOTE),
-            "original note must be present: {note}"
-        );
+    fn test_format_value_to_string_json_sorts_keys() {
+        let data = serde_json::json!({"z": 1, "a": 2});
+        let rendered = format_value_to_string(&data, &OutputFormat::Json).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(parsed["a"], 2);
+        assert_eq!(parsed["z"], 1);
+        // Key order in pretty JSON is alphabetical after sort_json_value.
+        let a_pos = rendered.find("\"a\"").unwrap();
+        let z_pos = rendered.find("\"z\"").unwrap();
+        assert!(a_pos < z_pos, "keys should be sorted: {rendered}");
     }
 }

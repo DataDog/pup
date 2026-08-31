@@ -155,32 +155,7 @@ pub async fn search(
         .await
         .map_err(|e| anyhow::anyhow!("failed to search spans: {:?}", e))?;
 
-    let next_cursor = resp
-        .meta
-        .as_ref()
-        .and_then(|m| m.page.as_ref())
-        .and_then(|p| p.after.clone());
-
-    let meta = if cfg.agent_mode {
-        let count = resp.data.as_ref().map(|d| d.len());
-        Some(formatter::Metadata {
-            count,
-            truncated: next_cursor.is_some(),
-            command: Some("traces search".into()),
-            next_action: next_cursor.map(|c| {
-                format!("More results available. Use --cursor=\"{c}\" to page backwards through older spans.")
-            }),
-        })
-    } else {
-        None
-    };
-    formatter::format_and_print(
-        &resp,
-        &cfg.output_format,
-        cfg.agent_mode,
-        meta.as_ref(),
-        cfg.jq.as_deref(),
-    )?;
+    formatter::output(cfg, &resp)?;
     Ok(())
 }
 
@@ -228,23 +203,7 @@ pub async fn aggregate(
         .await
         .map_err(|e| anyhow::anyhow!("failed to aggregate spans: {:?}", e))?;
 
-    let meta = if cfg.agent_mode {
-        Some(formatter::Metadata {
-            count: None,
-            truncated: false,
-            command: Some("traces aggregate".into()),
-            next_action: None,
-        })
-    } else {
-        None
-    };
-    formatter::format_and_print(
-        &resp,
-        &cfg.output_format,
-        cfg.agent_mode,
-        meta.as_ref(),
-        cfg.jq.as_deref(),
-    )?;
+    formatter::output(cfg, &resp)?;
     Ok(())
 }
 

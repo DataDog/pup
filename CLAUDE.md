@@ -60,7 +60,7 @@ pup/
 │   ├── runbooks/          # Runbook engine (loader, template renderer, executor)
 │   ├── client.rs          # Datadog API client wrapper
 │   ├── config.rs          # Configuration management
-│   ├── formatter.rs       # Output formatting (JSON, YAML, table, agent envelope)
+│   ├── formatter.rs       # Output formatting (JSON, YAML, table)
 │   ├── useragent.rs       # AI agent detection (FORCE_AGENT_MODE, Claude Code, etc.)
 │   ├── util.rs            # Time parsing, validation
 │   └── version.rs         # Version and build info

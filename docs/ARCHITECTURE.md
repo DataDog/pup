@@ -159,13 +159,13 @@ pup/v0.1.0 (rust; os darwin; arch arm64; ai-agent claude-code)  # With agent
 
 Table-driven registry detecting AI coding agents via environment variables. First match wins:
 - Claude Code (`CLAUDECODE`, `CLAUDE_CODE`), Cursor (`CURSOR_AGENT`), Codex (`CODEX`, `OPENAI_CODEX`), OpenCode (`OPENCODE`), Aider (`AIDER`), Cline (`CLINE`), Windsurf (`WINDSURF_AGENT`), GitHub Copilot (`GITHUB_COPILOT`), Amazon Q (`AMAZON_Q`, `AWS_Q_DEVELOPER`), Gemini Code Assist (`GEMINI_CODE_ASSIST`), Sourcegraph Cody (`SRC_CODY`), pi.dev (`PI_CODING_AGENT`), Generic Agent (`AGENT`)
-- Manual override: `FORCE_AGENT_MODE=1` or `--agent` flag
+- Manual override: `FORCE_AGENT_MODE=1`
 
 **Agent Mode Behavior** (when detected):
 - `--help` returns structured JSON schema instead of text
 - Confirmation prompts auto-approved (prevents stdin hangs)
-- API responses wrapped in metadata envelope (count, truncation, warnings)
-- Errors returned as structured JSON with suggestions
+- JSON stdout is the same raw payload humans see (no envelope)
+- Command nodes with payload bodies advertise `schema_refs` (dashboards widgets, security findings) — follow those commands instead of inventing request JSON
 
 See [LLM_GUIDE.md](LLM_GUIDE.md) for the complete agent guide.
 

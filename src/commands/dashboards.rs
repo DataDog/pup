@@ -5,7 +5,7 @@ use std::io::Read;
 use url::Url;
 
 use crate::config::Config;
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 use crate::raw_client;
 use crate::util;
 use crate::util_ext;
@@ -60,12 +60,7 @@ pub async fn diff(
         .await
         .map_err(|e| anyhow::anyhow!("failed to get dashboard: {e:?}"))?;
 
-    let mut options = util_ext::ResourceDiffOptions::new(
-        "dashboards diff",
-        "pup dashboards update",
-        "dashboard",
-        id,
-    );
+    let mut options = util_ext::ResourceDiffOptions::new("dashboard", id);
     options.readonly_paths = util_ext::READONLY_DASHBOARD_FIELDS;
     options.only = only;
     options.ignore = ignore;
@@ -200,19 +195,7 @@ pub async fn widget_list(cfg: &Config, dash_id: &str) -> Result<()> {
             })
         })
         .collect();
-    let count = rows.len();
-    formatter::format_and_print(
-        &rows,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&Metadata {
-            count: Some(count),
-            truncated: false,
-            command: Some("dashboards widgets list".into()),
-            next_action: None,
-        }),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &rows)
 }
 
 pub async fn widget_get(
@@ -312,18 +295,7 @@ pub fn widget_types(cfg: &Config) -> Result<()> {
         .iter()
         .map(|(t, d)| serde_json::json!({"type": t, "description": d}))
         .collect();
-    formatter::format_and_print(
-        &types,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&Metadata {
-            count: Some(WIDGET_TYPES.len()),
-            truncated: false,
-            command: Some("dashboards widgets types".into()),
-            next_action: None,
-        }),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &types)
 }
 
 pub fn widget_schema(cfg: &Config, type_str: &str) -> Result<()> {

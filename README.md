@@ -456,7 +456,7 @@ pup idp entities query 'kind:service AND owner:payments' \
 
 ## Agent Mode
 
-When pup is invoked by an AI coding agent, it automatically switches to **agent mode** which returns structured JSON responses optimized for machine consumption (including metadata, error details, and hints). Agent mode also auto-approves confirmation prompts.
+When pup is invoked by an AI coding agent, it automatically switches to **agent mode**: `--help` returns a JSON schema, and confirmation prompts are auto-approved. JSON command output is the same raw payload humans see.
 
 Agent mode is **auto-detected** when any of these environment variables are set to `1` or `true`:
 
@@ -475,20 +475,17 @@ Agent mode is **auto-detected** when any of these environment variables are set 
 | `PI_CODING_AGENT` | pi.dev |
 | `FORCE_AGENT_MODE` | Any agent (manual override) |
 
-You can also enable it explicitly with the `--agent` flag or by setting `FORCE_AGENT_MODE=1`:
+Force it for testing with `FORCE_AGENT_MODE=1`:
 
 ```bash
 # Auto-detected (e.g., running inside Claude Code)
 pup monitors list
 
-# Explicit flag
-pup monitors list --agent
-
-# Environment variable override
-FORCE_AGENT_MODE=1 pup monitors list
+# Environment variable override (tests / unknown agents)
+FORCE_AGENT_MODE=1 pup --help
 ```
 
-If you are integrating pup into an AI agent workflow, make sure the appropriate environment variable is set so responses are optimized for your agent. Without it, pup defaults to human-friendly output.
+If you are integrating pup into an AI agent workflow, make sure the appropriate environment variable is set so `--help` returns JSON schema. JSON command output does not depend on agent mode.
 
 ## WASM
 

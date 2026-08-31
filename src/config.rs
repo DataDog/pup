@@ -194,7 +194,7 @@ impl Config {
                 || env_bool("DD_CLI_AUTO_APPROVE")
                 || env_bool("PUP_AUTO_APPROVE")
                 || file_cfg.auto_approve.unwrap_or(false),
-            agent_mode: false, // set by caller from --agent flag or useragent detection
+            agent_mode: false, // set by caller from useragent detection
             read_only: env_bool("DD_READ_ONLY")
                 || env_bool("DD_CLI_READ_ONLY")
                 || env_bool("PUP_READ_ONLY")

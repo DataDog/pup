@@ -141,14 +141,14 @@ pub fn peek_last_captured() -> Option<RateLimitInfo> {
 
 /// When `--verbose` is set, print captured rate-limit headers to stderr using
 /// the same output format as the command payload.
-pub fn eprint_verbose_response(format: &OutputFormat, agent_mode: bool) -> Result<()> {
+pub fn eprint_verbose_response(format: &OutputFormat) -> Result<()> {
     let Some(info) = peek_last_captured() else {
         return Ok(());
     };
     if info.is_empty() {
         return Ok(());
     }
-    formatter::eprint_formatted(&info.to_json_value(), format, agent_mode)
+    formatter::eprint_formatted(&info.to_json_value(), format)
 }
 
 /// Returns true when `err` represents an HTTP 429 rate-limit failure.
@@ -324,7 +324,6 @@ mod tests {
             }
             .to_json_value(),
             &OutputFormat::Json,
-            false,
         )
         .expect("json format");
         assert!(rendered.contains("\"limit\": \"1000\""));
@@ -343,7 +342,6 @@ mod tests {
             }
             .to_json_value(),
             &OutputFormat::Table,
-            false,
         )
         .expect("table format");
         assert!(rendered.contains("logs_public_search_api"));

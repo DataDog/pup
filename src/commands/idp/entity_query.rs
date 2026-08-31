@@ -11,7 +11,7 @@ use super::entity_types::{
     NormalizedPage, QueryEcho, RelationshipSummary, ResourceIdentifier,
 };
 use crate::config::Config;
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 use crate::raw_client;
 
 const ENTITIES_PATH: &str = "/api/v2/idp/entity_graph/entities";
@@ -69,42 +69,13 @@ pub async fn query_entities(cfg: &Config, options: EntityQueryOptions) -> Result
         .context("failed to query Datadog entities")?;
 
     if options.raw {
-        let (count, truncated, next_action) = raw_response_metadata(&raw);
-        return formatter::format_and_print(
-            &raw,
-            &cfg.output_format,
-            cfg.agent_mode,
-            Some(&Metadata {
-                count,
-                truncated,
-                command: Some("pup idp entities query".into()),
-                next_action,
-            }),
-            cfg.jq.as_deref(),
-        );
+        return formatter::output(cfg, &raw);
     }
 
     let response: EntitiesResponse =
         serde_json::from_value(raw).context("failed to decode Datadog entity response")?;
     let normalized = normalize_entities_response(&options, response);
-    let next_action = normalized
-        .page
-        .next_cursor
-        .as_ref()
-        .map(|cursor| format!("Fetch the next page with --cursor {cursor}"));
-    let metadata = Metadata {
-        count: Some(normalized.count),
-        truncated: normalized.page.truncated,
-        command: Some("pup idp entities query".into()),
-        next_action,
-    };
-    formatter::format_and_print(
-        &normalized,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&metadata),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &normalized)
 }
 
 fn normalize_options(options: EntityQueryOptions) -> Result<NormalizedQueryOptions> {
@@ -486,19 +457,6 @@ fn parse_relationship_data(value: &Value) -> Vec<ResourceIdentifier> {
             serde_json::from_value::<ResourceIdentifier>(value.clone()).map(|item| vec![item])
         })
         .unwrap_or_default()
-}
-
-fn raw_response_metadata(raw: &Value) -> (Option<usize>, bool, Option<String>) {
-    let count = raw.get("data").and_then(Value::as_array).map(Vec::len);
-    let cursor = raw
-        .pointer("/meta/page/next_cursor")
-        .and_then(Value::as_str)
-        .filter(|cursor| !cursor.is_empty());
-    (
-        count,
-        cursor.is_some(),
-        cursor.map(|cursor| format!("Fetch the next page with --cursor {cursor}")),
-    )
 }
 
 fn entity_key(kind: &str, id: &str) -> String {

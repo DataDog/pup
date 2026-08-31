@@ -1568,8 +1568,7 @@ fn test_find_subcommand_resolves_when_alias_used() {
 
 #[test]
 fn test_clap_reports_invalid_nested_subcommand_with_suggestion() {
-    let result = crate::Cli::command()
-        .try_get_matches_from(["pup", "monitors", "lits", "--help", "--agent"]);
+    let result = crate::Cli::command().try_get_matches_from(["pup", "monitors", "lits", "--help"]);
     let err = result.expect_err("clap should reject an unknown subcommand");
     assert_eq!(
         err.kind(),
@@ -1599,20 +1598,20 @@ fn owned(args: &[&str]) -> Vec<String> {
 
 #[test]
 fn test_top_level_subcommand_returns_first_positional() {
-    let args = owned(&["pup", "monitors", "list", "--help", "--agent"]);
+    let args = owned(&["pup", "monitors", "list", "--help"]);
     assert_eq!(crate::top_level_subcommand(&args), Some("monitors"));
 }
 
 #[test]
 fn test_top_level_subcommand_skips_value_global_before_subcommand() {
     // The value of `--org` must not be mistaken for the subcommand.
-    let args = owned(&["pup", "--org", "myorg", "monitors", "--help", "--agent"]);
+    let args = owned(&["pup", "--org", "myorg", "monitors", "--help"]);
     assert_eq!(crate::top_level_subcommand(&args), Some("monitors"));
 }
 
 #[test]
 fn test_top_level_subcommand_skips_short_value_global() {
-    let args = owned(&["pup", "-o", "table", "logs", "--help", "--agent"]);
+    let args = owned(&["pup", "-o", "table", "logs", "--help"]);
     assert_eq!(crate::top_level_subcommand(&args), Some("logs"));
 }
 
@@ -1625,14 +1624,14 @@ fn test_top_level_subcommand_handles_attached_value_form() {
 
 #[test]
 fn test_top_level_subcommand_returns_none_when_flags_only() {
-    let args = owned(&["pup", "--agent", "--help"]);
+    let args = owned(&["pup", "--help"]);
     assert_eq!(crate::top_level_subcommand(&args), None);
 }
 
 #[test]
 fn test_agent_help_schema_for_valid_nested_subcommand() {
     let cmd = crate::Cli::command();
-    let args = owned(&["pup", "monitors", "list", "--help", "--agent"]);
+    let args = owned(&["pup", "monitors", "list", "--help"]);
 
     let schema = crate::agent_help_schema(&cmd, &args)
         .expect("valid nested agent help should return a schema");
@@ -1643,7 +1642,7 @@ fn test_agent_help_schema_for_valid_nested_subcommand() {
 #[test]
 fn test_agent_help_falls_through_for_invalid_nested_subcommand() {
     let cmd = crate::Cli::command();
-    let args = owned(&["pup", "monitors", "lits", "--help", "--agent"]);
+    let args = owned(&["pup", "monitors", "lits", "--help"]);
 
     assert!(crate::agent_help_schema(&cmd, &args).is_none());
 }

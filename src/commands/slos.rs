@@ -87,7 +87,7 @@ pub async fn diff(
         .await
         .map_err(|e| anyhow::anyhow!("failed to get SLO: {e:?}"))?;
 
-    let mut options = util_ext::ResourceDiffOptions::new("slos diff", "pup slos update", "SLO", id);
+    let mut options = util_ext::ResourceDiffOptions::new("SLO", id);
     options.readonly_paths = util_ext::READONLY_SLO_FIELDS;
     options.only = only;
     options.ignore = ignore;

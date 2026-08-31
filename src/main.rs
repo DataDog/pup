@@ -54,12 +54,6 @@ pub(crate) struct Cli {
     /// Auto-approve destructive operations
     #[arg(short = 'y', long = "yes", global = true)]
     yes: bool,
-    /// Enable agent mode
-    #[arg(long, global = true)]
-    agent: bool,
-    /// Disable agent mode (overrides auto-detection and --agent)
-    #[arg(long, global = true)]
-    no_agent: bool,
     /// Block all write operations (create, update, delete)
     #[arg(long, global = true)]
     read_only: bool,
@@ -122,7 +116,7 @@ enum Commands {
     ///             daemon (the Datadog host agent that collects metrics, traces,
     ///             and logs). This is the `datadog-agent` binary, NOT an AI agent.
     ///
-    /// In agent mode (auto-detected or via --agent / FORCE_AGENT_MODE=1),
+    /// In agent mode (auto-detected via FORCE_AGENT_MODE=1 or an agent env var),
     /// --help returns structured JSON schema instead of human-readable text.
     ///
     /// COMMANDS:
@@ -1455,9 +1449,9 @@ enum Commands {
     /// Render JSON through pup's formatter
     ///
     /// Reads a JSON document from stdin (or --input FILE) and prints it using the
-    /// configured output format (--output, or $DD_OUTPUT / $PUP_OUTPUT) and agent
-    /// mode. Lets an extension in any language reuse pup's table/yaml/csv/tsv
-    /// rendering and agent envelope instead of reimplementing them.
+    /// configured output format (--output, or $DD_OUTPUT / $PUP_OUTPUT). Lets an
+    /// extension in any language reuse pup's table/yaml/csv/tsv rendering instead
+    /// of reimplementing them.
     ///
     /// EXAMPLES:
     ///   pup api v2/monitors --silent | pup format --output table
@@ -1468,15 +1462,6 @@ enum Commands {
         /// Read JSON from file, or use "-" (default) for stdin
         #[arg(long, value_name = "FILE")]
         input: Option<String>,
-        /// Set metadata.count in the agent-mode envelope
-        #[arg(long, value_name = "N")]
-        count: Option<usize>,
-        /// Set metadata.command in the agent-mode envelope
-        #[arg(long, value_name = "STR")]
-        command: Option<String>,
-        /// Set metadata.next_action in the agent-mode envelope
-        #[arg(long, value_name = "STR")]
-        next_action: Option<String>,
     },
     /// Manage tag governance
     ///
@@ -10722,7 +10707,7 @@ enum TracesActions {
     ///   pup traces search --query="service:api @duration:>1000000000" --from="4h"
     ///   pup traces search --query="env:prod" --sort="timestamp" --limit=20
     ///   pup traces search --live --query="service:api"
-    ///   pup traces search --live --cursor="<cursor from previous next_action>"
+    ///   pup traces search --live --cursor="<cursor from meta.page.after>"
     ///
     /// LIVE SEARCH:
     ///   --live pins the end of the window to "now", so the query lands in
@@ -10730,7 +10715,7 @@ enum TracesActions {
     ///   indexed store — useful for viewing very recent traces that haven't
     ///   gone through ingestion sampling yet. Combine with the default
     ///   -timestamp sort and page backwards through older spans with
-    ///   --cursor (returned as `next_action` in agent mode).
+    ///   --cursor (from `meta.page.after` in the previous response).
     #[command(verbatim_doc_comment)]
     Search {
         #[arg(long, default_value = "*", help = "Span search query")]
@@ -10762,7 +10747,7 @@ enum TracesActions {
         sort: String,
         #[arg(
             long,
-            help = "Pagination cursor from a prior call's next_action, to page backwards through older spans"
+            help = "Pagination cursor from a prior call's meta.page.after, to page backwards through older spans"
         )]
         cursor: Option<String>,
         #[arg(
@@ -11521,24 +11506,27 @@ fn agent_help_schema(cmd: &clap::Command, args: &[String]) -> Option<serde_json:
     }
 }
 
-/// Guidance returned in the agent schema for LLMs that author shell scripts
-/// or runbooks the user will execute outside the agent session. Agent mode
-/// wraps responses in a `{status, data, metadata}` envelope; outside agent
-/// mode, output is raw. Without `--no-agent`, a script tested in-session
-/// silently breaks when the user runs it.
-fn build_script_authoring_guidance() -> serde_json::Value {
-    serde_json::json!({
-        "summary": "Agent mode wraps JSON responses in a {status, data, metadata} envelope. Outside agent mode, pup emits the raw payload. Scripts written without --no-agent will see different shapes depending on who runs them.",
-        "rule": "When authoring a script, alias, runbook, or any pup command that the user (or CI) will run outside this agent session, append --no-agent so the output format matches what they will see.",
-        "examples": [
-            "# Agent runs interactively (envelope wrapped):",
-            "pup monitors list --tag='env:prod'",
-            "",
-            "# Agent writes a script for the user (raw output, parity with their shell):",
-            "pup --no-agent monitors list --tag='env:prod' | jq '.[].name'"
-        ],
-        "detection": "Agent mode is on when any of: --agent flag, FORCE_AGENT_MODE=1, or an agent env var (CLAUDECODE, CURSOR_AGENT, CODEX, etc.) is set."
-    })
+fn agent_schema_global_flags() -> serde_json::Value {
+    serde_json::json!([
+        {
+            "name": "--org",
+            "type": "string",
+            "default": null,
+            "description": "Named org session for multi-org support (see 'pup auth login --org')"
+        },
+        {
+            "name": "--output",
+            "type": "string",
+            "default": "json",
+            "description": "Output format (json, table, yaml, csv)"
+        },
+        {
+            "name": "--yes",
+            "type": "bool",
+            "default": "false",
+            "description": "Skip confirmation prompts (auto-approve all operations)"
+        }
+    ])
 }
 
 /// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`).
@@ -11566,41 +11554,7 @@ fn build_agent_schema_scoped(
     root.insert("auth".into(), serde_json::Value::Object(auth));
 
     // Global flags
-    root.insert(
-        "global_flags".into(),
-        serde_json::json!([
-            {
-                "name": "--agent",
-                "type": "bool",
-                "default": "false",
-                "description": "Enable agent mode (auto-detected for AI coding assistants)"
-            },
-            {
-                "name": "--no-agent",
-                "type": "bool",
-                "default": "false",
-                "description": "Disable agent mode (overrides auto-detection and --agent)"
-            },
-            {
-                "name": "--org",
-                "type": "string",
-                "default": null,
-                "description": "Named org session for multi-org support (see 'pup auth login --org')"
-            },
-            {
-                "name": "--output",
-                "type": "string",
-                "default": "json",
-                "description": "Output format (json, table, yaml, csv)"
-            },
-            {
-                "name": "--yes",
-                "type": "bool",
-                "default": "false",
-                "description": "Skip confirmation prompts (auto-approve all operations)"
-            }
-        ]),
-    );
+    root.insert("global_flags".into(), agent_schema_global_flags());
 
     // Build scoped command tree — only the target command
     let cmd_schema = build_command_schema(target, "");
@@ -11656,7 +11610,8 @@ fn build_agent_schema_scoped(
         "Use 'pup logs aggregate' for counts and distributions instead of fetching all logs and counting locally",
         "Prefer JSON output (default) for structured parsing; use --output=table only for human display",
         "Chain narrow queries: first aggregate to find patterns, then search for specific examples",
-        "Use 'pup monitors search' for full-text search, 'pup monitors list' for tag/name filtering"
+        "Use 'pup monitors search' for full-text search, 'pup monitors list' for tag/name filtering",
+        "Start discovery with 'pup agent schema --compact', then 'pup <domain> --help'; follow schema_refs for payload bodies (dashboard widgets, security findings)"
     ]));
 
     root.insert("anti_patterns".into(), serde_json::json!([
@@ -11668,11 +11623,8 @@ fn build_agent_schema_scoped(
         "Don't use --from=30d unless you specifically need a month of data; it's slow",
         "Don't retry failed requests without checking the error; 401 means re-authenticate, 403 means missing permissions",
         "Don't use 'pup metrics query' without specifying an aggregation (avg, sum, max, min, count)",
-        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level",
-        "Don't author scripts for the user without --no-agent; the envelope wrapping in agent mode won't appear when they run it (see script_authoring)"
+        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level"
     ]));
-
-    root.insert("script_authoring".into(), build_script_authoring_guidance());
 
     serde_json::Value::Object(root)
 }
@@ -11694,42 +11646,8 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
     );
     root.insert("auth".into(), serde_json::Value::Object(auth));
 
-    // Global flags — hardcoded to match Go ordering and descriptions exactly
-    root.insert(
-        "global_flags".into(),
-        serde_json::json!([
-            {
-                "name": "--agent",
-                "type": "bool",
-                "default": "false",
-                "description": "Enable agent mode (auto-detected for AI coding assistants)"
-            },
-            {
-                "name": "--no-agent",
-                "type": "bool",
-                "default": "false",
-                "description": "Disable agent mode (overrides auto-detection and --agent)"
-            },
-            {
-                "name": "--org",
-                "type": "string",
-                "default": null,
-                "description": "Named org session for multi-org support (see 'pup auth login --org')"
-            },
-            {
-                "name": "--output",
-                "type": "string",
-                "default": "json",
-                "description": "Output format (json, table, yaml, csv)"
-            },
-            {
-                "name": "--yes",
-                "type": "bool",
-                "default": "false",
-                "description": "Skip confirmation prompts (auto-approve all operations)"
-            }
-        ]),
-    );
+    // Global flags
+    root.insert("global_flags".into(), agent_schema_global_flags());
 
     // Operational knowledge sections — critical for AI agent effectiveness
     root.insert("anti_patterns".into(), serde_json::json!([
@@ -11741,11 +11659,8 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
         "Don't use --from=30d unless you specifically need a month of data; it's slow",
         "Don't retry failed requests without checking the error; 401 means re-authenticate, 403 means missing permissions",
         "Don't use 'pup metrics query' without specifying an aggregation (avg, sum, max, min, count)",
-        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level",
-        "Don't author scripts for the user without --no-agent; the envelope wrapping in agent mode won't appear when they run it (see script_authoring)"
+        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level"
     ]));
-
-    root.insert("script_authoring".into(), build_script_authoring_guidance());
 
     root.insert("best_practices".into(), serde_json::json!([
         "Always specify --from to set a time range; most commands default to 1h but be explicit",
@@ -11757,7 +11672,8 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
         "Use 'pup logs aggregate' for counts and distributions instead of fetching all logs and counting locally",
         "Prefer JSON output (default) for structured parsing; use --output=table only for human display",
         "Chain narrow queries: first aggregate to find patterns, then search for specific examples",
-        "Use 'pup monitors search' for full-text search, 'pup monitors list' for tag/name filtering"
+        "Use 'pup monitors search' for full-text search, 'pup monitors list' for tag/name filtering",
+        "Start discovery with 'pup agent schema --compact', then 'pup <domain> --help'; follow schema_refs for payload bodies (dashboard widgets, security findings)"
     ]));
 
     root.insert("query_syntax".into(), serde_json::json!({
@@ -12075,7 +11991,36 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
         obj.insert("subcommands".into(), serde_json::Value::Array(subs));
     }
 
+    if let Some(refs) = schema_refs_for(&full_path) {
+        obj.insert("schema_refs".into(), refs);
+    }
+
     serde_json::Value::Object(obj)
+}
+
+/// Payload-schema discovery pointers. CLI `--help` describes flags, not request
+/// bodies; these commands tell agents where to fetch JSON Schema / skeletons.
+fn schema_refs_for(full_path: &str) -> Option<serde_json::Value> {
+    match full_path {
+        "dashboards" | "dashboards widgets" => Some(serde_json::json!([
+            {
+                "kind": "index",
+                "command": "pup dashboards widgets types"
+            },
+            {
+                "kind": "payload",
+                "command": "pup dashboards widgets schema <type>",
+                "example": "pup dashboards widgets schema timeseries"
+            }
+        ])),
+        "security" | "security findings" => Some(serde_json::json!([
+            {
+                "kind": "index",
+                "command": "pup security findings schema"
+            }
+        ])),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -12271,21 +12216,25 @@ mod test_agent_schema {
     }
 
     #[test]
-    fn global_flags_include_no_agent() {
+    fn global_flags_omit_agent_toggles() {
         let schema = get_schema();
         let flags = schema["global_flags"]
             .as_array()
             .expect("global_flags missing");
+        for name in ["--agent", "--no-agent"] {
+            assert!(
+                flags.iter().all(|f| f["name"].as_str() != Some(name)),
+                "global_flags must not include {name}"
+            );
+        }
         assert!(
-            flags
-                .iter()
-                .any(|f| f["name"].as_str() == Some("--no-agent")),
-            "global_flags must include --no-agent"
+            flags.iter().any(|f| f["name"].as_str() == Some("--output")),
+            "global_flags must still include --output"
         );
     }
 
     #[test]
-    fn no_agent_flag_in_scoped_schema() {
+    fn scoped_schema_omits_agent_toggles() {
         let cmd = Cli::command();
         let monitors_cmd = cmd
             .get_subcommands()
@@ -12295,110 +12244,113 @@ mod test_agent_schema {
         let flags = schema["global_flags"]
             .as_array()
             .expect("global_flags missing");
-        assert!(
-            flags
-                .iter()
-                .any(|f| f["name"].as_str() == Some("--no-agent")),
-            "scoped schema global_flags must include --no-agent"
-        );
+        for name in ["--agent", "--no-agent"] {
+            assert!(
+                flags.iter().all(|f| f["name"].as_str() != Some(name)),
+                "scoped global_flags must not include {name}"
+            );
+        }
     }
 
-    /// Assert that a `script_authoring` JSON block has the full contract:
-    /// summary + rule + examples + detection, with rule mentioning `--no-agent`.
-    /// Shared between the top-level and scoped schema tests.
-    fn assert_script_authoring_contract(block: &serde_json::Value) {
-        assert!(
-            block.is_object(),
-            "script_authoring must be an object: {block}"
-        );
-        let summary = block["summary"]
-            .as_str()
-            .expect("script_authoring.summary must be a string");
-        assert!(
-            !summary.is_empty(),
-            "script_authoring.summary must not be empty"
-        );
-        let rule = block["rule"]
-            .as_str()
-            .expect("script_authoring.rule must be a string");
-        assert!(
-            rule.contains("--no-agent"),
-            "script_authoring.rule must mention --no-agent: {rule}"
-        );
-        assert!(
-            block["examples"].is_array(),
-            "script_authoring.examples must be an array"
-        );
-        let detection = block["detection"]
-            .as_str()
-            .expect("script_authoring.detection must be a string");
-        assert!(
-            !detection.is_empty(),
-            "script_authoring.detection must not be empty"
-        );
-    }
-
-    /// Top-level schema must surface the script-authoring guidance so that
-    /// LLMs reading `pup --help` in agent mode know to pass `--no-agent`
-    /// when writing scripts the user will run later. Without this, an
-    /// agent's script gets the envelope wrapping the user won't see.
     #[test]
-    fn schema_includes_script_authoring_guidance() {
+    fn schema_omits_script_authoring() {
         let schema = get_schema();
-        assert_script_authoring_contract(&schema["script_authoring"]);
-    }
-
-    /// Scoped (per-domain) schema must also include the guidance so an
-    /// agent that only ran `pup logs --help` still gets the warning.
-    #[test]
-    fn scoped_schema_includes_script_authoring_guidance() {
-        let cmd = Cli::command();
-        let logs_cmd = cmd
-            .get_subcommands()
-            .find(|s| s.get_name() == "logs")
-            .expect("logs subcommand not found");
-        let schema = build_agent_schema_scoped(&cmd, logs_cmd, &["logs"]);
-        assert_script_authoring_contract(&schema["script_authoring"]);
-    }
-
-    /// The anti-patterns array should include a pointer to the new
-    /// script_authoring section so LLMs that scan anti_patterns first
-    /// are still led to the full guidance. Match the actual phrasing
-    /// (`see script_authoring`) so an unrelated future entry that
-    /// merely contains the word doesn't accidentally satisfy this test.
-    #[test]
-    fn schema_anti_patterns_reference_script_authoring() {
-        let schema = get_schema();
+        assert!(
+            schema.get("script_authoring").is_none(),
+            "script_authoring was an envelope workaround and must not appear"
+        );
         let anti = schema["anti_patterns"]
             .as_array()
             .expect("anti_patterns missing");
         assert!(
-            anti.iter().any(|v| v
-                .as_str()
-                .is_some_and(|s| s.contains("see script_authoring"))),
-            "anti_patterns must reference script_authoring so LLMs find it"
+            anti.iter()
+                .all(|v| v.as_str().is_none_or(|s| !s.contains("--no-agent"))),
+            "anti_patterns must not mention --no-agent"
         );
     }
 
-    /// Same as above for the scoped schema — agents that only ever call
-    /// `pup logs --help` should still get pointed at script_authoring.
     #[test]
-    fn scoped_schema_anti_patterns_reference_script_authoring() {
+    fn scoped_schema_omits_script_authoring() {
         let cmd = Cli::command();
         let logs_cmd = cmd
             .get_subcommands()
             .find(|s| s.get_name() == "logs")
             .expect("logs subcommand not found");
         let schema = build_agent_schema_scoped(&cmd, logs_cmd, &["logs"]);
-        let anti = schema["anti_patterns"]
-            .as_array()
-            .expect("scoped anti_patterns missing");
         assert!(
-            anti.iter().any(|v| v
-                .as_str()
-                .is_some_and(|s| s.contains("see script_authoring"))),
-            "scoped anti_patterns must reference script_authoring"
+            schema.get("script_authoring").is_none(),
+            "scoped schema must not include script_authoring"
         );
+    }
+
+    #[test]
+    fn dashboards_schema_refs_point_at_widget_schema_commands() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let dashboards = find_command(commands, &["dashboards"]).expect("dashboards");
+        let refs = dashboards["schema_refs"]
+            .as_array()
+            .expect("dashboards must advertise schema_refs");
+        let ref_cmds: Vec<&str> = refs.iter().filter_map(|r| r["command"].as_str()).collect();
+        assert!(
+            ref_cmds.iter().any(|c| c.contains("widgets types")),
+            "index ref missing: {refs:?}"
+        );
+        assert!(
+            ref_cmds.iter().any(|c| c.contains("widgets schema")),
+            "payload ref missing: {refs:?}"
+        );
+        let widgets = find_command(commands_from(dashboards), &["widgets"]).expect("widgets");
+        assert!(
+            widgets.get("schema_refs").is_some(),
+            "dashboards widgets must also have schema_refs"
+        );
+    }
+
+    #[test]
+    fn security_schema_refs_point_at_findings_schema() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let security = find_command(commands, &["security"]).expect("security");
+        let refs = security["schema_refs"]
+            .as_array()
+            .expect("security must advertise schema_refs");
+        assert!(
+            refs.iter()
+                .any(|r| r["command"].as_str() == Some("pup security findings schema")),
+            "findings schema ref missing: {refs:?}"
+        );
+    }
+
+    #[test]
+    fn monitors_have_no_schema_refs() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let monitors = find_command(commands, &["monitors"]).expect("monitors");
+        assert!(
+            monitors.get("schema_refs").is_none(),
+            "schema_refs must be allowlisted, not attached to every command"
+        );
+    }
+
+    #[test]
+    fn scoped_dashboards_schema_includes_schema_refs() {
+        let cmd = Cli::command();
+        let dashboards_cmd = cmd
+            .get_subcommands()
+            .find(|s| s.get_name() == "dashboards")
+            .expect("dashboards subcommand not found");
+        let schema = build_agent_schema_scoped(&cmd, dashboards_cmd, &["dashboards"]);
+        let commands = schema["commands"].as_array().unwrap();
+        let dashboards = find_command(commands, &["dashboards"]).expect("dashboards");
+        assert!(
+            dashboards.get("schema_refs").is_some(),
+            "scoped dashboards --help must include schema_refs"
+        );
+    }
+
+    fn commands_from(cmd: &serde_json::Value) -> &[serde_json::Value] {
+        cmd["subcommands"].as_array().unwrap()
     }
 }
 
@@ -12968,9 +12920,7 @@ async fn main_inner() -> anyhow::Result<()> {
     // In agent mode, intercept --help to return a JSON schema instead of plain text.
     let args: Vec<String> = std::env::args().collect();
     let has_help = args.iter().any(|a| a == "--help" || a == "-h");
-    let has_agent_flag = args.iter().any(|a| a == "--agent");
-    let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
-    if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
+    if has_help && useragent::is_agent_mode() {
         let cmd = Cli::command();
         if let Some(schema) = agent_help_schema(&cmd, &args) {
             println!("{}", serde_json::to_string_pretty(&schema).unwrap());
@@ -13067,7 +13017,7 @@ async fn main_inner() -> anyhow::Result<()> {
     if cli.yes {
         cfg.auto_approve = true;
     }
-    cfg.agent_mode = !cli.no_agent && (cli.agent || useragent::is_agent_mode());
+    cfg.agent_mode = useragent::is_agent_mode();
     if cfg.agent_mode {
         cfg.auto_approve = true;
     }
@@ -17349,13 +17299,8 @@ async fn main_inner() -> anyhow::Result<()> {
         // --- Format ---
         // No auth required: this only renders JSON the caller already has.
         #[cfg(not(target_arch = "wasm32"))]
-        Commands::Format {
-            input,
-            count,
-            command,
-            next_action,
-        } => {
-            commands::format::run(&cfg, input.as_deref(), count, command, next_action)?;
+        Commands::Format { input } => {
+            commands::format::run(&cfg, input.as_deref())?;
         }
         // --- Skills ---
         #[cfg(not(target_arch = "wasm32"))]

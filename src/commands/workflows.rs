@@ -7,7 +7,7 @@ use datadog_api_client::datadogV2::api_workflow_automation::{
 };
 
 use crate::config::Config;
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 use crate::raw_client;
 use crate::util;
 use crate::util_ext;
@@ -67,12 +67,7 @@ pub async fn diff(
         .await
         .map_err(|e| anyhow::anyhow!("failed to get workflow: {e:?}"))?;
 
-    let mut options = util_ext::ResourceDiffOptions::new(
-        "workflows diff",
-        "pup workflows update",
-        "workflow",
-        workflow_id,
-    );
+    let mut options = util_ext::ResourceDiffOptions::new("workflow", workflow_id);
     options.readonly_paths = util_ext::READONLY_WORKFLOW_FIELDS;
     options.only = only;
     options.ignore = ignore;
@@ -209,20 +204,7 @@ pub async fn instance_list(cfg: &Config, workflow_id: &str, limit: i64, page: i6
         .await
         .map_err(|e| anyhow::anyhow!("failed to list workflow instances: {:?}", e))?;
 
-    let count = resp.data.as_ref().map(|d| d.len());
-    let meta = Metadata {
-        count,
-        truncated: false,
-        command: Some("workflows instances list".to_string()),
-        next_action: None,
-    };
-    formatter::format_and_print(
-        &resp,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &resp)
 }
 
 pub async fn instance_get(cfg: &Config, workflow_id: &str, instance_id: &str) -> Result<()> {

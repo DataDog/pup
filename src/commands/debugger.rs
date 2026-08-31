@@ -431,12 +431,7 @@ pub async fn probes_delete(cfg: &Config, id: &str) -> Result<()> {
 }
 
 fn delete_output(cfg: &Config, id: &str) -> Result<()> {
-    if cfg.agent_mode {
-        formatter::output(cfg, &serde_json::json!({"id": id, "deleted": true}))
-    } else {
-        println!("Probe {id} deleted.");
-        Ok(())
-    }
+    formatter::output(cfg, &serde_json::json!({"id": id, "deleted": true}))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -722,16 +717,8 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_output_human() {
+    fn test_delete_output_json() {
         let cfg = test_cfg();
-        let result = delete_output(&cfg, "probe-123");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_delete_output_agent_mode() {
-        let mut cfg = test_cfg();
-        cfg.agent_mode = true;
         let result = delete_output(&cfg, "probe-123");
         assert!(result.is_ok());
     }

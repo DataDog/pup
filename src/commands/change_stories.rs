@@ -47,29 +47,7 @@ pub async fn list(
 
     let q_refs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let data = raw_client::raw_get(cfg, "/api/unstable/change-stories/cli", &q_refs).await?;
-
-    let count = data
-        .get("stories")
-        .and_then(|v| v.as_array())
-        .map(|a| a.len());
-    let truncated = data
-        .get("truncated")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let meta = formatter::Metadata {
-        count,
-        truncated,
-        command: Some("change-stories list".into()),
-        next_action: None,
-    };
-
-    formatter::format_and_print(
-        &data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output(cfg, &data)
 }
 
 #[cfg(test)]
@@ -190,7 +168,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_list_agent_envelope() {
+    async fn test_list_in_agent_mode() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let mut cfg = test_config(&server.url());

@@ -16699,9 +16699,9 @@ async fn main_inner() -> anyhow::Result<()> {
                     limit,
                     from,
                     to,
-                    ..
+                    env,
                 } => {
-                    commands::apm::flow_map(&cfg, query, limit, from, to).await?;
+                    commands::apm::flow_map(&cfg, query, limit, from, to, env).await?;
                 }
                 ApmActions::Troubleshooting { action } => match action {
                     ApmTroubleshootingActions::List {

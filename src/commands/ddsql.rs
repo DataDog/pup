@@ -926,6 +926,20 @@ mod tests {
     }
 
     #[test]
+    fn test_build_ddsql_table_request_converts_relative_time_to_millis() {
+        let before_ms = chrono::Utc::now().timestamp() * 1000;
+        let req = build_ddsql_table_request("SELECT 1", "1h", "now", None).unwrap();
+        let after_ms = chrono::Utc::now().timestamp() * 1000;
+
+        let time = &req["data"]["attributes"]["time"];
+        let from_ms = time["from_timestamp"].as_i64().unwrap();
+        let to_ms = time["to_timestamp"].as_i64().unwrap();
+
+        assert!((before_ms..=after_ms).contains(&to_ms));
+        assert!((from_ms - (to_ms - 3_600_000)).abs() <= 10);
+    }
+
+    #[test]
     fn test_build_ddsql_table_request_omits_row_limit() {
         let req =
             build_ddsql_table_request("SELECT 1", "1700000000000", "1700003600000", None).unwrap();
@@ -1031,6 +1045,58 @@ mod tests {
 
         assert_eq!(rows, json!([{"count": 42}]));
         request.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_execute_ddsql_query_sends_supported_time_formats_as_millis() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        for (from, to, expected_from_ms, expected_to_ms) in [
+            (
+                "1600000000",
+                "1600003600",
+                1_600_000_000_000_i64,
+                1_600_003_600_000_i64,
+            ),
+            (
+                "2023-11-14T22:13:20Z",
+                "2023-11-14T23:13:20Z",
+                1_700_000_000_000_i64,
+                1_700_003_600_000_i64,
+            ),
+        ] {
+            let request = server
+                .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+                .match_body(mockito::Matcher::PartialJson(json!({
+                    "data": {
+                        "type": "ddsql_query_request",
+                        "attributes": {
+                            "time": {
+                                "from_timestamp": expected_from_ms,
+                                "to_timestamp": expected_to_ms,
+                            }
+                        }
+                    }
+                })))
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    r#"{"data":{"attributes":{"state":"completed","columns":[]},"id":"response-id","type":"ddsql_query_response"},"meta":{"elapsed":1,"request_id":"request-id"}}"#,
+                )
+                .create_async()
+                .await;
+
+            let rows = execute_ddsql_query(&cfg, "SELECT 1", from, to, None)
+                .await
+                .unwrap();
+
+            assert_eq!(rows, json!([]));
+            request.assert_async().await;
+        }
+
         cleanup_env();
     }
 

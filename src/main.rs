@@ -1143,6 +1143,11 @@ enum Commands {
     ///   pup ddsql schema tables --query ec2 --limit 100
     ///   pup ddsql schema columns --table-id public.aws.ec2_instance
     ///
+    /// PAGINATION AND GRANULARITY:
+    ///   Write OFFSET n LIMIT m in SQL to paginate deterministic, ordered results.
+    ///   Set the query-wide time window with --from/--to. Override it per source with
+    ///   table-function timestamp arguments. A WHERE time filter does not change source granularity.
+    ///
     /// AUTHENTICATION:
     ///   All ddsql commands support OAuth2 (via 'pup auth login') or API key + Application key.
     #[command(verbatim_doc_comment)]
@@ -4526,12 +4531,8 @@ enum DdsqlActions {
             help = "End time. Accepts the same formats as --from (e.g., now)"
         )]
         to: String,
-        #[arg(long, help = "Aggregation interval in milliseconds (default: 60000)")]
-        interval: Option<i64>,
         #[arg(long, default_value_t = 50, help = "Maximum number of rows to return")]
         limit: i32,
-        #[arg(long, help = "Number of rows to skip (for pagination)")]
-        offset: Option<i32>,
     },
     /// Print DDSQL reference guidance from the editor tooling
     Spec,
@@ -17059,12 +17060,9 @@ async fn main_inner() -> anyhow::Result<()> {
                     query,
                     from,
                     to,
-                    interval,
                     limit,
-                    offset,
                 } => {
-                    commands::ddsql::table(&cfg, &query, &from, &to, interval, Some(limit), offset)
-                        .await?;
+                    commands::ddsql::table(&cfg, &query, &from, &to, Some(limit)).await?;
                 }
                 DdsqlActions::Spec => {
                     commands::ddsql::spec(&cfg).await?;

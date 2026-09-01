@@ -519,6 +519,134 @@ pub async fn schema_columns(
     )
 }
 
+/// Build a request for the Advanced Query API (tabular/scalar endpoint).
+///
+/// Endpoint: POST /api/unstable/advanced/query/tabular
+/// Supports OAuth tokens and API keys (unlike the UI-only analysis-workspace endpoint).
+fn build_advanced_table_request(
+    query: &str,
+    from: &str,
+    to: &str,
+    limit: Option<i32>,
+) -> Result<Value> {
+    let from_ms =
+        util_ext::parse_time_to_unix_millis(from).map_err(|e| anyhow!("invalid --from: {e}"))?;
+    let to_ms =
+        util_ext::parse_time_to_unix_millis(to).map_err(|e| anyhow!("invalid --to: {e}"))?;
+
+    let mut query_body = json!({
+        "dataset": "user_query",
+        "time_window": { "from": from_ms, "to": to_ms },
+    });
+    if let Some(l) = limit {
+        query_body["limit"] = json!(l);
+    }
+
+    Ok(json!({
+        "data": {
+            "type": "analysis_workspace_query_request",
+            "attributes": {
+                "datasets": [{
+                    "data_source": "analysis_dataset",
+                    "name": "user_query",
+                    "query": {
+                        "type": "sql_analysis",
+                        "sql_query": query,
+                    }
+                }],
+                "query": query_body,
+            }
+        },
+        "meta": {
+            "client_id": client_id(),
+            "user_query_id": uuid::Uuid::new_v4().to_string(),
+            "use_async_querying": true,
+        }
+    }))
+}
+
+/// Extract the query status from an async query response.
+///
+/// Returns `Ok(Some(query_id))` if the query is still running,
+/// `Ok(None)` if the query is done, or an error if the status is unexpected.
+fn extract_query_status(resp: &Value) -> Result<Option<String>> {
+    // API returns meta.responses[0].queries[0] (new shape) or meta.queries[0] (old shape).
+    let query_meta = resp
+        .pointer("/meta/responses/0/queries/0")
+        .or_else(|| resp.pointer("/meta/queries/0"))
+        .ok_or_else(|| anyhow!("unexpected response: missing query status in meta"))?;
+
+    let status = query_meta
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("unexpected response: missing query status"))?;
+
+    match status {
+        "done" => Ok(None),
+        "running" => {
+            let query_id = query_meta
+                .get("query_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("unexpected response: running query missing query_id"))?
+                .to_string();
+            Ok(Some(query_id))
+        }
+        other => Err(anyhow!("unexpected query status: {other}")),
+    }
+}
+
+/// Build a polling request for an in-progress async query.
+///
+/// Endpoint: POST /api/unstable/advanced/query/tabular/fetch
+/// Same shape as the originating request, but with `query_id` added and the type
+/// changed to `advanced_query_fetch_request` (the fetch endpoint rejects the
+/// original `analysis_workspace_query_request` type).
+fn build_fetch_request(base_body: &Value, query_id: &str) -> Value {
+    let mut fetch_body = base_body.clone();
+    fetch_body["data"]["attributes"]["query_id"] = json!(query_id);
+    fetch_body["data"]["type"] = json!("advanced_query_fetch_request");
+    fetch_body
+}
+
+/// Submit an async query and poll until completion.
+///
+/// Sends the initial request and, if the query is still running, polls the fetch
+/// endpoint until the query completes. When `command` is provided, it is appended
+/// to the User-Agent header for audit log differentiation.
+async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -> Result<Value> {
+    let ua = useragent::get_with_command(command);
+    let resp = raw_client::raw_post_with_ua(
+        cfg,
+        "/api/unstable/advanced/query/tabular",
+        body.clone(),
+        ua.clone(),
+    )
+    .await?;
+
+    let mut query_id = match extract_query_status(&resp)? {
+        None => return Ok(resp),
+        Some(id) => id,
+    };
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let fetch_body = build_fetch_request(&body, &query_id);
+        let poll_resp = raw_client::raw_post_with_ua(
+            cfg,
+            "/api/unstable/advanced/query/tabular/fetch",
+            fetch_body,
+            ua.clone(),
+        )
+        .await?;
+
+        match extract_query_status(&poll_resp)? {
+            None => return Ok(poll_resp),
+            Some(id) => query_id = id,
+        }
+    }
+}
+
 /// Build a request for the public DDSQL tabular query endpoint.
 fn build_ddsql_table_request(
     query: &str,
@@ -562,8 +690,8 @@ fn build_ddsql_table_request(
     }))
 }
 
-/// Return the query ID while a query is running, or `None` once it is completed.
-fn extract_query_status(resp: &Value) -> Result<Option<String>> {
+/// Return the public DDSQL query ID while it is running, or `None` once completed.
+fn extract_ddsql_query_status(resp: &Value) -> Result<Option<String>> {
     let attributes = resp
         .pointer("/data/attributes")
         .ok_or_else(|| anyhow!("unexpected response: missing data.attributes"))?;
@@ -583,8 +711,8 @@ fn extract_query_status(resp: &Value) -> Result<Option<String>> {
     }
 }
 
-/// Build a polling request containing only the opaque query ID.
-fn build_fetch_request(query_id: &str) -> Value {
+/// Build a public DDSQL polling request containing only the opaque query ID.
+fn build_ddsql_fetch_request(query_id: &str) -> Value {
     json!({
         "data": {
             "type": "ddsql_query_fetch_request",
@@ -595,16 +723,13 @@ fn build_fetch_request(query_id: &str) -> Value {
     })
 }
 
-/// Submit an async query and poll until completion.
-///
-/// When `command` is provided, it is appended to the User-Agent header for audit
-/// log differentiation.
-async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -> Result<Value> {
-    let ua = useragent::get_with_command(command);
+/// Submit a public DDSQL query and poll until completion.
+async fn execute_ddsql_async_query(cfg: &Config, body: Value) -> Result<Value> {
+    let ua = useragent::get_with_command(None);
     let resp =
         raw_client::raw_post_with_ua(cfg, DDSQL_TABULAR_QUERY_PATH, body, ua.clone()).await?;
 
-    let mut query_id = match extract_query_status(&resp)? {
+    let mut query_id = match extract_ddsql_query_status(&resp)? {
         None => return Ok(resp),
         Some(id) => id,
     };
@@ -615,22 +740,19 @@ async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -
         let poll_resp = raw_client::raw_post_with_ua(
             cfg,
             DDSQL_TABULAR_QUERY_FETCH_PATH,
-            build_fetch_request(&query_id),
+            build_ddsql_fetch_request(&query_id),
             ua.clone(),
         )
         .await?;
 
-        match extract_query_status(&poll_resp)? {
+        match extract_ddsql_query_status(&poll_resp)? {
             None => return Ok(poll_resp),
             Some(id) => query_id = id,
         }
     }
 }
 
-/// Execute a DDSQL query and return the result as a row-based JSON array.
-///
-/// Shared function used by both `ddsql table` and `security findings-analyze`.
-/// Pass `command` to tag the User-Agent for audit log differentiation.
+/// Execute a public DDSQL query and return the result as a row-based JSON array.
 pub async fn execute_ddsql_query(
     cfg: &Config,
     query: &str,
@@ -638,19 +760,21 @@ pub async fn execute_ddsql_query(
     to: &str,
     limit: Option<i64>,
 ) -> Result<Value> {
-    execute_ddsql_query_with_command(cfg, query, from, to, limit, None).await
+    let body = build_ddsql_table_request(query, from, to, limit)?;
+    let data = execute_ddsql_async_query(cfg, body).await?;
+    columnar_to_rows(&data)
 }
 
-/// Like `execute_ddsql_query`, but with a command identifier appended to the User-Agent.
+/// Execute a security-owned query on its existing Advanced Query API path.
 pub async fn execute_ddsql_query_with_command(
     cfg: &Config,
     query: &str,
     from: &str,
     to: &str,
-    limit: Option<i64>,
+    limit: Option<i32>,
     command: Option<&str>,
 ) -> Result<Value> {
-    let body = build_ddsql_table_request(query, from, to, limit)?;
+    let body = build_advanced_table_request(query, from, to, limit)?;
     let data = execute_async_query(cfg, body, command).await?;
     columnar_to_rows(&data)
 }
@@ -689,6 +813,7 @@ pub async fn time_series(
 fn columnar_to_rows(resp: &Value) -> Result<Value> {
     let columns = resp
         .pointer("/data/attributes/columns")
+        .or_else(|| resp.pointer("/data/0/attributes/columns"))
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("unexpected response: missing columns in response"))?;
 
@@ -725,6 +850,55 @@ fn columnar_to_rows(resp: &Value) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::test_support::{cleanup_env, lock_env, test_config};
+
+    #[test]
+    fn test_build_advanced_table_with_limit() {
+        let req = build_advanced_table_request("SELECT 1", "1h", "now", Some(10)).unwrap();
+
+        assert_eq!(req["data"]["type"], "analysis_workspace_query_request");
+        let attrs = &req["data"]["attributes"];
+        assert_eq!(attrs["datasets"][0]["data_source"], "analysis_dataset");
+        assert_eq!(attrs["datasets"][0]["name"], "user_query");
+        assert_eq!(attrs["datasets"][0]["query"]["type"], "sql_analysis");
+        assert_eq!(attrs["datasets"][0]["query"]["sql_query"], "SELECT 1");
+        assert_eq!(attrs["query"]["dataset"], "user_query");
+        assert_eq!(attrs["query"]["limit"], 10);
+        assert!(attrs["query"]["time_window"]["from"].is_i64());
+        assert!(attrs["query"]["time_window"]["to"].is_i64());
+
+        let now_ms = chrono::Utc::now().timestamp() * 1000;
+        let from = attrs["query"]["time_window"]["from"].as_i64().unwrap();
+        let to = attrs["query"]["time_window"]["to"].as_i64().unwrap();
+        assert!((to - now_ms).abs() < 2000);
+        assert!((from - (now_ms - 3600000)).abs() < 2000);
+
+        assert_eq!(req["meta"]["use_async_querying"], true);
+        assert!(req["meta"]["client_id"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("pup/"));
+        assert!(!req["meta"]["user_query_id"]
+            .as_str()
+            .unwrap_or("")
+            .is_empty());
+    }
+
+    #[test]
+    fn test_build_advanced_table_no_limit() {
+        let req = build_advanced_table_request("SELECT 1", "1h", "now", None).unwrap();
+
+        assert_eq!(req["data"]["type"], "analysis_workspace_query_request");
+        assert!(
+            req["data"]["attributes"]["query"].get("limit").is_none()
+                || req["data"]["attributes"]["query"]["limit"].is_null()
+        );
+    }
+
+    #[test]
+    fn test_build_advanced_table_invalid_from() {
+        let err = build_advanced_table_request("SELECT 1", "garbage", "now", None).unwrap_err();
+        assert!(err.to_string().contains("invalid --from"));
+    }
 
     #[test]
     fn test_build_ddsql_table_request_v2_shape() {
@@ -820,8 +994,8 @@ mod tests {
         cfg.api_key = None;
         cfg.app_key = None;
         cfg.access_token = Some("oauth-token".to_string());
-        let ua = useragent::get_with_command(Some("security-findings-analyze"));
-        let query = "SELECT * FROM dd.security_findings()";
+        let ua = useragent::get_with_command(None);
+        let query = "SELECT * FROM dd.hosts";
 
         let request = server
             .mock("POST", DDSQL_TABULAR_QUERY_PATH)
@@ -851,16 +1025,9 @@ mod tests {
             .create_async()
             .await;
 
-        let rows = execute_ddsql_query_with_command(
-            &cfg,
-            query,
-            "1700000000000",
-            "1700003600000",
-            Some(100),
-            Some("security-findings-analyze"),
-        )
-        .await
-        .unwrap();
+        let rows = execute_ddsql_query(&cfg, query, "1700000000000", "1700003600000", Some(100))
+            .await
+            .unwrap();
 
         assert_eq!(rows, json!([{"count": 42}]));
         request.assert_async().await;
@@ -953,6 +1120,93 @@ mod tests {
     }
 
     #[test]
+    fn test_columnar_to_rows_advanced_query_shape() {
+        let resp: Value = serde_json::from_str(
+            r#"{"data":[{"attributes":{"columns":[
+                {"name":"host","type":"string","values":["h1","h2"]},
+                {"name":"cpu","type":"float64","values":[10,20]}
+            ]},"id":"ddsql_response","type":"scalar_response"}]}"#,
+        )
+        .unwrap();
+        let rows = columnar_to_rows(&resp).unwrap();
+        let arr = rows.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["host"], "h1");
+        assert_eq!(arr[0]["cpu"], 10);
+        assert_eq!(arr[1]["host"], "h2");
+        assert_eq!(arr[1]["cpu"], 20);
+    }
+
+    #[test]
+    fn test_extract_query_status_done() {
+        let resp: Value =
+            serde_json::from_str(r#"{"meta":{"queries":[{"status":"done","name":"user_query"}]}}"#)
+                .unwrap();
+        assert!(extract_query_status(&resp).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_extract_query_status_done_new_shape() {
+        let resp: Value = serde_json::from_str(
+            r#"{"meta":{"responses":[{"queries":[{"status":"done","name":"user_query"}]}]}}"#,
+        )
+        .unwrap();
+        assert!(extract_query_status(&resp).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_extract_query_status_running() {
+        let resp: Value = serde_json::from_str(
+            r#"{"meta":{"queries":[{"status":"running","name":"user_query","query_id":"abc-123"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            extract_query_status(&resp).unwrap(),
+            Some("abc-123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_query_status_running_new_shape() {
+        let resp: Value = serde_json::from_str(
+            r#"{"meta":{"responses":[{"queries":[{"status":"running","name":"user_query","query_id":"xyz-789"}]}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            extract_query_status(&resp).unwrap(),
+            Some("xyz-789".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_query_status_missing_meta() {
+        let resp: Value = serde_json::from_str(r#"{"data":{}}"#).unwrap();
+        assert!(extract_query_status(&resp).is_err());
+    }
+
+    #[test]
+    fn test_extract_query_status_unexpected_status() {
+        let resp: Value = serde_json::from_str(
+            r#"{"meta":{"queries":[{"status":"failed","name":"user_query"}]}}"#,
+        )
+        .unwrap();
+        let err = extract_query_status(&resp).unwrap_err();
+        assert!(err.to_string().contains("unexpected query status"));
+    }
+
+    #[test]
+    fn test_build_fetch_request_adds_query_id() {
+        let base = build_advanced_table_request("SELECT 1", "1h", "now", None).unwrap();
+        let fetch = build_fetch_request(&base, "qid-456");
+        assert_eq!(fetch["data"]["attributes"]["query_id"], "qid-456");
+        assert_eq!(fetch["data"]["type"], "advanced_query_fetch_request");
+        assert_eq!(
+            fetch["data"]["attributes"]["datasets"][0]["query"]["sql_query"],
+            "SELECT 1"
+        );
+    }
+
+    #[test]
     fn test_columnar_to_rows_public_v2_shape() {
         let resp: Value = serde_json::from_str(
             r#"{"data":{"attributes":{"state":"completed","columns":[
@@ -986,52 +1240,52 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_query_status_completed() {
+    fn test_extract_ddsql_query_status_completed() {
         let resp: Value =
             serde_json::from_str(r#"{"data":{"attributes":{"state":"completed","columns":[]}}}"#)
                 .unwrap();
-        assert!(extract_query_status(&resp).unwrap().is_none());
+        assert!(extract_ddsql_query_status(&resp).unwrap().is_none());
     }
 
     #[test]
-    fn test_extract_query_status_running() {
+    fn test_extract_ddsql_query_status_running() {
         let resp: Value = serde_json::from_str(
             r#"{"data":{"attributes":{"state":"running","query_id":"abc-123"}}}"#,
         )
         .unwrap();
         assert_eq!(
-            extract_query_status(&resp).unwrap(),
+            extract_ddsql_query_status(&resp).unwrap(),
             Some("abc-123".to_string())
         );
     }
 
     #[test]
-    fn test_extract_query_status_rejects_missing_state() {
+    fn test_extract_ddsql_query_status_rejects_missing_state() {
         let resp: Value = serde_json::from_str(r#"{"data":{"attributes":{}}}"#).unwrap();
-        let err = extract_query_status(&resp).unwrap_err();
+        let err = extract_ddsql_query_status(&resp).unwrap_err();
         assert!(err.to_string().contains("missing query state"));
     }
 
     #[test]
-    fn test_extract_query_status_rejects_running_without_query_id() {
+    fn test_extract_ddsql_query_status_rejects_running_without_query_id() {
         let resp: Value =
             serde_json::from_str(r#"{"data":{"attributes":{"state":"running"}}}"#).unwrap();
-        let err = extract_query_status(&resp).unwrap_err();
+        let err = extract_ddsql_query_status(&resp).unwrap_err();
         assert!(err.to_string().contains("running query missing query_id"));
     }
 
     #[test]
-    fn test_extract_query_status_rejects_unexpected_state() {
+    fn test_extract_ddsql_query_status_rejects_unexpected_state() {
         let resp: Value =
             serde_json::from_str(r#"{"data":{"attributes":{"state":"failed"}}}"#).unwrap();
-        let err = extract_query_status(&resp).unwrap_err();
+        let err = extract_ddsql_query_status(&resp).unwrap_err();
         assert_eq!(err.to_string(), "unexpected query state: failed");
     }
 
     #[test]
-    fn test_build_fetch_request_contains_only_query_id() {
+    fn test_build_ddsql_fetch_request_contains_only_query_id() {
         assert_eq!(
-            build_fetch_request("qid-456"),
+            build_ddsql_fetch_request("qid-456"),
             json!({
                 "data": {
                     "type": "ddsql_query_fetch_request",

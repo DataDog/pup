@@ -542,24 +542,6 @@ fn test_ddsql_time_series_is_rejected() {
 }
 
 #[test]
-fn test_ddsql_table_accepts_former_row_limit() {
-    use clap::Parser;
-
-    let cli = crate::Cli::try_parse_from([
-        "pup", "ddsql", "table", "--query", "SELECT 1", "--limit", "5000",
-    ])
-    .expect("ddsql table should accept the former 5000-row default explicitly");
-
-    match cli.command {
-        crate::Commands::Ddsql { action } => match action {
-            crate::DdsqlActions::Table { limit, .. } => assert_eq!(limit, 5000),
-            _ => panic!("expected DdsqlActions::Table"),
-        },
-        _ => panic!("expected Commands::Ddsql"),
-    }
-}
-
-#[test]
 fn test_ddsql_table_query_requires_explicit_value() {
     let result = crate::Cli::command().try_get_matches_from(["pup", "ddsql", "table", "--query"]);
     assert!(

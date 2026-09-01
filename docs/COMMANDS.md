@@ -177,7 +177,7 @@ pup infrastructure hosts list
 - **traces** - APM spans metrics (list, get, create, update, delete)
 - **rum** - Real User Monitoring (apps, metrics, retention-filters, sessions)
 - **events** - Infrastructure events (post, list, search, get)
-- **ddsql** - DDSQL queries and discovery (table, spec, schema); use `pup ddsql table --limit 5000` for the former 5,000-row default
+- **ddsql** - DDSQL queries and discovery (table, spec, schema)
 - **symdb** - Symbol Database queries (search scopes, probe locations)
 
 ### Monitoring & Alerting

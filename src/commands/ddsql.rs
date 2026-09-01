@@ -47,6 +47,8 @@ fn resolve_query(query: &str) -> Result<String> {
 const DDSQL_DOCS_PATH: &str = "/api/unstable/ddsql-editor/tools/ddsql-docs";
 const DDSQL_TABLE_NAMES_PATH: &str = "/api/unstable/ddsql-editor/tools/table-names";
 const DDSQL_TABLE_DATA_PATH: &str = "/api/unstable/ddsql-editor/tools/table-data";
+const DDSQL_TABULAR_QUERY_PATH: &str = "/api/v2/ddsql/query/tabular";
+const DDSQL_TABULAR_QUERY_FETCH_PATH: &str = "/api/v2/ddsql/query/tabular/fetch";
 const REFERENCE_TABLES_PATH: &str = "/api/v2/reference-tables/tables";
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -517,109 +519,90 @@ pub async fn schema_columns(
     )
 }
 
-/// Build a request for the Advanced Query API (tabular/scalar endpoint).
-///
-/// Endpoint: POST /api/unstable/advanced/query/tabular
-/// Supports OAuth tokens and API keys (unlike the UI-only analysis-workspace endpoint).
-fn build_advanced_table_request(
+/// Build a request for the public DDSQL tabular query endpoint.
+fn build_ddsql_table_request(
     query: &str,
     from: &str,
     to: &str,
-    limit: Option<i32>,
+    limit: Option<i64>,
 ) -> Result<Value> {
     let from_ms =
         util_ext::parse_time_to_unix_millis(from).map_err(|e| anyhow!("invalid --from: {e}"))?;
     let to_ms =
         util_ext::parse_time_to_unix_millis(to).map_err(|e| anyhow!("invalid --to: {e}"))?;
 
-    let mut query_body = json!({
-        "dataset": "user_query",
-        "time_window": { "from": from_ms, "to": to_ms },
+    if from_ms >= to_ms {
+        return Err(anyhow!("--from must be strictly before --to"));
+    }
+    if let Some(limit) = limit {
+        if !(1..=10_000).contains(&limit) {
+            return Err(anyhow!("--limit must be between 1 and 10000"));
+        }
+    }
+
+    let mut attributes = json!({
+        "query": query,
+        "time": {
+            "from_timestamp": from_ms,
+            "to_timestamp": to_ms,
+        },
     });
-    if let Some(l) = limit {
-        query_body["limit"] = json!(l);
+    if let Some(limit) = limit {
+        attributes["row_limit"] = json!(limit);
     }
 
     Ok(json!({
         "data": {
-            "type": "analysis_workspace_query_request",
-            "attributes": {
-                "datasets": [{
-                    "data_source": "analysis_dataset",
-                    "name": "user_query",
-                    "query": {
-                        "type": "sql_analysis",
-                        "sql_query": query,
-                    }
-                }],
-                "query": query_body,
-            }
+            "type": "ddsql_query_request",
+            "attributes": attributes,
         },
         "meta": {
             "client_id": client_id(),
-            "user_query_id": uuid::Uuid::new_v4().to_string(),
-            "use_async_querying": true,
         }
     }))
 }
 
-/// Extract the query status from an async query response.
-///
-/// Returns `Ok(Some(query_id))` if the query is still running,
-/// `Ok(None)` if the query is done, or an error if the status is unexpected.
+/// Return the query ID while a query is running, or `None` once it is completed.
 fn extract_query_status(resp: &Value) -> Result<Option<String>> {
-    // API returns meta.responses[0].queries[0] (new shape) or meta.queries[0] (old shape).
-    let query_meta = resp
-        .pointer("/meta/responses/0/queries/0")
-        .or_else(|| resp.pointer("/meta/queries/0"))
-        .ok_or_else(|| anyhow!("unexpected response: missing query status in meta"))?;
-
-    let status = query_meta
-        .get("status")
+    let attributes = resp
+        .pointer("/data/attributes")
+        .ok_or_else(|| anyhow!("unexpected response: missing data.attributes"))?;
+    let state = attributes
+        .get("state")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("unexpected response: missing query status"))?;
+        .ok_or_else(|| anyhow!("unexpected response: missing query state"))?;
 
-    match status {
-        "done" => Ok(None),
-        "running" => {
-            let query_id = query_meta
-                .get("query_id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| anyhow!("unexpected response: running query missing query_id"))?
-                .to_string();
-            Ok(Some(query_id))
-        }
-        other => Err(anyhow!("unexpected query status: {other}")),
+    match state {
+        "completed" => Ok(None),
+        "running" => attributes
+            .get("query_id")
+            .and_then(Value::as_str)
+            .map(|query_id| Some(query_id.to_string()))
+            .ok_or_else(|| anyhow!("unexpected response: running query missing query_id")),
+        other => Err(anyhow!("unexpected query state: {other}")),
     }
 }
 
-/// Build a polling request for an in-progress async query.
-///
-/// Endpoint: POST /api/unstable/advanced/query/tabular/fetch
-/// Same shape as the originating request, but with `query_id` added and the type
-/// changed to `advanced_query_fetch_request` (the fetch endpoint rejects the
-/// original `analysis_workspace_query_request` type).
-fn build_fetch_request(base_body: &Value, query_id: &str) -> Value {
-    let mut fetch_body = base_body.clone();
-    fetch_body["data"]["attributes"]["query_id"] = json!(query_id);
-    fetch_body["data"]["type"] = json!("advanced_query_fetch_request");
-    fetch_body
+/// Build a polling request containing only the opaque query ID.
+fn build_fetch_request(query_id: &str) -> Value {
+    json!({
+        "data": {
+            "type": "ddsql_query_fetch_request",
+            "attributes": {
+                "query_id": query_id,
+            }
+        }
+    })
 }
 
 /// Submit an async query and poll until completion.
 ///
-/// Sends the initial request and, if the query is still running, polls the fetch
-/// endpoint until the query completes. When `command` is provided, it is appended
-/// to the User-Agent header for audit log differentiation.
+/// When `command` is provided, it is appended to the User-Agent header for audit
+/// log differentiation.
 async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -> Result<Value> {
     let ua = useragent::get_with_command(command);
-    let resp = raw_client::raw_post_with_ua(
-        cfg,
-        "/api/unstable/advanced/query/tabular",
-        body.clone(),
-        ua.clone(),
-    )
-    .await?;
+    let resp =
+        raw_client::raw_post_with_ua(cfg, DDSQL_TABULAR_QUERY_PATH, body, ua.clone()).await?;
 
     let mut query_id = match extract_query_status(&resp)? {
         None => return Ok(resp),
@@ -629,11 +612,10 @@ async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let fetch_body = build_fetch_request(&body, &query_id);
         let poll_resp = raw_client::raw_post_with_ua(
             cfg,
-            "/api/unstable/advanced/query/tabular/fetch",
-            fetch_body,
+            DDSQL_TABULAR_QUERY_FETCH_PATH,
+            build_fetch_request(&query_id),
             ua.clone(),
         )
         .await?;
@@ -654,7 +636,7 @@ pub async fn execute_ddsql_query(
     query: &str,
     from: &str,
     to: &str,
-    limit: Option<i32>,
+    limit: Option<i64>,
 ) -> Result<Value> {
     execute_ddsql_query_with_command(cfg, query, from, to, limit, None).await
 }
@@ -665,10 +647,10 @@ pub async fn execute_ddsql_query_with_command(
     query: &str,
     from: &str,
     to: &str,
-    limit: Option<i32>,
+    limit: Option<i64>,
     command: Option<&str>,
 ) -> Result<Value> {
-    let body = build_advanced_table_request(query, from, to, limit)?;
+    let body = build_ddsql_table_request(query, from, to, limit)?;
     let data = execute_async_query(cfg, body, command).await?;
     columnar_to_rows(&data)
 }
@@ -683,7 +665,7 @@ pub async fn table(
     _offset: Option<i32>,
 ) -> Result<()> {
     let query = resolve_query(query)?;
-    let rows = execute_ddsql_query(cfg, &query, from, to, limit).await?;
+    let rows = execute_ddsql_query(cfg, &query, from, to, limit.map(i64::from)).await?;
     formatter::output(cfg, &rows)
 }
 
@@ -696,26 +678,17 @@ pub async fn time_series(
     limit: i32,
 ) -> Result<()> {
     let query = resolve_query(query)?;
-    let body = build_advanced_table_request(&query, from, to, Some(limit))?;
-    let data = execute_async_query(cfg, body, None).await?;
-    let rows = columnar_to_rows(&data)?;
+    let rows = execute_ddsql_query(cfg, &query, from, to, Some(i64::from(limit))).await?;
     formatter::output(cfg, &rows)
 }
 
 /// Transform a DDSQL columnar response into a row-based JSON array.
 ///
-/// The table endpoint returns columns in one of two shapes:
-///   Array: {"data": [{"attributes": {"columns": [...]}}]}
-///   Object: {"data": {"attributes": {"columns": [...]}}}
-///
-/// Each column is: {"name": "col1", "values": ["a", "b"]}
-///
-/// This transforms it to: [{"col1": "a", "col2": 1}, {"col1": "b", "col2": 2}]
+/// Each column is `{"name": "col1", "values": ["a", "b"]}` under the
+/// response's single `data` object. This transforms the columns into row objects.
 fn columnar_to_rows(resp: &Value) -> Result<Value> {
-    // Try array shape first (observed in production), then object shape.
     let columns = resp
-        .pointer("/data/0/attributes/columns")
-        .or_else(|| resp.pointer("/data/attributes/columns"))
+        .pointer("/data/attributes/columns")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("unexpected response: missing columns in response"))?;
 
@@ -751,54 +724,216 @@ fn columnar_to_rows(resp: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{cleanup_env, lock_env, test_config};
 
     #[test]
-    fn test_build_advanced_table_with_limit() {
-        let req = build_advanced_table_request("SELECT 1", "1h", "now", Some(10)).unwrap();
+    fn test_build_ddsql_table_request_v2_shape() {
+        let query =
+            "SELECT * FROM dd.metrics_timeseries('avg:test{*}', 1699913600000, 1700000000000)";
+        let req =
+            build_ddsql_table_request(query, "1700000000000", "1700003600000", Some(10)).unwrap();
 
-        assert_eq!(req["data"]["type"], "analysis_workspace_query_request");
-        let attrs = &req["data"]["attributes"];
-        assert_eq!(attrs["datasets"][0]["data_source"], "analysis_dataset");
-        assert_eq!(attrs["datasets"][0]["name"], "user_query");
-        assert_eq!(attrs["datasets"][0]["query"]["type"], "sql_analysis");
-        assert_eq!(attrs["datasets"][0]["query"]["sql_query"], "SELECT 1");
-        assert_eq!(attrs["query"]["dataset"], "user_query");
-        assert_eq!(attrs["query"]["limit"], 10);
-        assert!(attrs["query"]["time_window"]["from"].is_i64());
-        assert!(attrs["query"]["time_window"]["to"].is_i64());
-
-        let now_ms = chrono::Utc::now().timestamp() * 1000;
-        let from = attrs["query"]["time_window"]["from"].as_i64().unwrap();
-        let to = attrs["query"]["time_window"]["to"].as_i64().unwrap();
-        assert!((to - now_ms).abs() < 2000);
-        assert!((from - (now_ms - 3600000)).abs() < 2000);
-
-        assert_eq!(req["meta"]["use_async_querying"], true);
+        assert_eq!(req["data"]["type"], "ddsql_query_request");
+        assert_eq!(
+            req["data"]["attributes"],
+            json!({
+                "query": query,
+                "row_limit": 10,
+                "time": {
+                    "from_timestamp": 1_700_000_000_000_i64,
+                    "to_timestamp": 1_700_003_600_000_i64,
+                }
+            })
+        );
         assert!(req["meta"]["client_id"]
             .as_str()
             .unwrap_or("")
             .starts_with("pup/"));
-        assert!(!req["meta"]["user_query_id"]
-            .as_str()
-            .unwrap_or("")
-            .is_empty());
     }
 
     #[test]
-    fn test_build_advanced_table_no_limit() {
-        let req = build_advanced_table_request("SELECT 1", "1h", "now", None).unwrap();
+    fn test_build_ddsql_table_request_omits_row_limit() {
+        let req =
+            build_ddsql_table_request("SELECT 1", "1700000000000", "1700003600000", None).unwrap();
 
-        assert_eq!(req["data"]["type"], "analysis_workspace_query_request");
-        assert!(
-            req["data"]["attributes"]["query"].get("limit").is_none()
-                || req["data"]["attributes"]["query"]["limit"].is_null()
+        assert!(req["data"]["attributes"].get("row_limit").is_none());
+    }
+
+    #[test]
+    fn test_build_ddsql_table_request_rejects_invalid_time() {
+        let invalid_from =
+            build_ddsql_table_request("SELECT 1", "garbage", "1700003600000", None).unwrap_err();
+        assert!(invalid_from.to_string().contains("invalid --from"));
+
+        let invalid_to =
+            build_ddsql_table_request("SELECT 1", "1700000000000", "garbage", None).unwrap_err();
+        assert!(invalid_to.to_string().contains("invalid --to"));
+    }
+
+    #[test]
+    fn test_build_ddsql_table_request_requires_from_before_to() {
+        for from in ["1700003600000", "1700007200000"] {
+            let err =
+                build_ddsql_table_request("SELECT 1", from, "1700003600000", None).unwrap_err();
+            assert_eq!(err.to_string(), "--from must be strictly before --to");
+        }
+    }
+
+    #[test]
+    fn test_build_ddsql_table_request_validates_row_limit() {
+        for limit in [1, 10_000] {
+            assert!(build_ddsql_table_request(
+                "SELECT 1",
+                "1700000000000",
+                "1700003600000",
+                Some(limit),
+            )
+            .is_ok());
+        }
+
+        for limit in [0, 10_001] {
+            let err = build_ddsql_table_request(
+                "SELECT 1",
+                "1700000000000",
+                "1700003600000",
+                Some(limit),
+            )
+            .unwrap_err();
+            assert_eq!(err.to_string(), "--limit must be between 1 and 10000");
+        }
+    }
+
+    #[test]
+    fn test_ddsql_execution_paths_are_public_v2() {
+        assert_eq!(DDSQL_TABULAR_QUERY_PATH, "/api/v2/ddsql/query/tabular");
+        assert_eq!(
+            DDSQL_TABULAR_QUERY_FETCH_PATH,
+            "/api/v2/ddsql/query/tabular/fetch"
         );
     }
 
-    #[test]
-    fn test_build_advanced_table_invalid_from() {
-        let err = build_advanced_table_request("SELECT 1", "garbage", "now", None).unwrap_err();
-        assert!(err.to_string().contains("invalid --from"));
+    #[tokio::test]
+    async fn test_execute_ddsql_query_completed_response_uses_v2_contract() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.api_key = None;
+        cfg.app_key = None;
+        cfg.access_token = Some("oauth-token".to_string());
+        let ua = useragent::get_with_command(Some("security-findings-analyze"));
+        let query = "SELECT * FROM dd.security_findings()";
+
+        let request = server
+            .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+            .match_header("authorization", "Bearer oauth-token")
+            .match_header("user-agent", ua.as_str())
+            .match_body(mockito::Matcher::PartialJson(json!({
+                "data": {
+                    "type": "ddsql_query_request",
+                    "attributes": {
+                        "query": query,
+                        "row_limit": 100,
+                        "time": {
+                            "from_timestamp": 1_700_000_000_000_i64,
+                            "to_timestamp": 1_700_003_600_000_i64,
+                        }
+                    }
+                },
+                "meta": {
+                    "client_id": client_id(),
+                }
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"data":{"attributes":{"state":"completed","columns":[{"name":"count","type":"BIGINT","values":[42]}]},"id":"response-id","type":"ddsql_query_response"},"meta":{"elapsed":1,"request_id":"request-id"}}"#,
+            )
+            .create_async()
+            .await;
+
+        let rows = execute_ddsql_query_with_command(
+            &cfg,
+            query,
+            "1700000000000",
+            "1700003600000",
+            Some(100),
+            Some("security-findings-analyze"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(rows, json!([{"count": 42}]));
+        request.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_execute_ddsql_query_polls_v2_fetch_endpoint() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let ua = useragent::get_with_command(None);
+
+        let execute = server
+            .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+            .match_header("user-agent", ua.as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"data":{"attributes":{"state":"running","query_id":"query-id"},"id":"response-id","type":"ddsql_query_response"},"meta":{"elapsed":1,"request_id":"request-id"}}"#,
+            )
+            .create_async()
+            .await;
+        let fetch = server
+            .mock("POST", DDSQL_TABULAR_QUERY_FETCH_PATH)
+            .match_header("user-agent", ua.as_str())
+            .match_body(mockito::Matcher::Json(json!({
+                "data": {
+                    "type": "ddsql_query_fetch_request",
+                    "attributes": {
+                        "query_id": "query-id"
+                    }
+                }
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"data":{"attributes":{"state":"completed","columns":[{"name":"value","type":"VARCHAR","values":["done"]}]},"id":"response-id","type":"ddsql_query_response"},"meta":{"elapsed":1,"request_id":"request-id"}}"#,
+            )
+            .create_async()
+            .await;
+
+        let rows = execute_ddsql_query(&cfg, "SELECT 1", "1700000000000", "1700003600000", None)
+            .await
+            .unwrap();
+
+        assert_eq!(rows, json!([{"value": "done"}]));
+        execute.assert_async().await;
+        fetch.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_execute_ddsql_query_surfaces_v2_http_error() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let request = server
+            .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":[{"detail":"invalid DDSQL query"}]}"#)
+            .create_async()
+            .await;
+
+        let err = execute_ddsql_query(&cfg, "INVALID", "1700000000000", "1700003600000", None)
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("HTTP 400"));
+        request.assert_async().await;
+        cleanup_env();
     }
 
     #[test]
@@ -818,77 +953,50 @@ mod tests {
     }
 
     #[test]
-    fn test_columnar_to_rows_array_shape() {
-        // Actual production shape: {"data": [{"attributes": {"columns": [...]}}]}
+    fn test_columnar_to_rows_public_v2_shape() {
         let resp: Value = serde_json::from_str(
-            r#"{"data":[{"attributes":{"columns":[
-                {"name":"host","type":"string","values":["h1","h2"]},
-                {"name":"cpu","type":"float64","values":[10,20]}
-            ]},"id":"ddsql_response","type":"scalar_response"}]}"#,
+            r#"{"data":{"attributes":{"state":"completed","columns":[
+                {"name":"host","type":"VARCHAR","values":["h1","h2"]},
+                {"name":"cpu","type":"BIGINT","values":[10,20]}
+            ]},"id":"query-response","type":"ddsql_query_response"},
+            "meta":{"elapsed":1,"request_id":"request-id"}}"#,
         )
         .unwrap();
         let rows = columnar_to_rows(&resp).unwrap();
-        let arr = rows.as_array().unwrap();
-        assert_eq!(arr.len(), 2);
-        assert_eq!(arr[0]["host"], "h1");
-        assert_eq!(arr[0]["cpu"], 10);
-        assert_eq!(arr[1]["host"], "h2");
-        assert_eq!(arr[1]["cpu"], 20);
-    }
-
-    #[test]
-    fn test_columnar_to_rows_object_shape() {
-        // Fallback shape: {"data": {"attributes": {"columns": [...]}}}
-        let resp: Value = serde_json::from_str(
-            r#"{"data":{"attributes":{"columns":[
-                {"name":"id","values":[42]}
-            ]}}}"#,
-        )
-        .unwrap();
-        let rows = columnar_to_rows(&resp).unwrap();
-        let arr = rows.as_array().unwrap();
-        assert_eq!(arr.len(), 1);
-        assert_eq!(arr[0]["id"], 42);
+        assert_eq!(
+            rows,
+            json!([
+                {"host": "h1", "cpu": 10},
+                {"host": "h2", "cpu": 20}
+            ])
+        );
     }
 
     #[test]
     fn test_columnar_to_rows_empty_columns() {
         let resp: Value =
-            serde_json::from_str(r#"{"data":[{"attributes":{"columns":[]}}]}"#).unwrap();
-        let rows = columnar_to_rows(&resp).unwrap();
-        assert_eq!(rows, json!([]));
+            serde_json::from_str(r#"{"data":{"attributes":{"columns":[]}}}"#).unwrap();
+        assert_eq!(columnar_to_rows(&resp).unwrap(), json!([]));
     }
 
     #[test]
     fn test_columnar_to_rows_missing_columns() {
-        let resp: Value = serde_json::from_str(r#"{"data":[{"attributes":{}}]}"#).unwrap();
+        let resp: Value = serde_json::from_str(r#"{"data":{"attributes":{}}}"#).unwrap();
         assert!(columnar_to_rows(&resp).is_err());
     }
 
     #[test]
-    fn test_extract_query_status_done() {
-        // Old shape (fallback).
+    fn test_extract_query_status_completed() {
         let resp: Value =
-            serde_json::from_str(r#"{"meta":{"queries":[{"status":"done","name":"user_query"}]}}"#)
+            serde_json::from_str(r#"{"data":{"attributes":{"state":"completed","columns":[]}}}"#)
                 .unwrap();
         assert!(extract_query_status(&resp).unwrap().is_none());
     }
 
     #[test]
-    fn test_extract_query_status_done_new_shape() {
-        // New shape: meta.responses[0].queries[0].
-        let resp: Value = serde_json::from_str(
-            r#"{"meta":{"responses":[{"queries":[{"status":"done","name":"user_query"}]}]}}"#,
-        )
-        .unwrap();
-        assert!(extract_query_status(&resp).unwrap().is_none());
-    }
-
-    #[test]
     fn test_extract_query_status_running() {
-        // Old shape (fallback).
         let resp: Value = serde_json::from_str(
-            r#"{"meta":{"queries":[{"status":"running","name":"user_query","query_id":"abc-123"}]}}"#,
+            r#"{"data":{"attributes":{"state":"running","query_id":"abc-123"}}}"#,
         )
         .unwrap();
         assert_eq!(
@@ -898,55 +1006,50 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_query_status_running_new_shape() {
-        // New shape: meta.responses[0].queries[0].
-        let resp: Value = serde_json::from_str(
-            r#"{"meta":{"responses":[{"queries":[{"status":"running","name":"user_query","query_id":"xyz-789"}]}]}}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            extract_query_status(&resp).unwrap(),
-            Some("xyz-789".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_query_status_missing_meta() {
-        let resp: Value = serde_json::from_str(r#"{"data":{}}"#).unwrap();
-        assert!(extract_query_status(&resp).is_err());
-    }
-
-    #[test]
-    fn test_extract_query_status_unexpected_status() {
-        let resp: Value = serde_json::from_str(
-            r#"{"meta":{"queries":[{"status":"failed","name":"user_query"}]}}"#,
-        )
-        .unwrap();
+    fn test_extract_query_status_rejects_missing_state() {
+        let resp: Value = serde_json::from_str(r#"{"data":{"attributes":{}}}"#).unwrap();
         let err = extract_query_status(&resp).unwrap_err();
-        assert!(err.to_string().contains("unexpected query status"));
+        assert!(err.to_string().contains("missing query state"));
     }
 
     #[test]
-    fn test_build_fetch_request_adds_query_id() {
-        let base = build_advanced_table_request("SELECT 1", "1h", "now", None).unwrap();
-        let fetch = build_fetch_request(&base, "qid-456");
-        assert_eq!(fetch["data"]["attributes"]["query_id"], "qid-456");
-        // Type must change to advanced_query_fetch_request for the fetch endpoint.
-        assert_eq!(fetch["data"]["type"], "advanced_query_fetch_request");
-        // Original fields are preserved.
+    fn test_extract_query_status_rejects_running_without_query_id() {
+        let resp: Value =
+            serde_json::from_str(r#"{"data":{"attributes":{"state":"running"}}}"#).unwrap();
+        let err = extract_query_status(&resp).unwrap_err();
+        assert!(err.to_string().contains("running query missing query_id"));
+    }
+
+    #[test]
+    fn test_extract_query_status_rejects_unexpected_state() {
+        let resp: Value =
+            serde_json::from_str(r#"{"data":{"attributes":{"state":"failed"}}}"#).unwrap();
+        let err = extract_query_status(&resp).unwrap_err();
+        assert_eq!(err.to_string(), "unexpected query state: failed");
+    }
+
+    #[test]
+    fn test_build_fetch_request_contains_only_query_id() {
         assert_eq!(
-            fetch["data"]["attributes"]["datasets"][0]["query"]["sql_query"],
-            "SELECT 1"
+            build_fetch_request("qid-456"),
+            json!({
+                "data": {
+                    "type": "ddsql_query_fetch_request",
+                    "attributes": {
+                        "query_id": "qid-456"
+                    }
+                }
+            })
         );
     }
 
     #[test]
     fn test_columnar_to_rows_null_values() {
         let resp: Value = serde_json::from_str(
-            r#"{"data":[{"attributes":{"columns":[
+            r#"{"data":{"attributes":{"columns":[
                 {"name":"a","values":[1,null]},
                 {"name":"b","values":[null,"x"]}
-            ]}}]}"#,
+            ]}}}"#,
         )
         .unwrap();
         let rows = columnar_to_rows(&resp).unwrap();

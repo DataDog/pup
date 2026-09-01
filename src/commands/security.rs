@@ -138,7 +138,7 @@ pub async fn findings_analyze(
         query,
         from,
         to,
-        Some(limit as i32),
+        Some(limit),
         Some("security-findings-analyze"),
     )
     .await

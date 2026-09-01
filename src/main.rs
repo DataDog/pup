@@ -4519,10 +4519,14 @@ enum DdsqlActions {
         #[arg(
             long,
             default_value = "1h",
-            help = "Start time (e.g., 1h, 30m, 7d, now, unix timestamp)"
+            help = "Start time. Formats: now, now-<duration> (e.g., now-24h), relative duration (e.g., 24h), RFC 3339 timestamp, Unix seconds, or Unix milliseconds"
         )]
         from: String,
-        #[arg(long, default_value = "now", help = "End time")]
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time. Accepts the same formats as --from (e.g., now)"
+        )]
         to: String,
         #[arg(long, help = "Aggregation interval in milliseconds (default: 60000)")]
         interval: Option<i64>,
@@ -4540,9 +4544,17 @@ enum DdsqlActions {
             help = "DDSQL query string, or use --query - to read from stdin"
         )]
         query: String,
-        #[arg(long, default_value = "1h", help = "Start time")]
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time. Formats: now, now-<duration> (e.g., now-24h), relative duration (e.g., 24h), RFC 3339 timestamp, Unix seconds, or Unix milliseconds"
+        )]
         from: String,
-        #[arg(long, default_value = "now", help = "End time")]
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time. Accepts the same formats as --from (e.g., now)"
+        )]
         to: String,
         #[arg(long, help = "Aggregation interval in milliseconds (default: 60000)")]
         interval: Option<i64>,
@@ -5604,11 +5616,11 @@ enum SecurityFindingActions {
         #[arg(long, short)]
         query: String,
 
-        /// Start time (default: 24h ago). Relative (e.g., 24h, 7d) or ISO 8601.
+        /// Start time. Formats: now, now-<duration> (e.g., now-24h), relative duration (e.g., 24h), RFC 3339 timestamp, Unix seconds, or Unix milliseconds.
         #[arg(long, default_value = "24h")]
         from: String,
 
-        /// End time (default: now). ISO 8601 or relative
+        /// End time. Accepts the same formats as --from (e.g., now).
         #[arg(long, default_value = "now")]
         to: String,
 

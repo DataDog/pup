@@ -2,6 +2,8 @@
 //! covered by the typed SDK (the `pup api` passthrough and several hand-written
 //! commands), plus the OAuth-exclusion fallback table shared with the typed path.
 
+use std::time::Duration;
+
 use crate::config::Config;
 use crate::useragent;
 
@@ -13,6 +15,7 @@ pub struct HttpError {
     pub url: String,
     pub body: String,
     pub rate_limit: Option<crate::rate_limit::RateLimitInfo>,
+    pub retry_after: Option<Duration>,
 }
 
 /// Build an [`HttpError`] from a non-success response, capturing rate-limit headers.
@@ -29,7 +32,22 @@ pub fn http_error(
         url: url.into(),
         body: body.into(),
         rate_limit: crate::rate_limit::extract_from_headers(headers),
+        retry_after: parse_retry_after(headers),
     }
+}
+
+fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    let value = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?;
+
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+
+    let retry_at = chrono::DateTime::parse_from_rfc2822(value).ok()?;
+    retry_at
+        .signed_duration_since(chrono::Utc::now())
+        .to_std()
+        .ok()
 }
 
 impl std::fmt::Display for HttpError {
@@ -351,18 +369,19 @@ pub async fn raw_post(
     body: serde_json::Value,
 ) -> anyhow::Result<serde_json::Value> {
     let url = format!("{}{}", cfg.api_base_url(), path);
-    raw_post_impl(cfg, path, &url, body, useragent::get()).await
+    raw_post_impl(cfg, path, &url, body, useragent::get(), None).await
 }
 
-/// Like `raw_post`, but with a custom User-Agent string for audit log differentiation.
-pub async fn raw_post_with_ua(
+/// Like [`raw_post`], but sets a custom User-Agent and bounds the HTTP request.
+pub async fn raw_post_with_ua_timeout(
     cfg: &Config,
     path: &str,
     body: serde_json::Value,
     ua: String,
+    timeout: Duration,
 ) -> anyhow::Result<serde_json::Value> {
     let url = format!("{}{}", cfg.api_base_url(), path);
-    raw_post_impl(cfg, path, &url, body, ua).await
+    raw_post_impl(cfg, path, &url, body, ua, Some(timeout)).await
 }
 
 async fn raw_post_impl(
@@ -371,11 +390,15 @@ async fn raw_post_impl(
     url: &str,
     body: serde_json::Value,
     ua: String,
+    timeout: Option<Duration>,
 ) -> anyhow::Result<serde_json::Value> {
     let client = reqwest::Client::new();
     let mut req = client.post(url);
 
     req = apply_auth(req, cfg, "POST", path)?;
+    if let Some(timeout) = timeout {
+        req = req.timeout(timeout);
+    }
 
     let resp = req
         .header("Content-Type", "application/json")
@@ -578,6 +601,41 @@ mod tests {
             read_only: false,
             jq: None,
         }
+    }
+
+    #[test]
+    fn test_parse_retry_after_seconds() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("17"),
+        );
+
+        assert_eq!(parse_retry_after(&headers), Some(Duration::from_secs(17)));
+    }
+
+    #[test]
+    fn test_parse_retry_after_rejects_invalid_value() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("not-a-delay"),
+        );
+
+        assert_eq!(parse_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn test_http_error_captures_retry_after() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("9"),
+        );
+
+        let err = http_error(429, "POST", "https://example.test", "slow down", &headers);
+
+        assert_eq!(err.retry_after, Some(Duration::from_secs(9)));
     }
 
     #[test]

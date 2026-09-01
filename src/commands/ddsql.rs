@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::io::{self, Read};
-use std::time::Duration;
+use std::io::{self, IsTerminal, Read};
+use std::time::{Duration, Instant};
 
 use crate::config::{Config, OutputFormat};
 use crate::formatter;
@@ -50,6 +50,25 @@ const DDSQL_TABLE_DATA_PATH: &str = "/api/unstable/ddsql-editor/tools/table-data
 const DDSQL_TABULAR_QUERY_PATH: &str = "/api/v2/ddsql/query/tabular";
 const DDSQL_TABULAR_QUERY_FETCH_PATH: &str = "/api/v2/ddsql/query/tabular/fetch";
 const REFERENCE_TABLES_PATH: &str = "/api/v2/reference-tables/tables";
+const DDSQL_SUBMIT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const DDSQL_FETCH_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const DDSQL_RATE_LIMIT_RETRY_WINDOW: Duration = Duration::from_secs(20);
+const DDSQL_RATE_LIMIT_BACKOFF_INITIAL: Duration = Duration::from_secs(1);
+const DDSQL_PROGRESS_INITIAL: Duration = Duration::from_secs(10);
+const DDSQL_PROGRESS_ESCALATED: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy)]
+struct DdsqlPollingLimits {
+    submit_request_timeout: Duration,
+    fetch_request_timeout: Duration,
+    rate_limit_retry_window: Duration,
+}
+
+const DDSQL_POLLING_LIMITS: DdsqlPollingLimits = DdsqlPollingLimits {
+    submit_request_timeout: DDSQL_SUBMIT_REQUEST_TIMEOUT,
+    fetch_request_timeout: DDSQL_FETCH_REQUEST_TIMEOUT,
+    rate_limit_retry_window: DDSQL_RATE_LIMIT_RETRY_WINDOW,
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct DdsqlDocsResponse {
@@ -608,43 +627,267 @@ fn build_fetch_request(base_body: &Value, query_id: &str) -> Value {
     fetch_body
 }
 
+fn should_report_progress(
+    agent_mode: bool,
+    stdout_is_terminal: bool,
+    stderr_is_terminal: bool,
+) -> bool {
+    !agent_mode && stdout_is_terminal && stderr_is_terminal
+}
+
+fn progress_message(elapsed: Duration) -> Option<&'static str> {
+    if elapsed >= DDSQL_PROGRESS_ESCALATED {
+        Some(
+            "DDSQL query is still running after 30s; try narrowing the time window or adding LIMIT",
+        )
+    } else if elapsed >= DDSQL_PROGRESS_INITIAL {
+        Some("DDSQL query is still running after 10s")
+    } else {
+        None
+    }
+}
+
+struct DdsqlProgressReporter {
+    handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl DdsqlProgressReporter {
+    fn start(enabled: bool) -> Self {
+        let handle = enabled.then(|| {
+            tokio::spawn(async {
+                tokio::time::sleep(DDSQL_PROGRESS_INITIAL).await;
+                if let Some(message) = progress_message(DDSQL_PROGRESS_INITIAL) {
+                    eprintln!("{message}");
+                }
+
+                tokio::time::sleep(DDSQL_PROGRESS_ESCALATED - DDSQL_PROGRESS_INITIAL).await;
+                if let Some(message) = progress_message(DDSQL_PROGRESS_ESCALATED) {
+                    eprintln!("{message}");
+                }
+            })
+        });
+        Self { handle }
+    }
+}
+
+impl Drop for DdsqlProgressReporter {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
+    }
+}
+
+fn request_timed_out(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<reqwest::Error>()
+        .map(reqwest::Error::is_timeout)
+        .unwrap_or(false)
+}
+
+fn retry_after(err: &anyhow::Error) -> Option<Duration> {
+    err.downcast_ref::<raw_client::HttpError>()
+        .and_then(|http_err| http_err.retry_after)
+}
+
+fn rate_limit_delay(current: Duration, retry_after: Option<Duration>) -> Duration {
+    retry_after.unwrap_or(current).max(current)
+}
+
+fn next_rate_limit_backoff(delay: Duration) -> Duration {
+    delay.saturating_mul(2)
+}
+
+fn request_timeout_error(timeout: Duration, query_id: Option<&str>) -> anyhow::Error {
+    let limit = timeout.as_secs_f64();
+    match query_id {
+        Some(query_id) => {
+            anyhow!("DDSQL fetch request timed out after {limit:.1}s (query_id: {query_id})")
+        }
+        None => anyhow!("DDSQL query submission timed out after {limit:.1}s"),
+    }
+}
+
+fn query_request_error(err: anyhow::Error, query_id: Option<&str>) -> anyhow::Error {
+    match query_id {
+        Some(query_id) => anyhow!("DDSQL query failed (query_id: {query_id}): {err}"),
+        None => err,
+    }
+}
+
+fn rate_limit_retry_error(
+    err: anyhow::Error,
+    elapsed: Duration,
+    retry_window: Duration,
+    query_id: Option<&str>,
+) -> anyhow::Error {
+    let elapsed = elapsed.as_secs_f64();
+    let limit = retry_window.as_secs_f64();
+    match query_id {
+        Some(query_id) => anyhow!(
+            "DDSQL fetch remained rate limited for {elapsed:.1}s (query_id: {query_id}); retry window is {limit:.1}s: {err}"
+        ),
+        None => anyhow!(
+            "DDSQL query submission remained rate limited for {elapsed:.1}s; retry window is {limit:.1}s: {err}"
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn post_with_rate_limit_retries(
+    cfg: &Config,
+    path: &str,
+    body: Value,
+    ua: &str,
+    request_timeout: Duration,
+    retry_window: Duration,
+    query_id: Option<&str>,
+) -> Result<Value> {
+    let started = Instant::now();
+    let mut backoff = DDSQL_RATE_LIMIT_BACKOFF_INITIAL;
+    let mut retrying = false;
+
+    loop {
+        let attempt_timeout = if retrying {
+            let Some(remaining) = retry_window
+                .checked_sub(started.elapsed())
+                .filter(|remaining| !remaining.is_zero())
+            else {
+                return Err(rate_limit_retry_error(
+                    anyhow!("rate-limit retry budget exhausted"),
+                    started.elapsed(),
+                    retry_window,
+                    query_id,
+                ));
+            };
+            request_timeout.min(remaining)
+        } else {
+            request_timeout
+        };
+
+        let result = raw_client::raw_post_with_ua_timeout(
+            cfg,
+            path,
+            body.clone(),
+            ua.to_string(),
+            attempt_timeout,
+        )
+        .await;
+
+        match result {
+            Ok(resp) => return Ok(resp),
+            Err(err) if crate::rate_limit::is_rate_limited(&err) => {
+                let delay = rate_limit_delay(backoff, retry_after(&err));
+                let Some(remaining) = retry_window
+                    .checked_sub(started.elapsed())
+                    .filter(|remaining| !remaining.is_zero())
+                else {
+                    return Err(rate_limit_retry_error(
+                        err,
+                        started.elapsed(),
+                        retry_window,
+                        query_id,
+                    ));
+                };
+                if delay >= remaining {
+                    return Err(rate_limit_retry_error(
+                        err,
+                        started.elapsed(),
+                        retry_window,
+                        query_id,
+                    ));
+                }
+                tokio::time::sleep(delay).await;
+                backoff = next_rate_limit_backoff(delay);
+                retrying = true;
+            }
+            Err(err) if request_timed_out(&err) => {
+                if retrying && attempt_timeout < request_timeout {
+                    return Err(rate_limit_retry_error(
+                        err,
+                        started.elapsed(),
+                        retry_window,
+                        query_id,
+                    ));
+                }
+                return Err(request_timeout_error(attempt_timeout, query_id));
+            }
+            Err(err) => return Err(query_request_error(err, query_id)),
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_polled_query<F>(
+    cfg: &Config,
+    initial_path: &str,
+    fetch_path: &str,
+    body: Value,
+    ua: String,
+    extract_status: fn(&Value) -> Result<Option<String>>,
+    mut build_fetch: F,
+    limits: DdsqlPollingLimits,
+) -> Result<Value>
+where
+    F: FnMut(&str) -> Value,
+{
+    let _progress = DdsqlProgressReporter::start(should_report_progress(
+        cfg.agent_mode,
+        io::stdout().is_terminal(),
+        io::stderr().is_terminal(),
+    ));
+    let resp = post_with_rate_limit_retries(
+        cfg,
+        initial_path,
+        body,
+        &ua,
+        limits.submit_request_timeout,
+        limits.rate_limit_retry_window,
+        None,
+    )
+    .await?;
+
+    let mut query_id = match extract_status(&resp)? {
+        None => return Ok(resp),
+        Some(id) => id,
+    };
+
+    loop {
+        let poll_resp = post_with_rate_limit_retries(
+            cfg,
+            fetch_path,
+            build_fetch(&query_id),
+            &ua,
+            limits.fetch_request_timeout,
+            limits.rate_limit_retry_window,
+            Some(&query_id),
+        )
+        .await?;
+
+        match extract_status(&poll_resp).map_err(|err| query_request_error(err, Some(&query_id)))? {
+            None => return Ok(poll_resp),
+            Some(id) => query_id = id,
+        }
+    }
+}
+
 /// Submit an async query and poll until completion.
 ///
 /// Sends the initial request and, if the query is still running, polls the fetch
 /// endpoint until the query completes. When `command` is provided, it is appended
 /// to the User-Agent header for audit log differentiation.
 async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -> Result<Value> {
-    let ua = useragent::get_with_command(command);
-    let resp = raw_client::raw_post_with_ua(
+    let fetch_body = body.clone();
+    execute_polled_query(
         cfg,
         "/api/unstable/advanced/query/tabular",
-        body.clone(),
-        ua.clone(),
+        "/api/unstable/advanced/query/tabular/fetch",
+        body,
+        useragent::get_with_command(command),
+        extract_query_status,
+        move |query_id| build_fetch_request(&fetch_body, query_id),
+        DDSQL_POLLING_LIMITS,
     )
-    .await?;
-
-    let mut query_id = match extract_query_status(&resp)? {
-        None => return Ok(resp),
-        Some(id) => id,
-    };
-
-    loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let fetch_body = build_fetch_request(&body, &query_id);
-        let poll_resp = raw_client::raw_post_with_ua(
-            cfg,
-            "/api/unstable/advanced/query/tabular/fetch",
-            fetch_body,
-            ua.clone(),
-        )
-        .await?;
-
-        match extract_query_status(&poll_resp)? {
-            None => return Ok(poll_resp),
-            Some(id) => query_id = id,
-        }
-    }
+    .await
 }
 
 /// Build a request for the public DDSQL tabular query endpoint.
@@ -725,31 +968,17 @@ fn build_ddsql_fetch_request(query_id: &str) -> Value {
 
 /// Submit a public DDSQL query and poll until completion.
 async fn execute_ddsql_async_query(cfg: &Config, body: Value) -> Result<Value> {
-    let ua = useragent::get_with_command(None);
-    let resp =
-        raw_client::raw_post_with_ua(cfg, DDSQL_TABULAR_QUERY_PATH, body, ua.clone()).await?;
-
-    let mut query_id = match extract_ddsql_query_status(&resp)? {
-        None => return Ok(resp),
-        Some(id) => id,
-    };
-
-    loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let poll_resp = raw_client::raw_post_with_ua(
-            cfg,
-            DDSQL_TABULAR_QUERY_FETCH_PATH,
-            build_ddsql_fetch_request(&query_id),
-            ua.clone(),
-        )
-        .await?;
-
-        match extract_ddsql_query_status(&poll_resp)? {
-            None => return Ok(poll_resp),
-            Some(id) => query_id = id,
-        }
-    }
+    execute_polled_query(
+        cfg,
+        DDSQL_TABULAR_QUERY_PATH,
+        DDSQL_TABULAR_QUERY_FETCH_PATH,
+        body,
+        useragent::get_with_command(None),
+        extract_ddsql_query_status,
+        build_ddsql_fetch_request,
+        DDSQL_POLLING_LIMITS,
+    )
+    .await
 }
 
 /// Execute a public DDSQL query and return the result as a row-based JSON array.
@@ -1000,6 +1229,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_ddsql_progress_thresholds_and_suppression() {
+        assert!(progress_message(Duration::from_secs(9)).is_none());
+        assert_eq!(
+            progress_message(Duration::from_secs(10)),
+            Some("DDSQL query is still running after 10s")
+        );
+        let escalated = progress_message(Duration::from_secs(30)).unwrap();
+        assert!(escalated.contains("narrowing the time window"));
+        assert!(escalated.contains("LIMIT"));
+
+        assert!(should_report_progress(false, true, true));
+        assert!(!should_report_progress(true, true, true));
+        assert!(!should_report_progress(false, false, true));
+        assert!(!should_report_progress(false, true, false));
+        assert!(DdsqlProgressReporter::start(false).handle.is_none());
+    }
+
+    #[test]
+    fn test_ddsql_rate_limit_delay_honors_retry_after() {
+        assert_eq!(
+            rate_limit_delay(Duration::from_secs(1), None),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            rate_limit_delay(Duration::from_secs(2), Some(Duration::from_secs(7))),
+            Duration::from_secs(7)
+        );
+        assert_eq!(
+            rate_limit_delay(Duration::from_secs(8), Some(Duration::from_secs(1))),
+            Duration::from_secs(8)
+        );
+        assert_eq!(
+            rate_limit_delay(Duration::from_secs(16), Some(Duration::from_secs(60))),
+            Duration::from_secs(60)
+        );
+
+        let delays: Vec<_> =
+            std::iter::successors(Some(DDSQL_RATE_LIMIT_BACKOFF_INITIAL), |delay| {
+                Some(next_rate_limit_backoff(*delay))
+            })
+            .take(7)
+            .collect();
+        assert_eq!(delays, [1, 2, 4, 8, 16, 32, 64].map(Duration::from_secs));
+    }
+
+    #[test]
+    fn test_ddsql_polling_limits_respect_server_liveness() {
+        assert_eq!(DDSQL_SUBMIT_REQUEST_TIMEOUT, Duration::from_secs(60));
+        assert_eq!(DDSQL_FETCH_REQUEST_TIMEOUT, Duration::from_secs(15));
+        assert!(DDSQL_RATE_LIMIT_RETRY_WINDOW < Duration::from_secs(30));
+
+        let message = request_timeout_error(Duration::from_secs(15), Some("query-123")).to_string();
+        assert!(message.contains("fetch request timed out after 15.0s"));
+        assert!(message.contains("query_id: query-123"));
+    }
+
     #[tokio::test]
     async fn test_execute_ddsql_query_completed_response_uses_v2_contract() {
         let _lock = lock_env().await;
@@ -1136,11 +1422,249 @@ mod tests {
             .create_async()
             .await;
 
-        let rows = execute_ddsql_query(&cfg, "SELECT 1", "1700000000000", "1700003600000", None)
-            .await
-            .unwrap();
+        let rows = tokio::time::timeout(
+            Duration::from_millis(750),
+            execute_ddsql_query(&cfg, "SELECT 1", "1700000000000", "1700003600000", None),
+        )
+        .await
+        .expect("successful polling must not add a one-second client sleep")
+        .unwrap();
 
         assert_eq!(rows, json!([{"value": "done"}]));
+        execute.assert_async().await;
+        fetch.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_execute_polled_query_retries_initial_429() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let rate_limited = server
+            .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+            .expect(1)
+            .with_status(429)
+            .with_header("content-type", "application/json")
+            .with_header("retry-after", "0")
+            .with_body(r#"{"errors":[{"detail":"rate limited"}]}"#)
+            .create_async()
+            .await;
+        let completed = server
+            .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+            .expect(1)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"attributes":{"state":"completed","columns":[]}}}"#)
+            .create_async()
+            .await;
+
+        let response = execute_polled_query(
+            &cfg,
+            DDSQL_TABULAR_QUERY_PATH,
+            DDSQL_TABULAR_QUERY_FETCH_PATH,
+            json!({}),
+            useragent::get_with_command(None),
+            extract_ddsql_query_status,
+            build_ddsql_fetch_request,
+            DdsqlPollingLimits {
+                submit_request_timeout: Duration::from_secs(2),
+                fetch_request_timeout: Duration::from_secs(2),
+                rate_limit_retry_window: Duration::from_secs(2),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(extract_ddsql_query_status(&response).unwrap().is_none());
+        rate_limited.assert_async().await;
+        completed.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_execute_polled_query_bounds_fetch_429_retries_below_server_liveness() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let execute = server
+            .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"attributes":{"state":"running","query_id":"query-id"}}}"#)
+            .create_async()
+            .await;
+        let fetch = server
+            .mock("POST", DDSQL_TABULAR_QUERY_FETCH_PATH)
+            .with_status(429)
+            .with_header("content-type", "application/json")
+            .with_header("retry-after", "30")
+            .with_body(r#"{"errors":[{"detail":"rate limited"}]}"#)
+            .create_async()
+            .await;
+
+        let err = execute_polled_query(
+            &cfg,
+            DDSQL_TABULAR_QUERY_PATH,
+            DDSQL_TABULAR_QUERY_FETCH_PATH,
+            json!({}),
+            useragent::get_with_command(None),
+            extract_ddsql_query_status,
+            build_ddsql_fetch_request,
+            DdsqlPollingLimits {
+                submit_request_timeout: Duration::from_millis(100),
+                fetch_request_timeout: Duration::from_millis(100),
+                rate_limit_retry_window: Duration::from_millis(50),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("fetch remained rate limited"));
+        assert!(err.to_string().contains("query_id: query-id"));
+        assert!(err.to_string().contains("retry window is 0.1s"));
+        execute.assert_async().await;
+        fetch.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_execute_polled_query_bounds_each_fetch_request() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let execute = server
+            .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"attributes":{"state":"running","query_id":"query-id"}}}"#)
+            .create_async()
+            .await;
+        let fetch = server
+            .mock("POST", DDSQL_TABULAR_QUERY_FETCH_PATH)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_chunked_body(|writer| {
+                std::thread::sleep(Duration::from_millis(100));
+                writer.write_all(br#"{"data":{"attributes":{"state":"completed","columns":[]}}}"#)
+            })
+            .create_async()
+            .await;
+
+        let err = execute_polled_query(
+            &cfg,
+            DDSQL_TABULAR_QUERY_PATH,
+            DDSQL_TABULAR_QUERY_FETCH_PATH,
+            json!({}),
+            useragent::get_with_command(None),
+            extract_ddsql_query_status,
+            build_ddsql_fetch_request,
+            DdsqlPollingLimits {
+                submit_request_timeout: Duration::from_millis(100),
+                fetch_request_timeout: Duration::from_millis(30),
+                rate_limit_retry_window: Duration::from_millis(50),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("fetch request timed out"));
+        assert!(err.to_string().contains("query_id: query-id"));
+        execute.assert_async().await;
+        fetch.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_execute_polled_query_has_no_overall_deadline() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let execute = server
+            .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"attributes":{"state":"running","query_id":"query-id"}}}"#)
+            .create_async()
+            .await;
+        let fetch = server
+            .mock("POST", DDSQL_TABULAR_QUERY_FETCH_PATH)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_chunked_body(|writer| {
+                std::thread::sleep(Duration::from_millis(100));
+                writer.write_all(br#"{"data":{"attributes":{"state":"completed","columns":[]}}}"#)
+            })
+            .create_async()
+            .await;
+
+        let response = execute_polled_query(
+            &cfg,
+            DDSQL_TABULAR_QUERY_PATH,
+            DDSQL_TABULAR_QUERY_FETCH_PATH,
+            json!({}),
+            useragent::get_with_command(None),
+            extract_ddsql_query_status,
+            build_ddsql_fetch_request,
+            DdsqlPollingLimits {
+                submit_request_timeout: Duration::from_millis(200),
+                fetch_request_timeout: Duration::from_millis(200),
+                rate_limit_retry_window: Duration::from_millis(50),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(extract_ddsql_query_status(&response).unwrap().is_none());
+        execute.assert_async().await;
+        fetch.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_execute_polled_query_status_error_includes_query_id() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let execute = server
+            .mock("POST", DDSQL_TABULAR_QUERY_PATH)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"attributes":{"state":"running","query_id":"query-id"}}}"#)
+            .create_async()
+            .await;
+        let fetch = server
+            .mock("POST", DDSQL_TABULAR_QUERY_FETCH_PATH)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"attributes":{"state":"failed"}}}"#)
+            .create_async()
+            .await;
+
+        let err = execute_polled_query(
+            &cfg,
+            DDSQL_TABULAR_QUERY_PATH,
+            DDSQL_TABULAR_QUERY_FETCH_PATH,
+            json!({}),
+            useragent::get_with_command(None),
+            extract_ddsql_query_status,
+            build_ddsql_fetch_request,
+            DdsqlPollingLimits {
+                submit_request_timeout: Duration::from_millis(100),
+                fetch_request_timeout: Duration::from_millis(100),
+                rate_limit_retry_window: Duration::from_millis(50),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("unexpected query state: failed"));
+        assert!(err.to_string().contains("query_id: query-id"));
         execute.assert_async().await;
         fetch.assert_async().await;
         cleanup_env();

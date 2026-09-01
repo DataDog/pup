@@ -273,6 +273,7 @@ mod tests {
             url: "https://api.datadoghq.com/api/v1/monitor".into(),
             body: "Too Many Requests".into(),
             rate_limit: None,
+            retry_after: None,
         });
         assert!(is_rate_limited(&err));
     }

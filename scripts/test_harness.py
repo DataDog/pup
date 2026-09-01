@@ -1494,12 +1494,6 @@ READ_COMMANDS: list[dict] = [
         "category": "auth_required",
         "expect_json": True,
     },
-    {
-        "label": "ddsql time-series",
-        "args": ["ddsql", "time-series", "--query=SELECT 1"],
-        "category": "auth_required",
-        "expect_json": True,
-    },
     # ── integrations (new) ────────────────────────────────────────────────
     {
         "label": "integrations list",

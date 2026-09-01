@@ -1131,7 +1131,6 @@ enum Commands {
     ///
     /// COMMANDS:
     ///   table         Execute query and return table data (supports -o json/yaml/table/csv)
-    ///   time-series   Execute query and return time series data
     ///   spec          Print DDSQL reference guidance used by the editor tooling
     ///   schema        Discover DDSQL tables and columns
     ///
@@ -1139,7 +1138,7 @@ enum Commands {
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips LIMIT 5"
     ///   pup ddsql table --query "SELECT * FROM reference_tables.offices_ips" -o csv > results.csv
     ///   cat query.sql | pup ddsql table --query - -o table
-    ///   pup ddsql time-series --query "SELECT timestamp, value, tags->'host' AS host FROM dd.metrics_timeseries('avg:system.cpu.user{*} by {host}')" --from 1h
+    ///   pup ddsql table --query "SELECT timestamp, value, tags->'host' AS host FROM dd.metrics_timeseries('avg:system.cpu.user{*} by {host}')" --from 1h --limit 5000
     ///   pup ddsql spec
     ///   pup ddsql schema tables --query ec2 --limit 100
     ///   pup ddsql schema columns --table-id public.aws.ec2_instance
@@ -4530,28 +4529,6 @@ enum DdsqlActions {
         limit: i32,
         #[arg(long, help = "Number of rows to skip (for pagination)")]
         offset: Option<i32>,
-    },
-    /// Execute DDSQL query and return time series data
-    #[command(name = "time-series")]
-    TimeSeries {
-        #[arg(
-            long,
-            allow_hyphen_values = true,
-            help = "DDSQL query string, or use --query - to read from stdin"
-        )]
-        query: String,
-        #[arg(long, default_value = "1h", help = "Start time")]
-        from: String,
-        #[arg(long, default_value = "now", help = "End time")]
-        to: String,
-        #[arg(long, help = "Aggregation interval in milliseconds (default: 60000)")]
-        interval: Option<i64>,
-        #[arg(
-            long,
-            default_value_t = 5000,
-            help = "Maximum number of rows to return"
-        )]
-        limit: i32,
     },
     /// Print DDSQL reference guidance from the editor tooling
     Spec,
@@ -17037,15 +17014,6 @@ async fn main_inner() -> anyhow::Result<()> {
                 } => {
                     commands::ddsql::table(&cfg, &query, &from, &to, interval, Some(limit), offset)
                         .await?;
-                }
-                DdsqlActions::TimeSeries {
-                    query,
-                    from,
-                    to,
-                    interval,
-                    limit,
-                } => {
-                    commands::ddsql::time_series(&cfg, &query, &from, &to, interval, limit).await?;
                 }
                 DdsqlActions::Spec => {
                     commands::ddsql::spec(&cfg).await?;

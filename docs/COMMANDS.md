@@ -29,7 +29,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
 | dashboards | list, get, create, update, diff, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
-| ddsql | table, time-series, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |
+| ddsql | table, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |
 | debugger | probes (list, get, create, delete, watch) | src/commands/debugger.rs | ✅ |
 | slos | list, get, create, update, diff, delete, status | src/commands/slos.rs | ✅ |
 | incidents | list, get, attachments, settings, handles, postmortem-templates | src/commands/incidents.rs | ✅ |
@@ -177,7 +177,7 @@ pup infrastructure hosts list
 - **traces** - APM spans metrics (list, get, create, update, delete)
 - **rum** - Real User Monitoring (apps, metrics, retention-filters, sessions)
 - **events** - Infrastructure events (post, list, search, get)
-- **ddsql** - DDSQL queries and discovery (table, time-series, spec, schema)
+- **ddsql** - DDSQL queries and discovery (table, spec, schema); use `pup ddsql table --limit 5000` for the former 5,000-row default
 - **symdb** - Symbol Database queries (search scopes, probe locations)
 
 ### Monitoring & Alerting

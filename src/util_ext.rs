@@ -42,6 +42,7 @@ fn parse_relative_duration_millis(input: &str) -> Result<i64> {
 ///
 /// Supported formats:
 ///   - "now" (case-insensitive)
+///   - MCP-compatible relative: "now-1h", "now-30m", "now-7d"
 ///   - Relative short: "1h", "30m", "7d", "5s", "1w"
 ///   - Relative long: "5min", "5mins", "5minute", "5minutes", "2hr", "2hours", "3days", "1week"
 ///   - With spaces: "5 minutes", "2 hours"
@@ -58,12 +59,24 @@ pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
     let time_parse_error = || {
         anyhow::anyhow!(
             "unable to parse time: {input:?}\n\
-             Expected: now, 1h, 30m, 7d, 5minutes, YYYY-MM, YYYY-MM-DD, RFC3339, or Unix timestamp"
+             Expected: now, now-1h, 1h, 30m, 7d, 5minutes, YYYY-MM, YYYY-MM-DD, RFC3339, or Unix timestamp"
         )
     };
 
     if input.eq_ignore_ascii_case("now") {
         return Ok(now_millis());
+    }
+
+    if input
+        .get(..4)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("now-"))
+    {
+        let duration = &input[4..];
+        if duration.starts_with('-') {
+            return Err(time_parse_error());
+        }
+        let millis = parse_relative_duration_millis(duration).map_err(|_| time_parse_error())?;
+        return Ok(now_millis() - millis);
     }
 
     // Unix timestamp (all digits). Treat 10-digit values as seconds to match
@@ -632,6 +645,26 @@ mod tests {
     fn test_now_case_insensitive() {
         assert!(parse_time_to_unix_millis("NOW").is_ok());
         assert!(parse_time_to_unix_millis("Now").is_ok());
+    }
+
+    #[test]
+    fn test_mcp_compatible_relative_time() {
+        for input in ["now-24h", "NOW-24H"] {
+            let ms = parse_time_to_unix_millis(input).unwrap();
+            let expected = (Utc::now().timestamp() - 24 * 3600) * 1000;
+            assert!((ms - expected).abs() < 2000, "unexpected value for {input}");
+        }
+    }
+
+    #[test]
+    fn test_invalid_mcp_compatible_relative_time() {
+        for input in ["now-", "now--1h", "now-yesterday"] {
+            let err = parse_time_to_unix_millis(input).unwrap_err();
+            assert!(
+                err.to_string().contains("unable to parse time"),
+                "unexpected error for {input}: {err}"
+            );
+        }
     }
 
     #[test]

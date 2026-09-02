@@ -556,6 +556,48 @@ fn test_ddsql_table_query_requires_explicit_value() {
     );
 }
 
+#[test]
+fn test_ddsql_time_help_documents_supported_formats() {
+    let root = crate::Cli::command();
+    let table_help = root
+        .find_subcommand("ddsql")
+        .unwrap()
+        .find_subcommand("table")
+        .unwrap()
+        .clone()
+        .render_long_help()
+        .to_string();
+    let security_help = root
+        .find_subcommand("security")
+        .unwrap()
+        .find_subcommand("findings")
+        .unwrap()
+        .find_subcommand("analyze")
+        .unwrap()
+        .clone()
+        .render_long_help()
+        .to_string();
+
+    for (command, help) in [
+        ("ddsql table", table_help),
+        ("security findings analyze", security_help),
+    ] {
+        for expected in [
+            "now-<duration>",
+            "now-24h",
+            "relative duration",
+            "RFC 3339 timestamp",
+            "Unix seconds",
+            "Unix milliseconds",
+        ] {
+            assert!(
+                help.contains(expected),
+                "{command} help is missing {expected:?}: {help}"
+            );
+        }
+    }
+}
+
 // -------------------------------------------------------------------------
 // --sort with hyphen-prefixed values (e.g. -failure_rate, -timestamp)
 // -------------------------------------------------------------------------

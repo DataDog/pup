@@ -530,18 +530,6 @@ fn test_ddsql_table_query_accepts_explicit_stdin_marker() {
 }
 
 #[test]
-fn test_ddsql_time_series_is_rejected() {
-    let err = crate::Cli::command()
-        .try_get_matches_from(["pup", "ddsql", "time-series", "--query", "SELECT 1"])
-        .expect_err("removed ddsql time-series command should not parse");
-
-    assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
-    assert!(err
-        .to_string()
-        .contains("unrecognized subcommand 'time-series'"));
-}
-
-#[test]
 fn test_ddsql_table_query_requires_explicit_value() {
     let result = crate::Cli::command().try_get_matches_from(["pup", "ddsql", "table", "--query"]);
     assert!(

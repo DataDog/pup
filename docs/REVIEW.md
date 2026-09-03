@@ -33,7 +33,7 @@ See [TESTING.md](TESTING.md) for full test strategy, coverage thresholds, and co
 See [CONTRIBUTING.md](CONTRIBUTING.md) security guidelines for full details. Review-specific expectations:
 
 - **No malicious code.** PRs containing obfuscated code, backdoors, exfiltration attempts, unauthorized network calls, or any code that does not serve the stated purpose of the PR will be rejected and the contributor banned.
-- **No credential exposure.** Never log, print, or include in error messages: API keys, tokens, secrets, or passwords. Grep your diff for `DD_API_KEY`, `DD_APP_KEY`, access tokens, and similar patterns.
+- **No credential exposure.** Never log, print, or include in error messages: API keys, tokens, secrets, or passwords. The sole exception is the explicit `pup auth token` credential-export command, which may print only the access token to stdout while keeping diagnostics on stderr. Grep your diff for `DD_API_KEY`, `DD_APP_KEY`, access tokens, and similar patterns.
 - **Input validation at boundaries.** All user-supplied input (CLI args, environment variables, config file values) must be validated before use. Prevent command injection, path traversal, and other OWASP Top 10 vulnerabilities.
 
 ### 4. Dependency Hygiene (MUST)

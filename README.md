@@ -235,6 +235,9 @@ pup monitors list
 # Check status
 pup auth status
 
+# Export the current access token to a credential-command integration
+pup auth token
+
 # Logout
 pup auth logout
 ```
@@ -303,6 +306,16 @@ The storage backend can be overridden with `DD_TOKEN_STORAGE` (env var) or `toke
 **Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available yet, use API key authentication.
 
 See [docs/OAUTH2.md](docs/OAUTH2.md) for detailed OAuth2 documentation.
+
+`pup auth token` is intended for explicit credential-command integrations such
+as a local proxy or SDK that needs a bearer token on stdout. It prints only the
+current OAuth access token and a trailing newline. If a stored token has expired,
+Pup refreshes it automatically before printing it; refresh diagnostics remain on
+stderr. The command honors `DD_ACCESS_TOKEN`, `DD_SITE`, and `--org` using the
+same precedence as other Pup commands. Because its stdout is a live credential,
+avoid terminal transcripts, shell tracing, logs, and command substitutions that
+could expose the value. The command is available in native builds, but omitted
+from Pup's AI-agent schemas.
 
 ### API Key Authentication (Fallback)
 

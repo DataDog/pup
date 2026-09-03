@@ -15,6 +15,9 @@ pup --site=datadoghq.eu auth login
 # Check authentication status
 pup auth status
 
+# Supply a short-lived bearer token to a command-backed integration
+pup auth token
+
 # Logout
 pup auth logout
 ```

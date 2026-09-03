@@ -178,3 +178,4 @@ libc = "0.2"
 
 [dev-dependencies]
 mockito = "1"
+tokio = { version = "1", default-features = false, features = ["test-util"] }

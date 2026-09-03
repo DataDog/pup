@@ -1,4 +1,5 @@
 pub mod acp;
+pub(crate) mod advanced_query;
 pub mod agent;
 pub mod agentless_scanning;
 pub mod alias;

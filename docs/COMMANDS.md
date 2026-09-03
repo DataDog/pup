@@ -22,7 +22,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | Domain | Subcommands | File | Status |
 |--------|-------------|------|--------|
 | acp | serve | src/commands/acp.rs | ✅ |
-| auth | login, logout, status, token, refresh, list, test | src/commands/auth.rs | ✅ |
+| auth | login, logout, status, token, refresh | src/commands/auth.rs | ✅ |
 | metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate, patterns, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |

@@ -557,6 +557,40 @@ fn test_ddsql_table_query_accepts_explicit_stdin_marker() {
 }
 
 #[test]
+fn test_ddsql_table_uses_api_row_limit_default() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "ddsql", "table", "--query", "SELECT 1"])
+        .expect("ddsql table should parse");
+
+    match cli.command {
+        crate::Commands::Ddsql { action } => match action {
+            crate::DdsqlActions::Table { limit, .. } => assert_eq!(limit, 5000),
+            _ => panic!("expected DdsqlActions::Table"),
+        },
+        _ => panic!("expected Commands::Ddsql"),
+    }
+}
+
+#[test]
+fn test_ddsql_table_accepts_limit_override() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from([
+        "pup", "ddsql", "table", "--query", "SELECT 1", "--limit", "10000",
+    ])
+    .expect("ddsql table should accept a row limit override");
+
+    match cli.command {
+        crate::Commands::Ddsql { action } => match action {
+            crate::DdsqlActions::Table { limit, .. } => assert_eq!(limit, 10000),
+            _ => panic!("expected DdsqlActions::Table"),
+        },
+        _ => panic!("expected Commands::Ddsql"),
+    }
+}
+
+#[test]
 fn test_ddsql_table_query_requires_explicit_value() {
     let result = crate::Cli::command().try_get_matches_from(["pup", "ddsql", "table", "--query"]);
     assert!(

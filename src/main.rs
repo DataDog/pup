@@ -1143,6 +1143,15 @@ enum Commands {
     ///   pup ddsql schema tables --query ec2 --limit 100
     ///   pup ddsql schema columns --table-id public.aws.ec2_instance
     ///
+    /// PAGINATION:
+    ///   Write OFFSET n LIMIT m in SQL to paginate deterministic, ordered results.
+    ///   Results will be capped at 5000 rows. Extend this up to 10000 with --limit;
+    ///   paginate to retrieve more than 10000 rows.
+    ///
+    /// TIME WINDOW:
+    ///   Set the query-wide time window with --from/--to. Override it per source with
+    ///   table-function timestamp arguments. A WHERE time filter does not change the source window.
+    ///
     /// AUTHENTICATION:
     ///   All ddsql commands support OAuth2 (via 'pup auth login') or API key + Application key.
     #[command(verbatim_doc_comment)]
@@ -4526,12 +4535,12 @@ enum DdsqlActions {
             help = "End time. Accepts the same formats as --from (e.g., now)"
         )]
         to: String,
-        #[arg(long, help = "Aggregation interval in milliseconds (default: 60000)")]
-        interval: Option<i64>,
-        #[arg(long, default_value_t = 50, help = "Maximum number of rows to return")]
+        #[arg(
+            long,
+            default_value_t = 5000,
+            help = "API response row cap (1-10000); use SQL LIMIT to bound query results"
+        )]
         limit: i32,
-        #[arg(long, help = "Number of rows to skip (for pagination)")]
-        offset: Option<i32>,
     },
     /// Print DDSQL reference guidance from the editor tooling
     Spec,
@@ -17059,12 +17068,9 @@ async fn main_inner() -> anyhow::Result<()> {
                     query,
                     from,
                     to,
-                    interval,
                     limit,
-                    offset,
                 } => {
-                    commands::ddsql::table(&cfg, &query, &from, &to, interval, Some(limit), offset)
-                        .await?;
+                    commands::ddsql::table(&cfg, &query, &from, &to, Some(limit)).await?;
                 }
                 DdsqlActions::Spec => {
                     commands::ddsql::spec(&cfg).await?;

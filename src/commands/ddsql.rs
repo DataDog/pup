@@ -784,9 +784,7 @@ pub async fn table(
     query: &str,
     from: &str,
     to: &str,
-    _interval: Option<i64>,
     limit: Option<i32>,
-    _offset: Option<i32>,
 ) -> Result<()> {
     let query = resolve_query(query)?;
     let rows = execute_ddsql_query(cfg, &query, from, to, limit.map(i64::from)).await?;

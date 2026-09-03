@@ -1145,8 +1145,7 @@ enum Commands {
     ///   pup ddsql schema columns --table-id public.aws.ec2_instance
     ///
     /// AUTHENTICATION:
-    ///   Query commands support OAuth2 (via 'pup auth login') or API key + Application key.
-    ///   Discovery commands (`spec`, `schema ...`) currently require DD_API_KEY + DD_APP_KEY.
+    ///   All ddsql commands support OAuth2 (via 'pup auth login') or API key + Application key.
     #[command(verbatim_doc_comment)]
     Ddsql {
         #[command(subcommand)]

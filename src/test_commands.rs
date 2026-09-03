@@ -286,6 +286,33 @@ fn test_read_only_allows_skills_remote_reads() {
 // Auth status --site flag
 // -------------------------------------------------------------------------
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_auth_token_parses_and_appears_in_human_help() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "auth", "token"])
+        .expect("auth token should parse in native builds");
+    assert!(matches!(
+        cli.command,
+        crate::Commands::Auth {
+            action: crate::AuthActions::Token
+        }
+    ));
+
+    let help = crate::Cli::command()
+        .find_subcommand("auth")
+        .expect("auth command should exist")
+        .clone()
+        .render_long_help()
+        .to_string();
+    assert!(
+        help.lines()
+            .any(|line| line.split_whitespace().next() == Some("token")),
+        "auth token missing from help: {help}"
+    );
+}
+
 #[test]
 fn test_auth_status_accepts_site_flag() {
     use clap::Parser;

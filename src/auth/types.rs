@@ -65,6 +65,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "built_in_features",
         "data_scanner_read",
         "dbm_read",
+        "ddsql_editor_read",
         "error_tracking_read",
         "events_read",
         "feature_flag_config_read",
@@ -165,6 +166,8 @@ pub fn default_scopes() -> Vec<&'static str> {
         "data_scanner_read",
         // Data Streams
         "data_streams_monitoring_capture_messages",
+        // DDSQL Editor
+        "ddsql_editor_read",
         // Database Monitoring
         // built_in_features is required on US1/EU1 while the DBM team migrates to dbm_read.
         // Both are requested so the command works on all sites during the transition.

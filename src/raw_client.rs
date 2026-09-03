@@ -151,19 +151,6 @@ static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
         path: "/api/unstable/fleet/",
         method: "GET",
     },
-    // DDSQL editor tools (3)
-    EndpointRequirement {
-        path: "/api/unstable/ddsql-editor/tools/ddsql-docs",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/unstable/ddsql-editor/tools/table-names",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/unstable/ddsql-editor/tools/table-data",
-        method: "POST",
-    },
     // Profiling (4)
     // No OAuth scope is declared for Continuous Profiler endpoints; force API-key auth.
     EndpointRequirement {
@@ -725,6 +712,26 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn test_no_fallback_for_ddsql_editor_tools() {
+        // DDSQL editor tools now accept OAuth server-side (DAL-960); removing
+        // them from OAUTH_EXCLUDED_ENDPOINTS means `pup ddsql spec`/`schema
+        // tables`/`schema columns` should send the OAuth bearer instead of
+        // forcing API-key fallback.
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/unstable/ddsql-editor/tools/ddsql-docs"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/unstable/ddsql-editor/tools/table-names"
+        ));
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/unstable/ddsql-editor/tools/table-data"
+        ));
+    }
+
     #[tokio::test]
     async fn test_raw_get_obs_pipelines_uses_oauth_bearer() {
         let _lock = lock_env().await;
@@ -859,22 +866,6 @@ mod tests {
         assert!(!requires_api_key_fallback(
             "PATCH",
             "/api/v2/application_keys/key-123"
-        ));
-    }
-
-    #[test]
-    fn test_requires_api_key_fallback_ddsql_editor_tools() {
-        assert!(requires_api_key_fallback(
-            "GET",
-            "/api/unstable/ddsql-editor/tools/ddsql-docs"
-        ));
-        assert!(requires_api_key_fallback(
-            "GET",
-            "/api/unstable/ddsql-editor/tools/table-names"
-        ));
-        assert!(requires_api_key_fallback(
-            "POST",
-            "/api/unstable/ddsql-editor/tools/table-data"
         ));
     }
 

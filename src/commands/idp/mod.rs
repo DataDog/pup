@@ -6,7 +6,13 @@ use crate::formatter;
 use crate::raw_client;
 use crate::util_ext;
 
+mod entity_kinds;
+mod entity_query;
+mod entity_types;
 mod migrate;
+
+pub use entity_kinds::{describe_kind, list_kinds};
+pub use entity_query::{query_entities, EntityQueryOptions};
 pub use migrate::migrate_schema;
 
 // ---------------------------------------------------------------------------

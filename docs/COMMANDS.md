@@ -22,7 +22,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | Domain | Subcommands | File | Status |
 |--------|-------------|------|--------|
 | acp | serve | src/commands/acp.rs | ✅ |
-| auth | login, logout, status, refresh | src/commands/auth.rs | ✅ |
+| auth | login, logout, status, token, refresh | src/commands/auth.rs | ✅ |
 | metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate, patterns, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
@@ -53,7 +53,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |
-| idp | assist, find, owner, deps, register | src/commands/idp.rs | ✅ |
+| idp | kinds (list, describe), entities (query), assist, find, owner, deps, register, migrate-schema | src/commands/idp/ | ✅ |
 | error-tracking | issues (search, get) | src/commands/error_tracking.rs | ✅ |
 | scorecards | rules (list, create, update, delete), outcomes (list, batch-create) | src/commands/scorecards.rs | ✅ |
 | usage | summary, hourly | src/commands/usage.rs | ✅ |
@@ -122,6 +122,34 @@ pup metrics tags list system.cpu.user --window-seconds=3600
 pup metrics timeseries --file=request.json
 pup events search --query="@user.id:12345"
 ```
+
+### IDP Entity Graph
+
+Use kind discovery before writing flexible cross-entity queries:
+
+```bash
+# Curated kind index; add --all for the filtered live server inventory.
+pup idp kinds list
+pup idp kinds list --all --include-custom
+
+# Live fields, relations, operators, examples, and caveats for one kind.
+pup idp kinds describe service
+
+# Query one result kind and optionally expand relations.
+pup idp entities query 'kind:service AND owner:payments' \
+  --field name,owner,contacts,service_health_status \
+  --include owner_teams,systems
+
+# Continue an explicitly paginated query.
+pup idp entities query 'kind:service' --cursor '<next_cursor>'
+```
+
+Every query must contain one unquoted `kind:<kind>` filter or a concrete
+`ref:"ref:<kind>:<id>"`. Top-level `OR` across result kinds is rejected; group
+alternatives below a shared kind instead, for example
+`kind:service AND (owner:idp OR team:idp)`. `--field` selects attributes and
+`--include` expands relations. Output is normalized and bounded for agents by
+default; pass `--raw` for the original JSON:API response.
 
 ### Create/Update/Delete
 ```bash
@@ -209,7 +237,7 @@ pup infrastructure hosts list
 
 ### Cost & Usage
 - **usage** - Usage and billing (summary, hourly)
-- **costs** - Cost management: `datadog` subgroup (projected, attribution, by-org, aws-config, azure-config, gcp-config), `ccm` subgroup (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments), `oci-configs` subgroup (list), and `anomalies` subgroup (list)
+- **costs** - Cost management: `datadog` subgroup (projected, attribution, by-org, aws-config, azure-config, gcp-config), `ccm` subgroup (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments), and `anomalies` subgroup (list)
 
 ### Configuration & Data Management
 - **obs-pipelines** - Observability pipelines (list, get, create, update, diff, delete, validate)

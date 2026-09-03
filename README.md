@@ -235,6 +235,9 @@ pup monitors list
 # Check status
 pup auth status
 
+# Export the current access token to a credential-command integration
+pup auth token
+
 # Logout
 pup auth logout
 ```
@@ -303,6 +306,11 @@ The storage backend can be overridden with `DD_TOKEN_STORAGE` (env var) or `toke
 **Note**: OAuth2 requires Dynamic Client Registration (DCR) to be enabled on your Datadog site. If DCR is not available yet, use API key authentication.
 
 See [docs/OAUTH2.md](docs/OAUTH2.md) for detailed OAuth2 documentation.
+
+`pup auth token` prints the current OAuth access token for command-backed
+integrations, refreshing a stored token when needed. It writes only the token to
+stdout, is native-only, and is omitted from AI-agent schemas. Treat its output as
+a secret.
 
 ### API Key Authentication (Fallback)
 
@@ -424,6 +432,19 @@ pup incidents list
 
 # Get incident details
 pup incidents get abc-123-def
+```
+
+### IDP Entity Graph
+
+```bash
+# Discover available entity kinds and their query schema
+pup idp kinds list
+pup idp kinds describe service
+
+# Query services and walk ownership and system relations
+pup idp entities query 'kind:service AND owner:payments' \
+  --field name,owner,contacts \
+  --include owner_teams,systems
 ```
 
 ## Global Flags

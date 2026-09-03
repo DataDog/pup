@@ -144,135 +144,11 @@ fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static Endpoi
 /// Endpoints that don't support OAuth.
 /// Trailing "/" means prefix match for ID-parameterized paths.
 static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
-    // Fleet Automation (15)
+    // Fleet Automation unstable surface — doesn't support OAuth server-side
+    // yet. Current status, not a permanent contract; delete this entry (and
+    // the tests referencing it) once it does, rather than patching forward.
     EndpointRequirement {
-        path: "/api/v2/fleet/agents",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/agents/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/agents/versions",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/configure",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/upgrade",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/deployments/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules/",
-        method: "PATCH",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/fleet/schedules/",
-        method: "POST",
-    },
-    // Cost / Billing (11) — API key only, no OAuth support
-    EndpointRequirement {
-        path: "/api/v2/usage/projected_cost",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/usage/cost_by_org",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost_by_tag/monthly_cost_attribution",
-        method: "GET",
-    },
-    // Cloud Cost Management config (12)
-    EndpointRequirement {
-        path: "/api/v2/cost/aws_cur_config",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/aws_cur_config",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/aws_cur_config/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/aws_cur_config/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/azure_uc_config",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/azure_uc_config",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/azure_uc_config/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/azure_uc_config/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/gcp_uc_config",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/gcp_uc_config",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/gcp_uc_config/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/gcp_uc_config/",
-        method: "DELETE",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/oci_config",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/v2/cost/anomalies",
+        path: "/api/unstable/fleet/",
         method: "GET",
     },
     // Profiling (4)
@@ -779,10 +655,11 @@ mod tests {
 
     #[test]
     fn test_prefix_matching_with_id() {
-        // Trailing "/" in the pattern should match paths with IDs
+        // Trailing "/" in the pattern should match paths with IDs.
+        // Uses the still-excluded unstable Fleet entry as the example.
         assert!(requires_api_key_fallback(
             "GET",
-            "/api/v2/fleet/agents/agent-123"
+            "/api/unstable/fleet/some-id"
         ));
     }
 
@@ -835,6 +712,26 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn test_no_fallback_for_ddsql_editor_tools() {
+        // DDSQL editor tools now accept OAuth server-side (DAL-960); removing
+        // them from OAUTH_EXCLUDED_ENDPOINTS means `pup ddsql spec`/`schema
+        // tables`/`schema columns` should send the OAuth bearer instead of
+        // forcing API-key fallback.
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/unstable/ddsql-editor/tools/ddsql-docs"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/unstable/ddsql-editor/tools/table-names"
+        ));
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/unstable/ddsql-editor/tools/table-data"
+        ));
+    }
+
     #[tokio::test]
     async fn test_raw_get_obs_pipelines_uses_oauth_bearer() {
         let _lock = lock_env().await;
@@ -867,12 +764,83 @@ mod tests {
     }
 
     #[test]
-    fn test_requires_api_key_fallback_fleet() {
-        assert!(requires_api_key_fallback("GET", "/api/v2/fleet/agents"));
-        assert!(requires_api_key_fallback(
+    fn test_no_fallback_for_fleet() {
+        // Fleet Automation v2 routes already accept OAuth server-side;
+        // the raw/generic `pup api` passthrough should use the OAuth bearer
+        // like the typed fleet commands do.
+        assert!(!requires_api_key_fallback("GET", "/api/v2/fleet/agents"));
+        assert!(!requires_api_key_fallback(
             "GET",
             "/api/v2/fleet/agents/agent-123"
         ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/fleet/deployments"
+        ));
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/v2/fleet/deployments/configure"
+        ));
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/v2/fleet/schedules/sched-123/trigger"
+        ));
+    }
+
+    #[test]
+    fn test_no_fallback_for_cost_billing() {
+        // Cost/Billing routes already accept OAuth server-side (DAL-959); the
+        // raw/generic `pup api` passthrough should use the OAuth bearer
+        // instead of forcing API-key fallback.
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/usage/projected_cost"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/usage/cost_by_org"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/cost_by_tag/monthly_cost_attribution"
+        ));
+    }
+
+    #[test]
+    fn test_no_fallback_for_ccm() {
+        // Cloud Cost Management config routes already accept OAuth
+        // server-side (DAL-959); the raw/generic `pup api` passthrough
+        // should use the OAuth bearer instead of forcing API-key fallback.
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/cost/aws_cur_config"
+        ));
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/v2/cost/aws_cur_config"
+        ));
+        assert!(!requires_api_key_fallback(
+            "DELETE",
+            "/api/v2/cost/aws_cur_config/config-123"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/cost/azure_uc_config"
+        ));
+        assert!(!requires_api_key_fallback(
+            "DELETE",
+            "/api/v2/cost/azure_uc_config/config-123"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/v2/cost/gcp_uc_config"
+        ));
+        assert!(!requires_api_key_fallback(
+            "DELETE",
+            "/api/v2/cost/gcp_uc_config/config-123"
+        ));
+        assert!(!requires_api_key_fallback("GET", "/api/v2/cost/oci_config"));
+        assert!(!requires_api_key_fallback("GET", "/api/v2/cost/anomalies"));
     }
 
     #[test]
@@ -1020,16 +988,14 @@ mod tests {
 
     #[test]
     fn test_other_oauth_excluded_endpoints_still_require_both_keys() {
-        // Uses Fleet Automation as a currently-still-excluded example. This is
-        // just today's state of OAUTH_EXCLUDED_ENDPOINTS, not a claim that Fleet
-        // (or anything else in the table) is meant to stay that way -- update
-        // this example if/when its entries get OAuth support and are removed.
+        // Uses the still-excluded unstable Fleet entry as the example.
         let mut cfg = test_cfg();
         cfg.app_key = None;
-        let req = reqwest::Client::new().get("https://api.datadoghq.com/api/v2/fleet/agents");
+        let req =
+            reqwest::Client::new().get("https://api.datadoghq.com/api/unstable/fleet/some-id");
 
-        let err = match apply_auth(req, &cfg, "GET", "/api/v2/fleet/agents") {
-            Ok(_) => panic!("Fleet Automation should require both keys"),
+        let err = match apply_auth(req, &cfg, "GET", "/api/unstable/fleet/some-id") {
+            Ok(_) => panic!("excluded endpoint should require both keys"),
             Err(err) => err,
         };
         assert!(err.to_string().contains("DD_API_KEY and DD_APP_KEY"));

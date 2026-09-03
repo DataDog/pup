@@ -1526,6 +1526,8 @@ enum Commands {
     /// suggested next actions from the Datadog Service Catalog / IDP.
     ///
     /// CAPABILITIES:
+    ///   • Discover entity kinds and inspect their live query schemas
+    ///   • Query entities and traverse declared relationships
     ///   • Get a full context summary for any entity (assist)
     ///   • Find entities by name or query (find)
     ///   • Resolve ownership and on-call (owner)
@@ -1539,6 +1541,13 @@ enum Commands {
     ///
     ///   # Find entities matching a query
     ///   pup idp find "catalog"
+    ///
+    ///   # Discover entity kinds and their schemas
+    ///   pup idp kinds list
+    ///   pup idp kinds describe service
+    ///
+    ///   # Query across the Datadog entity graph
+    ///   pup idp entities query 'kind:service AND owner:payments'
     ///
     ///   # Who owns this service?
     ///   pup idp owner catalog-http
@@ -4510,10 +4519,14 @@ enum DdsqlActions {
         #[arg(
             long,
             default_value = "1h",
-            help = "Start time (e.g., 1h, 30m, 7d, now, unix timestamp)"
+            help = "Start time. Formats: now, now-<duration> (e.g., now-24h), relative duration (e.g., 24h), RFC 3339 timestamp, Unix seconds, or Unix milliseconds"
         )]
         from: String,
-        #[arg(long, default_value = "now", help = "End time")]
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time. Accepts the same formats as --from (e.g., now)"
+        )]
         to: String,
         #[arg(long, help = "Aggregation interval in milliseconds (default: 60000)")]
         interval: Option<i64>,
@@ -4531,9 +4544,17 @@ enum DdsqlActions {
             help = "DDSQL query string, or use --query - to read from stdin"
         )]
         query: String,
-        #[arg(long, default_value = "1h", help = "Start time")]
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time. Formats: now, now-<duration> (e.g., now-24h), relative duration (e.g., 24h), RFC 3339 timestamp, Unix seconds, or Unix milliseconds"
+        )]
         from: String,
-        #[arg(long, default_value = "now", help = "End time")]
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time. Accepts the same formats as --from (e.g., now)"
+        )]
         to: String,
         #[arg(long, help = "Aggregation interval in milliseconds (default: 60000)")]
         interval: Option<i64>,
@@ -5046,6 +5067,16 @@ enum InfraHostActions {
 // ---- IDP (Internal Developer Portal) ----
 #[derive(Subcommand)]
 enum IdpActions {
+    /// Discover the kinds, fields, and relations available in the entity graph
+    Kinds {
+        #[command(subcommand)]
+        action: IdpKindsActions,
+    },
+    /// Query entities and traverse their relations
+    Entities {
+        #[command(subcommand)]
+        action: IdpEntitiesActions,
+    },
     /// Get full context summary with suggested next actions
     ///
     /// The flagship IDP command. Makes parallel API calls to return
@@ -5147,6 +5178,108 @@ enum IdpActions {
     MigrateSchema {
         /// Path to the YAML file (optional — auto-discovers *.datadog.yaml if omitted)
         file: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum IdpKindsActions {
+    /// List useful entity kinds, grouped by common agent workflows
+    ///
+    /// By default this returns a curated local index. Use --all to source the
+    /// inventory from the server, --include-custom for organization-defined
+    /// kinds, and --include-low-level for noisy infrastructure kinds.
+    ///
+    /// EXAMPLES:
+    ///   pup idp kinds list
+    ///   pup idp kinds list --all --include-custom
+    ///   pup idp kinds list --include-low-level --exclude-experimental
+    #[command(verbatim_doc_comment)]
+    List {
+        /// Source the filtered inventory from the live server instead of the curated index
+        #[arg(long)]
+        all: bool,
+        /// Include organization-defined idp_custom_entities.* kinds
+        #[arg(long)]
+        include_custom: bool,
+        /// Include low-level infrastructure kinds such as pods and containers
+        #[arg(long)]
+        include_low_level: bool,
+        /// Hide experimental integration and agent-native kinds
+        #[arg(long)]
+        exclude_experimental: bool,
+    },
+    /// Describe one entity kind's queryable fields and expandable relations
+    ///
+    /// Returns live schema details, supported operators, default fields,
+    /// examples, hints, and known caveats. Curated kinds fall back to local
+    /// guidance when the server's detail endpoint is unavailable.
+    ///
+    /// EXAMPLES:
+    ///   pup idp kinds describe service
+    ///   pup idp kinds describe integration.github.pull_request
+    ///   pup idp kinds describe service --no-examples
+    #[command(verbatim_doc_comment)]
+    Describe {
+        /// Entity kind, for example service, team, or integration.github.pull_request
+        kind: String,
+        /// Omit query examples from the response
+        #[arg(long)]
+        no_examples: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum IdpEntitiesActions {
+    /// Query entities using the Datadog entity graph DSL
+    ///
+    /// The query must select exactly one top-level kind with kind:<kind> or a
+    /// concrete ref:"ref:<kind>:<id>". Group alternatives beneath that shared
+    /// kind, for example: kind:service AND (owner:idp OR team:idp).
+    ///
+    /// Use --field for returned attributes and --include only for relations.
+    /// Discover valid names with `pup idp kinds describe <kind>`.
+    /// Results are normalized for agents by default; use --raw for the original
+    /// JSON:API response. Pagination is explicit through --cursor.
+    ///
+    /// EXAMPLES:
+    ///   pup idp entities query 'kind:service AND owner:payments'
+    ///   pup idp entities query 'kind:service AND name:*catalog*' --field name,owner,contacts
+    ///   pup idp entities query 'kind:team AND name:idp' --include users,owned_services
+    ///   pup idp entities query 'kind:incident AND state:active' --timeseries-interval 24h
+    #[command(verbatim_doc_comment)]
+    Query {
+        /// Entity graph query DSL expression
+        query: String,
+        /// Attributes to return (comma-separated or repeated)
+        #[arg(long, value_delimiter = ',')]
+        field: Vec<String>,
+        /// Relations to expand (comma-separated or repeated)
+        #[arg(long, value_delimiter = ',')]
+        include: Vec<String>,
+        /// Sort expression <field>[:asc|desc] (comma-separated or repeated)
+        #[arg(long, value_delimiter = ',')]
+        order_by: Vec<String>,
+        /// Maximum entities in this page (1-100)
+        #[arg(long, default_value_t = 25)]
+        limit: usize,
+        /// Cursor returned by the previous page
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Text matching mode: partial or fuzzy
+        #[arg(long, value_parser = ["partial", "fuzzy"])]
+        free_text_match: Option<String>,
+        /// Ask the API to return the total matching entity count
+        #[arg(long)]
+        include_total_count: bool,
+        /// Lookback for timeseries-backed calculated fields (for example 1h or 24h)
+        #[arg(long, default_value = "1h")]
+        timeseries_interval: String,
+        /// Maximum related entities sampled per expanded relation (1-100)
+        #[arg(long, default_value_t = 25)]
+        relation_limit: usize,
+        /// Return the original JSON:API response instead of normalized output
+        #[arg(long)]
+        raw: bool,
     },
 }
 
@@ -5483,11 +5616,11 @@ enum SecurityFindingActions {
         #[arg(long, short)]
         query: String,
 
-        /// Start time (default: 24h ago). Relative (e.g., 24h, 7d) or ISO 8601.
+        /// Start time. Formats: now, now-<duration> (e.g., now-24h), relative duration (e.g., 24h), RFC 3339 timestamp, Unix seconds, or Unix milliseconds.
         #[arg(long, default_value = "24h")]
         from: String,
 
-        /// End time (default: now). ISO 8601 or relative
+        /// End time. Accepts the same formats as --from (e.g., now).
         #[arg(long, default_value = "now")]
         to: String,
 
@@ -6212,7 +6345,12 @@ enum CaseNotificationRuleActions {
 #[derive(Subcommand)]
 enum ServiceCatalogActions {
     /// List services
-    List,
+    List {
+        #[arg(long, default_value_t = 10, help = "Results per page (max 100)")]
+        page_size: i64,
+        #[arg(long, default_value_t = 0, help = "Page number (0-indexed)")]
+        page_number: i64,
+    },
     /// Get service details
     Get { service_name: String },
 }
@@ -8520,12 +8658,6 @@ enum CostActions {
         #[command(subcommand)]
         action: CostCcmActions,
     },
-    /// Manage OCI (Oracle Cloud Infrastructure) cost configs
-    #[command(name = "oci-configs")]
-    OciConfigs {
-        #[command(subcommand)]
-        action: CostOciConfigsActions,
-    },
     /// Manage Cloud Cost Management anomalies
     Anomalies {
         #[command(subcommand)]
@@ -8957,13 +9089,6 @@ enum CostCcmCommitmentsActions {
         #[arg(long, help = "Tag filter (key:value syntax)")]
         filter_by: Option<String>,
     },
-}
-
-// ---- Cost OCI Configs ----
-#[derive(Subcommand)]
-enum CostOciConfigsActions {
-    /// List OCI cost configs
-    List,
 }
 
 // ---- Cost Anomalies ----
@@ -11319,8 +11444,8 @@ enum AuthActions {
         #[arg(long, value_name = "SITE")]
         site: Option<String>,
     },
-    /// Print access token (debug builds only)
-    #[cfg(debug_assertions)]
+    /// Print the current OAuth access token for credential-command integrations
+    #[cfg(not(target_arch = "wasm32"))]
     Token,
     /// Refresh access token
     Refresh,
@@ -11743,7 +11868,9 @@ fn build_compact_agent_schema(cmd: &clap::Command) -> serde_json::Value {
 
         let mut subs: Vec<serde_json::Value> = cmd
             .get_subcommands()
-            .filter(|s| s.get_name() != "help")
+            .filter(|s| {
+                s.get_name() != "help" && is_visible_in_agent_schema(&full_path, s.get_name())
+            })
             .map(|s| compact_cmd(s, &full_path))
             .collect();
         subs.sort_by(|a, b| {
@@ -11776,6 +11903,12 @@ fn build_compact_agent_schema(cmd: &clap::Command) -> serde_json::Value {
     root.insert("commands".into(), serde_json::Value::Array(commands));
 
     serde_json::Value::Object(root)
+}
+
+/// Keep commands that disclose credentials out of schemas presented to AI agents.
+/// They remain available in normal human help for explicit credential-command use.
+fn is_visible_in_agent_schema(parent_path: &str, name: &str) -> bool {
+    !(parent_path == "auth" && name == "token")
 }
 
 /// Returns true if a leaf subcommand name represents a write (mutating) operation.
@@ -11937,7 +12070,7 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
     // Subcommands — sorted alphabetically to match Go
     let mut subs: Vec<serde_json::Value> = cmd
         .get_subcommands()
-        .filter(|s| s.get_name() != "help")
+        .filter(|s| s.get_name() != "help" && is_visible_in_agent_schema(&full_path, s.get_name()))
         .map(|s| build_command_schema(s, &full_path))
         .collect();
     subs.sort_by(|a, b| {
@@ -11981,6 +12114,46 @@ mod test_agent_schema {
     fn schema_has_commands_array() {
         let schema = get_schema();
         assert!(schema.get("commands").and_then(|v| v.as_array()).is_some());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn auth_token_is_hidden_from_full_agent_schema() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        assert!(find_command(commands, &["auth", "token"]).is_none());
+        assert!(find_command(commands, &["auth", "status"]).is_some());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn auth_token_is_hidden_from_compact_agent_schema() {
+        let cmd = Cli::command();
+        let schema = build_compact_agent_schema(&cmd);
+        let commands = schema["commands"].as_array().unwrap();
+        assert!(find_command(commands, &["auth", "token"]).is_none());
+        assert!(find_command(commands, &["auth", "status"]).is_some());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn auth_token_is_hidden_from_scoped_agent_schema() {
+        let cmd = Cli::command();
+        let auth_cmd = cmd
+            .get_subcommands()
+            .find(|s| s.get_name() == "auth")
+            .expect("auth subcommand not found");
+        let schema = build_agent_schema_scoped(&cmd, auth_cmd, &["auth"]);
+        let commands = schema["commands"].as_array().unwrap();
+        assert!(find_command(commands, &["auth", "token"]).is_none());
+        assert!(find_command(commands, &["auth", "status"]).is_some());
+    }
+
+    #[test]
+    fn agent_schema_visibility_filter_is_narrow() {
+        assert!(!is_visible_in_agent_schema("auth", "token"));
+        assert!(is_visible_in_agent_schema("auth", "status"));
+        assert!(is_visible_in_agent_schema("other", "token"));
     }
 
     #[test]
@@ -14016,6 +14189,60 @@ async fn main_inner() -> anyhow::Result<()> {
         }
         // --- IDP (Internal Developer Portal) ---
         Commands::Idp { action } => match action {
+            IdpActions::Kinds { action } => match action {
+                IdpKindsActions::List {
+                    all,
+                    include_custom,
+                    include_low_level,
+                    exclude_experimental,
+                } => {
+                    commands::idp::list_kinds(
+                        &cfg,
+                        all,
+                        include_custom,
+                        include_low_level,
+                        exclude_experimental,
+                    )
+                    .await?;
+                }
+                IdpKindsActions::Describe { kind, no_examples } => {
+                    commands::idp::describe_kind(&cfg, &kind, no_examples).await?;
+                }
+            },
+            IdpActions::Entities { action } => match action {
+                IdpEntitiesActions::Query {
+                    query,
+                    field,
+                    include,
+                    order_by,
+                    limit,
+                    cursor,
+                    free_text_match,
+                    include_total_count,
+                    timeseries_interval,
+                    relation_limit,
+                    raw,
+                } => {
+                    cfg.validate_auth()?;
+                    commands::idp::query_entities(
+                        &cfg,
+                        commands::idp::EntityQueryOptions {
+                            query,
+                            fields: field,
+                            include,
+                            order_by,
+                            limit,
+                            cursor,
+                            free_text_match,
+                            include_total_count,
+                            timeseries_interval,
+                            relation_limit,
+                            raw,
+                        },
+                    )
+                    .await?;
+                }
+            },
             IdpActions::Assist { entity } => {
                 cfg.validate_auth()?;
                 commands::idp::assist(&cfg, &entity).await?;
@@ -14682,7 +14909,10 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::ServiceCatalog { action } => {
             cfg.validate_auth()?;
             match action {
-                ServiceCatalogActions::List => commands::service_catalog::list(&cfg).await?,
+                ServiceCatalogActions::List {
+                    page_size,
+                    page_number,
+                } => commands::service_catalog::list(&cfg, page_size, page_number).await?,
                 ServiceCatalogActions::Get { service_name } => {
                     commands::service_catalog::get(&cfg, &service_name).await?;
                 }
@@ -16527,9 +16757,6 @@ async fn main_inner() -> anyhow::Result<()> {
                         }
                     },
                 },
-                CostActions::OciConfigs { action } => match action {
-                    CostOciConfigsActions::List => commands::cost::oci_configs_list(&cfg).await?,
-                },
                 CostActions::Anomalies { action } => match action {
                     CostAnomaliesActions::List => commands::cost::anomalies_list(&cfg).await?,
                 },
@@ -16699,9 +16926,9 @@ async fn main_inner() -> anyhow::Result<()> {
                     limit,
                     from,
                     to,
-                    ..
+                    env,
                 } => {
-                    commands::apm::flow_map(&cfg, query, limit, from, to).await?;
+                    commands::apm::flow_map(&cfg, query, limit, from, to, env).await?;
                 }
                 ApmActions::Troubleshooting { action } => match action {
                     ApmTroubleshootingActions::List {
@@ -17365,7 +17592,7 @@ async fn main_inner() -> anyhow::Result<()> {
                 cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 commands::auth::status(&cfg)?
             }
-            #[cfg(debug_assertions)]
+            #[cfg(not(target_arch = "wasm32"))]
             AuthActions::Token => commands::auth::token(&cfg)?,
             AuthActions::Refresh => {
                 // Refresh POSTs the stored refresh token to cfg.site; gate it like

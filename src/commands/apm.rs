@@ -75,12 +75,27 @@ pub async fn flow_map(
     limit: i64,
     from: String,
     to: String,
+    env: Option<String>,
 ) -> Result<()> {
-    let from_ts = util_ext::parse_time_to_unix(&from)?;
-    let to_ts = util_ext::parse_time_to_unix(&to)?;
-    let path =
-        format!("/api/ui/apm/flow-map?query={query}&limit={limit}&start={from_ts}&end={to_ts}");
-    let data = raw_client::raw_get(cfg, &path, &[]).await?;
+    let from_ts = util_ext::parse_time_to_unix(&from)?.to_string();
+    let to_ts = util_ext::parse_time_to_unix(&to)?.to_string();
+    // The endpoint ignores a top-level env parameter, so fold env into the query.
+    let query = match env {
+        Some(env) => format!("{query} env:{env}"),
+        None => query,
+    };
+    let limit = limit.to_string();
+    let data = raw_client::raw_get(
+        cfg,
+        "/api/ui/apm/flow-map",
+        &[
+            ("query", query.as_str()),
+            ("limit", limit.as_str()),
+            ("from", from_ts.as_str()),
+            ("to", to_ts.as_str()),
+        ],
+    )
+    .await?;
     formatter::output(cfg, &data)
 }
 
@@ -503,6 +518,95 @@ mod tests {
             result.err()
         );
         mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_apm_flow_map_uses_from_to() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("GET", "/api/ui/apm/flow-map")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("query".into(), "service:web".into()),
+                mockito::Matcher::UrlEncoded("limit".into(), "100".into()),
+                mockito::Matcher::Regex("from=".into()),
+                mockito::Matcher::Regex("to=".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {}}"#)
+            .create_async()
+            .await;
+
+        let result = super::flow_map(
+            &cfg,
+            "service:web".into(),
+            100,
+            "1h".into(),
+            "now".into(),
+            None,
+        )
+        .await;
+        assert!(result.is_ok(), "flow_map failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_apm_flow_map_folds_env_into_query() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("GET", "/api/ui/apm/flow-map")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "query".into(),
+                "service:web env:prod".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": {}}"#)
+            .create_async()
+            .await;
+
+        let result = super::flow_map(
+            &cfg,
+            "service:web".into(),
+            100,
+            "1h".into(),
+            "now".into(),
+            Some("prod".into()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "flow_map with env failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_apm_flow_map_rejects_bad_time() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result = super::flow_map(
+            &cfg,
+            "service:web".into(),
+            100,
+            "not-a-time".into(),
+            "now".into(),
+            None,
+        )
+        .await;
+        assert!(result.is_err(), "expected invalid --from to error");
         cleanup_env();
     }
 

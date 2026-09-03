@@ -83,6 +83,23 @@ touch the shared client credentials.
 See [Multi-Org Support](#multi-org-support) for managing multiple named
 sessions side-by-side.
 
+### 5. Export an access token to a credential command
+
+Native Pup builds expose `pup auth token` for programs that integrate through a
+command-backed bearer-token interface:
+
+```bash
+pup auth token
+pup --org staging-child auth token
+```
+
+The command writes only the current access token and a trailing newline to
+stdout. It uses the normal `DD_ACCESS_TOKEN`-then-stored-OAuth precedence and
+refreshes an expired stored token automatically when possible. Diagnostics and
+errors are written to stderr. Treat stdout as a secret: do not record it in logs,
+terminal transcripts, or shell traces. This explicit export command is omitted
+from Pup's AI-agent command schemas and is not available in WASM builds.
+
 ## OAuth2 Flow Details
 
 ### Step-by-Step Process
@@ -224,6 +241,11 @@ commands. The list below is illustrative — see
 
 ### APM/Traces
 - `apm_read` - Read APM data and traces
+
+### IDP Entity Graph
+- `repo_info_read` - Read repository context connected to entities
+- `code_analysis_read` - Read code analysis context connected to entities
+- `appsec_vm_read` - Read application-security vulnerability context connected to entities
 
 ### SLOs
 - `slos_read` - Read SLOs

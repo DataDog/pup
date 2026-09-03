@@ -47,6 +47,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "apm_remote_configuration_read",
         "apm_service_catalog_read",
         "apm_service_ingest_read",
+        "appsec_vm_read",
         "apps_run",
         "audit_logs_read",
         "aws_configuration_read",
@@ -55,6 +56,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "cases_read",
         "ci_visibility_read",
         "cloud_cost_management_read",
+        "code_analysis_read",
         "code_coverage_read",
         "connections_read",
         "dora_metrics_read",
@@ -86,6 +88,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "oci_configuration_read",
         "on_call_read",
         "reference_tables_read",
+        "repo_info_read",
         "rum_apps_read",
         "rum_retention_filters_read",
         "rum_session_replay_read",
@@ -119,6 +122,8 @@ pub fn default_scopes() -> Vec<&'static str> {
         "apm_service_ingest_read",
         "apm_service_ingest_write",
         "apm_service_renaming_write",
+        // Entity graph security context
+        "appsec_vm_read",
         // App Builder
         "apps_run",
         "apps_write",
@@ -138,6 +143,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "cases_write",
         // CI Visibility
         "ci_visibility_read",
+        "code_analysis_read",
         "code_coverage_read",
         // Cloud Cost Management
         "ccm_budget_write",
@@ -230,6 +236,8 @@ pub fn default_scopes() -> Vec<&'static str> {
         // Reference Tables
         "reference_tables_read",
         "reference_tables_write",
+        // Entity graph repository context
+        "repo_info_read",
         // RUM
         // RUM
         "rum_apps_read",
@@ -340,6 +348,10 @@ mod tests {
         assert!(scopes.contains(&"on_call_write"));
         assert!(scopes.contains(&"aws_configuration_read"));
         assert!(scopes.contains(&"gcp_configuration_read"));
+        // Entity graph
+        assert!(scopes.contains(&"repo_info_read"));
+        assert!(scopes.contains(&"code_analysis_read"));
+        assert!(scopes.contains(&"appsec_vm_read"));
         // Workflows
         assert!(scopes.contains(&"workflows_read"));
         assert!(scopes.contains(&"workflows_run"));
@@ -426,6 +438,9 @@ mod tests {
         assert!(!ro.contains(&"telemetry_rules_create"));
         assert!(ro.contains(&"security_monitoring_cws_agent_rules_read"));
         assert!(ro.contains(&"telemetry_rules_read"));
+        assert!(ro.contains(&"repo_info_read"));
+        assert!(ro.contains(&"code_analysis_read"));
+        assert!(ro.contains(&"appsec_vm_read"));
         // connections_read is a ReadOnly-tier permission; connections_write
         // is intentionally opt-in (see --extra-scopes) and must not appear.
         assert!(ro.contains(&"connections_read"));

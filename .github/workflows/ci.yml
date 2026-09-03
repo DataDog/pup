@@ -81,6 +81,34 @@ jobs:
       - uses: ./.github/actions/install-musl-toolchain
       - name: Build x86_64 musl
         run: cargo build --release --target x86_64-unknown-linux-musl --features vendored-openssl
+      - name: Smoke test auth token credential command
+        run: |
+          set -euo pipefail
+          bin=target/x86_64-unknown-linux-musl/release/pup
+          expected_token=pup-ci-placeholder-token
+          config_dir="$(mktemp -d)"
+          trap 'rm -rf "$config_dir"' EXIT
+
+          test "$(DD_ACCESS_TOKEN="$expected_token" "$bin" --no-agent auth token)" = "$expected_token"
+          "$bin" --no-agent auth --help >"$config_dir/help"
+          grep -q '^  token' "$config_dir/help"
+          "$bin" completions zsh >"$config_dir/completions"
+          grep -q 'token:Print the current OAuth access token for credential-command integrations' "$config_dir/completions"
+          PUP_CONFIG_DIR="$config_dir" DD_TOKEN_STORAGE=file \
+            "$bin" --agent agent schema >"$config_dir/full-schema"
+          ! grep -q '"full_path": "auth token"' "$config_dir/full-schema"
+          PUP_CONFIG_DIR="$config_dir" DD_TOKEN_STORAGE=file \
+            "$bin" --agent agent schema --compact >"$config_dir/compact-schema"
+          ! grep -q '"full_path": "auth token"' "$config_dir/compact-schema"
+
+          if env -u DD_ACCESS_TOKEN -u DD_API_KEY -u DD_APP_KEY \
+            PUP_CONFIG_DIR="$config_dir" DD_TOKEN_STORAGE=file \
+            "$bin" --no-agent auth token >"$config_dir/stdout" 2>"$config_dir/stderr"; then
+            echo "ERROR: auth token succeeded without credentials"
+            exit 1
+          fi
+          test ! -s "$config_dir/stdout"
+          grep -q 'no token available' "$config_dir/stderr"
       - name: Verify x86_64 static linkage
         run: |
           file target/x86_64-unknown-linux-musl/release/pup

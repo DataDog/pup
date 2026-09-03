@@ -2,8 +2,8 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, Read};
-use std::time::Duration;
 
+use crate::commands::advanced_query;
 use crate::config::{Config, OutputFormat};
 use crate::formatter;
 use crate::raw_client;
@@ -614,37 +614,18 @@ fn build_fetch_request(base_body: &Value, query_id: &str) -> Value {
 /// endpoint until the query completes. When `command` is provided, it is appended
 /// to the User-Agent header for audit log differentiation.
 async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -> Result<Value> {
-    let ua = useragent::get_with_command(command);
-    let resp = raw_client::raw_post_with_ua(
+    let fetch_body = body.clone();
+    let user_agent = useragent::get_with_command(command);
+    advanced_query::execute(
         cfg,
         "/api/unstable/advanced/query/tabular",
-        body.clone(),
-        ua.clone(),
+        "/api/unstable/advanced/query/tabular/fetch",
+        body,
+        &user_agent,
+        extract_query_status,
+        move |query_id| build_fetch_request(&fetch_body, query_id),
     )
-    .await?;
-
-    let mut query_id = match extract_query_status(&resp)? {
-        None => return Ok(resp),
-        Some(id) => id,
-    };
-
-    loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let fetch_body = build_fetch_request(&body, &query_id);
-        let poll_resp = raw_client::raw_post_with_ua(
-            cfg,
-            "/api/unstable/advanced/query/tabular/fetch",
-            fetch_body,
-            ua.clone(),
-        )
-        .await?;
-
-        match extract_query_status(&poll_resp)? {
-            None => return Ok(poll_resp),
-            Some(id) => query_id = id,
-        }
-    }
+    .await
 }
 
 /// Build a request for the public DDSQL tabular query endpoint.
@@ -725,31 +706,17 @@ fn build_ddsql_fetch_request(query_id: &str) -> Value {
 
 /// Submit a public DDSQL query and poll until completion.
 async fn execute_ddsql_async_query(cfg: &Config, body: Value) -> Result<Value> {
-    let ua = useragent::get_with_command(None);
-    let resp =
-        raw_client::raw_post_with_ua(cfg, DDSQL_TABULAR_QUERY_PATH, body, ua.clone()).await?;
-
-    let mut query_id = match extract_ddsql_query_status(&resp)? {
-        None => return Ok(resp),
-        Some(id) => id,
-    };
-
-    loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let poll_resp = raw_client::raw_post_with_ua(
-            cfg,
-            DDSQL_TABULAR_QUERY_FETCH_PATH,
-            build_ddsql_fetch_request(&query_id),
-            ua.clone(),
-        )
-        .await?;
-
-        match extract_ddsql_query_status(&poll_resp)? {
-            None => return Ok(poll_resp),
-            Some(id) => query_id = id,
-        }
-    }
+    let user_agent = useragent::get_with_command(None);
+    advanced_query::execute(
+        cfg,
+        DDSQL_TABULAR_QUERY_PATH,
+        DDSQL_TABULAR_QUERY_FETCH_PATH,
+        body,
+        &user_agent,
+        extract_ddsql_query_status,
+        build_ddsql_fetch_request,
+    )
+    .await
 }
 
 /// Execute a public DDSQL query and return the result as a row-based JSON array.
@@ -1168,6 +1135,59 @@ mod tests {
         let rows = execute_ddsql_query(&cfg, "SELECT 1", "1700000000000", "1700003600000", None)
             .await
             .unwrap();
+
+        assert_eq!(rows, json!([{"value": "done"}]));
+        execute.assert_async().await;
+        fetch.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_execute_advanced_query_uses_shared_async_client() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let user_agent = useragent::get_with_command(Some("security-findings-analyze"));
+
+        let execute = server
+            .mock("POST", "/api/unstable/advanced/query/tabular")
+            .match_header("user-agent", user_agent.as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"data":[],"meta":{"queries":[{"status":"running","query_id":"advanced-query-id"}]}}"#,
+            )
+            .create_async()
+            .await;
+        let fetch = server
+            .mock("POST", "/api/unstable/advanced/query/tabular/fetch")
+            .match_header("user-agent", user_agent.as_str())
+            .match_body(mockito::Matcher::PartialJson(json!({
+                "data": {
+                    "type": "advanced_query_fetch_request",
+                    "attributes": {
+                        "query_id": "advanced-query-id"
+                    }
+                }
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"data":[{"attributes":{"columns":[{"name":"value","values":["done"]}]}}],"meta":{"queries":[{"status":"done"}]}}"#,
+            )
+            .create_async()
+            .await;
+
+        let rows = execute_ddsql_query_with_command(
+            &cfg,
+            "SELECT 1",
+            "1700000000000",
+            "1700003600000",
+            None,
+            Some("security-findings-analyze"),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(rows, json!([{"value": "done"}]));
         execute.assert_async().await;

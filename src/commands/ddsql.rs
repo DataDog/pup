@@ -888,6 +888,35 @@ mod tests {
     }
 
     #[test]
+    fn test_ddsql_builders_accept_mcp_compatible_relative_time() {
+        let public = build_ddsql_table_request("SELECT 1", "now-24h", "now", None).unwrap();
+        let security = build_advanced_table_request("SELECT 1", "now-24h", "now", None).unwrap();
+        let now_ms = chrono::Utc::now().timestamp() * 1000;
+
+        for (from, to) in [
+            (
+                public["data"]["attributes"]["time"]["from_timestamp"]
+                    .as_i64()
+                    .unwrap(),
+                public["data"]["attributes"]["time"]["to_timestamp"]
+                    .as_i64()
+                    .unwrap(),
+            ),
+            (
+                security["data"]["attributes"]["query"]["time_window"]["from"]
+                    .as_i64()
+                    .unwrap(),
+                security["data"]["attributes"]["query"]["time_window"]["to"]
+                    .as_i64()
+                    .unwrap(),
+            ),
+        ] {
+            assert!((from - (now_ms - 24 * 60 * 60 * 1000)).abs() < 2000);
+            assert!((to - now_ms).abs() < 2000);
+        }
+    }
+
+    #[test]
     fn test_build_ddsql_table_request_v2_shape() {
         let query =
             "SELECT * FROM dd.metrics_timeseries('avg:test{*}', 1699913600000, 1700000000000)";

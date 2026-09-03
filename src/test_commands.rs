@@ -286,6 +286,33 @@ fn test_read_only_allows_skills_remote_reads() {
 // Auth status --site flag
 // -------------------------------------------------------------------------
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_auth_token_parses_and_appears_in_human_help() {
+    use clap::Parser;
+
+    let cli = crate::Cli::try_parse_from(["pup", "auth", "token"])
+        .expect("auth token should parse in native builds");
+    assert!(matches!(
+        cli.command,
+        crate::Commands::Auth {
+            action: crate::AuthActions::Token
+        }
+    ));
+
+    let help = crate::Cli::command()
+        .find_subcommand("auth")
+        .expect("auth command should exist")
+        .clone()
+        .render_long_help()
+        .to_string();
+    assert!(
+        help.lines()
+            .any(|line| line.split_whitespace().next() == Some("token")),
+        "auth token missing from help: {help}"
+    );
+}
+
 #[test]
 fn test_auth_status_accepts_site_flag() {
     use clap::Parser;
@@ -536,6 +563,48 @@ fn test_ddsql_table_query_requires_explicit_value() {
         result.is_err(),
         "expected ddsql table --query to require a value"
     );
+}
+
+#[test]
+fn test_ddsql_time_help_documents_supported_formats() {
+    let root = crate::Cli::command();
+    let table_help = root
+        .find_subcommand("ddsql")
+        .unwrap()
+        .find_subcommand("table")
+        .unwrap()
+        .clone()
+        .render_long_help()
+        .to_string();
+    let security_help = root
+        .find_subcommand("security")
+        .unwrap()
+        .find_subcommand("findings")
+        .unwrap()
+        .find_subcommand("analyze")
+        .unwrap()
+        .clone()
+        .render_long_help()
+        .to_string();
+
+    for (command, help) in [
+        ("ddsql table", table_help),
+        ("security findings analyze", security_help),
+    ] {
+        for expected in [
+            "now-<duration>",
+            "now-24h",
+            "relative duration",
+            "RFC 3339 timestamp",
+            "Unix seconds",
+            "Unix milliseconds",
+        ] {
+            assert!(
+                help.contains(expected),
+                "{command} help is missing {expected:?}: {help}"
+            );
+        }
+    }
 }
 
 // -------------------------------------------------------------------------

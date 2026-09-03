@@ -521,7 +521,10 @@ fn build_non_oauth_status(cfg: &Config) -> (String, serde_json::Value) {
     }
 }
 
-#[cfg(debug_assertions)]
+/// Print only the current OAuth access token for an explicit credential-command
+/// integration. Config loading has already applied environment/session precedence
+/// and refreshed an expired stored token when possible.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn token(cfg: &Config) -> Result<()> {
     if let Some(token) = &cfg.access_token {
         println!("{token}");

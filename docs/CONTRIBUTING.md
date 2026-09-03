@@ -345,7 +345,9 @@ See [TESTING.md](TESTING.md) for detailed testing guidelines.
 **OAuth2 Security:**
 - Use PKCE S256 for code challenge
 - Validate state parameter to prevent CSRF
-- Never log or print access/refresh tokens
+- Never log or print access/refresh tokens, except for the explicit
+  `pup auth token` credential-export command, which prints only the access token
+  to stdout and keeps diagnostics on stderr
 - Use OS keychain for primary token storage
 - Restrict fallback file-storage permissions to `0600`
 

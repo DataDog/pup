@@ -15,6 +15,9 @@ pup --site=datadoghq.eu auth login
 # Check authentication status
 pup auth status
 
+# Print the current OAuth access token for a command-backed integration
+pup auth token
+
 # Logout
 pup auth logout
 ```

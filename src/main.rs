@@ -4518,10 +4518,14 @@ enum DdsqlActions {
         #[arg(
             long,
             default_value = "1h",
-            help = "Start time (e.g., 1h, 30m, 7d, now, unix timestamp)"
+            help = "Start time. Formats: now, now-<duration> (e.g., now-24h), relative duration (e.g., 24h), RFC 3339 timestamp, Unix seconds, or Unix milliseconds"
         )]
         from: String,
-        #[arg(long, default_value = "now", help = "End time")]
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time. Accepts the same formats as --from (e.g., now)"
+        )]
         to: String,
         #[arg(long, help = "Aggregation interval in milliseconds (default: 60000)")]
         interval: Option<i64>,
@@ -5581,11 +5585,11 @@ enum SecurityFindingActions {
         #[arg(long, short)]
         query: String,
 
-        /// Start time (default: 24h ago). Relative (e.g., 24h, 7d) or ISO 8601.
+        /// Start time. Formats: now, now-<duration> (e.g., now-24h), relative duration (e.g., 24h), RFC 3339 timestamp, Unix seconds, or Unix milliseconds.
         #[arg(long, default_value = "24h")]
         from: String,
 
-        /// End time (default: now). ISO 8601 or relative
+        /// End time. Accepts the same formats as --from (e.g., now).
         #[arg(long, default_value = "now")]
         to: String,
 
@@ -11409,8 +11413,8 @@ enum AuthActions {
         #[arg(long, value_name = "SITE")]
         site: Option<String>,
     },
-    /// Print access token (debug builds only)
-    #[cfg(debug_assertions)]
+    /// Print the current OAuth access token for credential-command integrations
+    #[cfg(not(target_arch = "wasm32"))]
     Token,
     /// Refresh access token
     Refresh,
@@ -11833,7 +11837,9 @@ fn build_compact_agent_schema(cmd: &clap::Command) -> serde_json::Value {
 
         let mut subs: Vec<serde_json::Value> = cmd
             .get_subcommands()
-            .filter(|s| s.get_name() != "help")
+            .filter(|s| {
+                s.get_name() != "help" && is_visible_in_agent_schema(&full_path, s.get_name())
+            })
             .map(|s| compact_cmd(s, &full_path))
             .collect();
         subs.sort_by(|a, b| {
@@ -11866,6 +11872,12 @@ fn build_compact_agent_schema(cmd: &clap::Command) -> serde_json::Value {
     root.insert("commands".into(), serde_json::Value::Array(commands));
 
     serde_json::Value::Object(root)
+}
+
+/// Keep commands that disclose credentials out of schemas presented to AI agents.
+/// They remain available in normal human help for explicit credential-command use.
+fn is_visible_in_agent_schema(parent_path: &str, name: &str) -> bool {
+    !(parent_path == "auth" && name == "token")
 }
 
 /// Returns true if a leaf subcommand name represents a write (mutating) operation.
@@ -12027,7 +12039,7 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
     // Subcommands — sorted alphabetically to match Go
     let mut subs: Vec<serde_json::Value> = cmd
         .get_subcommands()
-        .filter(|s| s.get_name() != "help")
+        .filter(|s| s.get_name() != "help" && is_visible_in_agent_schema(&full_path, s.get_name()))
         .map(|s| build_command_schema(s, &full_path))
         .collect();
     subs.sort_by(|a, b| {
@@ -12071,6 +12083,46 @@ mod test_agent_schema {
     fn schema_has_commands_array() {
         let schema = get_schema();
         assert!(schema.get("commands").and_then(|v| v.as_array()).is_some());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn auth_token_is_hidden_from_full_agent_schema() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        assert!(find_command(commands, &["auth", "token"]).is_none());
+        assert!(find_command(commands, &["auth", "status"]).is_some());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn auth_token_is_hidden_from_compact_agent_schema() {
+        let cmd = Cli::command();
+        let schema = build_compact_agent_schema(&cmd);
+        let commands = schema["commands"].as_array().unwrap();
+        assert!(find_command(commands, &["auth", "token"]).is_none());
+        assert!(find_command(commands, &["auth", "status"]).is_some());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn auth_token_is_hidden_from_scoped_agent_schema() {
+        let cmd = Cli::command();
+        let auth_cmd = cmd
+            .get_subcommands()
+            .find(|s| s.get_name() == "auth")
+            .expect("auth subcommand not found");
+        let schema = build_agent_schema_scoped(&cmd, auth_cmd, &["auth"]);
+        let commands = schema["commands"].as_array().unwrap();
+        assert!(find_command(commands, &["auth", "token"]).is_none());
+        assert!(find_command(commands, &["auth", "status"]).is_some());
+    }
+
+    #[test]
+    fn agent_schema_visibility_filter_is_narrow() {
+        assert!(!is_visible_in_agent_schema("auth", "token"));
+        assert!(is_visible_in_agent_schema("auth", "status"));
+        assert!(is_visible_in_agent_schema("other", "token"));
     }
 
     #[test]
@@ -17500,7 +17552,7 @@ async fn main_inner() -> anyhow::Result<()> {
                 cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 commands::auth::status(&cfg)?
             }
-            #[cfg(debug_assertions)]
+            #[cfg(not(target_arch = "wasm32"))]
             AuthActions::Token => commands::auth::token(&cfg)?,
             AuthActions::Refresh => {
                 // Refresh POSTs the stored refresh token to cfg.site; gate it like

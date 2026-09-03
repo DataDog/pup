@@ -1143,10 +1143,14 @@ enum Commands {
     ///   pup ddsql schema tables --query ec2 --limit 100
     ///   pup ddsql schema columns --table-id public.aws.ec2_instance
     ///
-    /// PAGINATION AND GRANULARITY:
+    /// PAGINATION:
     ///   Write OFFSET n LIMIT m in SQL to paginate deterministic, ordered results.
+    ///   Results will be capped at 5000 rows. Extend this up to 10000 with --limit;
+    ///   paginate to retrieve more than 10000 rows.
+    ///
+    /// TIME WINDOW:
     ///   Set the query-wide time window with --from/--to. Override it per source with
-    ///   table-function timestamp arguments. A WHERE time filter does not change source granularity.
+    ///   table-function timestamp arguments. A WHERE time filter does not change the source window.
     ///
     /// AUTHENTICATION:
     ///   All ddsql commands support OAuth2 (via 'pup auth login') or API key + Application key.
@@ -4531,7 +4535,11 @@ enum DdsqlActions {
             help = "End time. Accepts the same formats as --from (e.g., now)"
         )]
         to: String,
-        #[arg(long, default_value_t = 50, help = "Maximum number of rows to return")]
+        #[arg(
+            long,
+            default_value_t = 5000,
+            help = "API response row cap (1-10000); use SQL LIMIT to bound query results"
+        )]
         limit: i32,
     },
     /// Print DDSQL reference guidance from the editor tooling

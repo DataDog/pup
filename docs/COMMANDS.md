@@ -177,7 +177,7 @@ pup infrastructure hosts list
 - **traces** - APM spans metrics (list, get, create, update, delete)
 - **rum** - Real User Monitoring (apps, metrics, retention-filters, sessions)
 - **events** - Infrastructure events (post, list, search, get)
-- **ddsql** - DDSQL queries and discovery (table, spec, schema). Paginate deterministic, ordered results with `OFFSET n LIMIT m` in SQL. Control granularity with the query-wide `--from`/`--to` window or per-source table-function timestamp arguments; a `WHERE` time filter only filters existing buckets.
+- **ddsql** - DDSQL queries and discovery (table, spec, schema)
 - **symdb** - Symbol Database queries (search scopes, probe locations)
 
 ### Monitoring & Alerting

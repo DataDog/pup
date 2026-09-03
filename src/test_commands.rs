@@ -557,13 +557,11 @@ fn test_ddsql_table_query_accepts_explicit_stdin_marker() {
 }
 
 #[test]
-fn test_ddsql_table_accepts_limit() {
+fn test_ddsql_table_uses_api_row_limit_default() {
     use clap::Parser;
 
-    let cli = crate::Cli::try_parse_from([
-        "pup", "ddsql", "table", "--query", "SELECT 1", "--limit", "5000",
-    ])
-    .expect("ddsql table should accept a row limit");
+    let cli = crate::Cli::try_parse_from(["pup", "ddsql", "table", "--query", "SELECT 1"])
+        .expect("ddsql table should parse");
 
     match cli.command {
         crate::Commands::Ddsql { action } => match action {
@@ -575,36 +573,21 @@ fn test_ddsql_table_accepts_limit() {
 }
 
 #[test]
-fn test_ddsql_table_rejects_removed_interval_and_offset_flags() {
-    for (flag, value) in [("--interval", "60000"), ("--offset", "5")] {
-        let err = crate::Cli::command()
-            .try_get_matches_from(["pup", "ddsql", "table", "--query", "SELECT 1", flag, value])
-            .expect_err("removed ddsql table flag should not parse");
+fn test_ddsql_table_accepts_limit_override() {
+    use clap::Parser;
 
-        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
-        assert!(err.to_string().contains(flag));
+    let cli = crate::Cli::try_parse_from([
+        "pup", "ddsql", "table", "--query", "SELECT 1", "--limit", "10000",
+    ])
+    .expect("ddsql table should accept a row limit override");
+
+    match cli.command {
+        crate::Commands::Ddsql { action } => match action {
+            crate::DdsqlActions::Table { limit, .. } => assert_eq!(limit, 10000),
+            _ => panic!("expected DdsqlActions::Table"),
+        },
+        _ => panic!("expected Commands::Ddsql"),
     }
-}
-
-#[test]
-fn test_ddsql_help_omits_removed_interval_and_offset_flags() {
-    let mut command = crate::Cli::command();
-    let ddsql = command
-        .find_subcommand_mut("ddsql")
-        .expect("ddsql command should exist");
-    let ddsql_help = ddsql.render_long_help().to_string();
-    let table_help = ddsql
-        .find_subcommand_mut("table")
-        .expect("ddsql table command should exist")
-        .render_long_help()
-        .to_string();
-
-    for removed_flag in ["--interval", "--offset"] {
-        assert!(!ddsql_help.contains(removed_flag));
-        assert!(!table_help.contains(removed_flag));
-    }
-    assert!(ddsql_help.contains("OFFSET n LIMIT m"));
-    assert!(ddsql_help.contains("--from/--to"));
 }
 
 #[test]

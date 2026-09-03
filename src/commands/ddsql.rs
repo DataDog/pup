@@ -793,19 +793,6 @@ pub async fn table(
     formatter::output(cfg, &rows)
 }
 
-pub async fn time_series(
-    cfg: &Config,
-    query: &str,
-    from: &str,
-    to: &str,
-    _interval: Option<i64>,
-    limit: i32,
-) -> Result<()> {
-    let query = resolve_query(query)?;
-    let rows = execute_ddsql_query(cfg, &query, from, to, Some(i64::from(limit))).await?;
-    formatter::output(cfg, &rows)
-}
-
 /// Transform a DDSQL columnar response into a row-based JSON array.
 ///
 /// Each column is `{"name": "col1", "values": ["a", "b"]}` under the

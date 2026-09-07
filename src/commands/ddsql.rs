@@ -788,7 +788,7 @@ pub async fn table(
 ) -> Result<()> {
     let query = resolve_query(query)?;
     let rows = execute_ddsql_query(cfg, &query, from, to, limit.map(i64::from)).await?;
-    formatter::output(cfg, &rows)
+    formatter::output_preserving_order(cfg, &rows)
 }
 
 /// Transform a DDSQL columnar response into a row-based JSON array.
@@ -1304,6 +1304,28 @@ mod tests {
                 {"host": "h2", "cpu": 20}
             ])
         );
+    }
+
+    #[test]
+    fn test_columnar_to_rows_preserves_public_query_column_order() {
+        let resp: Value = serde_json::from_str(
+            r#"{"data":{"attributes":{"state":"completed","columns":[
+                {"name":"zebra","type":"BIGINT","values":[1]},
+                {"name":"alpha","type":"BIGINT","values":[2]},
+                {"name":"middle","type":"BIGINT","values":[3]}
+            ]},"id":"query-response","type":"ddsql_query_response"},
+            "meta":{"elapsed":1,"request_id":"request-id"}}"#,
+        )
+        .unwrap();
+
+        let rows = columnar_to_rows(&resp).unwrap();
+        let keys: Vec<_> = rows[0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, vec!["zebra", "alpha", "middle"]);
     }
 
     #[test]

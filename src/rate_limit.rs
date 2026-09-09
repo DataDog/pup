@@ -10,7 +10,7 @@ use anyhow::Result;
 use reqwest::header::HeaderMap;
 
 use crate::config::OutputFormat;
-use crate::formatter;
+use crate::formatter_ext;
 
 thread_local! {
     static VERBOSE_ENABLED: Cell<bool> = const { Cell::new(false) };
@@ -148,7 +148,7 @@ pub fn eprint_verbose_response(format: &OutputFormat, agent_mode: bool) -> Resul
     if info.is_empty() {
         return Ok(());
     }
-    formatter::eprint_formatted(&info.to_json_value(), format, agent_mode)
+    formatter_ext::eprint_formatted(&info.to_json_value(), format, agent_mode)
 }
 
 /// Returns true when `err` represents an HTTP 429 rate-limit failure.
@@ -315,7 +315,7 @@ mod tests {
             remaining: Some("999".into()),
             ..Default::default()
         }));
-        let rendered = formatter::format_value_to_string(
+        let rendered = formatter_ext::format_value_to_string(
             &RateLimitInfo {
                 name: Some("get_all_monitors".into()),
                 limit: Some("1000".into()),
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_eprint_verbose_response_table() {
-        let rendered = formatter::format_value_to_string(
+        let rendered = formatter_ext::format_value_to_string(
             &RateLimitInfo {
                 name: Some("logs_public_search_api".into()),
                 limit: Some("10".into()),

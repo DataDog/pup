@@ -14,7 +14,7 @@ fn parse_kv(s: &str) -> Result<(String, String)> {
 }
 
 /// Parse `key:value` into (key, value). Splits on the first `:` only.
-fn parse_header_str(s: &str) -> Result<(String, String)> {
+pub(crate) fn parse_header_str(s: &str) -> Result<(String, String)> {
     let pos = s
         .find(':')
         .ok_or_else(|| anyhow::anyhow!("expected KEY:VALUE, got {s:?}"))?;

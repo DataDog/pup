@@ -35,8 +35,13 @@ impl std::error::Error for HttpError {}
 // return deeply-nested flame-graph trees that exceed it. serde_stacker grows
 // the thread stack on demand so disabling the limit can't blow it.
 async fn parse_response_json(resp: reqwest::Response) -> anyhow::Result<serde_json::Value> {
-    use serde::Deserialize;
     let bytes = resp.bytes().await?;
+    parse_json_bytes(&bytes)
+}
+
+fn parse_json_bytes(bytes: &[u8]) -> anyhow::Result<serde_json::Value> {
+    use serde::Deserialize;
+
     // Some endpoints return a success status (e.g. 200) with an empty body, such
     // as GET /api/v2/on-call/pages/{id} which responds with content-length: 0.
     // Treat an empty or whitespace-only body as JSON null rather than failing
@@ -44,7 +49,7 @@ async fn parse_response_json(resp: reqwest::Response) -> anyhow::Result<serde_js
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(serde_json::Value::Null);
     }
-    let mut de = serde_json::Deserializer::from_slice(&bytes);
+    let mut de = serde_json::Deserializer::from_slice(bytes);
     de.disable_recursion_limit();
     let de = serde_stacker::Deserializer::new(&mut de);
     Ok(serde_json::Value::deserialize(de)?)
@@ -419,33 +424,28 @@ pub async fn raw_get(
     path: &str,
     query: &[(&str, &str)],
 ) -> anyhow::Result<serde_json::Value> {
-    let url = format!("{}{}", cfg.api_base_url(), path);
-    let client = reqwest::Client::new();
-    let mut req = client.get(&url);
+    raw_get_with_headers(cfg, path, query, &[]).await
+}
 
-    req = apply_auth(req, cfg, "GET", path)?;
-
-    if !query.is_empty() {
-        req = req.query(query);
-    }
-
-    let resp = req
-        .header("Accept", "application/json")
-        .header("User-Agent", useragent::get())
-        .send()
-        .await?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(HttpError {
-            status: status.as_u16(),
-            method: "GET".into(),
-            url,
-            body,
-        }
-        .into());
-    }
-    parse_response_json(resp).await
+/// Makes an authenticated GET request with additional caller-supplied headers.
+pub async fn raw_get_with_headers(
+    cfg: &Config,
+    path: &str,
+    query: &[(&str, &str)],
+    extra_headers: &[(&str, &str)],
+) -> anyhow::Result<serde_json::Value> {
+    let response = raw_request(
+        cfg,
+        "GET",
+        path,
+        query,
+        None,
+        None,
+        "application/json",
+        extra_headers,
+    )
+    .await?;
+    parse_json_bytes(&response.bytes)
 }
 
 /// Makes an authenticated PATCH request directly via reqwest.

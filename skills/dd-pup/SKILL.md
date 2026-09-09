@@ -249,6 +249,7 @@ pup llm-obs experiments update <experiment-id> --file experiment.json
 pup llm-obs experiments delete --file delete-request.json
 pup llm-obs datasets list --project-id <project-id>
 pup llm-obs datasets create --project-id <project-id> --file dataset.json
+pup llm-obs annotations export --queue <queue-id-or-name> --interaction-id <interaction-id>
 ```
 
 ### Reference Tables
@@ -324,4 +325,3 @@ pup auth status
 | EU1 | `datadoghq.eu` |
 | AP1 | `ap1.datadoghq.com` |
 | US1-FED | `ddog-gov.com` |
-

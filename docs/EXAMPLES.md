@@ -46,6 +46,12 @@ pup llm-obs annotations export \
   --interaction-id 23851556-a8c7-41c1-be75-03eb665a132f \
   --out interaction.jsonl \
   --format jsonl
+
+# Route every queue lookup and pagination request through a Rapid test drive
+pup llm-obs annotations export \
+  --queue 13851556-a8c7-41c1-be75-03eb665a132f \
+  --interaction-id 23851556-a8c7-41c1-be75-03eb665a132f \
+  --header 'test-drive-scion-s60: 1'
 ```
 
 ## Metrics

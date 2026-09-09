@@ -21,6 +21,10 @@ fn test_llm_obs_annotations_export_parses() {
         "quality-review",
         "--interaction-id",
         "23851556-a8c7-41c1-be75-03eb665a132f",
+        "-H",
+        "test-drive-scion-s60: 1",
+        "--header",
+        "x-request-id: export-test",
         "--format",
         "jsonl",
         "--out",
@@ -38,12 +42,17 @@ fn test_llm_obs_annotations_export_parses() {
     let crate::LlmObsAnnotationsActions::Export {
         queue,
         interaction_id,
+        header,
         format,
         out,
         force,
     } = action;
     assert_eq!(queue, "quality-review");
     assert_eq!(interaction_id, "23851556-a8c7-41c1-be75-03eb665a132f");
+    assert_eq!(
+        header,
+        ["test-drive-scion-s60: 1", "x-request-id: export-test"]
+    );
     assert_eq!(format.as_deref(), Some("jsonl"));
     assert_eq!(out.as_deref(), Some("interaction.jsonl"));
     assert!(force);

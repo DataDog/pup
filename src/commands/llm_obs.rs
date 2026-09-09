@@ -17,9 +17,8 @@ use crate::util;
 use crate::util_ext;
 
 use std::collections::HashSet;
-use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn make_api(cfg: &Config) -> AgentObservabilityAPI {
     crate::make_api!(AgentObservabilityAPI, cfg)
@@ -615,6 +614,8 @@ struct InteractionDataPage {
     interaction_type: String,
     events: Vec<serde_json::Value>,
     #[serde(default)]
+    content: Option<serde_json::Value>,
+    #[serde(default)]
     next_cursor: Option<String>,
 }
 
@@ -660,7 +661,11 @@ fn select_annotation_queue_id(response: &serde_json::Value, queue: &str) -> Resu
     }
 }
 
-async fn resolve_annotation_queue_id(cfg: &Config, queue: &str) -> Result<String> {
+async fn resolve_annotation_queue_id(
+    cfg: &Config,
+    queue: &str,
+    headers: &[(&str, &str)],
+) -> Result<String> {
     if uuid::Uuid::parse_str(queue).is_ok() {
         return Ok(queue.to_string());
     }
@@ -668,9 +673,14 @@ async fn resolve_annotation_queue_id(cfg: &Config, queue: &str) -> Result<String
         anyhow::bail!("--queue cannot be empty");
     }
 
-    let response = raw_client::raw_get(cfg, "/api/v2/llm-obs/v1/annotation-queues", &[])
-        .await
-        .map_err(|e| {
+    let response = raw_client::raw_get_with_headers(
+        cfg,
+        "/api/v2/llm-obs/v1/annotation-queues",
+        &[],
+        headers,
+    )
+    .await
+    .map_err(|e| {
             anyhow::anyhow!(
                 "failed to resolve annotation queue '{queue}'; ensure the caller has the llm_observability_read scope and access to the queue: {e:?}"
             )
@@ -681,6 +691,7 @@ async fn resolve_annotation_queue_id(cfg: &Config, queue: &str) -> Result<String
 fn merge_annotated_interaction_page(
     annotated_interaction: &mut Option<serde_json::Value>,
     interaction_type: &mut Option<String>,
+    interaction_content: &mut Option<serde_json::Value>,
     events: &mut Vec<serde_json::Value>,
     page: AnnotatedInteractionDataPage,
 ) -> Result<Option<String>> {
@@ -698,6 +709,15 @@ fn merge_annotated_interaction_page(
     } else {
         *interaction_type = Some(page.interaction_data.interaction_type);
     }
+    if let Some(content) = page.interaction_data.content {
+        if let Some(existing) = interaction_content.as_ref() {
+            if existing != &content {
+                anyhow::bail!("interaction content changed while the export was being fetched");
+            }
+        } else {
+            *interaction_content = Some(content);
+        }
+    }
 
     events.extend(page.interaction_data.events);
     Ok(page
@@ -710,6 +730,7 @@ async fn fetch_annotated_interaction_export(
     cfg: &Config,
     queue_id: &str,
     interaction_id: &str,
+    headers: &[(&str, &str)],
 ) -> Result<serde_json::Value> {
     let path = format!(
         "/api/v2/llm-obs/v1/annotation-queues/{queue_id}/annotated-interactions/{interaction_id}"
@@ -718,6 +739,7 @@ async fn fetch_annotated_interaction_export(
     let mut seen_cursors = HashSet::new();
     let mut annotated_interaction: Option<serde_json::Value> = None;
     let mut interaction_type: Option<String> = None;
+    let mut interaction_content: Option<serde_json::Value> = None;
     let mut events = Vec::new();
 
     loop {
@@ -725,7 +747,7 @@ async fn fetch_annotated_interaction_export(
         if let Some(ref value) = cursor {
             query.push(("cursor", value.as_str()));
         }
-        let response = raw_client::raw_get(cfg, &path, &query)
+        let response = raw_client::raw_get_with_headers(cfg, &path, &query, headers)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(
@@ -736,6 +758,7 @@ async fn fetch_annotated_interaction_export(
         let Some(next_cursor) = merge_annotated_interaction_page(
             &mut annotated_interaction,
             &mut interaction_type,
+            &mut interaction_content,
             &mut events,
             page,
         )?
@@ -748,14 +771,19 @@ async fn fetch_annotated_interaction_export(
         cursor = Some(next_cursor);
     }
 
+    let mut interaction_data = serde_json::json!({
+        "type": interaction_type
+            .ok_or_else(|| anyhow::anyhow!("response did not contain an interaction type"))?,
+        "events": events,
+    });
+    if let Some(content) = interaction_content {
+        interaction_data["content"] = content;
+    }
+
     Ok(serde_json::json!({
         "annotated_interaction": annotated_interaction
             .ok_or_else(|| anyhow::anyhow!("response did not contain an annotated interaction"))?,
-        "interaction_data": {
-            "type": interaction_type
-                .ok_or_else(|| anyhow::anyhow!("response did not contain an interaction type"))?,
-            "events": events,
-        },
+        "interaction_data": interaction_data,
     }))
 }
 
@@ -785,70 +813,74 @@ fn serialize_annotation_export(value: &serde_json::Value, format: &str) -> Resul
     Ok(bytes)
 }
 
-fn temporary_export_path(path: &Path, attempt: u8) -> Result<PathBuf> {
-    let name = path
+fn write_annotation_export(path: &Path, bytes: &[u8], force: bool) -> Result<()> {
+    let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow::anyhow!("output path must name a file"))?;
-    Ok(path.with_file_name(format!(".{name}.pup-{}-{attempt}.tmp", std::process::id())))
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temporary = tempfile::Builder::new()
+        .prefix(&format!(".{file_name}.pup-"))
+        .tempfile_in(parent)
+        .map_err(|e| anyhow::anyhow!("failed to create export beside '{}': {e}", path.display()))?;
+
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+
+    let result = if force {
+        temporary.persist(path)
+    } else {
+        temporary.persist_noclobber(path)
+    };
+    match result {
+        Ok(_) => Ok(()),
+        Err(error) if !force && error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            anyhow::bail!(
+                "output file '{}' already exists; pass --force to overwrite it",
+                path.display()
+            )
+        }
+        Err(error) => Err(anyhow::anyhow!(
+            "failed to write export '{}': {}",
+            path.display(),
+            error.error
+        )),
+    }
 }
 
-fn write_annotation_export(path: &Path, bytes: &[u8], force: bool) -> Result<()> {
-    if path.exists() && !force {
-        anyhow::bail!(
-            "output file '{}' already exists; pass --force to overwrite it",
-            path.display()
-        );
-    }
+fn validate_annotation_export_headers(headers: &[(String, String)]) -> Result<()> {
+    const PROTECTED_HEADERS: &[&str] = &[
+        "accept",
+        "authorization",
+        "connection",
+        "content-length",
+        "dd-api-key",
+        "dd-application-key",
+        "host",
+        "proxy-authorization",
+        "transfer-encoding",
+        "user-agent",
+    ];
 
-    let mut temporary = None;
-    for attempt in 0..100 {
-        let candidate = temporary_export_path(path, attempt)?;
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
+    for (name, _) in headers {
+        if PROTECTED_HEADERS
+            .iter()
+            .any(|protected| name.eq_ignore_ascii_case(protected))
         {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        match options.open(&candidate) {
-            Ok(file) => {
-                temporary = Some((candidate, file));
-                break;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => {
-                return Err(anyhow::anyhow!(
-                    "failed to create export beside '{}': {error}",
-                    path.display()
-                ))
-            }
+            anyhow::bail!("--header cannot set protected header '{name}'");
         }
     }
-    let (temporary_path, mut file) =
-        temporary.ok_or_else(|| anyhow::anyhow!("could not allocate a temporary export file"))?;
-
-    let result = (|| -> Result<()> {
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        drop(file);
-        #[cfg(windows)]
-        if force && path.exists() {
-            std::fs::remove_file(path)?;
-        }
-        std::fs::rename(&temporary_path, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary_path);
-    }
-    result.map_err(|e| anyhow::anyhow!("failed to write export '{}': {e}", path.display()))
+    Ok(())
 }
 
 pub async fn annotations_export(
     cfg: &Config,
     queue: &str,
     interaction_id: &str,
+    headers: &[String],
     format: Option<&str>,
     out: Option<&str>,
     force: bool,
@@ -856,8 +888,18 @@ pub async fn annotations_export(
     if uuid::Uuid::parse_str(interaction_id).is_err() {
         anyhow::bail!("--interaction-id must be a UUID");
     }
-    let queue_id = resolve_annotation_queue_id(cfg, queue).await?;
-    let export = fetch_annotated_interaction_export(cfg, &queue_id, interaction_id).await?;
+    let headers = headers
+        .iter()
+        .map(|header| crate::commands::api::parse_header_str(header))
+        .collect::<Result<Vec<_>>>()?;
+    validate_annotation_export_headers(&headers)?;
+    let header_refs = headers
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect::<Vec<_>>();
+    let queue_id = resolve_annotation_queue_id(cfg, queue, &header_refs).await?;
+    let export =
+        fetch_annotated_interaction_export(cfg, &queue_id, interaction_id, &header_refs).await?;
 
     output_annotation_export(cfg, &export, format, out, force)
 }
@@ -1729,6 +1771,9 @@ mod tests {
             "can_annotate": true,
             "annotations": [{"label": "quality", "value": "good"}],
         });
+        let interaction_content = serde_json::json!({
+            "blocks": [{"type": "text", "text": "stored interaction content"}]
+        });
         let first_body = serde_json::json!({
             "data": {
                 "id": interaction_id,
@@ -1738,6 +1783,7 @@ mod tests {
                     "interaction_data": {
                         "type": "session",
                         "events": [{"content": {"span_id": "span-1"}}],
+                        "content": interaction_content,
                         "next_cursor": "cursor-1",
                     }
                 }
@@ -1751,7 +1797,8 @@ mod tests {
                     "annotated_interaction": annotated_interaction,
                     "interaction_data": {
                         "type": "session",
-                        "events": [{"content": {"span_id": "span-2", "expected_output": "ok"}}]
+                        "events": [{"content": {"span_id": "span-2", "expected_output": "ok"}}],
+                        "content": interaction_content,
                     }
                 }
             }
@@ -1759,6 +1806,7 @@ mod tests {
         let _first = server
             .mock("GET", path.as_str())
             .match_query(mockito::Matcher::Exact("limit=500".into()))
+            .match_header("test-drive-scion-s60", "1")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(first_body.to_string())
@@ -1767,18 +1815,25 @@ mod tests {
         let _second = server
             .mock("GET", path.as_str())
             .match_query(mockito::Matcher::Exact("limit=500&cursor=cursor-1".into()))
+            .match_header("test-drive-scion-s60", "1")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(second_body.to_string())
             .create_async()
             .await;
 
-        let export = super::fetch_annotated_interaction_export(&cfg, queue_id, interaction_id)
-            .await
-            .expect("multi-page export should succeed");
+        let export = super::fetch_annotated_interaction_export(
+            &cfg,
+            queue_id,
+            interaction_id,
+            &[("test-drive-scion-s60", "1")],
+        )
+        .await
+        .expect("multi-page export should succeed");
 
         assert_eq!(export["annotated_interaction"], annotated_interaction);
         assert_eq!(export["interaction_data"]["type"], "session");
+        assert_eq!(export["interaction_data"]["content"], interaction_content);
         assert_eq!(
             export["interaction_data"]["events"]
                 .as_array()
@@ -1803,6 +1858,7 @@ mod tests {
         let _queues = server
             .mock("GET", "/api/v2/llm-obs/v1/annotation-queues")
             .match_query(mockito::Matcher::Missing)
+            .match_header("test-drive-scion-s60", "1")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -1823,6 +1879,7 @@ mod tests {
         let _interaction = server
             .mock("GET", interaction_path.as_str())
             .match_query(mockito::Matcher::Exact("limit=500".into()))
+            .match_header("test-drive-scion-s60", "1")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -1843,6 +1900,7 @@ mod tests {
             &cfg,
             "quality-review",
             interaction_id,
+            &["test-drive-scion-s60: 1".to_string()],
             Some("jsonl"),
             output.to_str(),
             false,
@@ -1897,7 +1955,7 @@ mod tests {
             .create_async()
             .await;
 
-        let error = super::fetch_annotated_interaction_export(&cfg, queue_id, interaction_id)
+        let error = super::fetch_annotated_interaction_export(&cfg, queue_id, interaction_id, &[])
             .await
             .expect_err("repeated cursor should fail");
         assert!(error.to_string().contains("repeated pagination cursor"));
@@ -1962,7 +2020,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_annotation_queue_id_rejects_empty_name() {
         let cfg = test_config("http://unused.local");
-        let error = super::resolve_annotation_queue_id(&cfg, "")
+        let error = super::resolve_annotation_queue_id(&cfg, "", &[])
             .await
             .expect_err("empty queue name should fail before a request");
         assert!(error.to_string().contains("--queue cannot be empty"));
@@ -1972,18 +2030,21 @@ mod tests {
     fn test_merge_annotated_interaction_page_rejects_changes_between_pages() {
         let mut annotation = Some(serde_json::json!({"interaction_id": "one"}));
         let mut interaction_type = Some("trace".to_string());
+        let mut interaction_content = None;
         let mut events = Vec::new();
         let changed_annotation = super::AnnotatedInteractionDataPage {
             annotated_interaction: serde_json::json!({"interaction_id": "two"}),
             interaction_data: super::InteractionDataPage {
                 interaction_type: "trace".to_string(),
                 events: vec![],
+                content: None,
                 next_cursor: None,
             },
         };
         let error = super::merge_annotated_interaction_page(
             &mut annotation,
             &mut interaction_type,
+            &mut interaction_content,
             &mut events,
             changed_annotation,
         )
@@ -1995,12 +2056,14 @@ mod tests {
             interaction_data: super::InteractionDataPage {
                 interaction_type: "session".to_string(),
                 events: vec![],
+                content: None,
                 next_cursor: None,
             },
         };
         let error = super::merge_annotated_interaction_page(
             &mut annotation,
             &mut interaction_type,
+            &mut interaction_content,
             &mut events,
             changed_type,
         )
@@ -2032,9 +2095,42 @@ mod tests {
 
     #[test]
     fn test_annotation_export_rejects_path_without_file_name() {
-        let error = super::temporary_export_path(std::path::Path::new("/"), 0)
+        let error = super::write_annotation_export(std::path::Path::new("/"), b"{}\n", false)
             .expect_err("directory path should fail");
         assert!(error.to_string().contains("must name a file"));
+    }
+
+    #[test]
+    fn test_annotation_export_rejects_protected_headers() {
+        for name in [
+            "Accept",
+            "AUTHORIZATION",
+            "Connection",
+            "Content-Length",
+            "DD-API-KEY",
+            "dd-application-key",
+            "Host",
+            "Proxy-Authorization",
+            "Transfer-Encoding",
+            "User-Agent",
+        ] {
+            let error = super::validate_annotation_export_headers(&[(
+                name.to_string(),
+                "value".to_string(),
+            )])
+            .expect_err("protected headers should be rejected");
+            assert!(error.to_string().contains("protected header"));
+            assert!(error.to_string().contains(name));
+        }
+    }
+
+    #[test]
+    fn test_annotation_export_accepts_request_routing_headers() {
+        super::validate_annotation_export_headers(&[
+            ("test-drive-scion-s60".to_string(), "1".to_string()),
+            ("x-datadog-routing".to_string(), "staging".to_string()),
+        ])
+        .expect("request-routing headers should be accepted");
     }
 
     #[test]
@@ -2085,7 +2181,7 @@ mod tests {
             .create_async()
             .await;
 
-        let error = super::fetch_annotated_interaction_export(&cfg, queue_id, interaction_id)
+        let error = super::fetch_annotated_interaction_export(&cfg, queue_id, interaction_id, &[])
             .await
             .expect_err("API rejection should include remediation");
         assert!(error.to_string().contains("llm_observability_read"));
@@ -2100,6 +2196,7 @@ mod tests {
             &cfg,
             "13851556-a8c7-41c1-be75-03eb665a132f",
             "not-a-uuid",
+            &[],
             None,
             None,
             false,
@@ -2109,6 +2206,23 @@ mod tests {
         assert!(error
             .to_string()
             .contains("--interaction-id must be a UUID"));
+    }
+
+    #[tokio::test]
+    async fn test_annotations_export_rejects_malformed_header() {
+        let cfg = test_config("http://unused.local");
+        let error = super::annotations_export(
+            &cfg,
+            "13851556-a8c7-41c1-be75-03eb665a132f",
+            "23851556-a8c7-41c1-be75-03eb665a132f",
+            &["missing-colon".to_string()],
+            None,
+            None,
+            false,
+        )
+        .await
+        .expect_err("malformed header should fail before a request");
+        assert!(error.to_string().contains("expected KEY:VALUE"));
     }
 
     #[tokio::test]

@@ -9543,6 +9543,13 @@ enum LlmObsAnnotationsActions {
         #[arg(long, help = "Interaction ID")]
         interaction_id: String,
         #[arg(
+            short = 'H',
+            long = "header",
+            value_name = "KEY:VALUE",
+            help = "Add a request-routing HTTP header to every export request (repeatable)"
+        )]
+        header: Vec<String>,
+        #[arg(
             long,
             value_parser = ["json", "jsonl"],
             requires = "out",
@@ -17540,6 +17547,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsAnnotationsActions::Export {
                         queue,
                         interaction_id,
+                        header,
                         format,
                         out,
                         force,
@@ -17548,6 +17556,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             &cfg,
                             &queue,
                             &interaction_id,
+                            &header,
                             format.as_deref(),
                             out.as_deref(),
                             force,

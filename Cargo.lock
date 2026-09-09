@@ -3399,6 +3399,7 @@ dependencies = [
  "shell-words",
  "ssh-key 0.6.7",
  "tar",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",

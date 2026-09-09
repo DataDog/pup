@@ -96,7 +96,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 
 ### Export an LLM Observability annotated interaction
 
-Export one annotation together with all event data for its trace, span, experiment trace, or session. `--queue` accepts either the queue ID or its exact name. Without `--out`, the command uses Pup's standard output formatter (JSON by default) and honors global `--output` and `--jq` flags. File exports default to JSON; pass `--format jsonl` for JSONL. Existing files are not replaced unless `--force` is provided.
+Export one annotation together with its complete interaction data. Event-backed interactions are fetched across every cursor page, while stored-content interactions retain their `content` payload. `--queue` accepts either the queue ID or its exact name. Without `--out`, the command uses Pup's standard output formatter (JSON by default) and honors global `--output` and `--jq` flags. File exports default to JSON; pass `--format jsonl` for JSONL. Existing files are not replaced unless `--force` is provided. Use repeatable `--header KEY:VALUE` / `-H KEY:VALUE` flags for request-routing headers such as Rapid test drives.
 
 ```bash
 pup llm-obs annotations export \

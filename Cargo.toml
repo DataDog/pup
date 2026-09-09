@@ -28,6 +28,7 @@ native = [
     "dep:uuid",
     "dep:chrono",
     "dep:regex",
+    "dep:tempfile",
     "dep:clap",
     "dep:clap_complete",
     "tokio/full",
@@ -53,6 +54,7 @@ wasi = [
     "dep:uuid",
     "dep:chrono",
     "dep:regex",
+    "dep:tempfile",
     "dep:clap",
     "dep:clap_complete",
     "tokio/rt",
@@ -93,6 +95,7 @@ http = "1"
 
 # Error handling
 anyhow = "1"
+tempfile = { version = "3", optional = true }
 
 # POSIX shell word splitting (used for alias expansion)
 shell-words = "1"

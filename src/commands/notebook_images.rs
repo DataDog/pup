@@ -24,6 +24,18 @@ use crate::raw_client;
 
 const IMAGES_PATH: &str = "/api/ui/images";
 
+/// Resolves a user-supplied image reference to the `/api/v2/images/{uuid}`
+/// path: accepts a bare UUID, a `content_url`-style path, or a full URL.
+fn resolve_image_path(reference: &str) -> String {
+    if reference.starts_with('/') {
+        reference.to_string()
+    } else if let Some(idx) = reference.find("/api/v2/images/") {
+        reference[idx..].to_string()
+    } else {
+        format!("/api/v2/images/{reference}")
+    }
+}
+
 fn normalize_format(raw: &str) -> Result<String> {
     let lower = raw.trim_start_matches('.').to_ascii_lowercase();
     match lower.as_str() {
@@ -122,6 +134,34 @@ pub async fn upload(cfg: &Config, file: &str, format: Option<&str>) -> Result<()
         "img_uuid": img_uuid,
         "img_format": img_format,
         "content_url": content_url,
+    });
+    formatter::format_and_print(
+        &payload,
+        &cfg.output_format,
+        cfg.agent_mode,
+        None,
+        cfg.jq.as_deref(),
+    )
+}
+
+/// Downloads an image previously uploaded via [`upload`] to a local file.
+///
+/// Reads the response as raw bytes rather than text — the endpoint 302s to
+/// blob storage and returns binary image data, which corrupts silently if
+/// routed through anything that treats the body as a UTF-8 string first.
+pub async fn download(cfg: &Config, image_ref: &str, out: &str) -> Result<()> {
+    let path = resolve_image_path(image_ref);
+    let resp = raw_client::raw_request(cfg, "GET", &path, &[], None, None, "*/*", &[])
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to download image: {e}"))?;
+
+    std::fs::write(out, &resp.bytes)
+        .with_context(|| format!("failed to write downloaded image to {out:?}"))?;
+
+    let payload = json!({
+        "path": out,
+        "bytes_written": resp.bytes.len(),
+        "content_type": resp.content_type,
     });
     formatter::format_and_print(
         &payload,
@@ -276,5 +316,54 @@ mod tests {
             .contains("uploading image bytes failed"));
         status_mock.assert_async().await;
         cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_download_writes_raw_bytes_including_non_utf8() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+
+        // A PNG header starts with byte 0x89, which is invalid UTF-8 on its
+        // own; this is exactly the byte a lossy string conversion would
+        // corrupt into the U+FFFD replacement character.
+        let png_bytes: &[u8] = &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+        let uuid = "33333333-3333-3333-3333-333333333333";
+        let get_mock = s
+            .mock("GET", format!("/api/v2/images/{uuid}").as_str())
+            .with_status(200)
+            .with_header("content-type", "image/png")
+            .with_body(png_bytes)
+            .create_async()
+            .await;
+
+        let out_path = std::env::temp_dir().join("__pup_test_download__.png");
+        let result = super::download(&cfg, uuid, out_path.to_str().unwrap()).await;
+
+        assert!(result.is_ok(), "download should succeed: {:?}", result);
+        let written = std::fs::read(&out_path).unwrap();
+        std::fs::remove_file(&out_path).ok();
+        assert_eq!(written, png_bytes, "bytes must round-trip exactly");
+        get_mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_resolve_image_path_accepts_uuid_content_url_or_full_url() {
+        assert_eq!(
+            super::resolve_image_path("11111111-1111-1111-1111-111111111111"),
+            "/api/v2/images/11111111-1111-1111-1111-111111111111"
+        );
+        assert_eq!(
+            super::resolve_image_path("/api/v2/images/11111111-1111-1111-1111-111111111111"),
+            "/api/v2/images/11111111-1111-1111-1111-111111111111"
+        );
+        assert_eq!(
+            super::resolve_image_path(
+                "https://api.datadoghq.com/api/v2/images/11111111-1111-1111-1111-111111111111"
+            ),
+            "/api/v2/images/11111111-1111-1111-1111-111111111111"
+        );
     }
 }

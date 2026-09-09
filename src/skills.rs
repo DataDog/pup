@@ -46,7 +46,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "dd-monitors",
-        description: "Monitor management - create, update, mute, and alerting best practices.",
+        description: "Monitor playbook: create, mute, and delete with alerting best practices. Full monitor/downtime CLI is the monitoring-alerting agent.",
         entry_type: "skill",
         content: include_str!("../skills/dd-monitors/SKILL.md"),
         platform: "",
@@ -54,7 +54,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "dd-logs",
-        description: "Log management - search, pipelines, archives, and cost control.",
+        description: "Log search and cost-control playbook. Exhaustive search CLI is the logs agent; archives/metrics config is log-configuration.",
         entry_type: "skill",
         content: include_str!("../skills/dd-logs/SKILL.md"),
         platform: "",
@@ -62,7 +62,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "dd-apm",
-        description: "APM - traces, services, dependencies, performance analysis.",
+        description: "APM analysis playbook (traces, services, sampling concepts). Query CLI: traces agent. Sampling/span metrics: apm-configuration.",
         entry_type: "skill",
         content: include_str!("../skills/dd-apm/SKILL.md"),
         platform: "",
@@ -143,7 +143,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "apm-configuration",
-        description: "Manage APM retention filters and span-based metrics.",
+        description: "APM sampling rules, adaptive sampling, and span-based metrics. Trace search: traces agent or dd-apm skill.",
         entry_type: "agent",
         content: include_str!("../agents/apm-configuration.md"),
         platform: "",
@@ -162,14 +162,6 @@ pub static SKILLS: &[SkillEntry] = &[
         description: "Manage ASM including WAF rules, threat detection, API protection.",
         entry_type: "agent",
         content: include_str!("../agents/application-security.md"),
-        platform: "",
-        files: &[],
-    },
-    SkillEntry {
-        name: "audience-management",
-        description: "Query and segment RUM users and accounts.",
-        entry_type: "agent",
-        content: include_str!("../agents/audience-management.md"),
         platform: "",
         files: &[],
     },
@@ -311,7 +303,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "log-configuration",
-        description: "Manage log archives, pipelines, indexes, custom destinations.",
+        description: "Log archives, custom destinations, restriction queries, and log-based metrics. Search: logs agent or dd-logs skill.",
         entry_type: "agent",
         content: include_str!("../agents/log-configuration.md"),
         platform: "",
@@ -319,7 +311,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "logs",
-        description: "Search and analyze log data with flexible queries.",
+        description: "Search and analyze logs. Playbook: dd-logs skill. Archives/metrics config: log-configuration agent.",
         entry_type: "agent",
         content: include_str!("../agents/logs.md"),
         platform: "",
@@ -335,7 +327,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "monitoring-alerting",
-        description: "Full monitor management, downtimes, and templates.",
+        description: "Monitors and downtime CLI. Alerting playbook: dd-monitors skill.",
         entry_type: "agent",
         content: include_str!("../agents/monitoring-alerting.md"),
         platform: "",
@@ -374,16 +366,8 @@ pub static SKILLS: &[SkillEntry] = &[
         files: &[],
     },
     SkillEntry {
-        name: "powerpacks",
-        description: "Manage reusable dashboard widget groups.",
-        entry_type: "agent",
-        content: include_str!("../agents/powerpacks.md"),
-        platform: "",
-        files: &[],
-    },
-    SkillEntry {
         name: "rum-metrics-retention",
-        description: "Manage RUM metrics and retention filters.",
+        description: "RUM custom metrics and retention filters. Event search: rum agent.",
         entry_type: "agent",
         content: include_str!("../agents/rum-metrics-retention.md"),
         platform: "",
@@ -391,17 +375,9 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "rum",
-        description: "Query Real User Monitoring data.",
+        description: "Query RUM events, sessions, and apps. Metrics and retention filters: rum-metrics-retention agent.",
         entry_type: "agent",
         content: include_str!("../agents/rum.md"),
-        platform: "",
-        files: &[],
-    },
-    SkillEntry {
-        name: "saml-configuration",
-        description: "Manage SAML SSO configuration.",
-        entry_type: "agent",
-        content: include_str!("../agents/saml-configuration.md"),
         platform: "",
         files: &[],
     },
@@ -446,14 +422,6 @@ pub static SKILLS: &[SkillEntry] = &[
         files: &[],
     },
     SkillEntry {
-        name: "spark-pod-autosizing",
-        description: "Manage Spark pod autosizing for Kubernetes.",
-        entry_type: "agent",
-        content: include_str!("../agents/spark-pod-autosizing.md"),
-        platform: "",
-        files: &[],
-    },
-    SkillEntry {
         name: "static-analysis",
         description: "Manage static code analysis.",
         entry_type: "agent",
@@ -479,7 +447,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "traces",
-        description: "Query APM traces and spans.",
+        description: "Query APM traces and spans. Analysis playbook: dd-apm skill. Sampling/span metrics: apm-configuration.",
         entry_type: "agent",
         content: include_str!("../agents/traces.md"),
         platform: "",
@@ -1153,8 +1121,8 @@ mod tests {
     fn test_agent_count() {
         let agents: Vec<_> = SKILLS.iter().filter(|e| e.entry_type == "agent").collect();
         assert!(
-            agents.len() >= 46,
-            "expected at least 46 agents, got {}",
+            agents.len() == 44,
+            "expected 44 agents, got {}",
             agents.len()
         );
     }

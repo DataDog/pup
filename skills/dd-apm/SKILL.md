@@ -1,6 +1,6 @@
 ---
 name: dd-apm
-description: APM - traces, services, dependencies, performance analysis.
+description: APM analysis playbook (traces, services, sampling concepts). Query CLI: traces agent. Sampling/span metrics: apm-configuration.
 metadata:
   version: "1.0.0"
   author: datadog-labs
@@ -12,7 +12,7 @@ metadata:
 
 # Datadog APM
 
-Distributed tracing, service maps, and performance analysis.
+Distributed tracing, service maps, and performance analysis. This skill is the analysis playbook. For trace/span search CLI, use the `traces` agent; for sampling rules and span-based metrics, use `apm-configuration`.
 
 ## Requirements
 

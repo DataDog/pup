@@ -1,6 +1,6 @@
 ---
 name: dd-monitors
-description: Monitor management - create, update, mute, and alerting best practices.
+description: Monitor playbook: create, mute, and delete with alerting best practices. Full monitor/downtime CLI is the monitoring-alerting agent.
 metadata:
   version: "1.0.0"
   author: datadog-labs
@@ -12,8 +12,7 @@ metadata:
 
 # Datadog Monitors
 
-Create, manage, and maintain monitors for alerting.
-
+Create, manage, and maintain monitors for alerting. This skill is the playbook (best practices, mute/delete workflow). For the full monitors + downtime command surface, use the `monitoring-alerting` agent.
 
 ## Prerequisites
 This requires the pup binary in your path.
@@ -126,24 +125,13 @@ Threshold: {{threshold}}
 """
 ```
 
-## ⚠️ NEVER Delete Monitors Directly
+## ⚠️ Delete a monitor
 
-Use safe deletion workflow (same as dashboards):
+Inspect first, then delete:
 
-```python
-def safe_mark_monitor_for_deletion(monitor_id: str, client) -> bool:
-    """Mark monitor instead of deleting."""
-    monitor = client.get_monitor(monitor_id)
-    name = monitor.get("name", "")
-    
-    if "[MARKED FOR DELETION]" in name:
-        print(f"Already marked: {name}")
-        return False
-    
-    new_name = f"[MARKED FOR DELETION] {name}"
-    client.update_monitor(monitor_id, {"name": new_name})
-    print(f"✓ Marked: {new_name}")
-    return True
+```bash
+pup monitors get <id>
+pup monitors delete <id>
 ```
 
 ## Monitor Types

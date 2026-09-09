@@ -1,6 +1,6 @@
 ---
 name: dd-logs
-description: Log management - search, pipelines, archives, and cost control.
+description: Log search, archives, and cost-control playbook. Exhaustive search CLI is the logs agent; archives/metrics config is log-configuration.
 metadata:
   version: "1.0.0"
   author: datadog-labs
@@ -12,7 +12,7 @@ metadata:
 
 # Datadog Logs
 
-Search, process, and archive logs with cost awareness.
+Search, archive, and control log costs. This skill is the playbook. For exhaustive search CLI, use the `logs` agent; for archives, restriction queries, and log-based metrics, use `log-configuration`.
 
 ## Prerequisites
 
@@ -72,46 +72,6 @@ Workarounds until then:
   `@custom.trace_id`) and query that.
 - Pivot the other way: search spans by the log's service/time window via
   `pup traces search`, or use the trace link in the Datadog UI.
-
-## Pipelines
-
-Process logs before indexing:
-
-```bash
-# List pipelines
-pup obs-pipelines list
-
-# Create pipeline (JSON)
-pup obs-pipelines create --file pipeline.json
-```
-
-### Common Processors
-
-```json
-{
-  "name": "API Logs",
-  "filter": {"query": "service:api"},
-  "processors": [
-    {
-      "type": "grok-parser",
-      "name": "Parse nginx",
-      "source": "message",
-      "grok": {"match_rules": "%{IPORHOST:client_ip} %{DATA:method} %{DATA:path} %{NUMBER:status}"}
-    },
-    {
-      "type": "status-remapper",
-      "name": "Set severity",
-      "sources": ["level", "severity"]
-    },
-    {
-      "type": "attribute-remapper",
-      "name": "Remap user_id",
-      "sources": ["user_id"],
-      "target": "usr.id"
-    }
-  ]
-}
-```
 
 ## ⚠️ Exclusion Filters (Cost Control)
 

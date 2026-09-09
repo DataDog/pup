@@ -42,20 +42,24 @@ pup skills list
 
 | Skill | Description |
 |-------|-------------|
-| **dd-pup** | Primary CLI - all pup commands, auth, site config |
-| **dd-monitors** | Create, manage, mute monitors and alerts |
-| **dd-logs** | Search logs, pipelines, archives |
-| **dd-apm** | Traces, services, performance analysis |
+| **dd-pup** | Primary CLI — all pup commands, auth, site config |
+| **dd-monitors** | Monitor playbook (create, mute, delete). CLI: monitoring-alerting agent |
+| **dd-logs** | Log search and cost-control playbook. CLI: logs / log-configuration agents |
+| **dd-apm** | APM analysis playbook. Query CLI: traces agent. Sampling: apm-configuration |
+| **dd-debugger** | Live Debugger — log probes and events |
 | **dd-docs** | Search Datadog documentation via llms.txt |
 | **dd-code-generation** | CLI vs code-gen decision, multi-language examples |
-| **dd-file-issue** | Issue routing to correct repo, duplicate search |
+| **dd-file-issue** | Issue routing to the correct repo, duplicate search |
+| **dd-symdb** | Symbol Database — search service symbols for probes |
+| **dd-unblock-pr** | Investigate a failing PR CI pipeline |
+| **dd-triage-flaky-test** | Investigate a specific flaky test |
 
-## Domain Agents (48)
+## Domain Agents (44)
 
-Specialized agents for every Datadog API domain: logs, metrics, dashboards, monitors, APM, security, infrastructure, incidents, and more.
+Specialized agents for Datadog API domains: logs, metrics, dashboards, monitors, APM, security, infrastructure, incidents, and more. Skills and agents overlap on purpose — skills are playbooks, agents are domain CLI.
 
 ```bash
-pup skills list --category=agent
+pup skills list --type=agent
 ```
 
 ## Quick Start

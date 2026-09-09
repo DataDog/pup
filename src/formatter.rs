@@ -315,6 +315,14 @@ fn format_table_to_string_with_order(
     data: &serde_json::Value,
     output_order: OutputOrder,
 ) -> Result<String> {
+    let table_data = unwrap_data(data);
+    if matches!(table_data, serde_json::Value::Object(_)) {
+        return format_vertical_table(table_data);
+    }
+    format_horizontal_table(table_data, output_order)
+}
+
+fn format_horizontal_table(data: &serde_json::Value, output_order: OutputOrder) -> Result<String> {
     let raw_rows = extract_rows(data);
     let owned_rows: Vec<serde_json::Value> = raw_rows.iter().map(|r| flatten_row(r)).collect();
     let rows: Vec<&serde_json::Value> = owned_rows.iter().collect();
@@ -394,6 +402,23 @@ fn format_table_to_string_with_order(
     Ok(table.to_string())
 }
 
+fn format_vertical_table(data: &serde_json::Value) -> Result<String> {
+    let flat = flatten_row(data);
+    let Some(fields) = flat.as_object() else {
+        return Ok("No results found".to_string());
+    };
+    if fields.is_empty() {
+        return Ok("No results found".to_string());
+    }
+
+    let mut table = comfy_table::Table::new();
+    table.set_header(["FIELD", "VALUE"]);
+    for (field, value) in fields {
+        table.add_row([field.clone(), format_cell(Some(value))]);
+    }
+    Ok(table.to_string())
+}
+
 fn print_yaml(data: &serde_json::Value) -> Result<()> {
     let sorted_data = sort_json_value(data.clone());
     let yaml = serde_norway::to_string(&sorted_data)?;
@@ -409,8 +434,16 @@ fn flatten_row(value: &serde_json::Value) -> serde_json::Value {
         let mut flat = serde_json::Map::new();
         for (k, v) in map {
             if let serde_json::Value::Object(inner) = v {
+                if inner.is_empty() {
+                    flat.insert(k.clone(), v.clone());
+                    continue;
+                }
                 for (ik, iv) in inner {
                     if let serde_json::Value::Object(inner2) = iv {
+                        if inner2.is_empty() {
+                            flat.insert(format!("{k}.{ik}"), iv.clone());
+                            continue;
+                        }
                         for (iik, iiv) in inner2 {
                             flat.insert(format!("{k}.{ik}.{iik}"), iiv.clone());
                         }
@@ -609,16 +642,17 @@ fn print_tsv(data: &serde_json::Value) -> Result<()> {
 /// Extract displayable rows from a JSON value.
 /// Handles: arrays, objects with "data" field, single objects.
 fn extract_rows(value: &serde_json::Value) -> Vec<&serde_json::Value> {
-    match value {
+    match unwrap_data(value) {
         serde_json::Value::Array(arr) => arr.iter().collect(),
-        serde_json::Value::Object(map) => {
-            // API responses often wrap data: { "data": [...], "meta": ... }
-            if let Some(data) = map.get("data") {
-                return extract_rows(data);
-            }
-            vec![value]
-        }
+        value @ serde_json::Value::Object(_) => vec![value],
         _ => vec![],
+    }
+}
+
+fn unwrap_data(value: &serde_json::Value) -> &serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => map.get("data").map(unwrap_data).unwrap_or(value),
+        _ => value,
     }
 }
 
@@ -890,6 +924,21 @@ mod tests {
     }
 
     #[test]
+    fn test_flatten_row_preserves_empty_objects() {
+        let row = serde_json::json!({
+            "attributes": {},
+            "relationships": {"notebook": {}}
+        });
+        let flat = flatten_row(&row);
+        let obj = flat.as_object().unwrap();
+        assert_eq!(obj.get("attributes"), Some(&serde_json::json!({})));
+        assert_eq!(
+            obj.get("relationships.notebook"),
+            Some(&serde_json::json!({}))
+        );
+    }
+
+    #[test]
     fn test_flatten_row_no_nested() {
         let row = serde_json::json!({"id": "abc", "name": "foo"});
         let flat = flatten_row(&row);
@@ -1133,6 +1182,47 @@ mod tests {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
         let result = format_and_print(&data, &OutputFormat::Table, false, None, None);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_single_object_table_uses_vertical_layout() {
+        let data = serde_json::json!({"id": 42, "name": "api", "active": true});
+        let rendered = format_table_to_string(&data).unwrap();
+        assert!(rendered.contains("| FIELD  | VALUE |"));
+        assert!(rendered.contains("| id     | 42    |"));
+        assert!(rendered.contains("| name   | api   |"));
+        assert!(rendered.contains("| active | true  |"));
+    }
+
+    #[test]
+    fn test_data_wrapped_object_table_uses_vertical_layout() {
+        let data = serde_json::json!({"data": {"id": 42, "name": "api"}, "meta": {}});
+        let rendered = format_table_to_string(&data).unwrap();
+        assert!(rendered.contains("| FIELD | VALUE |"));
+        assert!(rendered.contains("| id    | 42    |"));
+        assert!(!rendered.contains("meta"));
+    }
+
+    #[test]
+    fn test_single_item_array_table_stays_horizontal() {
+        let data = serde_json::json!([{"id": 42, "name": "api"}]);
+        let rendered = format_table_to_string(&data).unwrap();
+        assert!(rendered.contains("| id | name |"));
+        assert!(!rendered.contains("| FIELD | VALUE |"));
+    }
+
+    #[test]
+    fn test_empty_object_table_has_no_results() {
+        assert_eq!(
+            format_table_to_string(&serde_json::json!({})).unwrap(),
+            "No results found"
+        );
+    }
+
+    #[test]
+    fn test_vertical_table_renders_empty_nested_object() {
+        let rendered = format_table_to_string(&serde_json::json!({"attributes": {}})).unwrap();
+        assert!(rendered.contains("| attributes | {0 fields} |"));
     }
 
     #[test]

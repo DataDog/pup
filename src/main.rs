@@ -48,7 +48,7 @@ use std::io::IsTerminal;
 #[derive(Parser)]
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
 pub(crate) struct Cli {
-    /// Output format (json, table, yaml, csv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
+    /// Output format (json, table, yaml, csv, tsv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
     #[arg(short, long, global = true)]
     output: Option<String>,
     /// Auto-approve destructive operations
@@ -2118,6 +2118,7 @@ enum Commands {
     ///   • Create new notebooks
     ///   • Replace notebooks or append cells
     ///   • Delete notebooks
+    ///   • Upload or download images for embedding in notebook cells
     ///
     /// EXAMPLES:
     ///   # Find all notebooks
@@ -2140,6 +2141,12 @@ enum Commands {
     ///
     ///   # Delete a notebook
     ///   pup notebooks delete 12345
+    ///
+    ///   # Upload an image and get back a cell content reference
+    ///   pup notebooks images upload ./screenshot.png
+    ///
+    ///   # Download an image referenced by a notebook's image cell
+    ///   pup notebooks images download <uuid-or-content-url> --out ./downloaded.png
     ///
     /// AUTHENTICATION:
     ///   Requires OAuth2 (via 'pup auth login') with notebooks_read/notebooks_write
@@ -6683,6 +6690,34 @@ enum NotebookActions {
     Annotations {
         #[command(subcommand)]
         action: AnnotationsActions,
+    },
+    /// Upload images for embedding in notebook cells
+    Images {
+        #[command(subcommand)]
+        action: NotebookImagesActions,
+    },
+}
+
+/// Images embedded in notebook cells (e.g. markdown cell content referencing
+/// the returned content_url). Backed by an internal, undocumented API, not
+/// the public Datadog API — see commands::notebook_images for details.
+#[derive(Subcommand)]
+enum NotebookImagesActions {
+    /// Upload a local image file and get back a notebook cell image reference
+    Upload {
+        /// Path to the local image file to upload
+        file: String,
+        /// Image format: png, jpeg, jpg, or gif (inferred from the file extension if omitted)
+        #[arg(long)]
+        format: Option<String>,
+    },
+    /// Download a previously-uploaded image to a local file
+    Download {
+        /// Image UUID, content_url path, or full URL (e.g. from a notebook's image cell)
+        image_ref: String,
+        /// Local path to write the downloaded image to
+        #[arg(long)]
+        out: String,
     },
 }
 
@@ -11567,7 +11602,7 @@ fn build_agent_schema_scoped(
                 "name": "--output",
                 "type": "string",
                 "default": "json",
-                "description": "Output format (json, table, yaml, csv)"
+                "description": "Output format (json, table, yaml, csv, tsv)"
             },
             {
                 "name": "--yes",
@@ -11696,7 +11731,7 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
                 "name": "--output",
                 "type": "string",
                 "default": "json",
-                "description": "Output format (json, table, yaml, csv)"
+                "description": "Output format (json, table, yaml, csv, tsv)"
             },
             {
                 "name": "--yes",
@@ -15101,6 +15136,14 @@ async fn main_inner() -> anyhow::Result<()> {
                 NotebookActions::Delete { notebook_id } => {
                     commands::notebooks::delete(&cfg, notebook_id).await?;
                 }
+                NotebookActions::Images { action } => match action {
+                    NotebookImagesActions::Upload { file, format } => {
+                        commands::notebook_images::upload(&cfg, &file, format.as_deref()).await?;
+                    }
+                    NotebookImagesActions::Download { image_ref, out } => {
+                        commands::notebook_images::download(&cfg, &image_ref, &out).await?;
+                    }
+                },
             }
         }
         // --- RUM ---

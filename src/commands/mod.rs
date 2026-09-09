@@ -61,6 +61,7 @@ pub mod model_lab;
 pub mod monitors;
 pub mod ms_teams;
 pub mod network;
+pub mod notebook_images;
 pub mod notebooks;
 pub mod obs_pipelines;
 pub mod on_call;

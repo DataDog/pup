@@ -680,34 +680,38 @@ fn unwrap_data(value: &serde_json::Value) -> &serde_json::Value {
     }
 }
 
-/// Truncate `s` to at most `max` characters, appending "..." when shortened.
+/// Truncate `s` to at most `max` characters, appending an ellipsis when shortened.
 /// Cuts on character boundaries so multi-byte UTF-8 text never panics.
 fn truncate_ellipsis(s: &str, max: usize) -> String {
     if s.chars().count() > max {
-        let keep: String = s.chars().take(max.saturating_sub(3)).collect();
-        format!("{keep}...")
+        if max == 0 {
+            return String::new();
+        }
+        let keep: String = s.chars().take(max - 1).collect();
+        format!("{keep}…")
     } else {
         s.to_string()
     }
 }
 
 /// Compact label for a single array element, used when previewing arrays in table cells.
-/// For objects, tries id/name/title/type in order; falls back to format_cell for primitives.
+/// For objects, prefers a recognizable label; falls back to a field count.
 fn format_array_item(value: &serde_json::Value) -> String {
     if let serde_json::Value::Object(map) = value {
         for key in &["name", "title", "id", "type"] {
-            if let Some(serde_json::Value::String(s)) = map.get(*key) {
-                return truncate_ellipsis(s, 16);
+            if let Some(serde_json::Value::String(label)) = map.get(*key) {
+                return truncate_ellipsis(label, 16);
             }
         }
-        return format!("{{{} fields}}", map.len());
+        return field_count(map.len());
     }
     format_cell(Some(value))
 }
 
 fn format_cell(value: Option<&serde_json::Value>) -> String {
     match value {
-        None | Some(serde_json::Value::Null) => String::new(),
+        None => String::new(),
+        Some(serde_json::Value::Null) => "—".to_string(),
         Some(serde_json::Value::String(s)) => truncate_ellipsis(s, 50),
         Some(serde_json::Value::Number(n)) => n.to_string(),
         Some(serde_json::Value::Bool(b)) => b.to_string(),
@@ -722,8 +726,15 @@ fn format_cell(value: Option<&serde_json::Value>) -> String {
             let result = format!("[{}]", parts.join(", "));
             truncate_ellipsis(&result, 50)
         }
-        Some(serde_json::Value::Object(map)) => format!("{{{} fields}}", map.len()),
+        Some(serde_json::Value::Object(map)) => field_count(map.len()),
     }
+}
+
+fn field_count(count: usize) -> String {
+    format!(
+        "{{{count} {}}}",
+        if count == 1 { "field" } else { "fields" }
+    )
 }
 
 /// Format an API error with contextual guidance.
@@ -795,8 +806,13 @@ mod tests {
     fn test_format_cell_long_string() {
         let long = "a".repeat(60);
         let result = format_cell(Some(&serde_json::json!(long)));
-        assert_eq!(result.len(), 50);
-        assert!(result.ends_with("..."));
+        assert_eq!(result.chars().count(), 50);
+        assert!(result.ends_with('…'));
+    }
+
+    #[test]
+    fn test_truncate_ellipsis_handles_zero_width() {
+        assert_eq!(truncate_ellipsis("value", 0), "");
     }
 
     #[test]
@@ -805,9 +821,9 @@ mod tests {
         // landed inside a multi-byte UTF-8 character (issue #676).
         let name = "Resx V4 ;-) (vérifier que c'est bien un problème de resx avant de recycler)";
         let result = format_cell(Some(&serde_json::json!(name)));
-        // 47 kept chars + the ellipsis, counted by characters not bytes.
-        let expected: String = name.chars().take(47).collect();
-        assert_eq!(result, format!("{expected}..."));
+        // 49 kept chars + the ellipsis, counted by characters not bytes.
+        let expected: String = name.chars().take(49).collect();
+        assert_eq!(result, format!("{expected}…"));
         assert_eq!(result.chars().count(), 50, "got: {result}");
     }
 
@@ -816,7 +832,7 @@ mod tests {
         // The array-preview path (16-char cap) is also char-boundary safe.
         let arr = serde_json::json!([{"name": "problème récurrent de résolution"}]);
         let result = format_cell(Some(&arr));
-        assert!(result.contains("..."), "got: {result}");
+        assert!(result.contains('…'), "got: {result}");
         assert!(result.starts_with("[problème réc"), "got: {result}");
     }
 
@@ -828,7 +844,7 @@ mod tests {
 
     #[test]
     fn test_format_cell_null() {
-        assert_eq!(format_cell(Some(&serde_json::Value::Null)), "");
+        assert_eq!(format_cell(Some(&serde_json::Value::Null)), "—");
         assert_eq!(format_cell(None), "");
     }
 
@@ -880,7 +896,7 @@ mod tests {
 
     #[test]
     fn test_format_cell_array_truncated() {
-        // Array whose rendered form exceeds 50 chars should be truncated with "..."
+        // Array whose rendered form exceeds 50 chars should use one ellipsis character.
         let arr = serde_json::json!([
             {"name": "very-long-name-abc"},
             {"name": "very-long-name-def"},
@@ -888,11 +904,8 @@ mod tests {
             {"name": "very-long-name-jkl"},
         ]);
         let result = format_cell(Some(&arr));
-        assert!(
-            result.ends_with("..."),
-            "expected truncation, got: {result}"
-        );
-        assert!(result.len() == 50);
+        assert!(result.ends_with('…'), "expected truncation, got: {result}");
+        assert_eq!(result.chars().count(), 50);
     }
 
     #[test]
@@ -911,8 +924,8 @@ mod tests {
     fn test_format_array_item_object_long_id() {
         let obj = serde_json::json!({"id": "32d06127-d03a-4da3-9ce6-41eb7bc8fd50"});
         let result = format_array_item(&obj);
-        assert!(result.ends_with("..."));
-        assert_eq!(result.len(), 16);
+        assert!(result.ends_with('…'));
+        assert_eq!(result.chars().count(), 16);
     }
 
     #[test]
@@ -929,6 +942,7 @@ mod tests {
 
     #[test]
     fn test_format_cell_object() {
+        assert_eq!(format_cell(Some(&serde_json::json!({"a": 1}))), "{1 field}");
         assert_eq!(
             format_cell(Some(&serde_json::json!({"a": 1, "b": 2}))),
             "{2 fields}"

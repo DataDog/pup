@@ -1241,6 +1241,8 @@ pup monitors list --output=table
 
 Single-resource responses use field/value rows, while collections remain horizontal.
 
+Scalar table results are rendered in a `VALUE` column instead of producing an empty table.
+
 ### CSV and TSV Output
 ```bash
 pup monitors list --output=csv

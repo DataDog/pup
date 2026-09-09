@@ -316,10 +316,18 @@ fn format_table_to_string_with_order(
     output_order: OutputOrder,
 ) -> Result<String> {
     let table_data = unwrap_data(data);
-    if matches!(table_data, serde_json::Value::Object(_)) {
-        return format_vertical_table(table_data);
+    match table_data {
+        serde_json::Value::Array(values)
+            if values
+                .iter()
+                .all(|value| !matches!(value, serde_json::Value::Object(_))) =>
+        {
+            format_scalar_table(values.iter())
+        }
+        serde_json::Value::Array(_) => format_horizontal_table(table_data, output_order),
+        serde_json::Value::Object(_) => format_vertical_table(table_data),
+        value => format_scalar_table(std::iter::once(value)),
     }
-    format_horizontal_table(table_data, output_order)
 }
 
 fn format_horizontal_table(data: &serde_json::Value, output_order: OutputOrder) -> Result<String> {
@@ -415,6 +423,22 @@ fn format_vertical_table(data: &serde_json::Value) -> Result<String> {
     table.set_header(["FIELD", "VALUE"]);
     for (field, value) in fields {
         table.add_row([field.clone(), format_cell(Some(value))]);
+    }
+    Ok(table.to_string())
+}
+
+fn format_scalar_table<'a>(
+    values: impl IntoIterator<Item = &'a serde_json::Value>,
+) -> Result<String> {
+    let mut table = comfy_table::Table::new();
+    table.set_header(["VALUE"]);
+    let mut has_values = false;
+    for value in values {
+        table.add_row([format_cell(Some(value))]);
+        has_values = true;
+    }
+    if !has_values {
+        return Ok("No results found".to_string());
     }
     Ok(table.to_string())
 }
@@ -738,6 +762,29 @@ pub fn format_api_error(operation: &str, status: Option<u16>, body: Option<&str>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_scalar_array_table_uses_value_column() {
+        let rendered = format_table_to_string(&serde_json::json!(["one", "two"])).unwrap();
+        assert!(rendered.contains("| VALUE |"));
+        assert!(rendered.contains("| one   |"));
+        assert!(rendered.contains("| two   |"));
+    }
+
+    #[test]
+    fn test_data_wrapped_scalar_table_uses_value_column() {
+        let rendered = format_table_to_string(&serde_json::json!({"data": 42})).unwrap();
+        assert!(rendered.contains("| VALUE |"));
+        assert!(rendered.contains("| 42    |"));
+    }
+
+    #[test]
+    fn test_empty_scalar_array_table_has_no_results() {
+        assert_eq!(
+            format_table_to_string(&serde_json::json!([])).unwrap(),
+            "No results found"
+        );
+    }
 
     #[test]
     fn test_format_cell_string() {

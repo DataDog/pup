@@ -1239,6 +1239,8 @@ pup monitors list --output=yaml
 pup monitors list --output=table
 ```
 
+Single-resource responses use field/value rows, while collections remain horizontal.
+
 ### CSV and TSV Output
 ```bash
 pup monitors list --output=csv

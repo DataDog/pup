@@ -4,6 +4,12 @@ use serde::Serialize;
 use crate::config::OutputFormat;
 use crate::filter;
 
+#[derive(Clone, Copy, PartialEq)]
+enum OutputOrder {
+    Default,
+    Preserve,
+}
+
 /// Agent mode metadata envelope.
 #[derive(Serialize)]
 pub struct Metadata {
@@ -52,6 +58,13 @@ fn sort_json_value(v: serde_json::Value) -> serde_json::Value {
     }
 }
 
+fn order_json_value(value: &serde_json::Value, output_order: OutputOrder) -> serde_json::Value {
+    match output_order {
+        OutputOrder::Default => sort_json_value(value.clone()),
+        OutputOrder::Preserve => value.clone(),
+    }
+}
+
 /// Go's encoding/json escapes <, >, and & for HTML safety.
 /// Apply the same escaping to match Go output exactly.
 fn go_html_escape(json: &str) -> String {
@@ -93,12 +106,20 @@ pub fn build_agent_envelope(
     data: &serde_json::Value,
     meta: Option<&Metadata>,
 ) -> Result<serde_json::Value> {
-    let sorted_data = sort_json_value(data.clone());
+    build_agent_envelope_with_order(data, meta, OutputOrder::Default)
+}
+
+fn build_agent_envelope_with_order(
+    data: &serde_json::Value,
+    meta: Option<&Metadata>,
+    output_order: OutputOrder,
+) -> Result<serde_json::Value> {
+    let ordered_data = order_json_value(data, output_order);
     // Hoist: when the API wraps its list/object in a nested "data" key,
     // use that inner value directly so agents see .data[*] instead of .data.data[*].
-    let effective_data = match &sorted_data {
+    let effective_data = match &ordered_data {
         serde_json::Value::Object(obj) if obj.contains_key("data") => obj["data"].clone(),
-        _ => sorted_data.clone(),
+        _ => ordered_data,
     };
     let mut metadata_value = match meta {
         Some(m) => serde_json::to_value(m)?,
@@ -133,6 +154,17 @@ pub fn format_and_print<T: Serialize>(
     meta: Option<&Metadata>,
     jq: Option<&str>,
 ) -> Result<()> {
+    format_and_print_with_order(data, format, agent_mode, meta, jq, OutputOrder::Default)
+}
+
+fn format_and_print_with_order<T: Serialize>(
+    data: &T,
+    format: &OutputFormat,
+    agent_mode: bool,
+    meta: Option<&Metadata>,
+    jq: Option<&str>,
+    output_order: OutputOrder,
+) -> Result<()> {
     // Serialize once; all renderers and the filter operate on this Value.
     let mut value = serde_json::to_value(data)?;
     if let Some(expr) = jq {
@@ -150,7 +182,12 @@ pub fn format_and_print<T: Serialize>(
         } else {
             meta
         };
-        let mut envelope = build_agent_envelope(&value, meta)?;
+        let mut envelope = match output_order {
+            OutputOrder::Default => build_agent_envelope(&value, meta)?,
+            OutputOrder::Preserve => {
+                build_agent_envelope_with_order(&value, meta, OutputOrder::Preserve)?
+            }
+        };
         if jq.is_some() {
             // Extend the inline note so agents learn --jq targets the payload.
             append_jq_note(&mut envelope);
@@ -164,13 +201,25 @@ pub fn format_and_print<T: Serialize>(
         return Ok(());
     }
 
-    match format {
-        OutputFormat::Json => print_json(&value),
-        OutputFormat::Yaml => print_yaml(&value),
-        OutputFormat::Table => print_table(&value),
-        OutputFormat::Csv => print_csv(&value),
-        OutputFormat::Tsv => print_tsv(&value),
-    }?;
+    match output_order {
+        OutputOrder::Default => match format {
+            OutputFormat::Json => print_json(&value),
+            OutputFormat::Yaml => print_yaml(&value),
+            OutputFormat::Table => print_table(&value),
+            OutputFormat::Csv => print_csv(&value),
+            OutputFormat::Tsv => print_tsv(&value),
+        }?,
+        OutputOrder::Preserve => {
+            let rendered =
+                format_value_to_string_with_order(&value, format, false, OutputOrder::Preserve)?;
+            if !rendered.is_empty() {
+                print!("{rendered}");
+                if !rendered.ends_with('\n') {
+                    println!();
+                }
+            }
+        }
+    }
 
     #[cfg(not(feature = "browser"))]
     if crate::rate_limit::verbose_enabled() {
@@ -191,6 +240,18 @@ pub fn output<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()>
     )
 }
 
+/// Format query results without changing the caller's object-key order.
+pub fn output_preserving_order<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
+    format_and_print_with_order(
+        data,
+        &cfg.output_format,
+        cfg.agent_mode,
+        None,
+        cfg.jq.as_deref(),
+        OutputOrder::Preserve,
+    )
+}
+
 pub fn print_json(data: &serde_json::Value) -> Result<()> {
     let sorted_data = sort_json_value(data.clone());
     let json = go_html_escape(&serde_json::to_string_pretty(&sorted_data)?);
@@ -204,23 +265,34 @@ pub fn format_value_to_string(
     format: &OutputFormat,
     agent_mode: bool,
 ) -> Result<String> {
+    format_value_to_string_with_order(data, format, agent_mode, OutputOrder::Default)
+}
+
+fn format_value_to_string_with_order(
+    data: &serde_json::Value,
+    format: &OutputFormat,
+    agent_mode: bool,
+    output_order: OutputOrder,
+) -> Result<String> {
     if agent_mode && *format == OutputFormat::Json {
-        let envelope = build_agent_envelope(data, None)?;
+        let envelope = build_agent_envelope_with_order(data, None, output_order)?;
         return Ok(go_html_escape(&serde_json::to_string_pretty(&envelope)?));
     }
 
     match format {
         OutputFormat::Json => {
-            let sorted_data = sort_json_value(data.clone());
-            Ok(go_html_escape(&serde_json::to_string_pretty(&sorted_data)?))
+            let ordered_data = order_json_value(data, output_order);
+            Ok(go_html_escape(&serde_json::to_string_pretty(
+                &ordered_data,
+            )?))
         }
         OutputFormat::Yaml => {
-            let sorted_data = sort_json_value(data.clone());
-            Ok(serde_norway::to_string(&sorted_data)?)
+            let ordered_data = order_json_value(data, output_order);
+            Ok(serde_norway::to_string(&ordered_data)?)
         }
-        OutputFormat::Table => format_table_to_string(data),
-        OutputFormat::Csv => format_csv_to_string(data),
-        OutputFormat::Tsv => format_tsv_to_string(data),
+        OutputFormat::Table => format_table_to_string_with_order(data, output_order),
+        OutputFormat::Csv => format_csv_to_string_with_order(data, output_order),
+        OutputFormat::Tsv => format_tsv_to_string_with_order(data, output_order),
     }
 }
 
@@ -236,14 +308,21 @@ pub fn eprint_formatted(
 }
 
 fn format_table_to_string(data: &serde_json::Value) -> Result<String> {
+    format_table_to_string_with_order(data, OutputOrder::Default)
+}
+
+fn format_table_to_string_with_order(
+    data: &serde_json::Value,
+    output_order: OutputOrder,
+) -> Result<String> {
     let table_data = unwrap_data(data);
     if matches!(table_data, serde_json::Value::Object(_)) {
         return format_vertical_table(table_data);
     }
-    format_horizontal_table(table_data)
+    format_horizontal_table(table_data, output_order)
 }
 
-fn format_horizontal_table(data: &serde_json::Value) -> Result<String> {
+fn format_horizontal_table(data: &serde_json::Value, output_order: OutputOrder) -> Result<String> {
     let raw_rows = extract_rows(data);
     let owned_rows: Vec<serde_json::Value> = raw_rows.iter().map(|r| flatten_row(r)).collect();
     let rows: Vec<&serde_json::Value> = owned_rows.iter().collect();
@@ -285,18 +364,22 @@ fn format_horizontal_table(data: &serde_json::Value) -> Result<String> {
         "attributes.message",
     ];
     let mut final_headers: Vec<String> = Vec::new();
-    for &p in &priority {
-        if header_set.contains(p) {
-            final_headers.push(p.to_string());
+    if output_order == OutputOrder::Default {
+        for &p in &priority {
+            if header_set.contains(p) {
+                final_headers.push(p.to_string());
+            }
         }
-    }
-    for h in &headers {
-        if final_headers.len() >= 12 {
-            break;
+        for h in &headers {
+            if final_headers.len() >= 12 {
+                break;
+            }
+            if !final_headers.contains(h) {
+                final_headers.push(h.clone());
+            }
         }
-        if !final_headers.contains(h) {
-            final_headers.push(h.clone());
-        }
+    } else {
+        final_headers.extend(headers.into_iter().take(12));
     }
 
     let mut table = comfy_table::Table::new();
@@ -429,6 +512,13 @@ fn csv_cell(value: Option<&serde_json::Value>) -> String {
 }
 
 fn format_csv_to_string(data: &serde_json::Value) -> Result<String> {
+    format_csv_to_string_with_order(data, OutputOrder::Default)
+}
+
+fn format_csv_to_string_with_order(
+    data: &serde_json::Value,
+    output_order: OutputOrder,
+) -> Result<String> {
     let raw_rows = extract_rows(data);
 
     if raw_rows.is_empty() {
@@ -453,7 +543,9 @@ fn format_csv_to_string(data: &serde_json::Value) -> Result<String> {
             }
         }
     }
-    headers.sort();
+    if output_order == OutputOrder::Default {
+        headers.sort();
+    }
 
     let mut lines = vec![headers
         .iter()
@@ -487,6 +579,13 @@ fn tsv_escape(s: &str) -> String {
 }
 
 fn format_tsv_to_string(data: &serde_json::Value) -> Result<String> {
+    format_tsv_to_string_with_order(data, OutputOrder::Default)
+}
+
+fn format_tsv_to_string_with_order(
+    data: &serde_json::Value,
+    output_order: OutputOrder,
+) -> Result<String> {
     let raw_rows = extract_rows(data);
 
     if raw_rows.is_empty() {
@@ -511,7 +610,9 @@ fn format_tsv_to_string(data: &serde_json::Value) -> Result<String> {
             }
         }
     }
-    headers.sort();
+    if output_order == OutputOrder::Default {
+        headers.sort();
+    }
 
     let mut lines = vec![headers
         .iter()
@@ -965,6 +1066,78 @@ mod tests {
             sort_json_value(serde_json::json!(null)),
             serde_json::json!(null)
         );
+    }
+
+    #[test]
+    fn test_preserving_order_renderer_keeps_query_column_order() {
+        let data = serde_json::json!([{
+            "zebra": 1,
+            "alpha": 2,
+            "middle": 3
+        }]);
+
+        for format in [OutputFormat::Json, OutputFormat::Yaml, OutputFormat::Table] {
+            let rendered =
+                format_value_to_string_with_order(&data, &format, false, OutputOrder::Preserve)
+                    .unwrap();
+            let zebra = rendered.find("zebra").unwrap();
+            let alpha = rendered.find("alpha").unwrap();
+            let middle = rendered.find("middle").unwrap();
+            assert!(
+                zebra < alpha && alpha < middle,
+                "{format} changed column order: {rendered}"
+            );
+        }
+
+        let csv = format_value_to_string_with_order(
+            &data,
+            &OutputFormat::Csv,
+            false,
+            OutputOrder::Preserve,
+        )
+        .unwrap();
+        assert_eq!(csv.lines().next(), Some("zebra,alpha,middle"));
+
+        let tsv = format_value_to_string_with_order(
+            &data,
+            &OutputFormat::Tsv,
+            false,
+            OutputOrder::Preserve,
+        )
+        .unwrap();
+        assert_eq!(tsv.lines().next(), Some("zebra\talpha\tmiddle"));
+    }
+
+    #[test]
+    fn test_preserving_order_renderer_keeps_agent_data_order() {
+        let data = serde_json::json!([{
+            "zebra": 1,
+            "alpha": 2,
+            "middle": 3
+        }]);
+
+        let rendered = format_value_to_string_with_order(
+            &data,
+            &OutputFormat::Json,
+            true,
+            OutputOrder::Preserve,
+        )
+        .unwrap();
+        let zebra = rendered.find("zebra").unwrap();
+        let alpha = rendered.find("alpha").unwrap();
+        let middle = rendered.find("middle").unwrap();
+        assert!(zebra < alpha && alpha < middle, "{rendered}");
+    }
+
+    #[test]
+    fn test_default_renderer_still_sorts_json_keys() {
+        let data = serde_json::json!({"zebra": 1, "alpha": 2, "middle": 3});
+        let rendered = format_value_to_string(&data, &OutputFormat::Json, false).unwrap();
+
+        let alpha = rendered.find("alpha").unwrap();
+        let middle = rendered.find("middle").unwrap();
+        let zebra = rendered.find("zebra").unwrap();
+        assert!(alpha < middle && middle < zebra, "{rendered}");
     }
 
     #[test]

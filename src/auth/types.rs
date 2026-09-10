@@ -47,6 +47,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "apm_remote_configuration_read",
         "apm_service_catalog_read",
         "apm_service_ingest_read",
+        "appsec_protect_read",
         "appsec_vm_read",
         "apps_run",
         "audit_logs_read",
@@ -123,6 +124,9 @@ pub fn default_scopes() -> Vec<&'static str> {
         "apm_service_ingest_read",
         "apm_service_ingest_write",
         "apm_service_renaming_write",
+        // AppSec
+        "appsec_protect_read",
+        "appsec_protect_write",
         // Entity graph security context
         "appsec_vm_read",
         // App Builder
@@ -465,6 +469,20 @@ mod tests {
         let ro = read_only_scopes();
         assert!(!ro.contains(&"workload_identity_federation_read"));
         assert!(!ro.contains(&"workload_identity_federation_write"));
+    }
+
+    #[test]
+    fn test_appsec_protect_scopes_requested_at_login() {
+        let scopes = default_scopes();
+        assert!(scopes.contains(&"appsec_protect_read"));
+        assert!(scopes.contains(&"appsec_protect_write"));
+    }
+
+    #[test]
+    fn test_appsec_protect_read_in_read_only_scopes() {
+        let ro = read_only_scopes();
+        assert!(ro.contains(&"appsec_protect_read"));
+        assert!(!ro.contains(&"appsec_protect_write"));
     }
 
     #[test]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Datadog IDP Entity Graph"
+  short_description: "Map Datadog services, dependencies, and health"
+  default_prompt: "Use $dd-idp to map a service or team's ownership, dependencies, health, source context, and other declared relationships."

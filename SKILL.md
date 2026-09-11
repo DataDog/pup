@@ -43,6 +43,7 @@ pup skills list
 | Skill | Description |
 |-------|-------------|
 | **dd-pup** | Primary CLI - all pup commands, auth, site config |
+| **dd-idp** | Schema-first entity graph discovery, querying, and traversal |
 | **dd-monitors** | Create, manage, mute monitors and alerts |
 | **dd-logs** | Search logs, pipelines, archives |
 | **dd-apm** | Traces, services, performance analysis |
@@ -55,7 +56,7 @@ pup skills list
 Specialized agents for every Datadog API domain: logs, metrics, dashboards, monitors, APM, security, infrastructure, incidents, and more.
 
 ```bash
-pup skills list --category=agent
+pup skills list --type=agent
 ```
 
 ## Quick Start

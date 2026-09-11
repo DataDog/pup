@@ -194,6 +194,38 @@ pup incidents list --query="status:active"
 pup incidents get <incident-id>
 ```
 
+### IDP entity graph
+
+Use UEG when an answer needs connected context across service identity,
+ownership, dependencies, health, source, work, or security. It can return a
+selected service and dependency view in one bounded request. Discover the live
+schema before filtering on unfamiliar fields or relations:
+
+```bash
+pup --read-only idp kinds list
+pup --read-only idp kinds describe service
+pup --read-only idp entities query 'kind:service AND name:"<service-name>"' \
+  --field name,owner,service_health_status,active_incidents_count,alert_monitors_count,breached_slos_count \
+  --include owner_teams,systems,upstream_services,downstream_services \
+  --relation-limit 3 \
+  --timeseries-interval 24h \
+  --limit 1
+```
+
+Every query needs one unquoted `kind:<kind>` or concrete
+`ref:"ref:<kind>:<id>"`. `--field` selects attributes; `--include` expands
+declared relations. Honor result cursors, relationship truncation, and null as
+unknown. The graph-specific `--timeseries-interval` accepts Go durations such
+as `168h`, not `7d`. Use `idp assist` for a fast curated service summary and
+`idp owner` for convenient ownership/on-call resolution; use UEG when graph
+fidelity, relation counts, pagination, or traversal matters. Treat `find` and
+`deps` as narrow legacy helpers. Install `dd-idp` for detailed DSL, recovery,
+and recipe guidance:
+
+```bash
+pup skills install --name dd-idp
+```
+
 ## Time Ranges
 
 All `--from` and `--to` flags accept:

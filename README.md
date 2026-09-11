@@ -441,10 +441,16 @@ pup incidents get abc-123-def
 pup idp kinds list
 pup idp kinds describe service
 
-# Query services and walk ownership and system relations
-pup idp entities query 'kind:service AND owner:payments' \
-  --field name,owner,contacts \
-  --include owner_teams,systems
+# Get service ownership, dependencies, and health context in one request
+pup idp entities query 'kind:service AND name:"<service-name>"' \
+  --field name,owner,service_health_status,active_incidents_count,alert_monitors_count,breached_slos_count \
+  --include owner_teams,systems,upstream_services,downstream_services \
+  --relation-limit 3 \
+  --timeseries-interval 24h \
+  --limit 1
+
+# Install schema-first entity graph guidance for your detected coding agent
+pup skills install --name dd-idp
 ```
 
 ## Global Flags
@@ -610,9 +616,15 @@ pup skills list --type=agent
 
 # Install a specific skill by name
 pup skills install claude --name dd-monitors
+pup skills install codex --name dd-idp
 ```
 
 For Claude Code, skills install to `~/.claude/skills/` (or `.claude/skills/` with `--project`) and agents install to `~/.claude/agents/` (native subagent format). If the `CLAUDE_CONFIG_DIR` environment variable is set, user-scope installs go to `$CLAUDE_CONFIG_DIR/skills/` and `$CLAUDE_CONFIG_DIR/agents/` instead of `~/.claude/`. For Cursor, Codex, opencode, and Devin, everything installs as `SKILL.md` under that tool's skills directory (e.g. `~/.cursor/skills/`, `~/.codex/skills/`, `~/.config/opencode/skills/`, and Devin's `~/.agents/skills/` — or `.agents/skills/` with `--project`).
+
+The `dd-idp` skill teaches schema-first UEG workflows for connected service,
+dependency, ownership, health, work, and security context. Its progressive
+references cover the graph DSL, known correctness traps, and cross-entity
+recipes. Pup installs the complete bundle, not only its `SKILL.md` entrypoint.
 
 Pup ships plugin manifest files for several AI coding assistants:
 

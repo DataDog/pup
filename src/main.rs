@@ -1527,40 +1527,40 @@ enum Commands {
         #[command(subcommand)]
         action: HamrActions,
     },
-    /// Internal Developer Portal — agent-native context layer
+    /// Internal Developer Portal — unified entity graph and service context
     ///
-    /// Retrieve service context, ownership, health, dependencies, and
-    /// suggested next actions from the Datadog Service Catalog / IDP.
+    /// Explore connected service, ownership, dependency, health, work, and
+    /// security context through the Datadog Unified Entity Graph (UEG).
     ///
     /// CAPABILITIES:
     ///   • Discover entity kinds and inspect their live query schemas
     ///   • Query entities and traverse declared relationships
-    ///   • Get a full context summary for any entity (assist)
-    ///   • Find entities by name or query (find)
-    ///   • Resolve ownership and on-call (owner)
-    ///   • Show upstream/downstream dependencies (deps)
+    ///   • Get an opinionated legacy service summary (assist)
+    ///   • Run a quick legacy service lookup (find)
+    ///   • Resolve service ownership and on-call (owner)
+    ///   • Show legacy production service dependencies (deps)
     ///   • Register a service definition from YAML (register)
     ///   • Migrate service catalog YAML to v3 schema (migrate-schema)
     ///
     /// EXAMPLES:
-    ///   # Get full context for a service
-    ///   pup idp assist catalog-http
-    ///
-    ///   # Find entities matching a query
-    ///   pup idp find "catalog"
-    ///
     ///   # Discover entity kinds and their schemas
     ///   pup idp kinds list
     ///   pup idp kinds describe service
     ///
-    ///   # Query across the Datadog entity graph
-    ///   pup idp entities query 'kind:service AND owner:payments'
+    ///   # Get connected service and dependency context
+    ///   pup idp entities query 'kind:service AND name:"checkout-api"' \
+    ///     --field name,owner,service_health_status \
+    ///     --include owner_teams,upstream_services,downstream_services \
+    ///     --relation-limit 3
+    ///
+    ///   # Get the opinionated legacy service summary
+    ///   pup idp assist checkout-api
     ///
     ///   # Who owns this service?
-    ///   pup idp owner catalog-http
+    ///   pup idp owner checkout-api
     ///
     ///   # Show dependencies
-    ///   pup idp deps catalog-http
+    ///   pup idp deps checkout-api
     ///
     ///   # Register a service definition
     ///   pup idp register service.datadog.yaml
@@ -5061,10 +5061,10 @@ enum IdpActions {
         #[command(subcommand)]
         action: IdpEntitiesActions,
     },
-    /// Get full context summary with suggested next actions
+    /// Get an opinionated legacy service summary with suggested next actions
     ///
-    /// The flagship IDP command. Makes parallel API calls to return
-    /// a single unified view of any service entity:
+    /// Compatibility helper that combines UEG service data with legacy
+    /// production dependency and on-call lookups:
     ///
     /// RETURNS:
     ///   • Entity info (name, kind, description, lifecycle, tier, owner)
@@ -5075,8 +5075,8 @@ enum IdpActions {
     ///   • Metadata gaps (missing description, lifecycle, tier, runbook, docs)
     ///   • Suggested next actions (based on current health and gaps)
     ///
-    /// START HERE — this is the best first command to run for any entity.
-    /// Use the other commands (owner, deps, find) to drill deeper.
+    /// Use `idp kinds` and `idp entities query` first for schema-driven,
+    /// connected context or kinds beyond services.
     ///
     /// EXAMPLES:
     ///   pup idp assist catalog-http
@@ -5087,10 +5087,11 @@ enum IdpActions {
         /// Entity name (e.g. "catalog-http", "payment-service")
         entity: String,
     },
-    /// Find entities by name or query
+    /// Run a quick legacy service lookup by name or query
     ///
-    /// Search the entity graph for services, resources, or other entities.
-    /// Useful when you don't know the exact entity name.
+    /// Simple text defaults to a bounded wildcard service-name lookup.
+    /// Use `idp entities query` for arbitrary kinds, selected fields and
+    /// relations, explicit pagination, or schema-driven queries.
     ///
     /// QUERY SYNTAX:
     ///   Simple text searches by name. Prefix with kind: to filter by type.
@@ -5118,11 +5119,11 @@ enum IdpActions {
         /// Entity name
         entity: String,
     },
-    /// Show upstream and downstream service dependencies
+    /// Show legacy production upstream and downstream service dependencies
     ///
-    /// Returns which services depend on this entity (upstream)
-    /// and which services this entity calls (downstream).
-    /// Useful for blast-radius analysis before making changes.
+    /// Returns the legacy `env=prod` service-to-service dependency snapshot.
+    /// Use `idp entities query` for declared/runtime graph relations to
+    /// services, datastores, queues, external providers, or inferred services.
     ///
     /// EXAMPLES:
     ///   pup idp deps catalog-http

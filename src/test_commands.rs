@@ -871,6 +871,31 @@ fn test_idp_entity_graph_commands_parse() {
 }
 
 #[test]
+fn test_idp_legacy_help_routes_connected_context_to_entity_graph() {
+    let idp = crate::Cli::command()
+        .find_subcommand("idp")
+        .expect("idp command should exist")
+        .clone();
+    let assist_help = idp
+        .find_subcommand("assist")
+        .expect("idp assist command should exist")
+        .clone()
+        .render_long_help()
+        .to_string();
+    let deps_help = idp
+        .find_subcommand("deps")
+        .expect("idp deps command should exist")
+        .clone()
+        .render_long_help()
+        .to_string();
+
+    assert!(assist_help.contains("idp entities query"));
+    assert!(!assist_help.contains("flagship"));
+    assert!(deps_help.contains("env=prod"));
+    assert!(deps_help.contains("declared/runtime graph relations"));
+}
+
+#[test]
 fn test_idp_entity_query_rejects_unknown_free_text_match_mode() {
     use clap::Parser;
 

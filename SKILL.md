@@ -43,13 +43,13 @@ pup skills list
 | Skill | Description |
 |-------|-------------|
 | **dd-pup** | Primary CLI - all pup commands, auth, site config |
-| **dd-idp** | Schema-first entity graph discovery, querying, and traversal |
 | **dd-monitors** | Create, manage, mute monitors and alerts |
 | **dd-logs** | Search logs, pipelines, archives |
 | **dd-apm** | Traces, services, performance analysis |
 | **dd-docs** | Search Datadog documentation via llms.txt |
 | **dd-code-generation** | CLI vs code-gen decision, multi-language examples |
 | **dd-file-issue** | Issue routing to correct repo, duplicate search |
+| **dd-idp** | Schema-first entity graph discovery, querying, and traversal |
 
 ## Domain Agents (48)
 

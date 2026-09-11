@@ -22,10 +22,6 @@ pub struct SkillEntry {
 /// Supplementary files bundled with the `dd-idp` skill.
 static DD_IDP_FILES: &[(&str, &str)] = &[
     (
-        "agents/openai.yaml",
-        include_str!("../skills/dd-idp/agents/openai.yaml"),
-    ),
-    (
         "references/ueg-dsl.md",
         include_str!("../skills/dd-idp/references/ueg-dsl.md"),
     ),
@@ -64,14 +60,6 @@ pub static SKILLS: &[SkillEntry] = &[
         content: include_str!("../skills/dd-pup/SKILL.md"),
         platform: "",
         files: &[],
-    },
-    SkillEntry {
-        name: "dd-idp",
-        description: "Map Datadog services, dependencies, ownership, health, and declared relationships.",
-        entry_type: "skill",
-        content: include_str!("../skills/dd-idp/SKILL.md"),
-        platform: "",
-        files: DD_IDP_FILES,
     },
     SkillEntry {
         name: "dd-monitors",
@@ -152,6 +140,14 @@ pub static SKILLS: &[SkillEntry] = &[
         content: include_str!("../skills/dd-triage-flaky-test/SKILL.md"),
         platform: "",
         files: &[],
+    },
+    SkillEntry {
+        name: "dd-idp",
+        description: "Map Datadog services, dependencies, ownership, health, and declared relationships.",
+        entry_type: "skill",
+        content: include_str!("../skills/dd-idp/SKILL.md"),
+        platform: "",
+        files: DD_IDP_FILES,
     },
     // --- Domain Agents (from datadog-api-claude-plugin) ---
     SkillEntry {
@@ -1817,8 +1813,8 @@ mod tests {
     #[test]
     fn test_install_paths_skill_expands_supplementary_files() {
         static FILES: &[(&str, &str)] = &[
-            ("agents/openai.yaml", "interface: {}"),
             ("references/query.md", "# Query"),
+            ("references/recipes.md", "# Recipes"),
         ];
         let e = SkillEntry {
             files: FILES,
@@ -1830,11 +1826,11 @@ mod tests {
         assert_eq!(paths[0].0, root.join(".codex/skills/dd-idp/SKILL.md"));
         assert_eq!(
             paths[1].0,
-            root.join(".codex/skills/dd-idp/agents/openai.yaml")
+            root.join(".codex/skills/dd-idp/references/query.md")
         );
         assert_eq!(
             paths[2].0,
-            root.join(".codex/skills/dd-idp/references/query.md")
+            root.join(".codex/skills/dd-idp/references/recipes.md")
         );
     }
 
@@ -1991,7 +1987,6 @@ mod tests {
         assert_eq!(
             paths,
             vec![
-                "agents/openai.yaml",
                 "references/ueg-dsl.md",
                 "references/footguns.md",
                 "references/recipes.md",
@@ -2036,7 +2031,6 @@ mod tests {
                 paths.into_iter().map(|(path, _)| path).collect::<Vec<_>>(),
                 vec![
                     root.join("SKILL.md"),
-                    root.join("agents/openai.yaml"),
                     root.join("references/ueg-dsl.md"),
                     root.join("references/footguns.md"),
                     root.join("references/recipes.md"),

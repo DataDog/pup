@@ -383,7 +383,7 @@ mod tests {
             .expect("dd-idp must be registered");
         let item = list_item(entry);
         assert_eq!(item["type"], "skill");
-        assert_eq!(item["files"].as_array().map(Vec::len), Some(4));
+        assert_eq!(item["files"].as_array().map(Vec::len), Some(3));
         assert!(item.get("platform").is_none());
     }
 
@@ -403,7 +403,6 @@ mod tests {
         let root = tmp.path().join("dd-idp");
         for relative in [
             "SKILL.md",
-            "agents/openai.yaml",
             "references/ueg-dsl.md",
             "references/footguns.md",
             "references/recipes.md",

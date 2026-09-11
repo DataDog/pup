@@ -10,6 +10,15 @@ use crate::config::Config;
 use crate::formatter;
 use crate::util;
 
+const USER_LIST_COLUMNS: &[&str] = &[
+    "id",
+    "attributes.name",
+    "attributes.email",
+    "attributes.status",
+    "attributes.created_at",
+    "attributes.modified_at",
+];
+
 pub async fn list(cfg: &Config, page_size: i64, page_number: i64) -> Result<()> {
     let api = crate::make_api!(UsersAPI, cfg);
     let resp = api
@@ -20,7 +29,11 @@ pub async fn list(cfg: &Config, page_size: i64, page_number: i64) -> Result<()> 
         )
         .await
         .map_err(|e| anyhow::anyhow!("failed to list users: {e:?}"))?;
-    formatter::output(cfg, &resp)
+    formatter::output_with_table(
+        cfg,
+        &resp,
+        formatter::TableOptions::new(USER_LIST_COLUMNS).rows_at("/data"),
+    )
 }
 
 pub async fn get(cfg: &Config, id: &str) -> Result<()> {

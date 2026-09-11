@@ -10,6 +10,18 @@ use crate::formatter::{self, Metadata};
 use crate::util;
 use crate::util_ext;
 
+const MONITOR_LIST_COLUMNS: &[&str] = &[
+    "id",
+    "name",
+    "overall_state",
+    "type",
+    "priority",
+    "tags",
+    "modified",
+];
+const MONITOR_SEARCH_COLUMNS: &[&str] =
+    &["id", "name", "status", "type", "tags", "last_triggered_ts"];
+
 pub async fn list(
     cfg: &Config,
     name: Option<String>,
@@ -48,12 +60,13 @@ pub async fn list(
         command: Some("monitors list".to_string()),
         next_action: None,
     };
-    formatter::format_and_print(
+    formatter::format_and_print_with_table(
         &monitors,
         &cfg.output_format,
         cfg.agent_mode,
         Some(&meta),
         cfg.jq.as_deref(),
+        formatter::TableOptions::new(MONITOR_LIST_COLUMNS),
     )?;
     Ok(())
 }
@@ -172,7 +185,11 @@ pub async fn search(
         .search_monitors(params)
         .await
         .map_err(|e| anyhow::anyhow!("failed to search monitors: {:?}", e))?;
-    formatter::output(cfg, &resp)
+    formatter::output_with_table(
+        cfg,
+        &resp,
+        formatter::TableOptions::new(MONITOR_SEARCH_COLUMNS).rows_at("/monitors"),
+    )
 }
 
 pub async fn delete(cfg: &Config, monitor_id: i64) -> Result<()> {

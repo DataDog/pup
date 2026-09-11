@@ -10,13 +10,26 @@ use crate::raw_client;
 use crate::util;
 use crate::util_ext;
 
+const DASHBOARD_LIST_COLUMNS: &[&str] = &[
+    "id",
+    "title",
+    "layout_type",
+    "author_handle",
+    "modified_at",
+    "url",
+];
+
 pub async fn list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(DashboardsAPI, cfg);
     let resp = api
         .list_dashboards(ListDashboardsOptionalParams::default())
         .await
         .map_err(|e| anyhow::anyhow!("failed to list dashboards: {e:?}"))?;
-    formatter::output(cfg, &resp)
+    formatter::output_with_table(
+        cfg,
+        &resp,
+        formatter::TableOptions::new(DASHBOARD_LIST_COLUMNS).rows_at("/dashboards"),
+    )
 }
 
 pub async fn get(cfg: &Config, id: &str) -> Result<()> {

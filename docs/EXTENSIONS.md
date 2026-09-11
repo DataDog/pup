@@ -180,6 +180,20 @@ echo "$results" | pup format --output table
 echo "$results" | pup format --count 2 --command "foo list"
 ```
 
+Extensions can also tell the table formatter where the result rows live and which
+columns are useful. `--rows-at` accepts an RFC 6901 JSON Pointer into the response,
+and `--row-at` optionally selects a value within every result row. `--columns`
+accepts a comma-separated or repeated list of flattened field names. These hints
+only affect table output; JSON, YAML, CSV, and TSV retain the complete response.
+
+```bash
+pup api v1/monitor/search --silent |
+  pup format --rows-at /monitors --columns id,name,status,type,tags
+```
+
+When the user supplies `--jq`, the filtered value is rendered as-is and these
+table defaults are bypassed.
+
 ### Combine them
 
 A fully consistent extension that adds zero auth or formatting code:

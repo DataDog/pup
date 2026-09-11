@@ -14,6 +14,8 @@ use crate::raw_client;
 use crate::util;
 use crate::util_ext;
 
+const SLO_LIST_COLUMNS: &[&str] = &["id", "name", "type", "tags", "thresholds", "modified_at"];
+
 pub async fn list(
     cfg: &Config,
     query: Option<String>,
@@ -43,7 +45,11 @@ pub async fn list(
         .list_slos(params)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list SLOs: {e:?}"))?;
-    formatter::output(cfg, &resp)
+    formatter::output_with_table(
+        cfg,
+        &resp,
+        formatter::TableOptions::new(SLO_LIST_COLUMNS).rows_at("/data"),
+    )
 }
 
 pub async fn get(cfg: &Config, id: &str) -> Result<()> {

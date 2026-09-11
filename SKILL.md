@@ -49,13 +49,14 @@ pup skills list
 | **dd-docs** | Search Datadog documentation via llms.txt |
 | **dd-code-generation** | CLI vs code-gen decision, multi-language examples |
 | **dd-file-issue** | Issue routing to correct repo, duplicate search |
+| **dd-idp** | Schema-first entity graph discovery, querying, and traversal |
 
 ## Domain Agents (48)
 
 Specialized agents for every Datadog API domain: logs, metrics, dashboards, monitors, APM, security, infrastructure, incidents, and more.
 
 ```bash
-pup skills list --category=agent
+pup skills list --type=agent
 ```
 
 ## Quick Start

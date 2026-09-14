@@ -344,7 +344,7 @@ Error responses in agent mode:
 
 ### Output envelope
 
-- Implementation: `src/formatter.rs`
+- Implementation: `src/formatter_ext.rs` (`src/formatter.rs` exposes the generator-owned contract)
 - Agent envelope wraps responses with metadata (count, truncation, warnings)
 - Structured error formatting for agent consumption
 - Only activated when agent mode is true
@@ -361,6 +361,7 @@ Error responses in agent mode:
 |------|---------|
 | `src/useragent.rs` | Agent detection (table-driven registry + FORCE_AGENT_MODE) |
 | `src/commands/agent.rs` | Schema generation, `pup agent schema`, `pup agent guide` |
-| `src/formatter.rs` | Agent envelope and structured errors |
+| `src/formatter.rs` | Generator-owned formatting contract |
+| `src/formatter_ext.rs` | Agent envelope, structured errors, and output formatting implementation |
 | `src/config.rs` | `agent_mode` field on Config |
 | `src/main.rs` | `--agent` flag, help interception, output formatting |

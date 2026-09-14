@@ -37,7 +37,7 @@ Unit tests co-located with source code using `#[cfg(test)]` modules:
 src/auth/        # Authentication logic
 src/client.rs    # Datadog API client wrapper
 src/config.rs    # Configuration management
-src/formatter.rs # Output formatting
+src/formatter_ext.rs # Output formatting implementation
 src/util.rs      # Utilities (time, validation)
 src/commands/    # Command implementations
 ```

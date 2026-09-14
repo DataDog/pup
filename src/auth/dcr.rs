@@ -158,12 +158,8 @@ impl DcrClient {
         self.request_tokens(&params, &creds.client_id).await
     }
 
-    fn token_endpoint_url(&self) -> String {
-        format!("https://{}/api/v2/oauth2/token", self.api_host)
-    }
-
     async fn request_tokens(&self, params: &[(&str, &str)], client_id: &str) -> Result<TokenSet> {
-        let url = self.token_endpoint_url();
+        let url = format!("https://{}/api/v2/oauth2/token", self.api_host);
 
         // Filter out empty params
         let form_params: Vec<(&str, &str)> = params
@@ -426,20 +422,5 @@ mod tests {
         let staging = DcrClient::new("datad0g.com");
         assert_eq!(staging.api_host, "api.datad0g.com");
         assert_eq!(staging.auth_host, "app.datad0g.com");
-    }
-
-    #[test]
-    fn token_endpoint_uses_v2_api_path() {
-        let canonical = DcrClient::new("datadoghq.com");
-        assert_eq!(
-            canonical.token_endpoint_url(),
-            "https://api.datadoghq.com/api/v2/oauth2/token"
-        );
-
-        let literal = DcrClient::new("mygateway.example.com");
-        assert_eq!(
-            literal.token_endpoint_url(),
-            "https://mygateway.example.com/api/v2/oauth2/token"
-        );
     }
 }

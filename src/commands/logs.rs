@@ -13,6 +13,14 @@ use crate::raw_client;
 use crate::util;
 use crate::util_ext;
 
+const LOG_SEARCH_COLUMNS: &[&str] = &[
+    "attributes.timestamp",
+    "attributes.service",
+    "attributes.status",
+    "attributes.host",
+    "attributes.message",
+];
+
 const SAVED_VIEWS_PATH: &str = "/api/v1/logs/views";
 const PATTERNS_PATH: &str = "/api/v1/logs-analytics/cluster?type=logs";
 
@@ -393,12 +401,13 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
     } else {
         None
     };
-    formatter::format_and_print(
+    formatter::format_and_print_with_table(
         &resp,
         &cfg.output_format,
         cfg.agent_mode,
         meta.as_ref(),
         cfg.jq.as_deref(),
+        formatter::TableOptions::new(LOG_SEARCH_COLUMNS).rows_at("/data"),
     )?;
     Ok(())
 }

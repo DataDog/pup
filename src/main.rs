@@ -1468,6 +1468,7 @@ enum Commands {
     ///
     /// EXAMPLES:
     ///   pup api v2/monitors --silent | pup format --output table
+    ///   pup api v1/monitor/search --silent | pup format --rows-at /monitors --columns id,name,status
     ///   echo '[{"id":1}]' | pup format --output csv
     #[cfg(not(target_arch = "wasm32"))]
     #[command(visible_alias = "fmt", verbatim_doc_comment)]
@@ -1484,6 +1485,15 @@ enum Commands {
         /// Set metadata.next_action in the agent-mode envelope
         #[arg(long, value_name = "STR")]
         next_action: Option<String>,
+        /// Select table rows using an RFC 6901 JSON Pointer (for example, /data)
+        #[arg(long, value_name = "POINTER")]
+        rows_at: Option<String>,
+        /// Select each table row's value using an RFC 6901 JSON Pointer
+        #[arg(long, value_name = "POINTER")]
+        row_at: Option<String>,
+        /// Show these table columns in this order (comma-separated or repeated)
+        #[arg(long, value_name = "FIELD", value_delimiter = ',')]
+        columns: Vec<String>,
     },
     /// Manage tag governance
     ///
@@ -12980,7 +12990,9 @@ fn resolve_output_format(
 mod resolve_output_format_tests {
     use super::reject_jq_with_markdown;
     use super::resolve_output_format;
+    use super::{Cli, Commands};
     use crate::config::OutputFormat;
+    use clap::Parser;
 
     #[test]
     fn jq_flag_with_markdown_is_rejected() {
@@ -13020,6 +13032,36 @@ mod resolve_output_format_tests {
             got.is_err(),
             "a malformed --output value must be a hard error"
         );
+    }
+
+    #[test]
+    fn format_table_hints_parse_comma_separated_and_repeated_columns() {
+        let cli = Cli::try_parse_from([
+            "pup",
+            "format",
+            "--rows-at",
+            "/results",
+            "--row-at",
+            "/data",
+            "--columns",
+            "id,name",
+            "--columns",
+            "status",
+        ])
+        .unwrap();
+        let Commands::Format {
+            rows_at,
+            row_at,
+            columns,
+            ..
+        } = cli.command
+        else {
+            panic!("expected format command");
+        };
+
+        assert_eq!(rows_at.as_deref(), Some("/results"));
+        assert_eq!(row_at.as_deref(), Some("/data"));
+        assert_eq!(columns, ["id", "name", "status"]);
     }
 }
 
@@ -17406,8 +17448,22 @@ async fn main_inner() -> anyhow::Result<()> {
             count,
             command,
             next_action,
+            rows_at,
+            row_at,
+            columns,
         } => {
-            commands::format::run(&cfg, input.as_deref(), count, command, next_action)?;
+            commands::format::run(
+                &cfg,
+                input.as_deref(),
+                commands::format::FormatOptions {
+                    count,
+                    command,
+                    next_action,
+                    rows_at: rows_at.as_deref(),
+                    row_at: row_at.as_deref(),
+                    columns: &columns,
+                },
+            )?;
         }
         // --- Skills ---
         #[cfg(not(target_arch = "wasm32"))]

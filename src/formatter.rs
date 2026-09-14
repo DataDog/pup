@@ -10,6 +10,68 @@ enum OutputOrder {
     Preserve,
 }
 
+/// Command-provided guidance for rendering a concise table.
+///
+/// These options affect table output only. Other output formats continue to
+/// serialize the complete response.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TableOptions<'a> {
+    rows_at: Option<&'a str>,
+    row_at: Option<&'a str>,
+    columns: &'a [&'a str],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TableInput<'a> {
+    Generic,
+    Explicit(TableOptions<'a>),
+    AsIs,
+}
+
+impl<'a> From<TableOptions<'a>> for TableInput<'a> {
+    fn from(options: TableOptions<'a>) -> Self {
+        if options.rows_at.is_none() && options.row_at.is_none() && options.columns.is_empty() {
+            Self::Generic
+        } else {
+            Self::Explicit(options)
+        }
+    }
+}
+
+impl<'a> TableInput<'a> {
+    fn options(self) -> Option<TableOptions<'a>> {
+        match self {
+            Self::Explicit(options) => Some(options),
+            Self::Generic | Self::AsIs => None,
+        }
+    }
+
+    fn has_row_hints(self) -> bool {
+        self.options()
+            .is_some_and(|options| options.row_at.is_some() || !options.columns.is_empty())
+    }
+}
+
+impl<'a> TableOptions<'a> {
+    pub const fn new(columns: &'a [&'a str]) -> Self {
+        Self {
+            rows_at: None,
+            row_at: None,
+            columns,
+        }
+    }
+
+    pub const fn rows_at(mut self, pointer: &'a str) -> Self {
+        self.rows_at = Some(pointer);
+        self
+    }
+
+    pub const fn row_at(mut self, pointer: &'a str) -> Self {
+        self.row_at = Some(pointer);
+        self
+    }
+}
+
 /// Agent mode metadata envelope.
 #[derive(Serialize)]
 pub struct Metadata {
@@ -154,7 +216,35 @@ pub fn format_and_print<T: Serialize>(
     meta: Option<&Metadata>,
     jq: Option<&str>,
 ) -> Result<()> {
-    format_and_print_with_order(data, format, agent_mode, meta, jq, OutputOrder::Default)
+    format_and_print_with_order(
+        data,
+        format,
+        agent_mode,
+        meta,
+        jq,
+        TableInput::Generic,
+        OutputOrder::Default,
+    )
+}
+
+/// Format and print data with command-provided table guidance.
+pub fn format_and_print_with_table<T: Serialize>(
+    data: &T,
+    format: &OutputFormat,
+    agent_mode: bool,
+    meta: Option<&Metadata>,
+    jq: Option<&str>,
+    table: TableOptions<'_>,
+) -> Result<()> {
+    format_and_print_with_order(
+        data,
+        format,
+        agent_mode,
+        meta,
+        jq,
+        table.into(),
+        OutputOrder::Default,
+    )
 }
 
 fn format_and_print_with_order<T: Serialize>(
@@ -163,6 +253,7 @@ fn format_and_print_with_order<T: Serialize>(
     agent_mode: bool,
     meta: Option<&Metadata>,
     jq: Option<&str>,
+    table_input: TableInput<'_>,
     output_order: OutputOrder,
 ) -> Result<()> {
     // Serialize once; all renderers and the filter operate on this Value.
@@ -170,6 +261,8 @@ fn format_and_print_with_order<T: Serialize>(
     if let Some(expr) = jq {
         value = filter::apply_jq(value, expr)?;
     }
+    let output_order = effective_output_order(format, jq, output_order);
+    let table_input = effective_table_input(format, jq, table_input);
 
     if agent_mode && *format == OutputFormat::Json {
         // A --jq filter rewrites the payload, so the caller's count/truncated
@@ -205,13 +298,18 @@ fn format_and_print_with_order<T: Serialize>(
         OutputOrder::Default => match format {
             OutputFormat::Json => print_json(&value),
             OutputFormat::Yaml => print_yaml(&value),
-            OutputFormat::Table => print_table(&value),
+            OutputFormat::Table => print_table_with_options(&value, table_input),
             OutputFormat::Csv => print_csv(&value),
             OutputFormat::Tsv => print_tsv(&value),
         }?,
         OutputOrder::Preserve => {
-            let rendered =
-                format_value_to_string_with_order(&value, format, false, OutputOrder::Preserve)?;
+            let rendered = format_value_to_string_with_options(
+                &value,
+                format,
+                false,
+                OutputOrder::Preserve,
+                table_input,
+            )?;
             if !rendered.is_empty() {
                 print!("{rendered}");
                 if !rendered.ends_with('\n') {
@@ -229,6 +327,32 @@ fn format_and_print_with_order<T: Serialize>(
     Ok(())
 }
 
+fn effective_output_order(
+    format: &OutputFormat,
+    jq: Option<&str>,
+    output_order: OutputOrder,
+) -> OutputOrder {
+    if jq.is_some() && *format == OutputFormat::Table {
+        OutputOrder::Preserve
+    } else {
+        output_order
+    }
+}
+
+fn effective_table_input<'a>(
+    format: &OutputFormat,
+    jq: Option<&str>,
+    table_input: TableInput<'a>,
+) -> TableInput<'a> {
+    if jq.is_some() && *format == OutputFormat::Table {
+        // A jq expression explicitly reshapes the response. Render that result as-is
+        // instead of applying the command's defaults to a now-different shape.
+        TableInput::AsIs
+    } else {
+        table_input
+    }
+}
+
 /// Convenience: format and print using config settings (respects -o flag, agent mode, and --jq).
 pub fn output<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
     format_and_print(
@@ -240,6 +364,22 @@ pub fn output<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()>
     )
 }
 
+/// Convenience wrapper for commands that know their useful table rows and columns.
+pub fn output_with_table<T: Serialize>(
+    cfg: &crate::config::Config,
+    data: &T,
+    table: TableOptions<'_>,
+) -> Result<()> {
+    format_and_print_with_table(
+        data,
+        &cfg.output_format,
+        cfg.agent_mode,
+        None,
+        cfg.jq.as_deref(),
+        table,
+    )
+}
+
 /// Format query results without changing the caller's object-key order.
 pub fn output_preserving_order<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
     format_and_print_with_order(
@@ -248,6 +388,7 @@ pub fn output_preserving_order<T: Serialize>(cfg: &crate::config::Config, data: 
         cfg.agent_mode,
         None,
         cfg.jq.as_deref(),
+        TableInput::AsIs,
         OutputOrder::Preserve,
     )
 }
@@ -265,14 +406,21 @@ pub fn format_value_to_string(
     format: &OutputFormat,
     agent_mode: bool,
 ) -> Result<String> {
-    format_value_to_string_with_order(data, format, agent_mode, OutputOrder::Default)
+    format_value_to_string_with_options(
+        data,
+        format,
+        agent_mode,
+        OutputOrder::Default,
+        TableInput::Generic,
+    )
 }
 
-fn format_value_to_string_with_order(
+fn format_value_to_string_with_options(
     data: &serde_json::Value,
     format: &OutputFormat,
     agent_mode: bool,
     output_order: OutputOrder,
+    table_input: TableInput<'_>,
 ) -> Result<String> {
     if agent_mode && *format == OutputFormat::Json {
         let envelope = build_agent_envelope_with_order(data, None, output_order)?;
@@ -290,7 +438,7 @@ fn format_value_to_string_with_order(
             let ordered_data = order_json_value(data, output_order);
             Ok(serde_norway::to_string(&ordered_data)?)
         }
-        OutputFormat::Table => format_table_to_string_with_order(data, output_order),
+        OutputFormat::Table => format_table_to_string_with_options(data, output_order, table_input),
         OutputFormat::Csv => format_csv_to_string_with_order(data, output_order),
         OutputFormat::Tsv => format_tsv_to_string_with_order(data, output_order),
     }
@@ -307,16 +455,22 @@ pub fn eprint_formatted(
     Ok(())
 }
 
+#[cfg(test)]
 fn format_table_to_string(data: &serde_json::Value) -> Result<String> {
-    format_table_to_string_with_order(data, OutputOrder::Default)
+    format_table_to_string_with_options(data, OutputOrder::Default, TableInput::Generic)
 }
 
-fn format_table_to_string_with_order(
+fn format_table_to_string_with_options(
     data: &serde_json::Value,
     output_order: OutputOrder,
+    table_input: TableInput<'_>,
 ) -> Result<String> {
-    let table_data = unwrap_data(data);
+    let table_data = select_table_data(data, table_input)?;
+    let has_row_hints = table_input.has_row_hints();
     match table_data {
+        serde_json::Value::Array(_) if has_row_hints => {
+            format_horizontal_table(table_data, output_order, table_input)
+        }
         serde_json::Value::Array(values)
             if values
                 .iter()
@@ -324,90 +478,153 @@ fn format_table_to_string_with_order(
         {
             format_scalar_table(values.iter())
         }
-        serde_json::Value::Array(_) => format_horizontal_table(table_data, output_order),
+        serde_json::Value::Array(_) => {
+            format_horizontal_table(table_data, output_order, table_input)
+        }
+        serde_json::Value::Object(_) if has_row_hints => {
+            format_horizontal_table(table_data, output_order, table_input)
+        }
         serde_json::Value::Object(_) => format_vertical_table(table_data),
+        _ if has_row_hints => {
+            anyhow::bail!("table row and column hints require an array or object response")
+        }
         value => format_scalar_table(std::iter::once(value)),
     }
 }
 
-fn format_horizontal_table(data: &serde_json::Value, output_order: OutputOrder) -> Result<String> {
-    let raw_rows = extract_rows(data);
-    let owned_rows: Vec<serde_json::Value> = raw_rows.iter().map(|r| flatten_row(r)).collect();
-    let rows: Vec<&serde_json::Value> = owned_rows.iter().collect();
+fn select_table_data<'a>(
+    data: &'a serde_json::Value,
+    table_input: TableInput<'_>,
+) -> Result<&'a serde_json::Value> {
+    match table_input {
+        TableInput::Generic => Ok(unwrap_data(data)),
+        TableInput::Explicit(options) => match options.rows_at {
+            Some(pointer) => data.pointer(pointer).ok_or_else(|| {
+                anyhow::anyhow!("table row path {pointer:?} was not found in the response")
+            }),
+            None => Ok(data),
+        },
+        TableInput::AsIs => Ok(data),
+    }
+}
 
-    if rows.is_empty() {
+fn format_horizontal_table(
+    data: &serde_json::Value,
+    output_order: OutputOrder,
+    table_input: TableInput<'_>,
+) -> Result<String> {
+    let raw_rows = match data {
+        serde_json::Value::Array(rows) => rows.iter().collect(),
+        serde_json::Value::Object(_) => vec![data],
+        _ => Vec::new(),
+    };
+    let selected_rows = select_table_rows(raw_rows, table_input)?;
+    if selected_rows.is_empty() {
         return Ok("No results found".to_string());
     }
 
-    // Collect headers from all rows
-    let mut headers: Vec<String> = Vec::new();
-    let mut header_set = std::collections::HashSet::new();
-    for row in &rows {
-        if let serde_json::Value::Object(map) = row {
-            for key in map.keys() {
-                if header_set.insert(key.clone()) {
-                    headers.push(key.clone());
-                }
-            }
-        }
+    let requested_columns = table_input
+        .options()
+        .map(|options| options.columns)
+        .unwrap_or_default();
+    if !requested_columns.is_empty() {
+        let headers = select_requested_headers(&selected_rows, requested_columns)?;
+        return Ok(render_horizontal_rows(
+            &selected_rows,
+            &headers,
+            flattened_value,
+        ));
     }
 
-    // Prioritize common fields (including flattened log attribute fields)
-    let priority = [
-        "id",
-        "title",
-        "name",
-        "type",
-        "status",
-        "state",
-        "severity",
-        "created_at",
-        "updated_at",
-        "created",
-        "modified",
-        "attributes.timestamp",
-        "attributes.service",
-        "attributes.host",
-        "attributes.status",
-        "attributes.message",
-    ];
-    let mut final_headers: Vec<String> = Vec::new();
-    if output_order == OutputOrder::Default {
-        for &p in &priority {
-            if header_set.contains(p) {
-                final_headers.push(p.to_string());
-            }
-        }
-        for h in &headers {
-            if final_headers.len() >= 12 {
-                break;
-            }
-            if !final_headers.contains(h) {
-                final_headers.push(h.clone());
-            }
-        }
+    let owned_rows: Vec<serde_json::Value> =
+        selected_rows.iter().map(|row| flatten_row(row)).collect();
+    let rows: Vec<&serde_json::Value> = owned_rows.iter().collect();
+    let final_headers = if output_order == OutputOrder::Default {
+        select_list_headers(&rows, 12)
     } else {
-        final_headers.extend(headers.into_iter().take(12));
+        collect_headers(&rows).0.into_iter().take(12).collect()
+    };
+    if final_headers.is_empty() {
+        return format_scalar_table(selected_rows);
     }
 
-    let mut table = comfy_table::Table::new();
-    table.set_header(&final_headers);
+    Ok(render_horizontal_rows(&rows, &final_headers, object_value))
+}
 
-    for row in &rows {
-        let cells: Vec<String> = final_headers
+fn render_horizontal_rows(
+    rows: &[&serde_json::Value],
+    headers: &[String],
+    value_at: for<'a> fn(&'a serde_json::Value, &str) -> Option<&'a serde_json::Value>,
+) -> String {
+    let mut table = comfy_table::Table::new();
+    table.set_header(headers);
+
+    for row in rows {
+        let cells: Vec<String> = headers
             .iter()
-            .map(|h| {
-                if let serde_json::Value::Object(map) = row {
-                    format_cell(map.get(h.as_str()))
-                } else {
-                    String::new()
-                }
-            })
+            .map(|header| format_cell(value_at(row, header)))
             .collect();
         table.add_row(cells);
     }
 
-    Ok(table.to_string())
+    table.to_string()
+}
+
+fn select_table_rows<'a>(
+    rows: Vec<&'a serde_json::Value>,
+    table_input: TableInput<'_>,
+) -> Result<Vec<&'a serde_json::Value>> {
+    let Some(pointer) = table_input.options().and_then(|options| options.row_at) else {
+        return Ok(rows);
+    };
+    rows.into_iter()
+        .enumerate()
+        .map(|(index, row)| {
+            row.pointer(pointer).ok_or_else(|| {
+                anyhow::anyhow!("table row path {pointer:?} was not found in result row {index}")
+            })
+        })
+        .collect()
+}
+
+fn select_requested_headers(
+    rows: &[&serde_json::Value],
+    requested: &[&str],
+) -> Result<Vec<String>> {
+    let mut selected = Vec::new();
+    for column in requested {
+        if rows
+            .iter()
+            .any(|row| flattened_value(row, column).is_some())
+            && !selected.iter().any(|item| item == column)
+        {
+            selected.push((*column).to_string());
+        }
+    }
+    if selected.is_empty() {
+        anyhow::bail!(
+            "none of the requested table columns are present in the response: {}",
+            requested.join(", ")
+        );
+    }
+    Ok(selected)
+}
+
+fn flattened_value<'a>(row: &'a serde_json::Value, column: &str) -> Option<&'a serde_json::Value> {
+    let object = row.as_object()?;
+    if let Some(value) = object.get(column) {
+        return Some(value);
+    }
+
+    let mut value = row;
+    for part in column.split('.') {
+        value = value.as_object()?.get(part)?;
+    }
+    Some(value)
+}
+
+fn object_value<'a>(row: &'a serde_json::Value, column: &str) -> Option<&'a serde_json::Value> {
+    row.as_object()?.get(column)
 }
 
 fn format_vertical_table(data: &serde_json::Value) -> Result<String> {
@@ -441,6 +658,65 @@ fn format_scalar_table<'a>(
         return Ok("No results found".to_string());
     }
     Ok(table.to_string())
+}
+
+fn collect_headers(
+    rows: &[&serde_json::Value],
+) -> (Vec<String>, std::collections::HashSet<String>) {
+    let mut headers = Vec::new();
+    let mut header_set = std::collections::HashSet::new();
+    for row in rows {
+        if let serde_json::Value::Object(map) = row {
+            for key in map.keys() {
+                if header_set.insert(key.clone()) {
+                    headers.push(key.clone());
+                }
+            }
+        }
+    }
+    (headers, header_set)
+}
+
+fn select_list_headers(rows: &[&serde_json::Value], max: usize) -> Vec<String> {
+    let (headers, header_set) = collect_headers(rows);
+    let priority = [
+        "id",
+        "public_id",
+        "title",
+        "name",
+        "type",
+        "overall_state",
+        "status",
+        "state",
+        "severity",
+        "created_at",
+        "updated_at",
+        "created",
+        "modified",
+        "attributes.timestamp",
+        "attributes.service",
+        "attributes.host",
+        "attributes.status",
+        "attributes.message",
+    ];
+    let mut final_headers = Vec::new();
+    for &p in &priority {
+        if final_headers.len() >= max {
+            break;
+        }
+        if header_set.contains(p) {
+            final_headers.push(p.to_string());
+        }
+    }
+    for header in headers {
+        if final_headers.len() >= max {
+            break;
+        }
+        if !final_headers.contains(&header) {
+            final_headers.push(header);
+        }
+    }
+    final_headers
 }
 
 fn print_yaml(data: &serde_json::Value) -> Result<()> {
@@ -485,8 +761,16 @@ fn flatten_row(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+#[cfg(test)]
 fn print_table(data: &serde_json::Value) -> Result<()> {
-    println!("{}", format_table_to_string(data)?);
+    print_table_with_options(data, TableInput::Generic)
+}
+
+fn print_table_with_options(data: &serde_json::Value, table_input: TableInput<'_>) -> Result<()> {
+    println!(
+        "{}",
+        format_table_to_string_with_options(data, OutputOrder::Default, table_input)?
+    );
     Ok(())
 }
 
@@ -795,6 +1079,232 @@ mod tests {
             format_table_to_string(&serde_json::json!([])).unwrap(),
             "No results found"
         );
+    }
+
+    #[test]
+    fn test_generic_columns_do_not_guess_resource_shapes() {
+        let row = serde_json::json!({
+            "id": 123,
+            "name": "API latency",
+            "overall_state": "Alert",
+            "type": "query alert",
+            "priority": 1,
+            "tags": ["service:api"],
+            "modified": "2026-08-28T12:00:00Z",
+            "query": "avg(last_5m):avg:latency{*} > 1",
+            "message": "not useful in a list view"
+        });
+        let row = flatten_row(&row);
+        let headers = select_list_headers(&[&row], 12);
+        for expected in ["query", "message"] {
+            assert!(
+                headers.iter().any(|header| header == expected),
+                "generic formatting should retain {expected}: {headers:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_command_table_options_select_rows_and_columns() {
+        let data = serde_json::json!({
+            "monitors": [{
+                "id": 123,
+                "name": "API latency",
+                "overall_state": "Alert",
+                "query": "avg(last_5m):avg:latency{*} > 1"
+            }],
+            "metadata": {"total_count": 1}
+        });
+        let table = TableOptions::new(&["name", "id", "priority"]).rows_at("/monitors");
+        let rendered =
+            format_table_to_string_with_options(&data, OutputOrder::Default, table.into()).unwrap();
+        let header = rendered.lines().find(|line| line.contains("name")).unwrap();
+
+        assert!(header.contains("| name        | id  |"), "{rendered}");
+        assert!(!header.contains("priority"), "{rendered}");
+        assert!(!rendered.contains("overall_state"), "{rendered}");
+        assert!(!rendered.contains("query"), "{rendered}");
+        assert!(rendered.contains("API latency"), "{rendered}");
+    }
+
+    #[test]
+    fn test_command_table_options_select_nested_row_values() {
+        let data = serde_json::json!({
+            "data": {
+                "attributes": {
+                    "incidents": [{
+                        "data": {
+                            "id": "incident-1",
+                            "attributes": {
+                                "title": "API outage",
+                                "state": "active"
+                            }
+                        }
+                    }]
+                }
+            }
+        });
+        let table = TableOptions::new(&["attributes.title", "id"])
+            .rows_at("/data/attributes/incidents")
+            .row_at("/data");
+        let rendered =
+            format_table_to_string_with_options(&data, OutputOrder::Default, table.into()).unwrap();
+
+        assert!(rendered.contains("attributes.title"), "{rendered}");
+        assert!(rendered.contains("API outage"), "{rendered}");
+        assert!(rendered.contains("incident-1"), "{rendered}");
+        assert!(!rendered.contains("data.attributes"), "{rendered}");
+    }
+
+    #[test]
+    fn test_command_table_options_reject_missing_rows() {
+        let data = serde_json::json!({"items": []});
+        let table = TableOptions::new(&["id"]).rows_at("/monitors");
+        let error = format_table_to_string_with_options(&data, OutputOrder::Default, table.into())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("/monitors"), "{error}");
+    }
+
+    #[test]
+    fn test_command_table_options_reject_missing_nested_row() {
+        let data = serde_json::json!([{"attributes": {"title": "API outage"}}]);
+        let table = TableOptions::new(&["attributes.title"]).row_at("/data");
+        let error = format_table_to_string_with_options(&data, OutputOrder::Default, table.into())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("result row 0"), "{error}");
+    }
+
+    #[test]
+    fn test_command_table_options_reject_unknown_columns() {
+        let data = serde_json::json!([{"id": 123, "name": "API latency"}]);
+        let table = TableOptions::new(&["missing"]);
+        let error = format_table_to_string_with_options(&data, OutputOrder::Default, table.into())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("missing"), "{error}");
+    }
+
+    #[test]
+    fn test_command_table_options_apply_to_single_object() {
+        let data = serde_json::json!({
+            "id": 123,
+            "attributes": {"title": "API latency", "query": "omit"}
+        });
+        let table = TableOptions::new(&["attributes.title", "id"]);
+        let rendered =
+            format_table_to_string_with_options(&data, OutputOrder::Default, table.into()).unwrap();
+
+        let header = rendered
+            .lines()
+            .find(|line| line.contains("attributes.title"))
+            .unwrap();
+        assert!(header.contains("| attributes.title | id  |"), "{rendered}");
+        assert!(rendered.contains("API latency"), "{rendered}");
+        assert!(!rendered.contains("query"), "{rendered}");
+    }
+
+    #[test]
+    fn test_command_table_options_reject_scalar_input() {
+        let table = TableOptions::new(&["id"]);
+        let error = format_table_to_string_with_options(
+            &serde_json::json!(42),
+            OutputOrder::Default,
+            table.into(),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("require an array or object"), "{error}");
+    }
+
+    #[test]
+    fn test_empty_table_options_keep_generic_data_unwrapping() {
+        let data = serde_json::json!({"data": [{"id": 123}]});
+        let rendered = format_table_to_string_with_options(
+            &data,
+            OutputOrder::Default,
+            TableOptions::default().into(),
+        )
+        .unwrap();
+
+        assert!(rendered.contains("id"), "{rendered}");
+        assert!(!rendered.contains("FIELD"), "{rendered}");
+    }
+
+    #[test]
+    fn test_jq_table_projection_bypasses_command_table_options() {
+        let data = serde_json::json!([{"value": 42, "name": "answer"}]);
+        let jq = ".[] | {data: .value, label: .name}";
+        let projected = filter::apply_jq(data, jq).unwrap();
+        let output_order =
+            effective_output_order(&OutputFormat::Table, Some(jq), OutputOrder::Default);
+        let command_table = TableOptions::new(&["missing"]).rows_at("/missing");
+        let table_input =
+            effective_table_input(&OutputFormat::Table, Some(jq), command_table.into());
+        let rendered =
+            format_table_to_string_with_options(&projected, output_order, table_input).unwrap();
+        for expected in ["data", "42", "label", "answer"] {
+            assert!(
+                rendered.contains(expected),
+                "missing {expected}: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_data_named_column_is_not_unwrapped() {
+        let rows = serde_json::json!([{"data": 42}]);
+        let rendered =
+            format_table_to_string_with_options(&rows, OutputOrder::Preserve, TableInput::AsIs)
+                .unwrap();
+        let header = rendered.lines().find(|line| line.contains("data")).unwrap();
+        assert!(header.contains("data"), "missing DDSQL column: {rendered}");
+        assert!(rendered.contains("42"), "missing DDSQL value: {rendered}");
+    }
+
+    #[test]
+    fn test_generic_column_selection_caps_fallback_fields() {
+        let row = serde_json::json!({
+            "extra_1": 1,
+            "status": "ok",
+            "name": "api",
+            "id": 42,
+            "extra_2": 2,
+        });
+        assert_eq!(
+            select_list_headers(&[&row], 4),
+            ["id", "name", "status", "extra_1"]
+        );
+        assert!(select_list_headers(&[], 4).is_empty());
+    }
+
+    #[test]
+    fn test_column_budget_caps_priority_fields() {
+        let priority = serde_json::json!({
+            "id": 42,
+            "title": "API",
+            "name": "api",
+            "status": "ok"
+        });
+        assert_eq!(select_list_headers(&[&priority], 2), ["id", "title"]);
+
+        let monitor = serde_json::json!({
+            "id": 42,
+            "name": "API",
+            "overall_state": "OK",
+            "type": "query alert"
+        });
+        assert_eq!(select_list_headers(&[&monitor], 2), ["id", "name"]);
+        assert!(select_list_headers(&[&monitor], 0).is_empty());
+    }
+
+    #[test]
+    fn test_rows_without_columns_render_object_previews() {
+        let rendered = format_table_to_string(&serde_json::json!([{}, {}])).unwrap();
+        assert!(rendered.contains("| VALUE      |"));
+        assert_eq!(rendered.matches("| {0 fields} |").count(), 2);
     }
 
     #[test]
@@ -1138,9 +1648,14 @@ mod tests {
         }]);
 
         for format in [OutputFormat::Json, OutputFormat::Yaml, OutputFormat::Table] {
-            let rendered =
-                format_value_to_string_with_order(&data, &format, false, OutputOrder::Preserve)
-                    .unwrap();
+            let rendered = format_value_to_string_with_options(
+                &data,
+                &format,
+                false,
+                OutputOrder::Preserve,
+                TableInput::AsIs,
+            )
+            .unwrap();
             let zebra = rendered.find("zebra").unwrap();
             let alpha = rendered.find("alpha").unwrap();
             let middle = rendered.find("middle").unwrap();
@@ -1150,20 +1665,22 @@ mod tests {
             );
         }
 
-        let csv = format_value_to_string_with_order(
+        let csv = format_value_to_string_with_options(
             &data,
             &OutputFormat::Csv,
             false,
             OutputOrder::Preserve,
+            TableInput::AsIs,
         )
         .unwrap();
         assert_eq!(csv.lines().next(), Some("zebra,alpha,middle"));
 
-        let tsv = format_value_to_string_with_order(
+        let tsv = format_value_to_string_with_options(
             &data,
             &OutputFormat::Tsv,
             false,
             OutputOrder::Preserve,
+            TableInput::AsIs,
         )
         .unwrap();
         assert_eq!(tsv.lines().next(), Some("zebra\talpha\tmiddle"));
@@ -1177,11 +1694,12 @@ mod tests {
             "middle": 3
         }]);
 
-        let rendered = format_value_to_string_with_order(
+        let rendered = format_value_to_string_with_options(
             &data,
             &OutputFormat::Json,
             true,
             OutputOrder::Preserve,
+            TableInput::AsIs,
         )
         .unwrap();
         let zebra = rendered.find("zebra").unwrap();

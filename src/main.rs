@@ -48,7 +48,7 @@ use std::io::IsTerminal;
 #[derive(Parser)]
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
 pub(crate) struct Cli {
-    /// Output format (json, table, yaml, csv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
+    /// Output format (json, table, yaml, csv, tsv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
     #[arg(short, long, global = true)]
     output: Option<String>,
     /// Auto-approve destructive operations
@@ -1468,6 +1468,7 @@ enum Commands {
     ///
     /// EXAMPLES:
     ///   pup api v2/monitors --silent | pup format --output table
+    ///   pup api v1/monitor/search --silent | pup format --rows-at /monitors --columns id,name,status
     ///   echo '[{"id":1}]' | pup format --output csv
     #[cfg(not(target_arch = "wasm32"))]
     #[command(visible_alias = "fmt", verbatim_doc_comment)]
@@ -1484,6 +1485,15 @@ enum Commands {
         /// Set metadata.next_action in the agent-mode envelope
         #[arg(long, value_name = "STR")]
         next_action: Option<String>,
+        /// Select table rows using an RFC 6901 JSON Pointer (for example, /data)
+        #[arg(long, value_name = "POINTER")]
+        rows_at: Option<String>,
+        /// Select each table row's value using an RFC 6901 JSON Pointer
+        #[arg(long, value_name = "POINTER")]
+        row_at: Option<String>,
+        /// Show these table columns in this order (comma-separated or repeated)
+        #[arg(long, value_name = "FIELD", value_delimiter = ',')]
+        columns: Vec<String>,
     },
     /// Manage tag governance
     ///
@@ -2118,7 +2128,7 @@ enum Commands {
     ///   • Create new notebooks
     ///   • Replace notebooks or append cells
     ///   • Delete notebooks
-    ///   • Upload images for embedding in notebook cells
+    ///   • Upload or download images for embedding in notebook cells
     ///
     /// EXAMPLES:
     ///   # Find all notebooks
@@ -2144,6 +2154,9 @@ enum Commands {
     ///
     ///   # Upload an image and get back a cell content reference
     ///   pup notebooks images upload ./screenshot.png
+    ///
+    ///   # Download an image referenced by a notebook's image cell
+    ///   pup notebooks images download <uuid-or-content-url> --out ./downloaded.png
     ///
     /// AUTHENTICATION:
     ///   Requires OAuth2 (via 'pup auth login') with notebooks_read/notebooks_write
@@ -6707,6 +6720,14 @@ enum NotebookImagesActions {
         /// Image format: png, jpeg, jpg, or gif (inferred from the file extension if omitted)
         #[arg(long)]
         format: Option<String>,
+    },
+    /// Download a previously-uploaded image to a local file
+    Download {
+        /// Image UUID, content_url path, or full URL (e.g. from a notebook's image cell)
+        image_ref: String,
+        /// Local path to write the downloaded image to
+        #[arg(long)]
+        out: String,
     },
 }
 
@@ -11591,7 +11612,7 @@ fn build_agent_schema_scoped(
                 "name": "--output",
                 "type": "string",
                 "default": "json",
-                "description": "Output format (json, table, yaml, csv)"
+                "description": "Output format (json, table, yaml, csv, tsv)"
             },
             {
                 "name": "--yes",
@@ -11720,7 +11741,7 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
                 "name": "--output",
                 "type": "string",
                 "default": "json",
-                "description": "Output format (json, table, yaml, csv)"
+                "description": "Output format (json, table, yaml, csv, tsv)"
             },
             {
                 "name": "--yes",
@@ -12969,7 +12990,9 @@ fn resolve_output_format(
 mod resolve_output_format_tests {
     use super::reject_jq_with_markdown;
     use super::resolve_output_format;
+    use super::{Cli, Commands};
     use crate::config::OutputFormat;
+    use clap::Parser;
 
     #[test]
     fn jq_flag_with_markdown_is_rejected() {
@@ -13009,6 +13032,36 @@ mod resolve_output_format_tests {
             got.is_err(),
             "a malformed --output value must be a hard error"
         );
+    }
+
+    #[test]
+    fn format_table_hints_parse_comma_separated_and_repeated_columns() {
+        let cli = Cli::try_parse_from([
+            "pup",
+            "format",
+            "--rows-at",
+            "/results",
+            "--row-at",
+            "/data",
+            "--columns",
+            "id,name",
+            "--columns",
+            "status",
+        ])
+        .unwrap();
+        let Commands::Format {
+            rows_at,
+            row_at,
+            columns,
+            ..
+        } = cli.command
+        else {
+            panic!("expected format command");
+        };
+
+        assert_eq!(rows_at.as_deref(), Some("/results"));
+        assert_eq!(row_at.as_deref(), Some("/data"));
+        assert_eq!(columns, ["id", "name", "status"]);
     }
 }
 
@@ -15128,6 +15181,9 @@ async fn main_inner() -> anyhow::Result<()> {
                 NotebookActions::Images { action } => match action {
                     NotebookImagesActions::Upload { file, format } => {
                         commands::notebook_images::upload(&cfg, &file, format.as_deref()).await?;
+                    }
+                    NotebookImagesActions::Download { image_ref, out } => {
+                        commands::notebook_images::download(&cfg, &image_ref, &out).await?;
                     }
                 },
             }
@@ -17392,8 +17448,22 @@ async fn main_inner() -> anyhow::Result<()> {
             count,
             command,
             next_action,
+            rows_at,
+            row_at,
+            columns,
         } => {
-            commands::format::run(&cfg, input.as_deref(), count, command, next_action)?;
+            commands::format::run(
+                &cfg,
+                input.as_deref(),
+                commands::format::FormatOptions {
+                    count,
+                    command,
+                    next_action,
+                    rows_at: rows_at.as_deref(),
+                    row_at: row_at.as_deref(),
+                    columns: &columns,
+                },
+            )?;
         }
         // --- Skills ---
         #[cfg(not(target_arch = "wasm32"))]

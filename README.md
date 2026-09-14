@@ -449,7 +449,7 @@ pup idp entities query 'kind:service AND owner:payments' \
 
 ## Global Flags
 
-- `-o, --output`: Output format (json, table, yaml) - default: json
+- `-o, --output`: Output format (`json`, `table`, `yaml`, `csv`, or `tsv`) — default: `json`
 - `-y, --yes`: Skip confirmation prompts for destructive operations
 
 ## Environment Variables

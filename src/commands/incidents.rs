@@ -11,6 +11,15 @@ use crate::config::Config;
 use crate::formatter;
 use crate::util;
 
+const INCIDENT_LIST_COLUMNS: &[&str] = &[
+    "attributes.public_id",
+    "attributes.title",
+    "attributes.severity",
+    "attributes.state",
+    "attributes.customer_impacted",
+    "attributes.created",
+];
+
 // ---------------------------------------------------------------------------
 // Helper: build an IncidentsAPI with bearer-token support
 // ---------------------------------------------------------------------------
@@ -33,7 +42,13 @@ pub async fn list(cfg: &Config, query: Option<String>, limit: i64) -> Result<()>
         .search_incidents(q, params)
         .await
         .map_err(|e| anyhow::anyhow!("failed to list incidents: {:?}", e))?;
-    formatter::output(cfg, &resp)?;
+    formatter::output_with_table(
+        cfg,
+        &resp,
+        formatter::TableOptions::new(INCIDENT_LIST_COLUMNS)
+            .rows_at("/data/attributes/incidents")
+            .row_at("/data"),
+    )?;
     Ok(())
 }
 

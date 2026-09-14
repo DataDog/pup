@@ -1239,6 +1239,21 @@ pup monitors list --output=yaml
 pup monitors list --output=table
 ```
 
+Single-resource responses use field/value rows, while collections remain horizontal.
+
+Scalar table results are rendered in a `VALUE` column instead of producing an empty table.
+
+Table cells use compact previews for long strings, arrays, nested objects, and null values.
+
+Commands that know their response shape provide concise, opinionated columns; generic
+API and formatter input keeps the priority-and-fallback selection.
+
+### CSV and TSV Output
+```bash
+pup monitors list --output=csv
+pup monitors list --output=tsv
+```
+
 ### Custom Fields
 ```bash
 pup monitors list --fields="id,name,type,status"

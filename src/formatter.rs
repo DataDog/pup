@@ -125,7 +125,7 @@ fn color_enabled(
     term: Option<&str>,
 ) -> bool {
     is_terminal
-        && !no_color.is_some_and(|value| !value.is_empty())
+        && no_color.is_none_or(|value| value.is_empty())
         && clicolor != Some("0")
         && !term.is_some_and(|value| value.eq_ignore_ascii_case("dumb"))
 }

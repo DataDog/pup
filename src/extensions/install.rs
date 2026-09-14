@@ -156,11 +156,7 @@ fn platform_os() -> &'static str {
 
 /// Map `std::env::consts::ARCH` to the asset name convention.
 fn platform_arch() -> &'static str {
-    match std::env::consts::ARCH {
-        "x86_64" => "x86_64",
-        "aarch64" => "aarch64",
-        other => other,
-    }
+    std::env::consts::ARCH
 }
 
 /// Map `std::env::consts::OS` to the GoReleaser archive OS convention.

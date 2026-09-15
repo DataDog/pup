@@ -111,11 +111,15 @@ const ANSI_YELLOW: &str = "\x1b[33m";
 const ANSI_MAGENTA: &str = "\x1b[35m";
 const ANSI_DIM: &str = "\x1b[2m";
 const ANSI_GRAY: &str = "\x1b[90m";
+const OSC8_OPEN: &str = "\x1b]8;;";
+const OSC8_CLOSE: &str = "\x1b]8;;\x1b\\";
+const OSC_TERMINATOR: &str = "\x1b\\";
 const NO_RESULTS: &str = "No results found";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct TerminalCapabilities {
     colors: bool,
+    hyperlinks: bool,
 }
 
 fn color_enabled(
@@ -130,16 +134,22 @@ fn color_enabled(
         && !term.is_some_and(|value| value.eq_ignore_ascii_case("dumb"))
 }
 
+fn hyperlinks_enabled(terminal_styling: bool, pup_hyperlinks: Option<&str>) -> bool {
+    terminal_styling && pup_hyperlinks != Some("0")
+}
+
 fn stdout_terminal_capabilities() -> TerminalCapabilities {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let colors = color_enabled(
+            std::io::stdout().is_terminal(),
+            std::env::var_os("NO_COLOR").as_deref(),
+            std::env::var("CLICOLOR").ok().as_deref(),
+            std::env::var("TERM").ok().as_deref(),
+        );
         TerminalCapabilities {
-            colors: color_enabled(
-                std::io::stdout().is_terminal(),
-                std::env::var_os("NO_COLOR").as_deref(),
-                std::env::var("CLICOLOR").ok().as_deref(),
-                std::env::var("TERM").ok().as_deref(),
-            ),
+            colors,
+            hyperlinks: hyperlinks_enabled(colors, std::env::var("PUP_HYPERLINKS").ok().as_deref()),
         }
     }
 
@@ -495,7 +505,7 @@ fn print_formatted(
     table_input: TableInput<'_>,
 ) -> Result<()> {
     let rendered = if *format == OutputFormat::Table {
-        format_table_with_options(data, output_order, table_input, capabilities.colors)?
+        format_table_with_options(data, output_order, table_input, capabilities)?
     } else {
         format_value_to_string_with_options(data, format, false, output_order, table_input)?
     };
@@ -741,39 +751,44 @@ fn format_table_to_string_with_options(
     output_order: OutputOrder,
     table_input: TableInput<'_>,
 ) -> Result<String> {
-    format_table_with_options(data, output_order, table_input, false)
+    format_table_with_options(
+        data,
+        output_order,
+        table_input,
+        TerminalCapabilities::default(),
+    )
 }
 
 fn format_table_with_options(
     data: &serde_json::Value,
     output_order: OutputOrder,
     table_input: TableInput<'_>,
-    colors: bool,
+    capabilities: TerminalCapabilities,
 ) -> Result<String> {
     let table_data = select_table_data(data, table_input)?;
     let has_row_hints = table_input.has_row_hints();
     match table_data {
         serde_json::Value::Array(_) if has_row_hints => {
-            format_horizontal_table(table_data, output_order, table_input, colors)
+            format_horizontal_table(table_data, output_order, table_input, capabilities)
         }
         serde_json::Value::Array(values)
             if values
                 .iter()
                 .all(|value| !matches!(value, serde_json::Value::Object(_))) =>
         {
-            format_scalar_table(values.iter(), colors)
+            format_scalar_table(values.iter(), capabilities)
         }
         serde_json::Value::Array(_) => {
-            format_horizontal_table(table_data, output_order, table_input, colors)
+            format_horizontal_table(table_data, output_order, table_input, capabilities)
         }
         serde_json::Value::Object(_) if has_row_hints => {
-            format_horizontal_table(table_data, output_order, table_input, colors)
+            format_horizontal_table(table_data, output_order, table_input, capabilities)
         }
-        serde_json::Value::Object(_) => format_vertical_table(table_data, colors),
+        serde_json::Value::Object(_) => format_vertical_table(table_data, capabilities),
         _ if has_row_hints => {
             anyhow::bail!("table row and column hints require an array or object response")
         }
-        value => format_scalar_table(std::iter::once(value), colors),
+        value => format_scalar_table(std::iter::once(value), capabilities),
     }
 }
 
@@ -797,7 +812,7 @@ fn format_horizontal_table(
     data: &serde_json::Value,
     output_order: OutputOrder,
     table_input: TableInput<'_>,
-    colors: bool,
+    capabilities: TerminalCapabilities,
 ) -> Result<String> {
     let raw_rows = match data {
         serde_json::Value::Array(rows) => rows.iter().collect(),
@@ -819,7 +834,7 @@ fn format_horizontal_table(
             &selected_rows,
             &headers,
             flattened_value,
-            colors,
+            capabilities,
         ));
     }
 
@@ -832,14 +847,14 @@ fn format_horizontal_table(
         collect_headers(&rows).0.into_iter().take(12).collect()
     };
     if final_headers.is_empty() {
-        return format_scalar_table(selected_rows, colors);
+        return format_scalar_table(selected_rows, capabilities);
     }
 
     Ok(render_horizontal_rows(
         &rows,
         &final_headers,
         object_value,
-        colors,
+        capabilities,
     ))
 }
 
@@ -847,20 +862,20 @@ fn render_horizontal_rows(
     rows: &[&serde_json::Value],
     headers: &[String],
     value_at: for<'a> fn(&'a serde_json::Value, &str) -> Option<&'a serde_json::Value>,
-    colors: bool,
+    capabilities: TerminalCapabilities,
 ) -> String {
     let mut table = comfy_table::Table::new();
     table.set_header(
         headers
             .iter()
-            .map(|header| table_header_cell(header, colors))
+            .map(|header| table_header_cell(header, capabilities.colors))
             .collect::<Vec<_>>(),
     );
 
     for row in rows {
         let cells: Vec<comfy_table::Cell> = headers
             .iter()
-            .map(|header| table_cell(value_at(row, header), header, colors))
+            .map(|header| table_cell(value_at(row, header), header, capabilities))
             .collect();
         table.add_row(cells);
     }
@@ -925,7 +940,10 @@ fn object_value<'a>(row: &'a serde_json::Value, column: &str) -> Option<&'a serd
     row.as_object()?.get(column)
 }
 
-fn format_vertical_table(data: &serde_json::Value, colors: bool) -> Result<String> {
+fn format_vertical_table(
+    data: &serde_json::Value,
+    capabilities: TerminalCapabilities,
+) -> Result<String> {
     let flat = flatten_row(data);
     let Some(fields) = flat.as_object() else {
         return Ok("No results found".to_string());
@@ -936,13 +954,13 @@ fn format_vertical_table(data: &serde_json::Value, colors: bool) -> Result<Strin
 
     let mut table = comfy_table::Table::new();
     table.set_header([
-        table_header_cell("FIELD", colors),
-        table_header_cell("VALUE", colors),
+        table_header_cell("FIELD", capabilities.colors),
+        table_header_cell("VALUE", capabilities.colors),
     ]);
     for (field, value) in fields {
         table.add_row([
             comfy_table::Cell::new(field),
-            table_cell(Some(value), field, colors),
+            table_cell(Some(value), field, capabilities),
         ]);
     }
     Ok(table.to_string())
@@ -950,13 +968,13 @@ fn format_vertical_table(data: &serde_json::Value, colors: bool) -> Result<Strin
 
 fn format_scalar_table<'a>(
     values: impl IntoIterator<Item = &'a serde_json::Value>,
-    colors: bool,
+    capabilities: TerminalCapabilities,
 ) -> Result<String> {
     let mut table = comfy_table::Table::new();
-    table.set_header([table_header_cell("VALUE", colors)]);
+    table.set_header([table_header_cell("VALUE", capabilities.colors)]);
     let mut has_values = false;
     for value in values {
-        table.add_row([table_cell(Some(value), "", colors)]);
+        table.add_row([table_cell(Some(value), "", capabilities)]);
         has_values = true;
     }
     if !has_values {
@@ -1051,12 +1069,18 @@ enum TableTone {
     Identifier,
 }
 
-fn table_cell(value: Option<&serde_json::Value>, header: &str, colors: bool) -> comfy_table::Cell {
+fn table_cell(
+    value: Option<&serde_json::Value>,
+    header: &str,
+    capabilities: TerminalCapabilities,
+) -> comfy_table::Cell {
     let display = format_cell(value);
     #[cfg(feature = "native")]
-    let tone = colors
+    let tone = capabilities
+        .colors
         .then(|| table_cell_tone(header, value, &display))
         .flatten();
+    let display = hyperlink_table_cell(value, display, capabilities.hyperlinks);
     let cell = comfy_table::Cell::new_owned(display);
 
     #[cfg(feature = "native")]
@@ -1082,8 +1106,56 @@ fn table_cell(value: Option<&serde_json::Value>, header: &str, colors: bool) -> 
     }
 
     #[cfg(not(feature = "native"))]
-    let _ = (header, colors);
+    let _ = (header, capabilities);
     cell
+}
+
+fn hyperlink_table_cell(
+    value: Option<&serde_json::Value>,
+    display: String,
+    enabled: bool,
+) -> String {
+    if !enabled {
+        return display;
+    }
+    let Some(serde_json::Value::String(raw_target)) = value else {
+        return display;
+    };
+    let Some(target) = safe_http_url(raw_target) else {
+        return display;
+    };
+    // OSC 8 keeps the complete target separate from the displayed label.
+    // comfy_table's custom_styling feature ignores these control bytes when
+    // measuring the cell, so a long target cannot distort the table layout.
+    format!(
+        "{OSC8_OPEN}{}{OSC_TERMINATOR}{display}{OSC8_CLOSE}",
+        target.as_str()
+    )
+}
+
+fn safe_http_url(value: &str) -> Option<reqwest::Url> {
+    let (scheme, _) = value.split_once(':')?;
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return None;
+    }
+    if value
+        .chars()
+        .any(|character| character.is_control() || character.is_whitespace())
+    {
+        return None;
+    }
+    let Ok(parsed) = reqwest::Url::parse(value) else {
+        return None;
+    };
+    // User info can hide the real host past a truncated, trusted-looking label.
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.has_host()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return None;
+    }
+    Some(parsed)
 }
 
 #[cfg(feature = "native")]
@@ -1476,7 +1548,49 @@ mod tests {
         .fold(value.to_string(), |plain, style| plain.replace(style, ""))
     }
 
-    const COLORS: TerminalCapabilities = TerminalCapabilities { colors: true };
+    const COLORS: TerminalCapabilities = TerminalCapabilities {
+        colors: true,
+        hyperlinks: false,
+    };
+    const INTERACTIVE: TerminalCapabilities = TerminalCapabilities {
+        colors: true,
+        hyperlinks: true,
+    };
+
+    fn format_table_with_capabilities(
+        data: &serde_json::Value,
+        capabilities: TerminalCapabilities,
+    ) -> String {
+        format_table_with_options(
+            data,
+            OutputOrder::Default,
+            TableInput::Generic,
+            capabilities,
+        )
+        .unwrap()
+    }
+
+    fn strip_test_links(value: &str) -> String {
+        let mut plain = String::with_capacity(value.len());
+        let mut remainder = value;
+        while let Some(open) = remainder.find(OSC8_OPEN) {
+            plain.push_str(&remainder[..open]);
+            let target = &remainder[open + OSC8_OPEN.len()..];
+            let Some(label_start) = target.find(OSC_TERMINATOR) else {
+                plain.push_str(&remainder[open..]);
+                return plain;
+            };
+            let label = &target[label_start + OSC_TERMINATOR.len()..];
+            let Some(close) = label.find(OSC8_CLOSE) else {
+                plain.push_str(&remainder[open..]);
+                return plain;
+            };
+            plain.push_str(&label[..close]);
+            remainder = &label[close + OSC8_CLOSE.len()..];
+        }
+        plain.push_str(remainder);
+        plain
+    }
 
     #[test]
     fn test_color_enabled_only_for_capable_terminal() {
@@ -1499,6 +1613,13 @@ mod tests {
         ));
         assert!(!color_enabled(true, None, Some("0"), None));
         assert!(!color_enabled(true, None, None, Some("dumb")));
+    }
+
+    #[test]
+    fn test_hyperlinks_require_terminal_styling_and_allow_opt_out() {
+        assert!(hyperlinks_enabled(true, None));
+        assert!(!hyperlinks_enabled(false, None));
+        assert!(!hyperlinks_enabled(true, Some("0")));
     }
 
     #[cfg(feature = "native")]
@@ -1527,7 +1648,7 @@ mod tests {
     #[test]
     fn test_table_cells_apply_styles_only_when_enabled() {
         assert_eq!(
-            table_header_cell("status", true),
+            table_header_cell("status", COLORS.colors),
             comfy_table::Cell::new("status")
                 .fg(comfy_table::Color::Cyan)
                 .add_attribute(comfy_table::Attribute::Bold)
@@ -1535,15 +1656,135 @@ mod tests {
 
         let value = serde_json::json!("Alert");
         assert_eq!(
-            table_cell(Some(&value), "status", true),
+            table_cell(Some(&value), "status", COLORS),
             comfy_table::Cell::new("Alert")
                 .fg(comfy_table::Color::Red)
                 .add_attribute(comfy_table::Attribute::Bold)
         );
         assert_eq!(
-            table_cell(Some(&value), "status", false),
+            table_cell(Some(&value), "status", TerminalCapabilities::default()),
             comfy_table::Cell::new("Alert")
         );
+    }
+
+    #[test]
+    fn test_table_links_use_full_target_for_truncated_labels() {
+        let target = "https://secure.gravatar.com/avatar/7cb8c2243893c5d246db0f80a5e9c834?size=128";
+        let data = serde_json::json!({"author_icon": target});
+        let plain = format_table_to_string(&data).unwrap();
+        let linked = format_table_with_capabilities(&data, INTERACTIVE);
+
+        assert!(!plain.contains(target));
+        assert!(plain.contains('…'));
+        assert!(linked.contains(&format!("{OSC8_OPEN}{target}{OSC_TERMINATOR}")));
+        assert_eq!(strip_test_colors(&strip_test_links(&linked)), plain);
+    }
+
+    #[test]
+    fn test_table_links_cover_scalar_vertical_and_horizontal_layouts() {
+        let target = "https://example.com/resource?id=42";
+        for data in [
+            serde_json::json!(target),
+            serde_json::json!({"url": target}),
+            serde_json::json!([{"url": target}]),
+        ] {
+            let linked = format_table_with_capabilities(&data, INTERACTIVE);
+            assert!(linked.contains(&format!("{OSC8_OPEN}{target}{OSC_TERMINATOR}")));
+            assert_eq!(
+                strip_test_colors(&strip_test_links(&linked)),
+                format_table_to_string(&data).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_links_ignore_urls_embedded_in_other_values() {
+        let target = "https://example.com/resource";
+        let data = serde_json::json!({
+            "description": format!("See {target} for details"),
+            "links": [target]
+        });
+
+        assert!(!format_table_with_capabilities(&data, INTERACTIVE).contains(OSC8_OPEN));
+    }
+
+    #[test]
+    fn test_table_links_reject_unsafe_or_non_http_targets() {
+        for target in [
+            "javascript:alert(1)",
+            "https://",
+            "https://example.com/bad value",
+            "https://example.com/\u{1b}]8;;https://evil.example",
+        ] {
+            assert!(safe_http_url(target).is_none(), "accepted {target:?}");
+        }
+    }
+
+    #[test]
+    fn test_table_links_emit_normalized_targets() {
+        for (target, normalized) in [
+            ("https://example.com/café", "https://example.com/caf%C3%A9"),
+            ("http://example.com\\path", "http://example.com/path"),
+        ] {
+            assert_eq!(safe_http_url(target).unwrap().as_str(), normalized);
+
+            let data = serde_json::json!({"url": target});
+            let linked = format_table_with_capabilities(&data, INTERACTIVE);
+
+            assert!(linked.contains(&format!("{OSC8_OPEN}{normalized}{OSC_TERMINATOR}")));
+            assert_eq!(
+                strip_test_colors(&strip_test_links(&linked)),
+                format_table_to_string(&data).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_links_reject_user_info_urls() {
+        for target in [
+            "https://app.datadoghq.com........................................@evil.example/path",
+            "https://user:password@example.com/path",
+            "https://:password@example.com/path",
+        ] {
+            let data = serde_json::json!({"url": target});
+            let rendered = format_table_with_capabilities(&data, INTERACTIVE);
+
+            assert!(!rendered.contains(OSC8_OPEN), "linked {target:?}");
+            assert_eq!(rendered, format_table_to_string(&data).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_table_links_are_not_added_when_disabled() {
+        let data = serde_json::json!({"url": "https://example.com/resource"});
+        let rendered = format_table_with_capabilities(&data, TerminalCapabilities::default());
+
+        assert!(!rendered.contains(OSC8_OPEN));
+        assert_eq!(rendered, format_table_to_string(&data).unwrap());
+    }
+
+    #[test]
+    fn test_table_links_preserve_invisible_separators() {
+        let separator_value = "before\u{2063}after";
+        assert_eq!(
+            format_cell(Some(&serde_json::json!(separator_value))),
+            separator_value
+        );
+
+        let target = "https://example.com/before\u{2063}after";
+        let data = serde_json::json!([{
+            "field\u{2063}name": separator_value,
+            "url": target
+        }]);
+        let plain = format_table_to_string(&data).unwrap();
+        let linked = format_table_with_capabilities(&data, INTERACTIVE);
+        let normalized_target = safe_http_url(target).unwrap();
+
+        assert!(linked.contains(&format!(
+            "{OSC8_OPEN}{}{OSC_TERMINATOR}",
+            normalized_target.as_str()
+        )));
+        assert_eq!(strip_test_colors(&strip_test_links(&linked)), plain);
     }
 
     #[test]

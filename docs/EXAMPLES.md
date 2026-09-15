@@ -1305,6 +1305,10 @@ JSON, YAML, and table output use best-effort color highlighting when stdout is a
 interactive terminal. This is lightweight presentation logic, not a general syntax
 parser. Set `NO_COLOR` or `CLICOLOR=0` to keep interactive output plain.
 
+HTTP(S) strings that occupy an entire table cell use OSC 8 terminal hyperlinks. The
+link keeps its complete URL even when the displayed value is shortened. Set
+`PUP_HYPERLINKS=0` to disable links; `NO_COLOR` and `CLICOLOR=0` disable them too.
+
 ### CSV and TSV Output
 ```bash
 pup monitors list --output=csv

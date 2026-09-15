@@ -1550,7 +1550,7 @@ enum Commands {
     ///   • Run a quick legacy service lookup (find)
     ///   • Resolve service ownership and on-call (owner)
     ///   • Show legacy production service dependencies (deps)
-    ///   • Register a service definition from YAML (register)
+    ///   • Register Catalog entities from YAML or JSON (register)
     ///   • Migrate service catalog YAML to v3 schema (migrate-schema)
     ///
     /// EXAMPLES:
@@ -1573,7 +1573,7 @@ enum Commands {
     ///   # Show dependencies
     ///   pup idp deps checkout-api
     ///
-    ///   # Register a service definition
+    ///   # Register Catalog entities
     ///   pup idp register service.datadog.yaml
     ///
     ///   # Migrate a catalog file to v3
@@ -5393,17 +5393,19 @@ enum IdpActions {
         /// Entity name
         entity: String,
     },
-    /// Register a service definition from a YAML file
+    /// Register Catalog entities from a YAML or JSON file
     ///
-    /// POSTs a service.datadog.yaml file to the Datadog Service Catalog API.
-    /// The file should use the v2.2 schema format.
+    /// POSTs one or more entity definitions to the Datadog Catalog entity API.
+    /// Accepts v1, v2, v2.1, v2.2, and v3 definitions. YAML files may contain
+    /// multiple documents separated by `---`. Success returns the Catalog
+    /// JSON:API entity response.
     ///
     /// EXAMPLES:
     ///   pup idp register services/checkout-api/service.datadog.yaml
     ///   pup idp register ./service.datadog.yaml
     #[command(verbatim_doc_comment)]
     Register {
-        /// Path to the service.datadog.yaml file
+        /// Path to a Catalog entity YAML or JSON file
         file: String,
     },
     /// Migrate a service catalog YAML file to v3 schema

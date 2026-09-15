@@ -247,6 +247,10 @@ commands. The list below is illustrative — see
 - `code_analysis_read` - Read code analysis context connected to entities
 - `appsec_vm_read` - Read application-security vulnerability context connected to entities
 
+### Software Catalog
+- `apm_service_catalog_read` - Read Catalog entities, kinds, and relations
+- `apm_service_catalog_write` - Register and mutate Catalog entities and kinds
+
 ### SLOs
 - `slos_read` - Read SLOs
 - `slos_write` - Create/update SLOs

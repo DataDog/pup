@@ -13,7 +13,7 @@ Help users understand and maintain Datadog's service and software catalog. Use t
 - Use `pup idp assist` for a fast curated single-service summary, metadata gaps, and suggested next actions; use `owner` for convenient owner/on-call resolution. These trade graph fidelity for a narrower opinionated result.
 - Treat `find` as a simple legacy service-name lookup and `deps` as a production-only service-to-service snapshot. Use UEG for explicit schema, relation families, counts, pagination, and traversal.
 - Use `pup software-catalog entities|kinds|relations` for Catalog inventory and explicit Catalog mutations.
-- Use `pup idp register` only for the existing v2.2 service-definition ingestion workflow; do not imply it accepts every Catalog v3 shape.
+- Use `pup idp register` to preserve the familiar file-oriented workflow across v1, v2, v2.1, v2.2, and v3 Catalog definitions. It sends raw YAML or JSON to the Catalog entity API and accepts multi-document YAML.
 
 Do not use nonexistent `pup services` or `pup catalog` commands.
 
@@ -79,7 +79,7 @@ The Software Catalog entity API and the IDP entity graph are related but distinc
 
 Pup agent mode may auto-approve CLI prompts. Obtain the user's explicit authorization immediately before any remote mutation even when Pup would not prompt.
 
-### Existing v2.2 service definition
+### Register Catalog entities
 
 Inspect the YAML and confirm the target org before running:
 
@@ -87,7 +87,15 @@ Inspect the YAML and confirm the target org before running:
 pup idp register path/to/service.datadog.yaml
 ```
 
-This posts the legacy v2.2 service-definition shape. Do not silently convert or reroute other schema versions.
+This accepts v1 through v3 definitions and posts them to the Catalog entity API. YAML files may contain multiple documents separated by `---`; the server validates and ingests each supported schema without local conversion. Success returns the Catalog JSON:API entity response (`202 Accepted`), not the legacy service-definition response (`200 OK`). A successful response can still contain schema warnings under `included[].attributes.schema.metadata.managed.status.warnings`; resolve them before treating the definition as clean. For v3, omit `metadata.namespace`; the server assigns the default namespace.
+
+Verify a returned ref against Catalog inventory before assuming it has propagated to UEG:
+
+```bash
+pup --read-only software-catalog entities list --filter-ref service:default/<service-name>
+```
+
+Catalog is the immediate source of truth after a write. UEG creation and deletion may lag by tens of seconds, so retry a bounded exact-ref query before concluding propagation failed.
 
 ### Migrate a definition to v3
 

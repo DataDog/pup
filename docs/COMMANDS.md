@@ -370,7 +370,7 @@ Constraints worth knowing before relying on these:
   - `find <query>` — search entities by name (defaults to `kind:service`)
   - `owner <entity>` — ownership + on-call responders for an entity
   - `deps <entity>` — upstream/downstream service dependencies
-  - `register <file>` — POST a `service.datadog.yaml` to the Service Definitions API
+  - `register <file>` — POST v1–v3 YAML/JSON definitions to the Catalog entity API; YAML may contain multiple documents
 
 ### v0.28.0 — New Command Groups and Full Pipeline Implementation
 

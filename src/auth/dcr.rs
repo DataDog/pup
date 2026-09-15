@@ -159,7 +159,7 @@ impl DcrClient {
     }
 
     async fn request_tokens(&self, params: &[(&str, &str)], client_id: &str) -> Result<TokenSet> {
-        let url = format!("https://{}/oauth2/v1/token", self.api_host);
+        let url = format!("https://{}/api/v2/oauth2/token", self.api_host);
 
         // Filter out empty params
         let form_params: Vec<(&str, &str)> = params

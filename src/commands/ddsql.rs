@@ -788,7 +788,7 @@ pub async fn table(
 ) -> Result<()> {
     let query = resolve_query(query)?;
     let rows = execute_ddsql_query(cfg, &query, from, to, limit.map(i64::from)).await?;
-    formatter::output_preserving_order(cfg, &rows)
+    crate::output::output_preserving_order(cfg, &rows)
 }
 
 /// Transform a DDSQL columnar response into a row-based JSON array.

@@ -338,7 +338,19 @@ pub async fn raw_post(
     body: serde_json::Value,
 ) -> anyhow::Result<serde_json::Value> {
     let url = format!("{}{}", cfg.api_base_url(), path);
-    raw_post_impl(cfg, path, &url, body, useragent::get()).await
+    raw_post_impl(cfg, path, &url, body, useragent::get(), &[]).await
+}
+
+/// Like `raw_post`, but with extra headers applied after auth (e.g. to route
+/// to a staging/test-drive deployment ahead of a route's general availability).
+pub async fn raw_post_with_headers(
+    cfg: &Config,
+    path: &str,
+    body: serde_json::Value,
+    extra_headers: &[(&str, &str)],
+) -> anyhow::Result<serde_json::Value> {
+    let url = format!("{}{}", cfg.api_base_url(), path);
+    raw_post_impl(cfg, path, &url, body, useragent::get(), extra_headers).await
 }
 
 /// Like `raw_post`, but with a custom User-Agent string for audit log differentiation.
@@ -349,7 +361,7 @@ pub async fn raw_post_with_ua(
     ua: String,
 ) -> anyhow::Result<serde_json::Value> {
     let url = format!("{}{}", cfg.api_base_url(), path);
-    raw_post_impl(cfg, path, &url, body, ua).await
+    raw_post_impl(cfg, path, &url, body, ua, &[]).await
 }
 
 async fn raw_post_impl(
@@ -358,19 +370,22 @@ async fn raw_post_impl(
     url: &str,
     body: serde_json::Value,
     ua: String,
+    extra_headers: &[(&str, &str)],
 ) -> anyhow::Result<serde_json::Value> {
     let client = reqwest::Client::new();
     let mut req = client.post(url);
 
     req = apply_auth(req, cfg, "POST", path)?;
 
-    let resp = req
+    req = req
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
-        .header("User-Agent", ua)
-        .json(&body)
-        .send()
-        .await?;
+        .header("User-Agent", ua);
+    for (k, v) in extra_headers {
+        req = req.header(*k, *v);
+    }
+
+    let resp = req.json(&body).send().await?;
     if !resp.status().is_success() {
         let status = resp.status();
         let headers = resp.headers().clone();

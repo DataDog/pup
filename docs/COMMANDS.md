@@ -61,7 +61,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | containers | list, images (list) | src/commands/containers.rs | ✅ |
 | costs | datadog (projected, attribution, by-org, aws-config, azure-config, gcp-config), ccm (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments) | src/commands/cost.rs, src/commands/cost_ccm.rs | ✅ |
 | product-analytics | events send | src/commands/product_analytics.rs | ✅ |
-| profiling | none | n/a | ⏳ |
+| profiling | profiles (list, download), services (list), profile-types (list), explore (flamegraph) | src/commands/profiling.rs | ✅ |
 | datasets | list, get, create, update, delete | src/commands/datasets.rs | ✅ |
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
@@ -77,7 +77,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | code-coverage | branch-summary, commit-summary | src/commands/code_coverage.rs | ✅ |
 | hamr | connections (get, create) | src/commands/hamr.rs | ✅ |
 | fleet | agents (list, get, versions, tracers), deployments (list, get, configure, upgrade, cancel), schedules (list, get, create, update, delete, trigger), tracers (list), clusters (list), instrumented-pods (list) | src/commands/fleet.rs | ✅ |
-| skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/devin/all; `--name`, `--type`, `--project` for project-local scope) | src/commands/skills.rs | ✅ |
+| skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/devin/all; `--name`, `--type`, `--project` for project-local scope; bundled skills include supplementary references) | src/commands/skills.rs | ✅ |
 | runbooks | list, describe, run, import, validate | src/commands/runbooks.rs | ✅ |
 | workflows | get, create, update, diff, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
 | investigations | list, get, trigger | src/commands/investigations.rs | ✅ |
@@ -89,8 +89,6 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 **Note:** RUM command is fully operational. Apps and sessions work completely. Metrics and retention-filters support list/get operations (create/update/delete operations pending due to complex API type structures).
 
 **Auth note:** All workflow commands require `DD_API_KEY` + `DD_APP_KEY`. OAuth2 bearer tokens are not supported for workflow operations.
-
-**Profiling note:** `pup profiling` has no subcommands yet. Use the Datadog MCP server instead: https://docs.datadoghq.com/bits_ai/mcp_server. Enable profiling in the MCP toolset with: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,profiling
 
 ## Common Patterns
 
@@ -193,7 +191,7 @@ pup infrastructure hosts list
 - **infrastructure** - Host inventory (hosts list, hosts get)
 - **network** - Network monitoring (flows list, devices list/get/interfaces/tags, interfaces list/update)
 - **tags** - Host tag management (list, get, add, update, delete)
-- **profiling** - Placeholder that points users to the Datadog MCP server for profiler data
+- **profiling** - Continuous Profiler search/download (profiles list/download, services list, profile-types list, explore flamegraph)
 
 ### Security & Compliance
 - **security** - Security monitoring (rules, signals, findings, content-packs, risk-scores)
@@ -214,7 +212,7 @@ pup infrastructure hosts list
 - **error-tracking** - Error management (issues search, issues get); search supports `--state`, `--team`, `--assignee` filters
 - **scorecards** - Service quality (rules, outcomes)
 - **service-catalog** - Service registry (list, get)
-- **idp** - Service Catalog agent access (assist, find, owner, deps, register)
+- **idp** - Entity graph discovery/query plus Service Catalog helpers (kinds, entities, assist, find, owner, deps, register, migrate-schema)
 - **debugger** - Live Debugger (probes list, get, create, delete, watch)
 
 ### Operations & Incident Response

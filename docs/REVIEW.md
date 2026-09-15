@@ -14,7 +14,7 @@ Every PR is evaluated against the following criteria. A failure in any **MUST** 
 
 - **Reuse existing utilities.** Before writing a new helper, search `src/` for an existing function that does the same thing. Common locations:
   - `src/util.rs` — time parsing, validation helpers
-  - `src/formatter_ext.rs` — hand-maintained output formatting implementation (JSON, YAML, table, agent envelope); keep `src/formatter.rs` limited to the generator-owned contract
+  - `src/output.rs` — hand-maintained output rendering and printing (JSON, YAML, table, agent envelope); keep `src/formatter.rs` limited to the generator-owned contract
   - `src/client.rs` — API client construction and request helpers
   - `src/config.rs` — configuration loading and precedence
 - **No duplicate code.** If two or more call sites need the same logic, extract it into a shared function in the appropriate module. Three identical lines is the threshold — extract on the third occurrence.

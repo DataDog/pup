@@ -18,7 +18,7 @@ Rust-based CLI wrapper for Datadog APIs. Provides OAuth2 + API key authenticatio
 
 **All PRs are reviewed against [docs/REVIEW.md](docs/REVIEW.md).** Read it before submitting. Key rules:
 
-- **Reuse existing code.** Search `src/util.rs`, `src/formatter_ext.rs`, `src/client.rs`, and `src/config.rs` before writing new helpers. `src/formatter.rs` is the generator-owned formatting contract; hand-maintained formatting logic belongs in `src/formatter_ext.rs`. Do not duplicate functionality that already exists.
+- **Reuse existing code.** Search `src/util.rs`, `src/output.rs`, `src/client.rs`, and `src/config.rs` before writing new helpers. `src/formatter.rs` is the generator-owned formatting contract; hand-maintained output logic belongs in `src/output.rs`. Do not duplicate functionality that already exists.
 - **Test both paths.** Every change must include positive tests (happy path) and negative tests (error cases, bad input, edge cases).
 - **No malicious code.** Obfuscated logic, backdoors, exfiltration, or unauthorized network calls result in rejection and a ban.
 - **No vulnerable dependencies.** Only use latest stable crate versions with no known CVEs. Run `cargo audit` before submitting.
@@ -61,7 +61,7 @@ pup/
 │   ├── client.rs          # Datadog API client wrapper
 │   ├── config.rs          # Configuration management
 │   ├── formatter.rs       # Generator-owned formatting contract
-│   ├── formatter_ext.rs   # Output formatting implementation (JSON, YAML, table, agent envelope)
+│   ├── output.rs          # Output rendering and printing (JSON, YAML, table, agent envelope)
 │   ├── useragent.rs       # AI agent detection (FORCE_AGENT_MODE, Claude Code, etc.)
 │   ├── util.rs            # Time parsing, validation
 │   └── version.rs         # Version and build info

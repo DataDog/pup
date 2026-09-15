@@ -22,7 +22,7 @@ mod filter;
 #[cfg(feature = "browser")]
 mod formatter;
 #[cfg(feature = "browser")]
-mod formatter_ext;
+mod output;
 #[cfg(feature = "browser")]
 mod version;
 

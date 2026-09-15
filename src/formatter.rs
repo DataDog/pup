@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use crate::config::OutputFormat;
 
-pub use crate::formatter_ext::{Metadata, TableOptions};
+pub use crate::output::{Metadata, TableOptions};
 
 /// Format and print data to stdout.
 pub fn format_and_print<T: Serialize>(
@@ -13,7 +13,7 @@ pub fn format_and_print<T: Serialize>(
     meta: Option<&Metadata>,
     jq: Option<&str>,
 ) -> Result<()> {
-    crate::formatter_ext::format_and_print(data, format, agent_mode, meta, jq)
+    crate::output::format_and_print(data, format, agent_mode, meta, jq)
 }
 
 /// Format and print data with command-provided table guidance.
@@ -25,9 +25,7 @@ pub fn format_and_print_with_table<T: Serialize>(
     jq: Option<&str>,
     table: TableOptions<'_>,
 ) -> Result<()> {
-    crate::formatter_ext::format_and_print_with_table(
-        data, format, agent_mode, meta, jq, table,
-    )
+    crate::output::format_and_print_with_table(data, format, agent_mode, meta, jq, table)
 }
 
 /// Convenience: format and print using config settings (respects -o flag, agent mode, and --jq).

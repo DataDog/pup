@@ -69,7 +69,7 @@ pup/
 │   ├── client.rs          # Datadog API client wrapper
 │   ├── config.rs          # Configuration management
 │   ├── formatter.rs       # Generator-owned formatting contract
-│   ├── formatter_ext.rs   # Hand-maintained output formatting implementation
+│   ├── output.rs          # Hand-maintained output rendering and printing
 │   ├── util.rs            # Time parsing, validation
 │   ├── useragent.rs       # User agent + AI agent detection
 │   ├── version.rs         # Version information
@@ -95,7 +95,7 @@ pup/
 **Design principles:**
 - `src/commands/` contains clap command definitions (thin layer)
 - `src/client.rs`, `src/auth/`, etc. contain business logic (testable)
-- `src/formatter.rs` exposes the narrow contract used by generated commands; formatter behavior and tests live in `src/formatter_ext.rs`
+- `src/formatter.rs` exposes the narrow contract used by generated commands; output behavior and tests live in `src/output.rs`
 - `#[cfg(test)]` modules co-located with source for unit tests
 
 ## Authentication Architecture

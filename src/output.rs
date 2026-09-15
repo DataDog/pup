@@ -412,33 +412,6 @@ fn effective_table_input<'a>(
     }
 }
 
-/// Convenience: format and print using config settings (respects -o flag, agent mode, and --jq).
-pub fn output<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
-    format_and_print(
-        data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-    )
-}
-
-/// Convenience wrapper for commands that know their useful table rows and columns.
-pub fn output_with_table<T: Serialize>(
-    cfg: &crate::config::Config,
-    data: &T,
-    table: TableOptions<'_>,
-) -> Result<()> {
-    format_and_print_with_table(
-        data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-        table,
-    )
-}
-
 /// Format query results without changing the caller's object-key order.
 pub fn output_preserving_order<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
     format_and_print_with_order(
@@ -2632,7 +2605,7 @@ mod tests {
             jq: None,
         };
         let data = serde_json::json!({"hello": "world"});
-        assert!(output(&cfg, &data).is_ok());
+        assert!(crate::formatter::output(&cfg, &data).is_ok());
     }
 
     #[test]

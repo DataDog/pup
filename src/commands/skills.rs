@@ -36,6 +36,31 @@ fn resolve_or_bail(input: Option<&str>) -> Result<Vec<String>> {
     Ok(platforms)
 }
 
+fn list_item(entry: &skills::SkillEntry) -> serde_json::Value {
+    let mut value = serde_json::json!({
+        "name": entry.name,
+        "type": entry.entry_type,
+        "description": entry.description,
+    });
+    if !entry.files.is_empty() {
+        let object = value
+            .as_object_mut()
+            .expect("skill list item is always a JSON object");
+        object.insert(
+            "files".to_string(),
+            serde_json::json!(entry
+                .files
+                .iter()
+                .map(|(path, _)| *path)
+                .collect::<Vec<_>>()),
+        );
+        if entry.entry_type == "extension" {
+            object.insert("platform".to_string(), serde_json::json!(entry.platform));
+        }
+    }
+    value
+}
+
 pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<()> {
     let entries: Vec<_> = skills::SKILLS
         .iter()
@@ -45,28 +70,7 @@ pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<(
         })
         .collect();
 
-    let items: Vec<serde_json::Value> = entries
-        .iter()
-        .map(|e| {
-            let mut v = serde_json::json!({
-                "name": e.name,
-                "type": e.entry_type,
-                "description": e.description,
-            });
-            if e.entry_type == "extension" {
-                // serde_json::json!({}) always produces Value::Object, so as_object_mut()
-                // is always Some here; the if-let is a safe defensive pattern.
-                if let Some(obj) = v.as_object_mut() {
-                    obj.insert("platform".to_string(), serde_json::json!(e.platform));
-                    obj.insert(
-                        "files".to_string(),
-                        serde_json::json!(e.files.iter().map(|(r, _)| *r).collect::<Vec<_>>()),
-                    );
-                }
-            }
-            v
-        })
-        .collect();
+    let items: Vec<serde_json::Value> = entries.iter().map(|entry| list_item(entry)).collect();
 
     crate::formatter::format_and_print(
         &items,
@@ -369,6 +373,45 @@ mod tests {
         assert!(file.exists(), "expected {} to exist", file.display());
         let body = std::fs::read_to_string(&file).unwrap();
         assert!(body.contains("name: dd-pup"));
+    }
+
+    #[test]
+    fn list_item_reports_skill_supplementary_files() {
+        let entry = skills::SKILLS
+            .iter()
+            .find(|entry| entry.name == "dd-idp")
+            .expect("dd-idp must be registered");
+        let item = list_item(entry);
+        assert_eq!(item["type"], "skill");
+        assert_eq!(item["files"].as_array().map(Vec::len), Some(3));
+        assert!(item.get("platform").is_none());
+    }
+
+    #[test]
+    fn install_dir_override_writes_complete_dd_idp_bundle() {
+        let tmp = TempDir::new("install_dir_dd_idp");
+        let cfg = base_cfg();
+        install(
+            &cfg,
+            Some("codex".to_string()),
+            Some("dd-idp".to_string()),
+            Some(tmp.path().to_str().unwrap().to_string()),
+            None,
+            false,
+        )
+        .unwrap();
+        let root = tmp.path().join("dd-idp");
+        for relative in [
+            "SKILL.md",
+            "references/ueg-dsl.md",
+            "references/footguns.md",
+            "references/recipes.md",
+        ] {
+            assert!(root.join(relative).is_file(), "missing {relative}");
+        }
+        let skill = std::fs::read_to_string(root.join("SKILL.md")).unwrap();
+        assert!(skill.contains("name: dd-idp"));
+        assert!(skill.contains("Schema-first workflow"));
     }
 
     #[test]

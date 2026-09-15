@@ -441,10 +441,16 @@ pup incidents get abc-123-def
 pup idp kinds list
 pup idp kinds describe service
 
-# Query services and walk ownership and system relations
-pup idp entities query 'kind:service AND owner:payments' \
-  --field name,owner,contacts \
-  --include owner_teams,systems
+# Get service ownership, dependencies, and health context in one request
+pup idp entities query 'kind:service AND name:"<service-name>"' \
+  --field name,owner,service_health_status,active_incidents_count,alert_monitors_count,breached_slos_count \
+  --include owner_teams,systems,upstream_services,downstream_services \
+  --relation-limit 3 \
+  --timeseries-interval 24h \
+  --limit 1
+
+# Install schema-first entity graph guidance for your detected coding agent
+pup skills install --name dd-idp
 ```
 
 ## Global Flags

@@ -77,7 +77,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | code-coverage | branch-summary, commit-summary | src/commands/code_coverage.rs | ✅ |
 | hamr | connections (get, create) | src/commands/hamr.rs | ✅ |
 | fleet | agents (list, get, versions, tracers), deployments (list, get, configure, upgrade, cancel), schedules (list, get, create, update, delete, trigger), tracers (list), clusters (list), instrumented-pods (list) | src/commands/fleet.rs | ✅ |
-| skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/devin/all; `--name`, `--type`, `--project` for project-local scope) | src/commands/skills.rs | ✅ |
+| skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/devin/all; `--name`, `--type`, `--project` for project-local scope; bundled skills include supplementary references) | src/commands/skills.rs | ✅ |
 | runbooks | list, describe, run, import, validate | src/commands/runbooks.rs | ✅ |
 | workflows | get, create, update, diff, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
 | investigations | list, get, trigger | src/commands/investigations.rs | ✅ |
@@ -214,7 +214,7 @@ pup infrastructure hosts list
 - **error-tracking** - Error management (issues search, issues get); search supports `--state`, `--team`, `--assignee` filters
 - **scorecards** - Service quality (rules, outcomes)
 - **service-catalog** - Service registry (list, get)
-- **idp** - Service Catalog agent access (assist, find, owner, deps, register)
+- **idp** - Entity graph discovery/query plus Service Catalog helpers (kinds, entities, assist, find, owner, deps, register, migrate-schema)
 - **debugger** - Live Debugger (probes list, get, create, delete, watch)
 
 ### Operations & Incident Response

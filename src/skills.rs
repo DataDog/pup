@@ -1,10 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub struct SkillEntry {
     pub name: &'static str,
     pub description: &'static str,
     /// One of: "skill", "agent", "extension".
-    /// - skill / agent: single-file markdown installed under a skills/ dir
+    /// - skill: SKILL.md plus optional supplementary files under a skills/ dir
+    /// - agent: single-file markdown installed under an agents/ or skills/ dir
     /// - extension: multi-file bundle for an AI coding agent platform (e.g. pi)
     pub entry_type: &'static str,
     /// SKILL.md / agent.md body, or empty for entry_type == "extension".
@@ -12,11 +13,27 @@ pub struct SkillEntry {
     /// Platform slug for entry_type == "extension". One of: "pi".
     /// Empty for skills and agents.
     pub platform: &'static str,
-    /// Files to materialize for entry_type == "extension".
-    /// Each tuple is `(relative_path_within_extension_dir, file_contents)`.
-    /// Empty for skills and agents.
+    /// Supplementary files for skills, or all files for extensions.
+    /// Each tuple is `(safe_relative_path_within_entry_dir, file_contents)`.
+    /// Empty for single-file skills and agents.
     pub files: &'static [(&'static str, &'static str)],
 }
+
+/// Supplementary files bundled with the `dd-idp` skill.
+static DD_IDP_FILES: &[(&str, &str)] = &[
+    (
+        "references/ueg-dsl.md",
+        include_str!("../skills/dd-idp/references/ueg-dsl.md"),
+    ),
+    (
+        "references/footguns.md",
+        include_str!("../skills/dd-idp/references/footguns.md"),
+    ),
+    (
+        "references/recipes.md",
+        include_str!("../skills/dd-idp/references/recipes.md"),
+    ),
+];
 
 /// Files for the `dd-pup-pi` extension bundle (pi coding agent).
 static DD_PUP_PI_FILES: &[(&str, &str)] = &[
@@ -123,6 +140,14 @@ pub static SKILLS: &[SkillEntry] = &[
         content: include_str!("../skills/dd-triage-flaky-test/SKILL.md"),
         platform: "",
         files: &[],
+    },
+    SkillEntry {
+        name: "dd-idp",
+        description: "Map Datadog services, dependencies, ownership, health, and declared relationships.",
+        entry_type: "skill",
+        content: include_str!("../skills/dd-idp/SKILL.md"),
+        platform: "",
+        files: DD_IDP_FILES,
     },
     // --- Domain Agents (from datadog-api-claude-plugin) ---
     SkillEntry {
@@ -945,11 +970,41 @@ pub fn install_path(
     }
 }
 
-/// Resolve install destinations for any entry, including multi-file extensions.
+fn bundled_file_path(entry: &SkillEntry, base: &Path, relative: &str) -> anyhow::Result<PathBuf> {
+    let path = Path::new(relative);
+    let is_safe = !relative.is_empty()
+        && !relative.contains('\\')
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)));
+    if !is_safe {
+        anyhow::bail!(
+            "unsafe bundled path '{relative}' for '{}': expected a non-empty relative path without unsafe components or backslashes",
+            entry.name
+        );
+    }
+    Ok(base.join(path))
+}
+
+fn bundled_files(entry: &SkillEntry, base: &Path) -> anyhow::Result<Vec<(PathBuf, String)>> {
+    entry
+        .files
+        .iter()
+        .map(|(relative, content)| {
+            Ok((
+                bundled_file_path(entry, base, relative)?,
+                (*content).to_string(),
+            ))
+        })
+        .collect()
+}
+
+/// Resolve install destinations for any entry, including multi-file skills and extensions.
 ///
-/// Returns a list of `(absolute_path, contents)` tuples. For skills and agents
-/// this is a single-element list. For extensions this expands to one entry
-/// per bundled file.
+/// Returns a list of `(absolute_path, contents)` tuples. Skills always include
+/// their primary `SKILL.md` and may add supplementary files beneath that skill
+/// directory. Agents remain single-file entries. Extensions expand to one
+/// entry per bundled file.
 ///
 /// Returns `Ok(vec![])` (no-op) when the entry isn't applicable to the
 /// platform (e.g. asking for a `pi` extension on `claude-code`).
@@ -978,18 +1033,38 @@ pub fn install_paths(
             };
             root.join(entry.name)
         };
-        return Ok(entry
-            .files
-            .iter()
-            .map(|(rel, body)| (base.join(rel), (*body).to_string()))
-            .collect());
+        return bundled_files(entry, &base);
     }
 
     let Some((path, fmt)) = install_path(entry, platform, project_root, dir_override, user_scope)
     else {
         return Ok(vec![]);
     };
-    Ok(vec![(path, format_content(entry, &fmt))])
+    let mut targets = vec![(path.clone(), format_content(entry, &fmt))];
+    if entry.files.is_empty() {
+        return Ok(targets);
+    }
+    if entry.entry_type != "skill" {
+        anyhow::bail!(
+            "supplementary files are only supported for skill entries, not '{}'",
+            entry.entry_type
+        );
+    }
+    let base = path
+        .parent()
+        .expect("skill install path always has a parent directory");
+    let supplementary = bundled_files(entry, base)?;
+    if supplementary
+        .iter()
+        .any(|(candidate, _)| candidate == &path)
+    {
+        anyhow::bail!(
+            "supplementary files for '{}' must not replace its primary SKILL.md",
+            entry.name
+        );
+    }
+    targets.extend(supplementary);
+    Ok(targets)
 }
 
 #[derive(Debug, PartialEq)]
@@ -1124,20 +1199,32 @@ mod tests {
                     "extension {} must not have content (content is for skills/agents only)",
                     entry.name
                 );
-                for (rel, body) in entry.files {
-                    assert!(!rel.is_empty(), "empty file path in {}", entry.name);
-                    assert!(
-                        !body.is_empty(),
-                        "empty file body for {}:{}",
-                        entry.name,
-                        rel
-                    );
-                }
             } else {
                 assert!(
                     !entry.content.is_empty(),
                     "empty content for {}",
                     entry.name
+                );
+                if entry.entry_type == "agent" {
+                    assert!(
+                        entry.files.is_empty(),
+                        "agent {} must not have supplementary files",
+                        entry.name
+                    );
+                }
+            }
+            for (rel, body) in entry.files {
+                assert!(
+                    bundled_file_path(entry, Path::new("/safe"), rel).is_ok(),
+                    "unsafe file path in {}: {}",
+                    entry.name,
+                    rel
+                );
+                assert!(
+                    !body.is_empty(),
+                    "empty file body for {}:{}",
+                    entry.name,
+                    rel
                 );
             }
         }
@@ -1146,7 +1233,7 @@ mod tests {
     #[test]
     fn test_skill_count() {
         let skills: Vec<_> = SKILLS.iter().filter(|e| e.entry_type == "skill").collect();
-        assert_eq!(skills.len(), 11, "expected 11 skills");
+        assert_eq!(skills.len(), 12, "expected 12 skills");
     }
 
     #[test]
@@ -1724,6 +1811,102 @@ mod tests {
     }
 
     #[test]
+    fn test_install_paths_skill_expands_supplementary_files() {
+        static FILES: &[(&str, &str)] = &[
+            ("references/query.md", "# Query"),
+            ("references/recipes.md", "# Recipes"),
+        ];
+        let e = SkillEntry {
+            files: FILES,
+            ..entry("dd-idp", "skill", "body")
+        };
+        let root = PathBuf::from("/tmp/proj");
+        let paths = install_paths(&e, "codex", &root, None, false).unwrap();
+        assert_eq!(paths.len(), 3);
+        assert_eq!(paths[0].0, root.join(".codex/skills/dd-idp/SKILL.md"));
+        assert_eq!(
+            paths[1].0,
+            root.join(".codex/skills/dd-idp/references/query.md")
+        );
+        assert_eq!(
+            paths[2].0,
+            root.join(".codex/skills/dd-idp/references/recipes.md")
+        );
+    }
+
+    #[test]
+    fn test_install_paths_skill_bundle_user_scope() {
+        static FILES: &[(&str, &str)] = &[("references/query.md", "# Query")];
+        let e = SkillEntry {
+            files: FILES,
+            ..entry("dd-idp", "skill", "body")
+        };
+        let home = dirs::home_dir().expect("test environment must have a home directory");
+        let paths = install_paths(&e, "codex", Path::new("/unused"), None, true).unwrap();
+        assert_eq!(paths[0].0, home.join(".codex/skills/dd-idp/SKILL.md"));
+        assert_eq!(
+            paths[1].0,
+            home.join(".codex/skills/dd-idp/references/query.md")
+        );
+    }
+
+    #[test]
+    fn test_install_paths_skill_bundle_dir_override() {
+        static FILES: &[(&str, &str)] = &[("references/query.md", "# Query")];
+        let e = SkillEntry {
+            files: FILES,
+            ..entry("dd-idp", "skill", "body")
+        };
+        let paths = install_paths(
+            &e,
+            "claude-code",
+            Path::new("/unused"),
+            Some("/tmp/out"),
+            false,
+        )
+        .unwrap();
+        assert_eq!(paths[0].0, PathBuf::from("/tmp/out/dd-idp/SKILL.md"));
+        assert_eq!(
+            paths[1].0,
+            PathBuf::from("/tmp/out/dd-idp/references/query.md")
+        );
+    }
+
+    #[test]
+    fn test_install_paths_rejects_unsafe_bundle_paths() {
+        let unsafe_bundles: &[&'static [(&'static str, &'static str)]] = &[
+            &[("", "body")],
+            &[("../escape", "body")],
+            &[("/absolute", "body")],
+            &[("./same", "body")],
+            &[("references\\escape", "body")],
+        ];
+        for files in unsafe_bundles {
+            let e = SkillEntry {
+                files,
+                ..entry("dd-idp", "skill", "body")
+            };
+            let err = install_paths(&e, "codex", Path::new("/tmp/proj"), None, false)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("unsafe bundled path"), "got: {err}");
+        }
+    }
+
+    #[test]
+    fn test_install_paths_rejects_supplementary_skill_md() {
+        static FILES: &[(&str, &str)] = &[("SKILL.md", "replacement")];
+        let e = SkillEntry {
+            files: FILES,
+            ..entry("dd-idp", "skill", "body")
+        };
+        let err = install_paths(&e, "codex", Path::new("/tmp/proj"), None, false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("must not replace"), "got: {err}");
+    }
+
+    #[test]
     fn test_install_paths_skill_on_pi() {
         let root = PathBuf::from("/tmp/proj");
         let e = entry("dd-pup", "skill", "body");
@@ -1790,6 +1973,72 @@ mod tests {
         assert!(names.contains(&"index.ts"));
         assert!(names.contains(&"package.json"));
         assert!(names.contains(&"README.md"));
+    }
+
+    #[test]
+    fn test_dd_idp_entry_registered_with_complete_bundle() {
+        let entry = SKILLS
+            .iter()
+            .find(|entry| entry.name == "dd-idp")
+            .expect("dd-idp must be registered");
+        assert_eq!(entry.entry_type, "skill");
+        assert!(entry.content.contains("name: dd-idp"));
+        let paths: Vec<&str> = entry.files.iter().map(|(path, _)| *path).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "references/ueg-dsl.md",
+                "references/footguns.md",
+                "references/recipes.md",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_dd_idp_recipes_preserve_live_query_contracts() {
+        let recipes = DD_IDP_FILES
+            .iter()
+            .find_map(|(path, content)| (*path == "references/recipes.md").then_some(*content))
+            .expect("dd-idp recipes must be bundled");
+
+        assert!(recipes.contains("status:\"Alert\""));
+        assert!(!recipes.contains("status:alert"));
+        assert!(recipes.contains("state:breached"));
+        assert!(!recipes.contains("state:breaching"));
+        assert!(recipes.contains("upstream_services,downstream_services"));
+        assert!(recipes.contains(
+            "repository.full_name:\"<org>/<repository>\" AND reviewer_users.login:\"<login>\""
+        ));
+    }
+
+    #[test]
+    fn test_dd_idp_bundle_installs_on_every_skill_platform() {
+        let entry = SKILLS
+            .iter()
+            .find(|entry| entry.name == "dd-idp")
+            .expect("dd-idp must be registered");
+        let project_root = Path::new("/tmp/project");
+
+        for platform in PLATFORMS
+            .iter()
+            .filter(|platform| !platform.is_extension_only())
+        {
+            let root = skills_dir(platform.name, project_root, false)
+                .expect("skill-capable platform must have a project skills directory")
+                .join("dd-idp");
+            let paths = install_paths(entry, platform.name, project_root, None, false).unwrap();
+            assert_eq!(
+                paths.into_iter().map(|(path, _)| path).collect::<Vec<_>>(),
+                vec![
+                    root.join("SKILL.md"),
+                    root.join("references/ueg-dsl.md"),
+                    root.join("references/footguns.md"),
+                    root.join("references/recipes.md"),
+                ],
+                "incomplete dd-idp bundle for {}",
+                platform.name
+            );
+        }
     }
 
     #[test]

@@ -11,7 +11,7 @@ Help users understand and maintain Datadog's service and software catalog. Use t
 - Default to `pup idp kinds` and `pup idp entities query` when a read needs connected service context: ownership, on-call, systems, code, dependencies, health, work, operations, or security. UEG can return selected service and dependency context in one bounded request. Load the `dd-idp` skill for its schema-first workflow and DSL guidance when available.
 - Use `pup service-catalog list|get` for the legacy typed service registry.
 - Use `pup idp assist` for a fast curated single-service summary, metadata gaps, and suggested next actions; use `owner` for convenient owner/on-call resolution. These trade graph fidelity for a narrower opinionated result.
-- Treat `find` as a simple legacy service-name lookup and `deps` as a production-only service-to-service snapshot. Use UEG for explicit schema, relation families, counts, pagination, and traversal.
+- Treat `find` as a simple legacy service-name lookup. Use `deps` as a convenient one-hour UEG runtime service-to-service summary, and use `entities query` for another lookback or broader relation families, counts, pagination, and traversal.
 - Use `pup software-catalog entities|kinds|relations` for Catalog inventory and explicit Catalog mutations.
 - Use `pup idp register` to preserve the familiar file-oriented workflow across v1, v2, v2.1, v2.2, and v3 Catalog definitions. It sends raw YAML or JSON to the Catalog entity API and accepts multi-document YAML.
 
@@ -40,7 +40,7 @@ pup --read-only idp entities query 'kind:service AND name:"<service-name>"' \
 
 This is the graph's central value: service identity, ownership, health, and declared dependencies in one call. Choose a small relation family and report relation counts/truncation. Add runtime dependencies, datastores, queues, deployments, incidents, monitors, SLOs, or security relations only when the request needs them.
 
-### Legacy service helpers
+### Convenience service helpers
 
 ```bash
 pup --read-only idp assist <service-name>

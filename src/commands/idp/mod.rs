@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Serialize;
 
 use crate::config::Config;
@@ -10,6 +10,10 @@ mod entity_kinds;
 mod entity_query;
 mod entity_types;
 mod migrate;
+
+const RUNTIME_DEPENDENCY_RELATIONS: &str = "runtime_upstream_services,runtime_downstream_services";
+const ASSIST_RELATIONS: &str = "owner_teams,runtime_upstream_services,runtime_downstream_services";
+const RUNTIME_DEPENDENCY_LOOKBACK: &str = "1h";
 
 pub use entity_kinds::{describe_kind, list_kinds};
 pub use entity_query::{query_entities, EntityQueryOptions};
@@ -122,7 +126,7 @@ struct SloCounts {
     no_data: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 struct DependencySummary {
     upstream: Vec<String>,
     downstream: Vec<String>,
@@ -396,50 +400,54 @@ fn compute_next_actions(entity_name: &str, health: &HealthSummary, gaps: &[Strin
     actions
 }
 
-// ---------------------------------------------------------------------------
-// Parse dependencies from /api/v1/service_dependencies response
-// Format: { "service_name": { "calls": ["dep1", "dep2"] }, ... }
-// ---------------------------------------------------------------------------
+fn relationship_service_names(entity: &serde_json::Value, relation: &str) -> Vec<String> {
+    let mut names = entity
+        .get("relationships")
+        .and_then(|relationships| relationships.get(relation))
+        .and_then(|relationship| relationship.get("data"))
+        .map(entity_query::parse_relationship_data)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|identifier| identifier.kind == "service")
+        .map(|identifier| {
+            identifier
+                .id
+                .strip_prefix("ref:service:")
+                .unwrap_or(&identifier.id)
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    names
+}
 
-fn parse_dependencies(deps_data: &serde_json::Value, entity: &str) -> (Vec<String>, Vec<String>) {
-    let mut upstream = Vec::new();
-    let mut downstream = Vec::new();
-
-    if let Some(deps_map) = deps_data.as_object() {
-        // Downstream: services this entity calls
-        if let Some(calls) = deps_map
-            .get(entity)
-            .and_then(|v| v.get("calls"))
-            .and_then(|v| v.as_array())
-        {
-            downstream = calls
-                .iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect();
-        }
-        // Upstream: services that call this entity
-        for (svc, entry) in deps_map {
-            if svc == entity {
-                continue;
-            }
-            if let Some(calls) = entry.get("calls").and_then(|v| v.as_array()) {
-                if calls.iter().any(|d| d.as_str() == Some(entity)) {
-                    upstream.push(svc.clone());
-                }
-            }
-        }
+fn extract_runtime_dependencies(entity: &serde_json::Value) -> DependencySummary {
+    DependencySummary {
+        upstream: relationship_service_names(entity, "runtime_upstream_services"),
+        downstream: relationship_service_names(entity, "runtime_downstream_services"),
     }
+}
 
-    (upstream, downstream)
+fn first_entity<'a>(data: &'a serde_json::Value, entity: &str) -> Result<&'a serde_json::Value> {
+    data.get("data")
+        .and_then(serde_json::Value::as_array)
+        .context("entity graph response did not contain an entity list")?
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("no entity found matching '{entity}'"))
 }
 
 // ---------------------------------------------------------------------------
-// Build the UEG query URL for a service entity by name
+// Build the UEG query URL for a service entity by concrete ref
 // ---------------------------------------------------------------------------
 
 fn entity_query_url(entity: &str, include: &str) -> String {
-    let query = util_ext::percent_encode(&format!("kind:service AND name:{entity}"));
-    let mut url = format!("/api/v2/idp/entity_graph/entities?query={query}&page%5Blimit%5D=1");
+    let entity_ref = serde_json::to_string(&format!("ref:service:{entity}"))
+        .expect("serializing a string cannot fail");
+    let query = util_ext::percent_encode(&format!("ref:{entity_ref}"));
+    let mut url = format!(
+        "/api/v2/idp/entity_graph/entities?query={query}&page%5Blimit%5D=1&time%5Bpast%5D={RUNTIME_DEPENDENCY_LOOKBACK}"
+    );
     if !include.is_empty() {
         url.push_str(&format!("&include={include}"));
     }
@@ -452,28 +460,11 @@ fn entity_query_url(entity: &str, include: &str) -> String {
 
 /// Flagship command: returns concise entity context + suggested next actions.
 pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
-    // Fan out: entity graph + dependencies in parallel
-    let entity_path = entity_query_url(entity, "owner_teams");
-    let deps_path = "/api/v1/service_dependencies?env=prod";
-
-    let (entity_res, deps_res) = tokio::join!(
-        raw_client::raw_get(cfg, &entity_path, &[]),
-        raw_client::raw_get(cfg, deps_path, &[]),
-    );
-
-    let entity_data = entity_res?;
+    let entity_path = entity_query_url(entity, ASSIST_RELATIONS);
+    let entity_data = raw_client::raw_get(cfg, &entity_path, &[]).await?;
 
     // Parse entity from UEG response (JSON:API format: { data: [...], included: [...] })
-    let entities = entity_data
-        .get("data")
-        .and_then(|d| d.as_array())
-        .ok_or_else(|| anyhow::anyhow!("no entities found matching '{entity}'"))?;
-
-    if entities.is_empty() {
-        anyhow::bail!("no entity found matching '{entity}'");
-    }
-
-    let primary = &entities[0];
+    let primary = first_entity(&entity_data, entity)?;
     let attrs = &primary["attributes"];
     let included = entity_data
         .get("included")
@@ -494,21 +485,14 @@ pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
     let gaps = compute_metadata_gaps(&summary, attrs, &links);
     let next_actions = compute_next_actions(&summary.name, &health, &gaps);
 
-    // Parse dependencies
-    let (upstream, downstream) = match deps_res {
-        Ok(ref deps_data) => parse_dependencies(deps_data, entity),
-        Err(_) => (vec![], vec![]),
-    };
+    let dependencies = extract_runtime_dependencies(primary);
 
     let response = AssistResponse {
         entity: summary,
         owner,
         on_call,
         health,
-        dependencies: DependencySummary {
-            upstream,
-            downstream,
-        },
+        dependencies,
         metadata_gaps: gaps,
         links,
         suggested_next_actions: next_actions,
@@ -567,16 +551,7 @@ pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
     let path = entity_query_url(entity, "owner_teams");
     let data = raw_client::raw_get(cfg, &path, &[]).await?;
 
-    let entities = data
-        .get("data")
-        .and_then(|d| d.as_array())
-        .ok_or_else(|| anyhow::anyhow!("no entities found matching '{entity}'"))?;
-
-    if entities.is_empty() {
-        anyhow::bail!("no entity found matching '{entity}'");
-    }
-
-    let primary = &entities[0];
+    let primary = first_entity(&data, entity)?;
     let included = data
         .get("included")
         .cloned()
@@ -616,23 +591,25 @@ pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
 
 /// Show dependency and relationship context for an entity.
 pub async fn deps(cfg: &Config, entity: &str) -> Result<()> {
-    let deps_path = "/api/v1/service_dependencies?env=prod";
-    let deps_data = raw_client::raw_get(cfg, deps_path, &[]).await?;
-    let (upstream, downstream) = parse_dependencies(&deps_data, entity);
+    let entity_path = entity_query_url(entity, RUNTIME_DEPENDENCY_RELATIONS);
+    let entity_data = raw_client::raw_get(cfg, &entity_path, &[]).await?;
+    let primary = first_entity(&entity_data, entity)?;
+    let dependencies = extract_runtime_dependencies(primary);
+    let dependency_count = dependencies.upstream.len() + dependencies.downstream.len();
 
     let response = serde_json::json!({
         "entity": entity,
-        "dependencies": {
-            "upstream": upstream,
-            "downstream": downstream,
-        }
+        "dependencies": dependencies,
     });
 
     let meta = formatter::Metadata {
-        count: Some(upstream.len() + downstream.len()),
+        count: Some(dependency_count),
         truncated: false,
         command: Some(format!("idp deps {entity}")),
-        next_action: Some("Use `pup idp assist <dep_name>` to inspect any dependency".to_string()),
+        next_action: Some(
+            "Use `pup idp entities query` for a different lookback or broader dependency relations"
+                .to_string(),
+        ),
     };
 
     formatter::format_and_print(
@@ -752,20 +729,64 @@ mod tests {
     use crate::test_support::*;
     use mockito::Matcher;
 
+    fn service_with_runtime_dependencies() -> serde_json::Value {
+        serde_json::json!({
+            "type": "service",
+            "id": "ref:service:catalog-http",
+            "attributes": {
+                "name": "catalog-http",
+                "owner": "idp"
+            },
+            "relationships": {
+                "runtime_upstream_services": {
+                    "data": [
+                        {"type": "service", "id": "ref:service:web"},
+                        {"type": "service", "id": "api"},
+                        {"type": "team", "id": "ref:team:idp"},
+                        {"type": "service", "id": "ref:service:web"}
+                    ]
+                },
+                "runtime_downstream_services": {
+                    "data": [
+                        {"type": "service", "id": "ref:service:database"},
+                        {"type": "service", "id": "ref:service:cache"}
+                    ]
+                }
+            }
+        })
+    }
+
+    fn entity_graph_response() -> serde_json::Value {
+        serde_json::json!({
+            "data": [service_with_runtime_dependencies()],
+            "included": []
+        })
+    }
+
     #[test]
     fn test_entity_query_url_encodes_special_chars() {
         // Colons, spaces, and other characters in entity names and the query
         // syntax must be percent-encoded so the URL is well-formed.
         let url = entity_query_url("my service", "");
         assert!(
-            url.contains("kind%3Aservice"),
-            "colon should be encoded: {url}"
+            url.contains("ref%3A%22ref%3Aservice%3Amy%20service%22"),
+            "concrete entity ref should be encoded: {url}"
         );
         assert!(
-            url.contains("my%20service"),
-            "space should be encoded: {url}"
+            url.contains("time%5Bpast%5D=1h"),
+            "runtime lookback should be explicit: {url}"
         );
         assert!(!url.contains("include="), "empty include should be omitted");
+    }
+
+    #[test]
+    fn test_entity_query_url_escapes_quoted_ref_values() {
+        let url = entity_query_url("quoted\"service\\name", "");
+
+        assert!(
+            url.contains("quoted%5C%22service%5C%5Cname"),
+            "quote and backslash should be escaped before encoding: {url}"
+        );
     }
 
     #[test]
@@ -798,6 +819,19 @@ mod tests {
             Some(
                 "Use `pup --read-only software-catalog entities list --filter-ref 'datastore:payments/orders'` to verify the first registered entity"
             )
+        );
+    }
+
+    #[test]
+    fn test_extract_runtime_dependencies_normalizes_service_refs() {
+        let dependencies = extract_runtime_dependencies(&service_with_runtime_dependencies());
+
+        assert_eq!(
+            dependencies,
+            DependencySummary {
+                upstream: vec!["api".into(), "web".into()],
+                downstream: vec!["cache".into(), "database".into()],
+            }
         );
     }
 
@@ -930,5 +964,99 @@ mod tests {
 
         assert!(error.to_string().contains("empty Catalog entity file"));
         cleanup_env();
+    }
+
+    #[test]
+    fn test_extract_runtime_dependencies_handles_missing_relationships() {
+        let dependencies = extract_runtime_dependencies(&serde_json::json!({}));
+
+        assert_eq!(
+            dependencies,
+            DependencySummary {
+                upstream: Vec::new(),
+                downstream: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_first_entity_rejects_malformed_response() {
+        let error = first_entity(&serde_json::json!({"data": {}}), "catalog-http").unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("entity graph response did not contain an entity list"));
+    }
+
+    #[tokio::test]
+    async fn test_deps_uses_ueg_runtime_relationships() {
+        let _guard = crate::test_support::lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/api/v2/idp/entity_graph/entities")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("query".into(), "ref:\"ref:service:catalog-http\"".into()),
+                Matcher::UrlEncoded("page[limit]".into(), "1".into()),
+                Matcher::UrlEncoded("time[past]".into(), RUNTIME_DEPENDENCY_LOOKBACK.into()),
+                Matcher::UrlEncoded("include".into(), RUNTIME_DEPENDENCY_RELATIONS.into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(entity_graph_response().to_string())
+            .create_async()
+            .await;
+        let cfg = crate::test_support::test_config(&server.url());
+
+        deps(&cfg, "catalog-http").await.unwrap();
+
+        mock.assert_async().await;
+        crate::test_support::cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_deps_errors_when_service_is_missing() {
+        let _guard = crate::test_support::lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/api/v2/idp/entity_graph/entities")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+        let cfg = crate::test_support::test_config(&server.url());
+
+        let error = deps(&cfg, "missing").await.unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("no entity found matching 'missing'"));
+        mock.assert_async().await;
+        crate::test_support::cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_assist_fetches_runtime_dependencies_with_service_context() {
+        let _guard = crate::test_support::lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/api/v2/idp/entity_graph/entities")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("include".into(), ASSIST_RELATIONS.into()),
+                Matcher::UrlEncoded("page[limit]".into(), "1".into()),
+                Matcher::UrlEncoded("time[past]".into(), RUNTIME_DEPENDENCY_LOOKBACK.into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(entity_graph_response().to_string())
+            .create_async()
+            .await;
+        let cfg = crate::test_support::test_config(&server.url());
+
+        assist(&cfg, "catalog-http").await.unwrap();
+
+        mock.assert_async().await;
+        crate::test_support::cleanup_env();
     }
 }

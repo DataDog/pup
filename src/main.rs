@@ -10,6 +10,7 @@ mod extensions;
 mod filter;
 mod formatter;
 mod generated;
+mod output;
 mod rate_limit;
 mod raw_client;
 #[cfg(not(target_arch = "wasm32"))]

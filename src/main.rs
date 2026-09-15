@@ -1547,7 +1547,7 @@ enum Commands {
     ///   • Discover entity kinds and inspect their live query schemas
     ///   • Query entities and traverse declared relationships
     ///   • Get an opinionated service summary (assist)
-    ///   • Run a quick legacy service lookup (find)
+    ///   • Run a quick UEG service lookup (find)
     ///   • Resolve service ownership and on-call (owner)
     ///   • Show runtime service dependencies from UEG (deps)
     ///   • Register Catalog entities from YAML or JSON (register)
@@ -5347,24 +5347,31 @@ enum IdpActions {
         /// Entity name (e.g. "catalog-http", "payment-service")
         entity: String,
     },
-    /// Run a quick legacy service lookup by name or query
+    /// Run a quick UEG service-name lookup
     ///
-    /// Simple text defaults to a bounded wildcard service-name lookup.
-    /// Use `idp entities query` for arbitrary kinds, selected fields and
-    /// relations, explicit pagination, or schema-driven queries.
+    /// Simple text is treated literally and defaults to a bounded wildcard
+    /// service-name lookup. Explicit `kind:` and concrete `ref:` queries remain
+    /// supported for compatibility. Prefer `idp entities query` for non-service
+    /// kinds, selected fields, relations, or schema-driven queries.
     ///
     /// QUERY SYNTAX:
-    ///   Simple text searches by name. Prefix with kind: to filter by type.
-    ///   Use AND to combine filters.
+    ///   Simple text searches service names. Existing explicit UEG queries are
+    ///   passed through after scope validation.
     ///
     /// EXAMPLES:
     ///   pup idp find "catalog"
-    ///   pup idp find "kind:service AND name:payment"
-    ///   pup idp find "kind:service AND owner:platform"
+    ///   pup idp find "catalog" --limit 5
+    ///   pup idp find "catalog" --limit 5 --cursor <next-cursor>
     #[command(verbatim_doc_comment)]
     Find {
-        /// Search query (e.g. "catalog", "kind:service AND name:payment")
+        /// Literal service-name text or a compatibility UEG query
         query: String,
+        /// Maximum entities in this page (1-100)
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        /// Cursor returned by the previous page
+        #[arg(long)]
+        cursor: Option<String>,
     },
     /// Resolve ownership, team details, and on-call context
     ///
@@ -14555,9 +14562,13 @@ async fn main_inner() -> anyhow::Result<()> {
                 cfg.validate_auth()?;
                 commands::idp::assist(&cfg, &entity).await?;
             }
-            IdpActions::Find { query } => {
+            IdpActions::Find {
+                query,
+                limit,
+                cursor,
+            } => {
                 cfg.validate_auth()?;
-                commands::idp::find(&cfg, &query).await?;
+                commands::idp::find(&cfg, &query, limit, cursor.as_deref()).await?;
             }
             IdpActions::Owner { entity } => {
                 cfg.validate_auth()?;

@@ -868,6 +868,33 @@ fn test_idp_entity_graph_commands_parse() {
         }
         _ => panic!("expected IdpKindsActions::List"),
     }
+
+    let find = crate::Cli::try_parse_from([
+        "pup",
+        "idp",
+        "find",
+        "catalog",
+        "--limit",
+        "5",
+        "--cursor",
+        "next-page",
+    ])
+    .expect("IDP find should parse pagination options");
+    match find.command {
+        crate::Commands::Idp {
+            action:
+                crate::IdpActions::Find {
+                    query,
+                    limit,
+                    cursor,
+                },
+        } => {
+            assert_eq!(query, "catalog");
+            assert_eq!(limit, 5);
+            assert_eq!(cursor.as_deref(), Some("next-page"));
+        }
+        _ => panic!("expected IdpActions::Find"),
+    }
 }
 
 #[test]
@@ -888,7 +915,14 @@ fn test_idp_convenience_help_routes_connected_context_to_entity_graph() {
         .clone()
         .render_long_help()
         .to_string();
+    let find_help = idp
+        .find_subcommand("find")
+        .expect("idp find command should exist")
+        .clone()
+        .render_long_help()
+        .to_string();
     let deps_help = deps_help.split_whitespace().collect::<Vec<_>>().join(" ");
+    let find_help = find_help.split_whitespace().collect::<Vec<_>>().join(" ");
 
     assert!(assist_help.contains("idp entities query"));
     assert!(!assist_help.contains("flagship"));
@@ -896,6 +930,9 @@ fn test_idp_convenience_help_routes_connected_context_to_entity_graph() {
     assert!(deps_help.contains("past hour"));
     assert!(deps_help.contains("broader unified graph"));
     assert!(!deps_help.contains("env=prod"));
+    assert!(find_help.contains("service-name lookup"));
+    assert!(find_help.contains("supported for compatibility"));
+    assert!(find_help.contains("idp entities query"));
 }
 
 #[test]

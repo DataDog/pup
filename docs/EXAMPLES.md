@@ -1058,10 +1058,15 @@ pup idp assist payments-api
 
 ### Find Entities
 ```bash
-# Search services by name (fuzzy match)
+# Search services by a literal name substring
 pup idp find payments
 
-# Use kind: prefix to search other entity types
+# Bound the page and continue with the returned cursor
+pup idp find payments --limit 5
+pup idp find payments --limit 5 --cursor '<next-cursor>'
+
+# Existing explicit queries remain compatible; prefer `idp entities query`
+# for new non-service or advanced graph workflows
 pup idp find "kind:team AND name:backend"
 ```
 

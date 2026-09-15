@@ -44,6 +44,7 @@ pub struct ClientCredentials {
 pub fn read_only_scopes() -> Vec<&'static str> {
     vec![
         "apm_read",
+        "continuous_profiler_read",
         "apm_remote_configuration_read",
         "apm_service_catalog_read",
         "apm_service_ingest_read",
@@ -123,6 +124,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "apm_service_ingest_read",
         "apm_service_ingest_write",
         "apm_service_renaming_write",
+        "continuous_profiler_read",
         // Entity graph security context
         "appsec_vm_read",
         // App Builder

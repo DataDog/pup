@@ -268,6 +268,59 @@ pup dbm samples search \
   --limit=25
 ```
 
+## Continuous Profiler
+
+`pup profiling` wraps a small, pup-CLI-scoped Continuous Profiler API.
+
+### Search Profile Events
+```bash
+pup profiling profiles list --query="service:my-service" --from="1h" --to="now" --limit=20
+```
+
+### Download a Profile File
+```bash
+# Download one file from a profile event
+pup profiling profiles download --profile-id="prof-123" --event-id="AwAAAaB7..." --file-name="cpu.jfr" --output-file="cpu.jfr"
+
+# Download a zip of all files for a profile event (omit --file-name)
+pup profiling profiles download --profile-id="prof-123" --event-id="AwAAAaB7..." --output-file="profile.zip"
+```
+
+### List Services with Profiling Data
+```bash
+pup profiling services list --query="env:prod" --from="1h" --to="now"
+```
+
+### List Available Profile Types
+```bash
+pup profiling profile-types list --query="service:my-service" --from="1h" --to="now"
+
+# Scoped to a specific trace
+pup profiling profile-types list --trace-id="trace-abc" --span-id="span-123" --from="1h" --to="now"
+```
+
+### Explore a Flame Graph / Top Stack Traces
+```bash
+pup profiling explore flamegraph \
+  --profile-type="cpu-time" \
+  --query="service:my-service" \
+  --from="1h" --to="now" \
+  -o json
+
+# With full frame names instead of the default simplified string
+pup profiling explore flamegraph \
+  --profile-type="alloc-space" \
+  --query="service:my-service" \
+  --from="1h" --to="now" \
+  --frame-format="full"
+
+# Scoped to a specific profile event instead of --query (--profile-id and --event-id are required together)
+pup profiling explore flamegraph \
+  --profile-type="cpu-time" \
+  --profile-id="prof-123" --event-id="AwAAAaB7..." \
+  --from="1h" --to="now"
+```
+
 ## Change Stories
 
 ### List Change Stories for a Service

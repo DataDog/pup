@@ -2307,15 +2307,39 @@ enum Commands {
         #[command(subcommand)]
         action: ProductAnalyticsActions,
     },
-    /// Datadog Continuous Profiler (not supported in pup yet)
+    /// Datadog Continuous Profiler (pup-scoped API)
     ///
-    /// Profiling is not supported in pup yet. Use the Datadog MCP server instead:
-    /// https://docs.datadoghq.com/bits_ai/mcp_server
+    /// Wraps a small, pup-CLI-scoped Continuous Profiler API surface built
+    /// specifically for agentic callers like pup. It is not part of the
+    /// official datadog-api-client-rust SDK and may have a shorter backwards
+    /// compatibility window than the rest of pup.
     ///
-    /// Enable profiling in the MCP toolset with:
-    /// https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,profiling
+    /// CAPABILITIES:
+    ///   • Search and download profile events
+    ///   • List services and profile types with profiling data
+    ///   • Explore aggregated profiles as a flame graph / top stack traces
+    ///
+    /// EXAMPLES:
+    ///   pup profiling profiles list --query "service:my-service" --from 1h
+    ///   pup profiling profiles download --profile-id prof-123 --event-id evt-id-456 --output-file profile.jfr
+    ///   pup profiling services list --query "env:prod" --from 1h
+    ///   pup profiling profile-types list --query "service:my-service" --from 1h
+    ///   pup profiling explore flamegraph --profile-type cpu-time \
+    ///     --query "service:my-service" --from 1h
+    ///   pup profiling --header "test-drive-hummer-aurora: 1" services list --from 1h
+    ///
+    /// AUTHENTICATION:
+    ///   Requires OAuth2 (via 'pup auth login') or valid API + Application keys.
     #[command(verbatim_doc_comment)]
-    Profiling,
+    Profiling {
+        /// Extra HTTP header to send with the request, e.g. "Name: Value" or
+        /// "Name=Value" (repeatable). Useful for routing to a specific test
+        /// environment before the pup profiling API is generally available.
+        #[arg(long = "header", value_name = "NAME: VALUE")]
+        headers: Vec<String>,
+        #[command(subcommand)]
+        action: ProfilingActions,
+    },
     /// Manage reference tables for log enrichment
     ///
     /// Reference tables allow you to enrich logs with additional data from
@@ -4599,6 +4623,231 @@ enum DdsqlSchemaActions {
         limit: usize,
         #[arg(long, default_value_t = 0, help = "Number of columns to skip")]
         offset: usize,
+    },
+}
+
+// ---- Profiling ----
+#[derive(Subcommand)]
+enum ProfilingActions {
+    /// Search and download profile events
+    Profiles {
+        #[command(subcommand)]
+        action: ProfilingProfilesActions,
+    },
+    /// List services with profiling data
+    Services {
+        #[command(subcommand)]
+        action: ProfilingServicesActions,
+    },
+    /// List profile types available for a query or trace
+    #[command(name = "profile-types")]
+    ProfileTypes {
+        #[command(subcommand)]
+        action: ProfilingProfileTypesActions,
+    },
+    /// Explore aggregated profiling data (flame graphs, top stack traces)
+    Explore {
+        #[command(subcommand)]
+        action: Box<ProfilingExploreActions>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfilingServicesActions {
+    /// List services with profiling data
+    List {
+        #[arg(
+            long,
+            default_value = "",
+            help = "Filter query (e.g. 'env:prod service:my-service'); empty matches all"
+        )]
+        query: String,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        to: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfilingProfileTypesActions {
+    /// List profile types available for a query or trace
+    List {
+        #[arg(
+            long,
+            default_value = "",
+            help = "Filter query (e.g. 'service:my-service'); empty matches all"
+        )]
+        query: String,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        to: String,
+        #[arg(long, help = "Trace ID to scope the query instead of --query")]
+        trace_id: Option<String>,
+        #[arg(long, help = "Span ID (used with --trace-id)")]
+        span_id: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfilingProfilesActions {
+    /// Search/list profile events
+    List {
+        #[arg(
+            long,
+            default_value = "",
+            help = "Search query, e.g. 'service:my-service'"
+        )]
+        query: String,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        to: String,
+        #[arg(
+            long,
+            default_value_t = 10,
+            help = "Maximum number of profile events to return"
+        )]
+        limit: i32,
+        #[arg(long, default_value = "asc", help = "Sort order: asc or desc")]
+        sort_order: String,
+        #[arg(long, default_value = "start", help = "Field to sort by, e.g. 'start'")]
+        sort_field: String,
+    },
+    /// Download a raw profile file (or a zip of all files for a profile)
+    Download {
+        #[arg(
+            long,
+            help = "Profile ID to download from (used together with --event-id)"
+        )]
+        profile_id: String,
+        #[arg(
+            long,
+            help = "Event ID from the corresponding 'profiles list' entry's 'id' field (used together with --profile-id, required to locate the raw data)"
+        )]
+        event_id: String,
+        #[arg(
+            long,
+            help = "Specific file name to download; omit to download a zip of all files"
+        )]
+        file_name: Option<String>,
+        #[arg(
+            long,
+            help = "Write downloaded bytes to this path (required; binary output)"
+        )]
+        output_file: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfilingExploreActions {
+    /// Aggregate profiles into a flame graph / top stack traces
+    Flamegraph {
+        #[arg(long, help = "Profile type to analyze, e.g. 'cpu-time' (required)")]
+        profile_type: String,
+        #[arg(
+            long,
+            default_value = "",
+            help = "Filter query; required unless --trace-id or --profile-id is set"
+        )]
+        query: String,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        to: String,
+        #[arg(long, help = "Trace ID to scope the query instead of --query")]
+        trace_id: Option<String>,
+        #[arg(long, help = "Span ID (used with --trace-id)")]
+        span_id: Option<String>,
+        #[arg(
+            long,
+            help = "Existing profile ID to scope the query instead of --query (used together with --event-id)"
+        )]
+        profile_id: Option<String>,
+        #[arg(
+            long,
+            help = "Event ID to scope the query (used together with --profile-id)"
+        )]
+        event_id: Option<String>,
+        #[arg(long, help = "Aggregation attribute/dimension, e.g. a custom tag")]
+        attribute: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 5.0,
+            help = "Drop stack traces below this percent of total value (0 = unbounded)"
+        )]
+        percent_cutoff: f64,
+        #[arg(
+            long,
+            default_value_t = 10,
+            help = "Max number of top stack traces to return (0 = unbounded, max 1000)"
+        )]
+        limit_top_stacktraces: i32,
+        #[arg(
+            long,
+            default_value_t = 5,
+            help = "Max stack trace depth to return (0 = unbounded)"
+        )]
+        max_stack_trace_size: i32,
+        #[arg(long, help = "Regex to filter individual stack frames")]
+        frame_regex_filter: Option<String>,
+        #[arg(long, help = "Regex to filter by endpoint")]
+        endpoint_regex_filter: Option<String>,
+        #[arg(long, help = "Regex to filter attribute values")]
+        attribute_values_regex_filter: Option<String>,
+        #[arg(
+            long,
+            value_parser = ["full", "simple-string"],
+            default_value = "simple-string",
+            help = "Stack frame format: 'simple-string' (bare strings, good for tables) or 'full' (structured, good for -o json)"
+        )]
+        frame_format: String,
+        #[arg(
+            long,
+            value_parser = ["method", "line"],
+            default_value = "method",
+            help = "Stack frame grouping granularity: 'method' or 'line'"
+        )]
+        frame_grouping: String,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Bypass truncation of deep/kind-heavy stack traces"
+        )]
+        bypass_kind_truncation: bool,
     },
 }
 
@@ -18341,10 +18590,125 @@ async fn main_inner() -> anyhow::Result<()> {
             }
         }
         // --- Profiling ---
-        Commands::Profiling => {
-            println!(
-                "Profiling is not supported in pup yet. Use the Datadog MCP server instead:\n\nDocs: https://docs.datadoghq.com/bits_ai/mcp_server\nEnable profiling toolset: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,profiling"
-            );
+        Commands::Profiling { headers, action } => {
+            cfg.validate_auth()?;
+            let extra_headers = commands::profiling::parse_extra_headers(&headers)?;
+            let extra_headers: Vec<(&str, &str)> = extra_headers
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            match action {
+                ProfilingActions::Profiles { action } => match action {
+                    ProfilingProfilesActions::List {
+                        query,
+                        from,
+                        to,
+                        limit,
+                        sort_order,
+                        sort_field,
+                    } => {
+                        commands::profiling::profiles_list(
+                            &cfg,
+                            query,
+                            from,
+                            to,
+                            limit,
+                            sort_order,
+                            sort_field,
+                            &extra_headers,
+                        )
+                        .await?;
+                    }
+                    ProfilingProfilesActions::Download {
+                        profile_id,
+                        event_id,
+                        file_name,
+                        output_file,
+                    } => {
+                        commands::profiling::profiles_download(
+                            &cfg,
+                            profile_id,
+                            event_id,
+                            file_name,
+                            output_file,
+                            &extra_headers,
+                        )
+                        .await?;
+                    }
+                },
+                ProfilingActions::Services { action } => match action {
+                    ProfilingServicesActions::List { query, from, to } => {
+                        commands::profiling::services_list(&cfg, query, from, to, &extra_headers)
+                            .await?;
+                    }
+                },
+                ProfilingActions::ProfileTypes { action } => match action {
+                    ProfilingProfileTypesActions::List {
+                        query,
+                        from,
+                        to,
+                        trace_id,
+                        span_id,
+                    } => {
+                        commands::profiling::profile_types_list(
+                            &cfg,
+                            query,
+                            from,
+                            to,
+                            trace_id,
+                            span_id,
+                            &extra_headers,
+                        )
+                        .await?;
+                    }
+                },
+                ProfilingActions::Explore { action } => match *action {
+                    ProfilingExploreActions::Flamegraph {
+                        profile_type,
+                        query,
+                        from,
+                        to,
+                        trace_id,
+                        span_id,
+                        profile_id,
+                        event_id,
+                        attribute,
+                        percent_cutoff,
+                        limit_top_stacktraces,
+                        max_stack_trace_size,
+                        frame_regex_filter,
+                        endpoint_regex_filter,
+                        attribute_values_regex_filter,
+                        frame_format,
+                        frame_grouping,
+                        bypass_kind_truncation,
+                    } => {
+                        commands::profiling::explore_flamegraph(
+                            &cfg,
+                            profile_type,
+                            query,
+                            from,
+                            to,
+                            trace_id,
+                            span_id,
+                            profile_id,
+                            event_id,
+                            attribute,
+                            percent_cutoff,
+                            limit_top_stacktraces,
+                            max_stack_trace_size,
+                            frame_regex_filter,
+                            endpoint_regex_filter,
+                            attribute_values_regex_filter,
+                            frame_format,
+                            frame_grouping,
+                            bypass_kind_truncation,
+                            &extra_headers,
+                        )
+                        .await?;
+                    }
+                },
+            }
         }
         // --- Reference Tables ---
         Commands::ReferenceTables { action } => {

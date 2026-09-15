@@ -644,32 +644,39 @@ pub async fn deps(cfg: &Config, entity: &str) -> Result<()> {
     )
 }
 
-/// Register a service definition from a YAML file.
+/// Register one or more Catalog entities from a YAML or JSON file.
 pub async fn register(cfg: &Config, file: &str) -> Result<()> {
     let content =
         std::fs::read_to_string(file).map_err(|e| anyhow::anyhow!("failed to read {file}: {e}"))?;
-
-    // Parse YAML to JSON for the API
-    let yaml_value: serde_json::Value = serde_norway::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("failed to parse YAML in {file}: {e}"))?;
-
-    let data = raw_client::raw_post(cfg, "/api/v2/services/definitions", yaml_value).await?;
-
-    let service_name = content
-        .lines()
-        .find(|l| l.starts_with("dd-service:"))
-        .and_then(|l| l.strip_prefix("dd-service:"))
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| file.to_string());
-
-    let meta = formatter::Metadata {
-        count: Some(1),
-        truncated: false,
-        command: Some(format!("idp register {file}")),
-        next_action: Some(format!(
-            "Use `pup idp assist {service_name}` to verify the registered service"
-        )),
+    if content.trim().is_empty() {
+        anyhow::bail!("cannot register an empty Catalog entity file: {file}");
+    }
+    let content_type = if std::path::Path::new(file)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+    {
+        "application/json"
+    } else {
+        "application/yaml"
     };
+
+    // The Catalog entity endpoint parses raw YAML (including multiple documents)
+    // and JSON, and accepts legacy service-definition schemas as well as v3.
+    let response = raw_client::raw_request(
+        cfg,
+        "POST",
+        "/api/v2/catalog/entity",
+        &[],
+        Some(content.into_bytes()),
+        Some(content_type),
+        "application/json",
+        &[],
+    )
+    .await?;
+    let data = serde_json::from_slice::<serde_json::Value>(&response.bytes)
+        .map_err(|e| anyhow::anyhow!("Catalog API returned invalid JSON for {file}: {e}"))?;
+
+    let meta = registration_metadata(&data, file);
 
     formatter::format_and_print(
         &data,
@@ -680,9 +687,70 @@ pub async fn register(cfg: &Config, file: &str) -> Result<()> {
     )
 }
 
+fn registration_metadata(data: &serde_json::Value, file: &str) -> formatter::Metadata {
+    let count = data
+        .pointer("/meta/count")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|count| usize::try_from(count).ok())
+        .or_else(|| {
+            data.get("data")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len)
+        });
+    let first_ref = data
+        .pointer("/data/0/attributes")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|attributes| {
+            let kind = attributes.get("kind")?.as_str()?;
+            let name = attributes.get("name")?.as_str()?;
+            let namespace = attributes
+                .get("namespace")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("default");
+            Some(format!("{kind}:{namespace}/{name}"))
+        });
+    let entity_description = match count {
+        Some(1) => "the registered entity",
+        _ => "the first registered entity",
+    };
+    let warning_count = data
+        .get("included")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|included| {
+            included
+                .pointer("/attributes/schema/metadata/managed/status/warnings")
+                .and_then(serde_json::Value::as_array)
+        })
+        .map(Vec::len)
+        .sum::<usize>();
+    let next_action = match (warning_count, first_ref) {
+        (0, Some(entity_ref)) => Some(format!(
+            "Use `pup --read-only software-catalog entities list --filter-ref '{entity_ref}'` to verify {entity_description}"
+        )),
+        (0, None) => None,
+        (count, Some(entity_ref)) => Some(format!(
+            "Review {count} schema warning(s) in `included[].attributes.schema.metadata.managed.status.warnings`; then use `pup --read-only software-catalog entities list --filter-ref '{entity_ref}'` to verify {entity_description}"
+        )),
+        (count, None) => Some(format!(
+            "Review {count} schema warning(s) in `included[].attributes.schema.metadata.managed.status.warnings`"
+        )),
+    };
+
+    formatter::Metadata {
+        count,
+        truncated: false,
+        command: Some(format!("idp register {file}")),
+        next_action,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::*;
+    use mockito::Matcher;
 
     #[test]
     fn test_entity_query_url_encodes_special_chars() {
@@ -707,5 +775,160 @@ mod tests {
             url.contains("&include=owner_teams"),
             "include param missing: {url}"
         );
+    }
+
+    #[test]
+    fn test_registration_metadata_uses_response_count_and_first_ref() {
+        let response = serde_json::json!({
+            "data": [{
+                "attributes": {
+                    "kind": "datastore",
+                    "name": "orders",
+                    "namespace": "payments"
+                }
+            }],
+            "meta": {"count": 2}
+        });
+
+        let metadata = registration_metadata(&response, "entities.yaml");
+
+        assert_eq!(metadata.count, Some(2));
+        assert_eq!(
+            metadata.next_action.as_deref(),
+            Some(
+                "Use `pup --read-only software-catalog entities list --filter-ref 'datastore:payments/orders'` to verify the first registered entity"
+            )
+        );
+    }
+
+    #[test]
+    fn test_registration_metadata_surfaces_schema_warnings() {
+        let response = serde_json::json!({
+            "data": [{
+                "attributes": {
+                    "kind": "service",
+                    "name": "checkout",
+                    "namespace": "default"
+                }
+            }],
+            "included": [{
+                "attributes": {
+                    "schema": {
+                        "metadata": {
+                            "managed": {
+                                "status": {
+                                    "warnings": [
+                                        {"message": "first warning"},
+                                        {"message": "second warning"}
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }],
+            "meta": {"count": 1}
+        });
+
+        let metadata = registration_metadata(&response, "service.datadog.yaml");
+
+        assert_eq!(
+            metadata.next_action.as_deref(),
+            Some(
+                "Review 2 schema warning(s) in `included[].attributes.schema.metadata.managed.status.warnings`; then use `pup --read-only software-catalog entities list --filter-ref 'service:default/checkout'` to verify the registered entity"
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_register_posts_multi_document_yaml_to_catalog_entity() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let dir = TempDir::new("idp_register_yaml");
+        let path = dir.path().join("entities.datadog.yaml");
+        let body = "apiVersion: v3\nkind: service\nmetadata:\n  name: checkout\n---\nschema-version: v2.2\ndd-service: payments\n";
+        std::fs::write(&path, body).unwrap();
+        let response = r#"{"data":[{"attributes":{"apiVersion":"v3","kind":"service","name":"checkout","namespace":"default"}},{"attributes":{"apiVersion":"v2.2","kind":"service","name":"payments","namespace":"default"}}],"meta":{"count":2}}"#;
+        let mock = server
+            .mock("POST", "/api/v2/catalog/entity")
+            .match_header("content-type", "application/yaml")
+            .match_header("accept", "application/json")
+            .match_body(Matcher::Exact(body.to_string()))
+            .with_status(202)
+            .with_header("content-type", "application/json")
+            .with_body(response)
+            .create_async()
+            .await;
+
+        let result = register(&cfg, path.to_str().unwrap()).await;
+
+        assert!(result.is_ok(), "register failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_register_posts_json_unchanged_to_catalog_entity() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let dir = TempDir::new("idp_register_json");
+        let path = dir.path().join("entity.json");
+        let body = r#"{"apiVersion":"v3","kind":"datastore","metadata":{"name":"orders"}}"#;
+        std::fs::write(&path, body).unwrap();
+        let mock = server
+            .mock("POST", "/api/v2/catalog/entity")
+            .match_header("content-type", "application/json")
+            .match_body(Matcher::Exact(body.to_string()))
+            .with_status(202)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[],"meta":{"count":0}}"#)
+            .create_async()
+            .await;
+
+        let result = register(&cfg, path.to_str().unwrap()).await;
+
+        assert!(result.is_ok(), "register failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_register_propagates_catalog_validation_error() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let dir = TempDir::new("idp_register_error");
+        let path = dir.path().join("invalid.datadog.yaml");
+        std::fs::write(&path, "apiVersion: v3\nkind: service\nmetadata: {}\n").unwrap();
+        let _mock = server
+            .mock("POST", "/api/v2/catalog/entity")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":[{"title":"Validation Error"}]}"#)
+            .create_async()
+            .await;
+
+        let error = register(&cfg, path.to_str().unwrap()).await.unwrap_err();
+
+        assert!(error.to_string().contains("HTTP 400"));
+        assert!(error.to_string().contains("Validation Error"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_register_rejects_empty_file_without_request() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let dir = TempDir::new("idp_register_empty");
+        let path = dir.path().join("empty.datadog.yaml");
+        std::fs::write(&path, "  \n").unwrap();
+
+        let error = register(&cfg, path.to_str().unwrap()).await.unwrap_err();
+
+        assert!(error.to_string().contains("empty Catalog entity file"));
+        cleanup_env();
     }
 }

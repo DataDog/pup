@@ -121,6 +121,7 @@ pub fn default_scopes() -> Vec<&'static str> {
         "apm_remote_configuration_read",
         "apm_remote_configuration_write",
         "apm_service_catalog_read",
+        "apm_service_catalog_write",
         "apm_service_ingest_read",
         "apm_service_ingest_write",
         "apm_service_renaming_write",
@@ -347,6 +348,7 @@ mod tests {
         assert!(scopes.contains(&"ci_visibility_read"));
         assert!(scopes.contains(&"teams_read"));
         assert!(scopes.contains(&"apm_service_catalog_read"));
+        assert!(scopes.contains(&"apm_service_catalog_write"));
         assert!(scopes.contains(&"apm_service_renaming_write"));
         assert!(scopes.contains(&"status_pages_settings_read"));
         assert!(scopes.contains(&"on_call_read"));

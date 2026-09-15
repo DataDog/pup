@@ -1077,13 +1077,16 @@ pup idp owner my-service
 pup idp deps my-service
 ```
 
-### Register a Service Definition
+### Register Catalog Entities
 ```bash
-# POST a service.datadog.yaml to the Service Definitions API
+# Register v1-v3 Catalog entities from YAML or JSON
 pup idp register service.datadog.yaml
 
+# Multi-document YAML is accepted
+pup idp register entities.datadog.yaml
+
 # Verify after registration
-pup idp assist my-service
+pup --read-only software-catalog entities list --filter-ref service:default/my-service
 ```
 
 ### Incident Response Workflow with IDP

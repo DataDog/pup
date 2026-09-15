@@ -1248,6 +1248,10 @@ Table cells use compact previews for long strings, arrays, nested objects, and n
 Commands that know their response shape provide concise, opinionated columns; generic
 API and formatter input keeps the priority-and-fallback selection.
 
+JSON, YAML, and table output use best-effort color highlighting when stdout is an
+interactive terminal. This is lightweight presentation logic, not a general syntax
+parser. Set `NO_COLOR` or `CLICOLOR=0` to keep interactive output plain.
+
 ### CSV and TSV Output
 ```bash
 pup monitors list --output=csv

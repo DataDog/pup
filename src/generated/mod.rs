@@ -1,7 +1,7 @@
 // Stable integration point for openapi-transformer-generated pup commands.
 //
-// Future regenerations add variants to `GeneratedCommand` (and new modules
-// alongside this file) in place; main.rs never needs to change again.
+// Future regenerations add variants to `GeneratedCommand` and modules within
+// this directory in place; main.rs never needs to change again.
 
 use anyhow::Result;
 

@@ -31,7 +31,8 @@ native = [
     "dep:clap",
     "dep:clap_complete",
     "tokio/full",
-    "comfy-table/tty",
+    # Keep OSC 8 control sequences out of table width calculations.
+    "comfy-table/custom_styling",
     "dep:tokio-tungstenite",
     "dep:yamux",
     "dep:russh",

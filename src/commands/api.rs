@@ -872,11 +872,11 @@ mod tests {
         cleanup_env();
     }
 
-    /// OAuth-excluded endpoints (e.g. GET /api/unstable/fleet/some-id) must use API-key
+    /// OAuth-excluded endpoints (e.g. GET /api/v2/validate_keys) must use API-key
     /// auth even when a bearer token is present. This exercises the reuse of
     /// raw_client::apply_auth's per-endpoint fallback table.
     ///
-    /// Uses the still-excluded unstable Fleet entry as the example.
+    /// Uses the indefinitely-exempt validate_keys entry as the example.
     #[tokio::test]
     async fn test_api_oauth_excluded_uses_api_keys() {
         let _lock = lock_env().await;
@@ -886,7 +886,7 @@ mod tests {
         // must prefer the API keys.
         cfg.access_token = Some("bearer-token".into());
         let _mock = server
-            .mock("GET", "/api/unstable/fleet/some-id")
+            .mock("GET", "/api/v2/validate_keys")
             .match_query(mockito::Matcher::Any)
             .match_header("DD-API-KEY", "test-api-key")
             .match_header("DD-APPLICATION-KEY", "test-app-key")
@@ -899,7 +899,7 @@ mod tests {
 
         let result = super::run(
             &cfg,
-            "unstable/fleet/some-id",
+            "v2/validate_keys",
             "GET",
             &[],
             &[],
@@ -927,7 +927,7 @@ mod tests {
         let mut cfg = test_config(&server.url());
         cfg.access_token = Some("bearer-token".into());
         let _mock = server
-            .mock("GET", "/api/unstable/fleet/some-id")
+            .mock("GET", "/api/v2/validate_keys")
             .match_query(mockito::Matcher::Any)
             .match_header("DD-API-KEY", "test-api-key")
             .match_header("authorization", mockito::Matcher::Missing)
@@ -938,7 +938,7 @@ mod tests {
             .await;
 
         // Pass the fully-qualified URL, not a relative path.
-        let absolute = format!("{}/api/unstable/fleet/some-id", server.url());
+        let absolute = format!("{}/api/v2/validate_keys", server.url());
         let result = super::run(
             &cfg,
             &absolute,

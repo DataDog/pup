@@ -107,6 +107,7 @@ pub fn get_auth_type(cfg: &Config) -> AuthType {
 // OAuth-excluded endpoint validation
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, PartialEq, Eq)]
 struct EndpointRequirement {
     path: &'static str,
     method: &'static str,
@@ -124,17 +125,9 @@ pub(crate) fn requires_api_key_only(method: &str, path: &str) -> bool {
 }
 
 fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static EndpointRequirement> {
-    OAUTH_EXCLUDED_ENDPOINTS.iter().find(|req| {
-        if req.method != method {
-            return false;
-        }
-        // Trailing "/" means prefix match (for ID-parameterized paths)
-        if req.path.ends_with('/') {
-            path.starts_with(&req.path[..req.path.len() - 1])
-        } else {
-            req.path == path
-        }
-    })
+    OAUTH_EXCLUDED_ENDPOINTS
+        .iter()
+        .find(|req| req.method == method && req.path == path)
 }
 
 // ---------------------------------------------------------------------------
@@ -142,18 +135,17 @@ fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static Endpoi
 // ---------------------------------------------------------------------------
 
 /// Endpoints that don't support OAuth.
-/// Trailing "/" means prefix match for ID-parameterized paths.
 ///
-/// This is the known-complete list of exceptions to the policy that any
-/// endpoint accepting API + App Key auth also accepts OAuth bearer tokens.
-/// Before adding an entry, check whether the route is actually missing
-/// `ValidOAuthAccessToken` server-side; prefer landing OAuth support there
-/// over widening the client-side fallback.
+/// General policy: any endpoint that accepts API + App Key auth should also
+/// accept OAuth bearer tokens; these are the current exceptions. Before
+/// adding an entry, check whether the route is actually missing
+/// `ValidOAuthAccessToken` server-side and prefer landing OAuth support
+/// there over widening this table.
 static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
     // Validate API/App key pair (1)
     // Indefinitely exempt from OAuth server-side: it exists to validate the
     // exact API + App key pair the caller already holds, so bearer auth would
-    // defeat its purpose. Serves as the canonical fallback example.
+    // defeat its purpose.
     EndpointRequirement {
         path: "/api/v2/validate_keys",
         method: "GET",
@@ -603,29 +595,35 @@ mod tests {
     }
 
     #[test]
-    fn test_no_fallback_for_logs() {
-        assert!(!requires_api_key_fallback("POST", "/api/v2/logs/events"));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/v2/logs/events/search"
-        ));
+    fn test_excluded_table_is_exactly_the_expected_entries() {
+        // The general policy is that any endpoint accepting API + App Key
+        // auth also accepts OAuth. Any change to the exception list should
+        // be a deliberate, reviewed edit here — not an incidental
+        // re-addition of a route whose server-side OAuth has since landed.
+        assert_eq!(
+            OAUTH_EXCLUDED_ENDPOINTS,
+            &[
+                EndpointRequirement {
+                    path: "/api/v2/validate_keys",
+                    method: "GET",
+                },
+                EndpointRequirement {
+                    path: "/api/v1/events",
+                    method: "POST",
+                },
+            ]
+        );
     }
 
     #[test]
-    fn test_no_fallback_for_rum() {
+    fn test_excluded_endpoints_are_exact_matches() {
+        // Excluded endpoints are exact path matches; subpaths and
+        // same-prefix routes are not excluded.
+        assert!(requires_api_key_fallback("GET", "/api/v2/validate_keys"));
         assert!(!requires_api_key_fallback(
             "GET",
-            "/api/v2/rum/applications"
+            "/api/v2/validate_keys/extra"
         ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/rum/applications/abc-123"
-        ));
-    }
-
-    #[test]
-    fn test_no_fallback_for_events_search() {
-        assert!(!requires_api_key_fallback("POST", "/api/v2/events/search"));
     }
 
     #[test]
@@ -637,110 +635,6 @@ mod tests {
         assert!(!requires_api_key_fallback("GET", "/api/v1/events"));
         assert!(!requires_api_key_only("GET", "/api/v1/events"));
         assert!(!requires_api_key_only("POST", "/api/v1/events/12345"));
-    }
-
-    #[test]
-    fn test_no_fallback_for_logs_saved_views() {
-        assert!(!requires_api_key_fallback("GET", "/api/v1/logs/views"));
-        assert!(!requires_api_key_fallback("GET", "/api/v1/logs/views/123"));
-        assert!(!requires_api_key_fallback("POST", "/api/v1/logs/views"));
-        assert!(!requires_api_key_fallback(
-            "DELETE",
-            "/api/v1/logs/views/123"
-        ));
-    }
-
-    #[test]
-    fn test_no_fallback_for_standard_endpoints() {
-        assert!(!requires_api_key_fallback("GET", "/api/v1/monitor"));
-        assert!(!requires_api_key_fallback("GET", "/api/v1/dashboard"));
-        assert!(!requires_api_key_fallback("GET", "/api/v2/incidents"));
-    }
-
-    #[test]
-    fn test_prefix_matching_with_id() {
-        // Trailing "/" in the pattern should match paths with IDs.
-        // Uses the validate_keys GET entry (exact match, no trailing "/")
-        // and the events POST entry (API-key-only, see requires_api_key_only)
-        // as the negative controls; validate_keys has no ID-parameterized
-        // subpaths, so prefix matching is exercised via the events POST
-        // sibling only. Kept simple: exact-match entries.
-        assert!(requires_api_key_fallback("GET", "/api/v2/validate_keys"));
-        // A path that merely shares the prefix is NOT excluded: only the
-        // exact endpoint is.
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/validate_keys/extra"
-        ));
-    }
-
-    #[test]
-    fn test_method_must_match() {
-        // RUM events/search is POST-excluded, but GET should not match
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/rum/events/search"
-        ));
-    }
-
-    #[test]
-    fn test_no_fallback_for_obs_pipelines() {
-        // Observability Pipelines routes already accept OAuth server-side;
-        // removing them from OAUTH_EXCLUDED_ENDPOINTS means raw_get/raw_post
-        // (used by `pup obs-pipelines diff` and the `pup api` passthrough)
-        // should send the OAuth bearer instead of forcing API-key fallback.
-        // Collection endpoint
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/obs-pipelines/pipelines"
-        ));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/v2/obs-pipelines/pipelines"
-        ));
-        // ID-parameterized endpoints (prefix match via trailing "/")
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/obs-pipelines/pipelines/abc-123"
-        ));
-        assert!(!requires_api_key_fallback(
-            "PUT",
-            "/api/v2/obs-pipelines/pipelines/abc-123"
-        ));
-        assert!(!requires_api_key_fallback(
-            "DELETE",
-            "/api/v2/obs-pipelines/pipelines/abc-123"
-        ));
-        // Validation endpoint
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/v2/obs-pipelines/pipelines/validate"
-        ));
-        // Non-matching method on a formerly-excluded path
-        assert!(!requires_api_key_fallback(
-            "PATCH",
-            "/api/v2/obs-pipelines/pipelines"
-        ));
-    }
-
-    #[test]
-    fn test_no_fallback_for_ddsql_editor_tools() {
-        // DDSQL editor tools now accept OAuth server-side (DAL-960); removing
-        // them from OAUTH_EXCLUDED_ENDPOINTS means `pup ddsql spec`/`schema
-        // tables`/`schema columns` should send the OAuth bearer instead of
-        // forcing API-key fallback.
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/unstable/ddsql-editor/tools/ddsql-docs"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/unstable/ddsql-editor/tools/table-names"
-        ));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/unstable/ddsql-editor/tools/table-data"
-        ));
     }
 
     #[tokio::test]
@@ -765,133 +659,6 @@ mod tests {
         assert!(result.is_ok(), "raw get failed: {:?}", result.err());
         mock.assert_async().await;
         cleanup_env();
-    }
-
-    #[test]
-    fn test_no_fallback_for_notebooks() {
-        assert!(!requires_api_key_fallback("GET", "/api/v1/notebooks"));
-        assert!(!requires_api_key_fallback("GET", "/api/v1/notebooks/12345"));
-        assert!(!requires_api_key_fallback("POST", "/api/v1/notebooks"));
-    }
-
-    #[test]
-    fn test_no_fallback_for_fleet() {
-        // All Fleet Automation routes (v2 and unstable) now accept OAuth
-        // server-side (fleet-api RouteAuthn includes ValidOAuthAccessToken
-        // on every group); the raw/generic `pup api` passthrough should
-        // use the OAuth bearer like the typed fleet commands do. The
-        // unstable GET entry was removed once the server caught up.
-        assert!(!requires_api_key_fallback("GET", "/api/v2/fleet/agents"));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/fleet/agents/agent-123"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/unstable/fleet/some-id"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/unstable/fleet/deployments"
-        ));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/v2/fleet/deployments/configure"
-        ));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/v2/fleet/schedules/sched-123/trigger"
-        ));
-    }
-
-    #[test]
-    fn test_no_fallback_for_cost_billing() {
-        // Cost/Billing routes already accept OAuth server-side (DAL-959); the
-        // raw/generic `pup api` passthrough should use the OAuth bearer
-        // instead of forcing API-key fallback.
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/usage/projected_cost"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/usage/cost_by_org"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/cost_by_tag/monthly_cost_attribution"
-        ));
-    }
-
-    #[test]
-    fn test_no_fallback_for_ccm() {
-        // Cloud Cost Management config routes already accept OAuth
-        // server-side (DAL-959); the raw/generic `pup api` passthrough
-        // should use the OAuth bearer instead of forcing API-key fallback.
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/cost/aws_cur_config"
-        ));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/v2/cost/aws_cur_config"
-        ));
-        assert!(!requires_api_key_fallback(
-            "DELETE",
-            "/api/v2/cost/aws_cur_config/config-123"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/cost/azure_uc_config"
-        ));
-        assert!(!requires_api_key_fallback(
-            "DELETE",
-            "/api/v2/cost/azure_uc_config/config-123"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/cost/gcp_uc_config"
-        ));
-        assert!(!requires_api_key_fallback(
-            "DELETE",
-            "/api/v2/cost/gcp_uc_config/config-123"
-        ));
-        assert!(!requires_api_key_fallback("GET", "/api/v2/cost/oci_config"));
-        assert!(!requires_api_key_fallback("GET", "/api/v2/cost/anomalies"));
-    }
-
-    #[test]
-    fn test_no_fallback_for_api_keys() {
-        // /api/v2/api_keys and /api/v2/application_keys already accept OAuth
-        // server-side (DAL-514); the raw/generic `pup api` passthrough should
-        // use the OAuth bearer like the typed api-keys/app-keys commands do,
-        // not force an API+Application key fallback.
-        assert!(!requires_api_key_fallback("GET", "/api/v2/api_keys"));
-        assert!(!requires_api_key_fallback("POST", "/api/v2/api_keys"));
-        assert!(!requires_api_key_fallback(
-            "DELETE",
-            "/api/v2/api_keys/key-123"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/v2/application_keys"
-        ));
-        assert!(!requires_api_key_fallback(
-            "DELETE",
-            "/api/v2/application_keys/key-123"
-        ));
-        assert!(!requires_api_key_fallback(
-            "PATCH",
-            "/api/v2/application_keys/key-123"
-        ));
-    }
-
-    #[test]
-    fn test_no_fallback_for_error_tracking() {
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/v2/error_tracking/issues/search"
-        ));
     }
 
     // Verify raw_request reaches the auth check (and fails there) for both the
@@ -1015,62 +782,6 @@ mod tests {
             Err(err) => err,
         };
         assert!(err.to_string().contains("DD_API_KEY and DD_APP_KEY"));
-    }
-
-    #[test]
-    fn test_no_fallback_for_profiling() {
-        // All Continuous Profiler endpoints (legacy /profiling/api/v1/*, the
-        // unstable profiles surface, and prof-gateway's pup route group)
-        // now accept OAuth server-side; the raw/generic `pup api` passthrough
-        // should send the OAuth bearer instead of forcing API-key fallback.
-        // /profiling/api/v1/*
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/profiling/api/v1/aggregate"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/profiling/api/v1/profiles/abc/info"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/profiling/api/v1/profiles/abc/analysis"
-        ));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/profiling/api/v1/profiles/abc/timeline"
-        ));
-        // /api/unstable/profiles/*
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/unstable/profiles/list"
-        ));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/unstable/profiles/analytics"
-        ));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/unstable/profiles/callgraph"
-        ));
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/unstable/profiles/save-favorite"
-        ));
-        // /api/unstable/profiling/pup/* (prof-gateway pup route group)
-        assert!(!requires_api_key_fallback(
-            "POST",
-            "/api/unstable/profiling/pup/profiles/list"
-        ));
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/unstable/profiling/pup/profiles/abc/download"
-        ));
-        // /api/ui/profiling/*
-        assert!(!requires_api_key_fallback(
-            "GET",
-            "/api/ui/profiling/profiles/abc/download"
-        ));
     }
 
     /// Verifies that raw_request attaches query parameters and returns Ok when the

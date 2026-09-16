@@ -143,30 +143,19 @@ fn find_endpoint_requirement(method: &str, path: &str) -> Option<&'static Endpoi
 
 /// Endpoints that don't support OAuth.
 /// Trailing "/" means prefix match for ID-parameterized paths.
+///
+/// This is the known-complete list of exceptions to the policy that any
+/// endpoint accepting API + App Key auth also accepts OAuth bearer tokens.
+/// Before adding an entry, check whether the route is actually missing
+/// `ValidOAuthAccessToken` server-side; prefer landing OAuth support there
+/// over widening the client-side fallback.
 static OAUTH_EXCLUDED_ENDPOINTS: &[EndpointRequirement] = &[
-    // Fleet Automation unstable surface — doesn't support OAuth server-side
-    // yet. Current status, not a permanent contract; delete this entry (and
-    // the tests referencing it) once it does, rather than patching forward.
+    // Validate API/App key pair (1)
+    // Indefinitely exempt from OAuth server-side: it exists to validate the
+    // exact API + App key pair the caller already holds, so bearer auth would
+    // defeat its purpose. Serves as the canonical fallback example.
     EndpointRequirement {
-        path: "/api/unstable/fleet/",
-        method: "GET",
-    },
-    // Profiling (4)
-    // No OAuth scope is declared for Continuous Profiler endpoints; force API-key auth.
-    EndpointRequirement {
-        path: "/profiling/api/v1/",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/profiling/api/v1/",
-        method: "GET",
-    },
-    EndpointRequirement {
-        path: "/api/unstable/profiles/",
-        method: "POST",
-    },
-    EndpointRequirement {
-        path: "/api/ui/profiling/",
+        path: "/api/v2/validate_keys",
         method: "GET",
     },
     // Events intake (1)
@@ -671,10 +660,17 @@ mod tests {
     #[test]
     fn test_prefix_matching_with_id() {
         // Trailing "/" in the pattern should match paths with IDs.
-        // Uses the still-excluded unstable Fleet entry as the example.
-        assert!(requires_api_key_fallback(
+        // Uses the validate_keys GET entry (exact match, no trailing "/")
+        // and the events POST entry (API-key-only, see requires_api_key_only)
+        // as the negative controls; validate_keys has no ID-parameterized
+        // subpaths, so prefix matching is exercised via the events POST
+        // sibling only. Kept simple: exact-match entries.
+        assert!(requires_api_key_fallback("GET", "/api/v2/validate_keys"));
+        // A path that merely shares the prefix is NOT excluded: only the
+        // exact endpoint is.
+        assert!(!requires_api_key_fallback(
             "GET",
-            "/api/unstable/fleet/some-id"
+            "/api/v2/validate_keys/extra"
         ));
     }
 
@@ -780,9 +776,11 @@ mod tests {
 
     #[test]
     fn test_no_fallback_for_fleet() {
-        // Fleet Automation v2 routes already accept OAuth server-side;
-        // the raw/generic `pup api` passthrough should use the OAuth bearer
-        // like the typed fleet commands do.
+        // All Fleet Automation routes (v2 and unstable) now accept OAuth
+        // server-side (fleet-api RouteAuthn includes ValidOAuthAccessToken
+        // on every group); the raw/generic `pup api` passthrough should
+        // use the OAuth bearer like the typed fleet commands do. The
+        // unstable GET entry was removed once the server caught up.
         assert!(!requires_api_key_fallback("GET", "/api/v2/fleet/agents"));
         assert!(!requires_api_key_fallback(
             "GET",
@@ -790,7 +788,11 @@ mod tests {
         ));
         assert!(!requires_api_key_fallback(
             "GET",
-            "/api/v2/fleet/deployments"
+            "/api/unstable/fleet/some-id"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/unstable/fleet/deployments"
         ));
         assert!(!requires_api_key_fallback(
             "POST",
@@ -1003,13 +1005,12 @@ mod tests {
 
     #[test]
     fn test_other_oauth_excluded_endpoints_still_require_both_keys() {
-        // Uses the still-excluded unstable Fleet entry as the example.
+        // Uses the indefinitely-exempt validate_keys entry as the example.
         let mut cfg = test_cfg();
         cfg.app_key = None;
-        let req =
-            reqwest::Client::new().get("https://api.datadoghq.com/api/unstable/fleet/some-id");
+        let req = reqwest::Client::new().get("https://api.datadoghq.com/api/v2/validate_keys");
 
-        let err = match apply_auth(req, &cfg, "GET", "/api/unstable/fleet/some-id") {
+        let err = match apply_auth(req, &cfg, "GET", "/api/v2/validate_keys") {
             Ok(_) => panic!("excluded endpoint should require both keys"),
             Err(err) => err,
         };
@@ -1017,55 +1018,56 @@ mod tests {
     }
 
     #[test]
-    fn test_requires_api_key_fallback_profiling() {
+    fn test_no_fallback_for_profiling() {
+        // All Continuous Profiler endpoints (legacy /profiling/api/v1/*, the
+        // unstable profiles surface, and prof-gateway's pup route group)
+        // now accept OAuth server-side; the raw/generic `pup api` passthrough
+        // should send the OAuth bearer instead of forcing API-key fallback.
         // /profiling/api/v1/*
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback(
             "POST",
             "/profiling/api/v1/aggregate"
         ));
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback(
             "GET",
             "/profiling/api/v1/profiles/abc/info"
         ));
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback(
             "GET",
             "/profiling/api/v1/profiles/abc/analysis"
         ));
-        assert!(requires_api_key_fallback(
-            "POST",
-            "/profiling/api/v1/profiles/abc/breakdown"
-        ));
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback(
             "POST",
             "/profiling/api/v1/profiles/abc/timeline"
         ));
         // /api/unstable/profiles/*
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback(
             "POST",
             "/api/unstable/profiles/list"
         ));
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback(
             "POST",
             "/api/unstable/profiles/analytics"
         ));
-        assert!(requires_api_key_fallback(
-            "POST",
-            "/api/unstable/profiles/insights"
-        ));
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback(
             "POST",
             "/api/unstable/profiles/callgraph"
         ));
-        assert!(requires_api_key_fallback(
-            "POST",
-            "/api/unstable/profiles/interactive-analytics/field"
-        ));
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback(
             "POST",
             "/api/unstable/profiles/save-favorite"
         ));
+        // /api/unstable/profiling/pup/* (prof-gateway pup route group)
+        assert!(!requires_api_key_fallback(
+            "POST",
+            "/api/unstable/profiling/pup/profiles/list"
+        ));
+        assert!(!requires_api_key_fallback(
+            "GET",
+            "/api/unstable/profiling/pup/profiles/abc/download"
+        ));
         // /api/ui/profiling/*
-        assert!(requires_api_key_fallback(
+        assert!(!requires_api_key_fallback(
             "GET",
             "/api/ui/profiling/profiles/abc/download"
         ));

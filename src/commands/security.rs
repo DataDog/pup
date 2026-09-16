@@ -588,7 +588,7 @@ pub async fn suppressions_validate(cfg: &Config, file: &str) -> Result<()> {
 // ---- ASM WAF Custom Rules ----
 
 pub async fn asm_custom_rules_list(cfg: &Config) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .list_application_security_waf_custom_rules()
         .await
@@ -597,7 +597,7 @@ pub async fn asm_custom_rules_list(cfg: &Config) -> Result<()> {
 }
 
 pub async fn asm_custom_rules_get(cfg: &Config, custom_rule_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .get_application_security_waf_custom_rule(custom_rule_id.to_string())
         .await
@@ -607,7 +607,7 @@ pub async fn asm_custom_rules_get(cfg: &Config, custom_rule_id: &str) -> Result<
 
 pub async fn asm_custom_rules_create(cfg: &Config, file: &str) -> Result<()> {
     let body: ApplicationSecurityWafCustomRuleCreateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .create_application_security_waf_custom_rule(body)
         .await
@@ -617,7 +617,7 @@ pub async fn asm_custom_rules_create(cfg: &Config, file: &str) -> Result<()> {
 
 pub async fn asm_custom_rules_update(cfg: &Config, custom_rule_id: &str, file: &str) -> Result<()> {
     let body: ApplicationSecurityWafCustomRuleUpdateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .update_application_security_waf_custom_rule(custom_rule_id.to_string(), body)
         .await
@@ -626,7 +626,7 @@ pub async fn asm_custom_rules_update(cfg: &Config, custom_rule_id: &str, file: &
 }
 
 pub async fn asm_custom_rules_delete(cfg: &Config, custom_rule_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     api.delete_application_security_waf_custom_rule(custom_rule_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete ASM WAF custom rule: {e:?}"))?;
@@ -637,7 +637,7 @@ pub async fn asm_custom_rules_delete(cfg: &Config, custom_rule_id: &str) -> Resu
 // ---- ASM WAF Exclusion Filters ----
 
 pub async fn asm_exclusions_list(cfg: &Config) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .list_application_security_waf_exclusion_filters()
         .await
@@ -646,7 +646,7 @@ pub async fn asm_exclusions_list(cfg: &Config) -> Result<()> {
 }
 
 pub async fn asm_exclusions_get(cfg: &Config, exclusion_filter_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .get_application_security_waf_exclusion_filter(exclusion_filter_id.to_string())
         .await
@@ -656,7 +656,7 @@ pub async fn asm_exclusions_get(cfg: &Config, exclusion_filter_id: &str) -> Resu
 
 pub async fn asm_exclusions_create(cfg: &Config, file: &str) -> Result<()> {
     let body: ApplicationSecurityWafExclusionFilterCreateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .create_application_security_waf_exclusion_filter(body)
         .await
@@ -670,7 +670,7 @@ pub async fn asm_exclusions_update(
     file: &str,
 ) -> Result<()> {
     let body: ApplicationSecurityWafExclusionFilterUpdateRequest = util::read_json_file(file)?;
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     let resp = api
         .update_application_security_waf_exclusion_filter(exclusion_filter_id.to_string(), body)
         .await
@@ -679,7 +679,7 @@ pub async fn asm_exclusions_update(
 }
 
 pub async fn asm_exclusions_delete(cfg: &Config, exclusion_filter_id: &str) -> Result<()> {
-    let api = crate::make_api_no_auth!(ApplicationSecurityAPI, cfg);
+    let api = crate::make_api!(ApplicationSecurityAPI, cfg);
     api.delete_application_security_waf_exclusion_filter(exclusion_filter_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete ASM WAF exclusion filter: {e:?}"))?;
@@ -1098,6 +1098,215 @@ mod tests {
             "ASM exclusions list failed: {:?}",
             result.err()
         );
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    fn oauth_only_config(server_url: &str) -> Config {
+        let mut cfg = test_config(server_url);
+        // Simulate OAuth-only auth: bearer token configured, no API/APP keys.
+        cfg.api_key = None;
+        cfg.app_key = None;
+        cfg.access_token = Some("oauth-bearer-token".into());
+        std::env::remove_var("DD_API_KEY");
+        std::env::remove_var("DD_APP_KEY");
+        cfg
+    }
+
+    // Asserts each of the ten ASM WAF operations sends the OAuth bearer token
+    // when the session is OAuth-only: the mock only matches when the
+    // Authorization header is present, so a make_api_no_auth! regression (or a
+    // command still on API-key construction) fails the request.
+    #[tokio::test]
+    async fn test_asm_waf_commands_send_oauth_bearer_token() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = oauth_only_config(&server.url());
+
+        let ok_body = r#"{"data":[]}"#;
+        let single_body = r#"{"data":{}}"#;
+        let create_rule_body = r#"{
+            "data": {
+                "type": "custom_rule",
+                "attributes": {
+                    "blocking": false,
+                    "conditions": [{
+                        "operator": "match_regex",
+                        "parameters": {
+                            "regex": "badactor",
+                            "inputs": [{"address": "server.request.query", "key_path": ["id"]}]
+                        }
+                    }],
+                    "enabled": false,
+                    "name": "test",
+                    "tags": {"category": "attack_attempt", "type": "lfi"}
+                }
+            }
+        }"#;
+        let create_exclusion_body = r#"{
+            "data": {
+                "type": "exclusion_filter",
+                "attributes": {
+                    "description": "Exclude false positives on a path",
+                    "enabled": true,
+                    "path_glob": "/accounts/*",
+                    "parameters": ["list.search.query"],
+                    "rules_target": [{"tags": {"category": "attack_attempt", "type": "lfi"}}],
+                    "scope": [{"env": "www", "service": "prod"}]
+                }
+            }
+        }"#;
+        let update_rule_body = r#"{
+            "data": {
+                "type": "custom_rule",
+                "attributes": {
+                    "blocking": false,
+                    "conditions": [{
+                        "operator": "match_regex",
+                        "parameters": {
+                            "regex": "badactor",
+                            "inputs": [{"address": "server.request.query", "key_path": ["id"]}]
+                        }
+                    }],
+                    "enabled": false,
+                    "name": "test",
+                    "tags": {"category": "attack_attempt", "type": "lfi"}
+                }
+            }
+        }"#;
+        let update_exclusion_body = r#"{
+            "data": {
+                "type": "exclusion_filter",
+                "attributes": {"description": "Exclude false positives on a path", "enabled": false}
+            }
+        }"#;
+
+        let rule_file = write_temp_json("asm_waf_rule_create.json", create_rule_body);
+        let update_rule_file = write_temp_json("asm_waf_rule_update.json", update_rule_body);
+        let exclusion_file =
+            write_temp_json("asm_waf_exclusion_create.json", create_exclusion_body);
+        let update_exclusion_file =
+            write_temp_json("asm_waf_exclusion_update.json", update_exclusion_body);
+
+        // Each mock demands the bearer header; requests without it get no
+        // matching mock and the call errors.
+        let bearer = mockito::Matcher::Exact("Bearer oauth-bearer-token".into());
+        let rules_path = "/api/v2/remote_config/products/asm/waf/custom_rules";
+        let exclusions_path = "/api/v2/remote_config/products/asm/waf/exclusion_filters";
+        let mut mocks = Vec::new();
+        for (method, path, body) in [
+            ("GET", rules_path, ok_body), // custom rules list
+            (
+                "GET",
+                "/api/v2/remote_config/products/asm/waf/custom_rules/rule-id",
+                single_body,
+            ), // custom rules get
+            ("POST", rules_path, single_body), // custom rules create
+            (
+                "PUT",
+                "/api/v2/remote_config/products/asm/waf/custom_rules/rule-id",
+                single_body,
+            ), // custom rules update
+            (
+                "DELETE",
+                "/api/v2/remote_config/products/asm/waf/custom_rules/rule-id",
+                "",
+            ), // custom rules delete
+            ("GET", exclusions_path, ok_body), // exclusions list
+            (
+                "GET",
+                "/api/v2/remote_config/products/asm/waf/exclusion_filters/exclusion-id",
+                single_body,
+            ), // exclusions get
+            ("POST", exclusions_path, single_body), // exclusions create
+            (
+                "PUT",
+                "/api/v2/remote_config/products/asm/waf/exclusion_filters/exclusion-id",
+                single_body,
+            ), // exclusions update
+            (
+                "DELETE",
+                "/api/v2/remote_config/products/asm/waf/exclusion_filters/exclusion-id",
+                "",
+            ), // exclusions delete
+        ] {
+            mocks.push(
+                server
+                    .mock(method, path)
+                    .match_query(mockito::Matcher::Any)
+                    .match_header("Authorization", bearer.clone())
+                    .with_status(200)
+                    .with_header("content-type", "application/json")
+                    .with_body(body)
+                    .create_async()
+                    .await,
+            );
+        }
+
+        let failures: Vec<String> = [
+            (
+                "asm_custom_rules_list",
+                super::asm_custom_rules_list(&cfg).await,
+            ),
+            (
+                "asm_custom_rules_get",
+                super::asm_custom_rules_get(&cfg, "rule-id").await,
+            ),
+            (
+                "asm_custom_rules_create",
+                super::asm_custom_rules_create(&cfg, rule_file.to_str().unwrap()).await,
+            ),
+            (
+                "asm_custom_rules_update",
+                super::asm_custom_rules_update(&cfg, "rule-id", update_rule_file.to_str().unwrap())
+                    .await,
+            ),
+            (
+                "asm_custom_rules_delete",
+                super::asm_custom_rules_delete(&cfg, "rule-id").await,
+            ),
+            (
+                "asm_exclusions_list",
+                super::asm_exclusions_list(&cfg).await,
+            ),
+            (
+                "asm_exclusions_get",
+                super::asm_exclusions_get(&cfg, "exclusion-id").await,
+            ),
+            (
+                "asm_exclusions_create",
+                super::asm_exclusions_create(&cfg, exclusion_file.to_str().unwrap()).await,
+            ),
+            (
+                "asm_exclusions_update",
+                super::asm_exclusions_update(
+                    &cfg,
+                    "exclusion-id",
+                    update_exclusion_file.to_str().unwrap(),
+                )
+                .await,
+            ),
+            (
+                "asm_exclusions_delete",
+                super::asm_exclusions_delete(&cfg, "exclusion-id").await,
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(name, result)| result.err().map(|e| format!("{name}: {e:#}")))
+        .collect();
+
+        let _ = std::fs::remove_file(rule_file);
+        let _ = std::fs::remove_file(update_rule_file);
+        let _ = std::fs::remove_file(exclusion_file);
+        let _ = std::fs::remove_file(update_exclusion_file);
+        assert!(
+            failures.is_empty(),
+            "ASM WAF commands failed to send OAuth bearer token or errored: {failures:?}"
+        );
+        for m in mocks {
+            m.assert();
+        }
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
     }

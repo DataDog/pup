@@ -477,7 +477,7 @@ fn string_attribute<'a>(attributes: &'a BTreeMap<String, Value>, key: &str) -> O
     attributes.get(key).and_then(Value::as_str)
 }
 
-fn parse_relationship_data(value: &Value) -> Vec<ResourceIdentifier> {
+pub(super) fn parse_relationship_data(value: &Value) -> Vec<ResourceIdentifier> {
     if value.is_null() {
         return Vec::new();
     }

@@ -16,7 +16,7 @@ Use Pup's read-only Unified Entity Graph (UEG) to discover software, ownership, 
 
 - Default to `pup idp kinds` and `pup idp entities query` when the answer needs connected context across services, teams, systems, repositories, dependencies, work, operations, or security kinds.
 - Use `pup idp assist` when the user values a fast, curated single-service summary, metadata gaps, and suggested next actions over graph fidelity; use `owner` for convenient owner/on-call resolution.
-- Treat `find` as a simple legacy service-name lookup and `deps` as a production-only service-to-service dependency snapshot. Use UEG for explicit schema, relation families, counts, pagination, and traversal.
+- Treat `find` as a simple legacy service-name lookup. Use `deps` as a convenient one-hour UEG runtime service-to-service dependency summary, and `entities query` for another lookback or broader relation families, counts, pagination, and traversal.
 - Use product commands such as `pup incidents`, `pup slos`, `pup monitors`, `pup logs`, `pup traces`, or `pup security` when the user needs deeper or current telemetry.
 - Use `pup service-catalog` for the legacy typed service registry and `pup software-catalog` for Catalog entity/kind reads and writes. Do not use graph queries for mutations.
 

@@ -1546,10 +1546,10 @@ enum Commands {
     /// CAPABILITIES:
     ///   • Discover entity kinds and inspect their live query schemas
     ///   • Query entities and traverse declared relationships
-    ///   • Get an opinionated legacy service summary (assist)
+    ///   • Get an opinionated service summary (assist)
     ///   • Run a quick legacy service lookup (find)
     ///   • Resolve service ownership and on-call (owner)
-    ///   • Show legacy production service dependencies (deps)
+    ///   • Show runtime service dependencies from UEG (deps)
     ///   • Register Catalog entities from YAML or JSON (register)
     ///   • Migrate service catalog YAML to v3 schema (migrate-schema)
     ///
@@ -1564,7 +1564,7 @@ enum Commands {
     ///     --include owner_teams,upstream_services,downstream_services \
     ///     --relation-limit 3
     ///
-    ///   # Get the opinionated legacy service summary
+    ///   # Get the opinionated service summary
     ///   pup idp assist checkout-api
     ///
     ///   # Who owns this service?
@@ -5321,10 +5321,10 @@ enum IdpActions {
         #[command(subcommand)]
         action: IdpEntitiesActions,
     },
-    /// Get an opinionated legacy service summary with suggested next actions
+    /// Get an opinionated service summary with suggested next actions
     ///
-    /// Compatibility helper that combines UEG service data with legacy
-    /// production dependency and on-call lookups:
+    /// Compatibility helper that combines UEG service, runtime dependency,
+    /// and on-call context:
     ///
     /// RETURNS:
     ///   • Entity info (name, kind, description, lifecycle, tier, owner)
@@ -5379,11 +5379,12 @@ enum IdpActions {
         /// Entity name
         entity: String,
     },
-    /// Show legacy production upstream and downstream service dependencies
+    /// Show runtime upstream and downstream service dependencies from UEG
     ///
-    /// Returns the legacy `env=prod` service-to-service dependency snapshot.
-    /// Use `idp entities query` for declared/runtime graph relations to
-    /// services, datastores, queues, external providers, or inferred services.
+    /// Returns UEG's runtime-observed service-to-service relations over the
+    /// past hour. Use `idp entities query` for another lookback, the broader
+    /// unified graph, or relations to datastores, queues, external providers,
+    /// or inferred services.
     ///
     /// EXAMPLES:
     ///   pup idp deps catalog-http

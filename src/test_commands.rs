@@ -871,7 +871,7 @@ fn test_idp_entity_graph_commands_parse() {
 }
 
 #[test]
-fn test_idp_legacy_help_routes_connected_context_to_entity_graph() {
+fn test_idp_convenience_help_routes_connected_context_to_entity_graph() {
     let idp = crate::Cli::command()
         .find_subcommand("idp")
         .expect("idp command should exist")
@@ -888,11 +888,14 @@ fn test_idp_legacy_help_routes_connected_context_to_entity_graph() {
         .clone()
         .render_long_help()
         .to_string();
+    let deps_help = deps_help.split_whitespace().collect::<Vec<_>>().join(" ");
 
     assert!(assist_help.contains("idp entities query"));
     assert!(!assist_help.contains("flagship"));
-    assert!(deps_help.contains("env=prod"));
-    assert!(deps_help.contains("declared/runtime graph relations"));
+    assert!(deps_help.contains("runtime-observed"));
+    assert!(deps_help.contains("past hour"));
+    assert!(deps_help.contains("broader unified graph"));
+    assert!(!deps_help.contains("env=prod"));
 }
 
 #[test]

@@ -44,12 +44,6 @@ pub struct EntityQueryOptions {
     pub raw: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct OrderBy {
-    field: String,
-    direction: String,
-}
-
 #[derive(Debug, Clone)]
 struct NormalizedQueryOptions {
     query: String,
@@ -59,7 +53,7 @@ struct NormalizedQueryOptions {
     fields_by_kind: BTreeMap<String, Vec<String>>,
     edge_fields: BTreeMap<String, Vec<String>>,
     include: Vec<String>,
-    order_by: Vec<OrderBy>,
+    order_by: Vec<String>,
     limit: usize,
     max_results: Option<usize>,
     cursor: Option<String>,
@@ -442,7 +436,7 @@ fn normalize_free_text_match(value: Option<String>) -> Result<Option<String>> {
     }
 }
 
-fn normalize_order_by(values: Vec<String>) -> Result<Vec<OrderBy>> {
+pub(super) fn normalize_order_by(values: Vec<String>) -> Result<Vec<String>> {
     clean_strings(values)
         .into_iter()
         .map(|value| {
@@ -457,10 +451,7 @@ fn normalize_order_by(values: Vec<String>) -> Result<Vec<OrderBy>> {
                     "invalid --order-by direction {direction:?} for field {field:?}: use asc or desc"
                 );
             }
-            Ok(OrderBy {
-                field: field.to_string(),
-                direction,
-            })
+            Ok(format!("{field}:{direction}"))
         })
         .collect()
 }
@@ -584,15 +575,7 @@ fn entity_query_params(
     }
     add_required_included_fields(&mut params, options, relation_target_kinds);
     if !options.order_by.is_empty() {
-        params.push((
-            "order_by".into(),
-            options
-                .order_by
-                .iter()
-                .map(|order| format!("{}:{}", order.field, order.direction))
-                .collect::<Vec<_>>()
-                .join(","),
-        ));
+        params.push(("order_by".into(), options.order_by.join(",")));
     }
     if let Some(mode) = &options.free_text_match {
         params.push(("free_text_match".into(), mode.clone()));
@@ -665,7 +648,7 @@ fn next_request(
         add("--scope", format!("{name}={value}"));
     }
     for order in &options.order_by {
-        add("--order-by", format!("{}:{}", order.field, order.direction));
+        add("--order-by", order.clone());
     }
     if let Some(mode) = &options.free_text_match {
         add("--free-text-match", mode.clone());
@@ -767,11 +750,7 @@ fn normalize_entities_response(
             from: options.time.start,
             to: options.time.end,
             scopes: options.scopes.clone(),
-            order_by: options
-                .order_by
-                .iter()
-                .map(|order| format!("{}:{}", order.field, order.direction))
-                .collect(),
+            order_by: options.order_by.clone(),
             cursor: options.cursor.clone(),
             free_text_match: options.free_text_match.clone(),
             include_total_count: options.include_total_count,
@@ -806,7 +785,6 @@ fn normalize_entity(
     warnings: &mut Vec<String>,
 ) -> NormalizedEntity {
     let identity = entity_identity(&entity, false);
-    let fields = data_fields(&entity.attributes);
     let relationships = entity
         .relationships
         .iter()
@@ -853,7 +831,7 @@ fn normalize_entity(
 
     NormalizedEntity {
         entity: identity,
-        fields,
+        fields: entity.attributes,
         relationships,
     }
 }
@@ -877,7 +855,7 @@ fn entity_identity(entity: &EntityResource, include_fields: bool) -> EntityIdent
         id: entity.id.clone(),
         display_name,
         fields: if include_fields {
-            data_fields(&entity.attributes)
+            entity.attributes.clone()
         } else {
             BTreeMap::new()
         },
@@ -896,10 +874,6 @@ fn identifier_identity(identifier: &ResourceIdentifier) -> EntityIdentity {
         display_name: None,
         fields: BTreeMap::new(),
     }
-}
-
-fn data_fields(attributes: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
-    attributes.clone()
 }
 
 fn string_attribute<'a>(attributes: &'a BTreeMap<String, Value>, key: &str) -> Option<&'a str> {
@@ -1454,13 +1428,13 @@ mod tests {
     fn builds_entity_query_parameters() {
         let mut input = options("kind:integration.github.repository AND name:api");
         input.include = vec!["pull_requests".into()];
-        input.order_by = vec!["updated_at:desc".into()];
+        input.order_by = vec![" updated_at:DESC ".into(), "name".into()];
         input.cursor = Some("cursor value".into());
         input.include_total_count = true;
         let normalized = normalize_options(input).unwrap();
         let params: BTreeMap<_, _> = entity_query_params(&normalized, &[]).into_iter().collect();
         assert_eq!(params["page[cursor]"], "cursor value");
-        assert_eq!(params["order_by"], "updated_at:desc");
+        assert_eq!(params["order_by"], "updated_at:desc,name:asc");
         assert_eq!(params["meta[fields]"], "total_count");
         assert!(params.contains_key("fields[integration.github.pull_request]"));
     }

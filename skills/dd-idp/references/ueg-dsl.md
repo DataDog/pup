@@ -94,13 +94,6 @@ Simple identifiers can remain bare: `owner:payments`.
 
 Request only the fields and relations needed to answer the question. Start with `--limit 25`; widen only after the query is proven useful.
 
-For substring search across a kind's searchable text fields, use
-`'kind:service AND owner:payments AND catalog' --free-text-match partial`.
-For one named field, use `name:*catalog*`; the matching-mode flag does not turn
-`name:catalog` into a substring filter. Fuzzy search can miss known entities when
-combined with other filters on some deployments. Verify empty fuzzy results
-with partial matching or an exact field query.
-
 `--fields service=...` can also select the result kind; use it or `--field`, not
 both for that kind. Projections are per kind, so a service-to-service include
 shares the service field selection. Edge selections require the matching
@@ -135,8 +128,7 @@ For entity queries, `next_request.args` is a complete argument array after the
 effective projections, ordering, matching mode, measurement window, scopes,
 org profile, and cursor. Keep the same authentication, `DD_SITE`, and config environment;
 credentials are never embedded in the arguments. The query echo records absolute
-times as Unix milliseconds. Pagination
-does not provide an atomic snapshot of a changing graph.
+times as Unix milliseconds.
 
 Entity query output also reports `page.pages_fetched` and `page.stop_reason`:
 `end_of_results`, `page_limit` (manual mode), or `result_limit` (automatic mode).
@@ -166,9 +158,8 @@ duration. State the window when it affects meaning. `--from`/`--to` affect
 supported measurements, not every entity attribute or historical entity state.
 
 Use `--scope` only for schema-declared scopes on the result kind's properties.
-An environment property scope does not isolate current runtime dependency edge
-aggregates, which are org-wide. Do not present those edges as verified evidence
-for the requested environment.
+See [measurement limitations](footguns.md#time-windows-change-meaning) before
+combining scopes, time windows, and runtime edges.
 
 Treat `null` or a missing field as unknown/not returned. Only report zero, false, healthy, or no findings when the API explicitly returned evidence for that claim.
 

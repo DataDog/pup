@@ -123,12 +123,6 @@ pup events search --query="@user.id:12345"
 
 ### IDP Entity Graph
 
-Normalized query results preserve returned attributes in `fields`, relationship
-measurements in `sample[].edge_fields`, and upstream limitations in
-`server_warnings`. Check `warnings` for requested relationships that were omitted
-or malformed. `--relation-limit` caps the displayed sample after fetching the
-response; it does not cap server-side expansion.
-
 Use kind discovery before writing flexible cross-entity queries:
 
 ```bash
@@ -146,25 +140,6 @@ pup idp entities query 'kind:service AND owner:payments' \
 
 # Continue an explicitly paginated query.
 pup idp entities query 'kind:service' --cursor '<next_cursor>'
-
-# Partial matching across searchable text fields; field filters keep their own semantics.
-pup idp entities query 'kind:service AND owner:payments AND catalog' \
-  --free-text-match partial --field name,owner
-
-# Fetch a bounded inventory; inspect page.stop_reason and next_request.args.
-pup idp entities query 'kind:service AND owner:payments' \
-  --field name,owner --limit 100 --max-results 500
-
-# Select related team fields and measurements on runtime service edges.
-pup idp entities query 'ref:"ref:service:checkout-api"' \
-  --field name,owner --include owner_teams,runtime_downstream_services \
-  --fields team=name,handle \
-  --edge-fields runtime_downstream_services=requests_count,error_rate
-
-# An explicit window and a schema-supported service property scope.
-pup idp entities query 'kind:service AND name:checkout-api' \
-  --field name,requests_per_second --scope env=prod \
-  --from 2026-09-17T10:00:00Z --to 2026-09-17T11:00:00Z
 ```
 
 Every query must contain one unquoted `kind:<kind>` filter or a concrete

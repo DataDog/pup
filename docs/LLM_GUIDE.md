@@ -215,9 +215,7 @@ pup --read-only idp entities query 'kind:service AND name:"<service-name>"' \
 Every query needs one unquoted `kind:<kind>` or concrete
 `ref:"ref:<kind>:<id>"`. `--field` selects attributes; `--include` expands
 declared relations. Honor result cursors, relationship truncation, and null as
-unknown. `--timeseries-interval` accepts `168h` or `7d`; `--from`/`--to` select an
-explicit measurement window without reconstructing historical entity state.
-Use returned `next_request.args` to continue a query with all controls preserved.
+unknown. `--timeseries-interval` accepts lookbacks such as `168h` or `7d`.
 Use `idp assist` for a fast curated service summary and
 `idp owner` for convenient ownership/on-call resolution; use UEG when graph
 fidelity, relation counts, pagination, or traversal matters. Treat `find` and

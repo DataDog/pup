@@ -28,12 +28,9 @@ pup --read-only idp entities query 'ref:"ref:service:<service-name>"' \
   --timeseries-interval 1h --relation-limit 5 --limit 1
 ```
 
-This selects team attributes separately from service attributes and keeps traffic
-measurements on each edge. Describe the entity kinds first. Runtime edge metrics
-are window aggregates, not anomaly or causality scores. Current runtime edge
-queries aggregate across the org without environment grouping, and upstream can
-coalesce missing measurements to zero. Do not use a zero as proof of health.
-Requesting edge measurements can also change which observed edges are discovered.
+This selects team attributes separately from service attributes. Check the
+[measurement limitations](footguns.md#time-windows-change-meaning) when
+interpreting runtime edge values.
 
 ## Team portfolio and missing ownership
 

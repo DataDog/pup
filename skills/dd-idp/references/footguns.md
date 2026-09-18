@@ -81,6 +81,9 @@ Use `--timeseries-interval 168h` or `7d`, or supply both `--from` and `--to`.
 Only supported measurements use the window; current entity state and arbitrary
 health counts do not become historical because a window was supplied. Scope
 support is field-specific, and current runtime edges are not environment-isolated.
+Runtime edge values are window aggregates, not anomaly or causality scores.
+Upstream can coalesce missing measurements to zero; zero does not prove health.
+Requesting edge measurements can also change which observed edges are discovered.
 
 Some deployments fail when an absolute window, a property scope, a timeseries
 attribute such as `requests_per_second`, and runtime relationship expansion are

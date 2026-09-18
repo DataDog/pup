@@ -461,19 +461,87 @@ fn test_extension_list_remote_parses() {
     }
 }
 
+fn visible_top_level_command_names(app: &clap::Command) -> Vec<String> {
+    app.get_subcommands()
+        .filter(|command| command.get_name() != "help" && !command.is_hide_set())
+        .map(|command| command.get_name().to_string())
+        .collect()
+}
+
+fn rendered_top_level_command_names(app: &mut clap::Command) -> Vec<String> {
+    let visible_names = visible_top_level_command_names(app);
+    let help = app.render_help().to_string();
+
+    help.lines()
+        .skip_while(|line| line.trim() != "Commands:")
+        .skip(1)
+        .take_while(|line| !line.trim().is_empty())
+        .filter_map(|line| line.strip_prefix("  "))
+        .filter(|line| !line.starts_with(' '))
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| visible_names.iter().any(|visible| visible == name))
+        .map(str::to_string)
+        .collect()
+}
+
 #[test]
 fn test_top_level_commands_sorted_alphabetically() {
-    let app = crate::Cli::command();
-    let names: Vec<&str> = app
-        .get_subcommands()
-        .filter(|cmd| cmd.get_name() != "help" && !cmd.is_hide_set())
-        .map(|cmd| cmd.get_name())
-        .collect();
-    let mut sorted = names.clone();
-    sorted.sort_unstable();
+    let mut app = crate::cli_command();
+    let mut expected = visible_top_level_command_names(&app);
+    expected.sort_unstable();
+    let names = rendered_top_level_command_names(&mut app);
+
     assert_eq!(
-        names, sorted,
-        "top-level commands must be in alphabetical order.\nActual:   {names:?}\nExpected: {sorted:?}"
+        names, expected,
+        "top-level commands in help must be in alphabetical order.\nActual:   {names:?}\nExpected: {expected:?}"
+    );
+}
+
+#[test]
+fn test_top_level_commands_share_display_order() {
+    assert!(
+        crate::cli_command()
+            .get_subcommands()
+            .all(|command| command.get_display_order() == 0),
+        "top-level commands must share a display order so clap sorts them by name"
+    );
+}
+
+#[test]
+fn test_top_level_command_names_and_aliases_are_unique() {
+    let app = crate::Cli::command();
+    let mut names = std::collections::HashMap::new();
+
+    for command in app.get_subcommands() {
+        for name in std::iter::once(command.get_name()).chain(command.get_all_aliases()) {
+            if let Some(existing) = names.insert(name, command.get_name()) {
+                panic!(
+                    "top-level command name or alias `{name}` for `{}` conflicts with `{existing}`",
+                    command.get_name()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_shared_display_order_sorts_appended_subcommand_in_help() {
+    let mut app =
+        crate::cli_command().subcommand(clap::Command::new("downtime-z-test").display_order(0));
+    let names: Vec<String> = rendered_top_level_command_names(&mut app)
+        .into_iter()
+        .filter(|name| {
+            matches!(
+                name.as_str(),
+                "downtime" | "downtime-z-test" | "error-tracking"
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        names,
+        ["downtime", "downtime-z-test", "error-tracking"],
+        "display order did not interleave the appended command"
     );
 }
 

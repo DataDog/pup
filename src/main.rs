@@ -81,6 +81,12 @@ pub(crate) struct Cli {
     command: Commands,
 }
 
+/// Build the CLI with top-level subcommands sorted by name in help output.
+/// Nested subcommands retain their declared display order.
+pub(crate) fn cli_command() -> clap::Command {
+    Cli::command().mut_subcommands(|command| command.display_order(0))
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Start a local ACP server that proxies to Datadog Bits AI
@@ -13333,7 +13339,7 @@ async fn main_inner() -> anyhow::Result<()> {
     let has_agent_flag = args.iter().any(|a| a == "--agent");
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
     if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
-        let cmd = Cli::command();
+        let cmd = cli_command();
         if let Some(schema) = agent_help_schema(&cmd, &args) {
             println!("{}", serde_json::to_string_pretty(&schema).unwrap());
             return Ok(());
@@ -13384,7 +13390,7 @@ async fn main_inner() -> anyhow::Result<()> {
     // Build the clap Command and, when extensions are installed, append an
     // "EXTENSIONS:" section to the help output so they are visible in
     // `pup --help` / `pup help`, similar to how `gh` lists extensions.
-    let mut cmd = Cli::command();
+    let mut cmd = cli_command();
     #[cfg(not(target_arch = "wasm32"))]
     {
         let ext_help = extensions::discovery::build_extensions_help_section();

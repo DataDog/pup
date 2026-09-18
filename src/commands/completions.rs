@@ -1,14 +1,13 @@
 use anyhow::{Context, Result};
-use clap::CommandFactory;
 use clap_complete::Shell;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::Cli;
+use crate::cli_command;
 
 /// Generate completions to stdout (the raw clap output).
 pub fn generate(shell: Shell) {
-    clap_complete::generate(shell, &mut Cli::command(), "pup", &mut std::io::stdout());
+    clap_complete::generate(shell, &mut cli_command(), "pup", &mut std::io::stdout());
 }
 
 /// Install a dynamic loader script for the given shell.

@@ -508,15 +508,19 @@ fn test_top_level_commands_share_display_order() {
 }
 
 #[test]
-fn test_top_level_command_names_are_unique() {
-    let mut names = std::collections::HashSet::new();
+fn test_top_level_command_names_and_aliases_are_unique() {
+    let app = crate::Cli::command();
+    let mut names = std::collections::HashMap::new();
 
-    for command in crate::Cli::command().get_subcommands() {
-        assert!(
-            names.insert(command.get_name()),
-            "duplicate top-level command name: {}",
-            command.get_name()
-        );
+    for command in app.get_subcommands() {
+        for name in std::iter::once(command.get_name()).chain(command.get_all_aliases()) {
+            if let Some(existing) = names.insert(name, command.get_name()) {
+                panic!(
+                    "top-level command name or alias `{name}` for `{}` conflicts with `{existing}`",
+                    command.get_name()
+                );
+            }
+        }
     }
 }
 

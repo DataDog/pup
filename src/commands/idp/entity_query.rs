@@ -33,19 +33,13 @@ pub struct EntityQueryOptions {
     pub raw: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct OrderBy {
-    field: String,
-    direction: String,
-}
-
 #[derive(Debug, Clone)]
 struct NormalizedQueryOptions {
     query: String,
     kind: String,
     fields: Vec<String>,
     include: Vec<String>,
-    order_by: Vec<OrderBy>,
+    order_by: Vec<String>,
     limit: usize,
     cursor: Option<String>,
     free_text_match: Option<String>,
@@ -191,7 +185,7 @@ fn normalize_free_text_match(value: Option<String>) -> Result<Option<String>> {
     }
 }
 
-fn normalize_order_by(values: Vec<String>) -> Result<Vec<OrderBy>> {
+pub(super) fn normalize_order_by(values: Vec<String>) -> Result<Vec<String>> {
     clean_strings(values)
         .into_iter()
         .map(|value| {
@@ -206,19 +200,9 @@ fn normalize_order_by(values: Vec<String>) -> Result<Vec<OrderBy>> {
                     "invalid --order-by direction {direction:?} for field {field:?}: use asc or desc"
                 );
             }
-            Ok(OrderBy {
-                field: field.to_string(),
-                direction,
-            })
+            Ok(format!("{field}:{direction}"))
         })
         .collect()
-}
-
-pub(super) fn normalize_order_expressions(values: Vec<String>) -> Result<Vec<String>> {
-    Ok(normalize_order_by(values)?
-        .into_iter()
-        .map(|order| format!("{}:{}", order.field, order.direction))
-        .collect())
 }
 
 fn clean_strings(values: Vec<String>) -> Vec<String> {
@@ -270,15 +254,7 @@ fn entity_query_params(
     }
     add_required_included_fields(&mut params, options, relation_target_kinds);
     if !options.order_by.is_empty() {
-        params.push((
-            "order_by".into(),
-            options
-                .order_by
-                .iter()
-                .map(|order| format!("{}:{}", order.field, order.direction))
-                .collect::<Vec<_>>()
-                .join(","),
-        ));
+        params.push(("order_by".into(), options.order_by.join(",")));
     }
     if let Some(mode) = &options.free_text_match {
         params.push(("free_text_match".into(), mode.clone()));
@@ -989,13 +965,13 @@ mod tests {
     fn builds_entity_query_parameters() {
         let mut input = options("kind:integration.github.repository AND name:api");
         input.include = vec!["pull_requests".into()];
-        input.order_by = vec!["updated_at:desc".into()];
+        input.order_by = vec![" updated_at:DESC ".into(), "name".into()];
         input.cursor = Some("cursor value".into());
         input.include_total_count = true;
         let normalized = normalize_options(input).unwrap();
         let params: BTreeMap<_, _> = entity_query_params(&normalized, &[]).into_iter().collect();
         assert_eq!(params["page[cursor]"], "cursor value");
-        assert_eq!(params["order_by"], "updated_at:desc");
+        assert_eq!(params["order_by"], "updated_at:desc,name:asc");
         assert_eq!(params["meta[fields]"], "total_count");
         assert!(params.contains_key("fields[integration.github.pull_request]"));
     }

@@ -89,7 +89,7 @@ Simple identifiers can remain bare: `owner:payments`.
 
 Request only the fields and relations needed to answer the question. Start with `--limit 25`; widen only after the query is proven useful.
 
-## Pagination and completeness
+## Portfolio summaries
 
 `entities facets QUERY --facet field` and `entities aggregate QUERY --group-by
 field` reuse the same result-kind DSL. Both accept `--limit`, `--cursor`, and
@@ -104,7 +104,11 @@ values using `--limit` and report `values_returned` and `values_truncated` per
 facet. `page.truncated` includes this local sampling. A cursor cannot recover
 locally omitted values: use `--raw` to inspect all values returned by the API,
 or `aggregate --group-by <field>` for pageable value/count groups. Neither shape
-proves that a provider returned its entire possible value vocabulary.
+proves that a provider returned its entire possible value vocabulary. Summary
+commands do not expose time/scope controls; use fields whose default semantics
+answer the question.
+
+## Pagination and completeness
 
 Normalized output contains:
 

@@ -5,8 +5,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::entity_query::{
-    normalize_order_expressions, raw_response_metadata, validate_limit, validate_query_scope,
-    MAX_PAGE_LIMIT,
+    normalize_order_by, raw_response_metadata, validate_limit, validate_query_scope, MAX_PAGE_LIMIT,
 };
 use crate::{config::Config, formatter, raw_client};
 
@@ -98,7 +97,7 @@ fn aggregate_attributes(options: &EntityAggregateOptions) -> Result<Value> {
     validate_query_scope(&options.query)?;
     validate_limit("limit", options.limit, MAX_PAGE_LIMIT)?;
     let group_by = required_names(options.group_by.clone(), "group-by")?;
-    let order_by = normalize_order_expressions(options.order_by.clone())?;
+    let order_by = normalize_order_by(options.order_by.clone())?;
     let mut names = BTreeSet::from(["count".to_string()]);
     let mut metrics = vec![json!({"name": "count", "func": "count", "filter": "*"})];
     for count in &options.counts {

@@ -1,6 +1,14 @@
 use std::process::Command;
 
 fn main() {
+    // The unoptimized command dispatcher exceeds MSVC's default 1 MiB stack.
+    // Reserve 8 MiB for the executable; Windows commits stack pages on demand.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+    {
+        println!("cargo:rustc-link-arg-bin=pup=/STACK:8388608");
+    }
+
     let version = Command::new("rustc")
         .arg("--version")
         .output()

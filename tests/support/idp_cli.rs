@@ -16,7 +16,10 @@ pub fn pup(server: &Server, args: &[&str]) -> Output {
         .env("DD_SITE", "datadoghq.com")
         .env(
             "PUP_CONFIG_DIR",
-            std::env::temp_dir().join(format!("pup-idp-fixture-{}", server.host_with_port())),
+            std::env::temp_dir().join(format!(
+                "pup-idp-fixture-{}",
+                server.host_with_port().replace(':', "-")
+            )),
         )
         .env_remove("PUP_FILTER")
         .env_remove("DD_ORG")

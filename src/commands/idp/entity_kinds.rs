@@ -236,7 +236,7 @@ async fn fetch_kind_from_list(cfg: &Config, kind: &str) -> Result<KindResource> 
         .ok_or_else(|| anyhow::anyhow!("kind {kind:?} was not found in the kind list"))
 }
 
-fn validate_kind_name(kind: &str) -> Result<()> {
+pub(super) fn validate_kind_name(kind: &str) -> Result<()> {
     if kind.is_empty() {
         bail!("kind is required");
     }

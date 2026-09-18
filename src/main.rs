@@ -42,7 +42,7 @@ pub(crate) mod test_utils {
     pub static ENV_LOCK: Mutex<()> = Mutex::const_new(());
 }
 
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::IsTerminal;
 
@@ -79,6 +79,12 @@ pub(crate) struct Cli {
     verbose: bool,
     #[command(subcommand)]
     command: Commands,
+}
+
+/// Build the CLI with top-level subcommands sorted by name in help output.
+/// Nested subcommands retain their declared display order.
+pub(crate) fn cli_command() -> clap::Command {
+    Cli::command().mut_subcommands(|command| command.display_order(0))
 }
 
 #[derive(Subcommand)]
@@ -1546,6 +1552,7 @@ enum Commands {
     /// CAPABILITIES:
     ///   • Discover entity kinds and inspect their live query schemas
     ///   • Query entities and traverse declared relationships
+    ///   • Use kind-scoped list/search convenience commands
     ///   • Get an opinionated service summary (assist)
     ///   • Run a quick UEG service lookup (find)
     ///   • Resolve service ownership and on-call (owner)
@@ -1557,6 +1564,10 @@ enum Commands {
     ///   # Discover entity kinds and their schemas
     ///   pup idp kinds list
     ///   pup idp kinds describe service
+    ///
+    ///   # List or search one known kind
+    ///   pup idp entities list --filter-kind=service
+    ///   pup idp entities search --filter-kind=service --query='owner:idp OR team:idp'
     ///
     ///   # Get connected service and dependency context
     ///   pup idp entities query 'kind:service AND name:"checkout-api"' \
@@ -5483,6 +5494,58 @@ enum IdpKindsActions {
     },
 }
 
+#[derive(Args, Clone, Debug)]
+struct IdpEntityRequestOptions {
+    /// Attributes to return (comma-separated or repeated)
+    #[arg(long, value_delimiter = ',')]
+    field: Vec<String>,
+    /// Relations to expand (comma-separated or repeated)
+    #[arg(long, value_delimiter = ',')]
+    include: Vec<String>,
+    /// Sort expression <field>[:asc|desc] (comma-separated or repeated)
+    #[arg(long, value_delimiter = ',')]
+    order_by: Vec<String>,
+    /// Maximum entities in this page (1-100)
+    #[arg(long, default_value_t = 25)]
+    limit: usize,
+    /// Cursor returned by the previous page
+    #[arg(long)]
+    cursor: Option<String>,
+    /// Text matching mode: partial or fuzzy
+    #[arg(long, value_parser = ["partial", "fuzzy"])]
+    free_text_match: Option<String>,
+    /// Ask the API to return the total matching entity count
+    #[arg(long)]
+    include_total_count: bool,
+    /// Lookback for timeseries-backed calculated fields (for example 1h or 24h)
+    #[arg(long, default_value = "1h")]
+    timeseries_interval: String,
+    /// Maximum related entities sampled per expanded relation (1-100)
+    #[arg(long, default_value_t = 25)]
+    relation_limit: usize,
+    /// Return the original JSON:API response instead of normalized output
+    #[arg(long)]
+    raw: bool,
+}
+
+impl IdpEntityRequestOptions {
+    fn into_query_options(self, query: String) -> commands::idp::EntityQueryOptions {
+        commands::idp::EntityQueryOptions {
+            query,
+            fields: self.field,
+            include: self.include,
+            order_by: self.order_by,
+            limit: self.limit,
+            cursor: self.cursor,
+            free_text_match: self.free_text_match,
+            include_total_count: self.include_total_count,
+            timeseries_interval: self.timeseries_interval,
+            relation_limit: self.relation_limit,
+            raw: self.raw,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum IdpEntitiesActions {
     /// List observed field values and their counts without fetching every entity
@@ -5548,36 +5611,45 @@ enum IdpEntitiesActions {
     Query {
         /// Entity graph query DSL expression
         query: String,
-        /// Attributes to return (comma-separated or repeated)
-        #[arg(long, value_delimiter = ',')]
-        field: Vec<String>,
-        /// Relations to expand (comma-separated or repeated)
-        #[arg(long, value_delimiter = ',')]
-        include: Vec<String>,
-        /// Sort expression <field>[:asc|desc] (comma-separated or repeated)
-        #[arg(long, value_delimiter = ',')]
-        order_by: Vec<String>,
-        /// Maximum entities in this page (1-100)
-        #[arg(long, default_value_t = 25)]
-        limit: usize,
-        /// Cursor returned by the previous page
+        #[command(flatten)]
+        options: IdpEntityRequestOptions,
+    },
+    /// List entities for one kind without writing a query expression
+    ///
+    /// This is a scoped convenience wrapper for `idp entities query` that builds
+    /// kind:<kind> for you. The same field, relation, ordering, pagination, and
+    /// raw-output options are available.
+    ///
+    /// EXAMPLES:
+    ///   pup idp entities list --filter-kind=service
+    ///   pup idp entities list --filter-kind=team --field name,handle --order-by name:asc
+    #[command(verbatim_doc_comment)]
+    List {
+        /// Entity kind to list, for example service or integration.github.pull_request
         #[arg(long)]
-        cursor: Option<String>,
-        /// Text matching mode: partial or fuzzy
-        #[arg(long, value_parser = ["partial", "fuzzy"])]
-        free_text_match: Option<String>,
-        /// Ask the API to return the total matching entity count
+        filter_kind: String,
+        #[command(flatten)]
+        options: IdpEntityRequestOptions,
+    },
+    /// Search entities for one kind using a filter expression
+    ///
+    /// This builds kind:<kind> AND (<query>), so Boolean OR alternatives remain
+    /// constrained to the selected kind. Use `idp entities query` for complete
+    /// DSL control or concrete ref queries.
+    ///
+    /// EXAMPLES:
+    ///   pup idp entities search --filter-kind=service --query='owner:payments'
+    ///   pup idp entities search --filter-kind=service --query='owner:idp OR team:idp'
+    #[command(verbatim_doc_comment)]
+    Search {
+        /// Entity kind to search, for example service or integration.github.pull_request
         #[arg(long)]
-        include_total_count: bool,
-        /// Lookback for timeseries-backed calculated fields (for example 1h or 24h)
-        #[arg(long, default_value = "1h")]
-        timeseries_interval: String,
-        /// Maximum related entities sampled per expanded relation (1-100)
-        #[arg(long, default_value_t = 25)]
-        relation_limit: usize,
-        /// Return the original JSON:API response instead of normalized output
+        filter_kind: String,
+        /// Filter expression applied within the selected kind
         #[arg(long)]
-        raw: bool,
+        query: String,
+        #[command(flatten)]
+        options: IdpEntityRequestOptions,
     },
 }
 
@@ -13376,7 +13448,7 @@ async fn main_inner() -> anyhow::Result<()> {
     let has_agent_flag = args.iter().any(|a| a == "--agent");
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
     if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
-        let cmd = Cli::command();
+        let cmd = cli_command();
         if let Some(schema) = agent_help_schema(&cmd, &args) {
             println!("{}", serde_json::to_string_pretty(&schema).unwrap());
             return Ok(());
@@ -13427,7 +13499,7 @@ async fn main_inner() -> anyhow::Result<()> {
     // Build the clap Command and, when extensions are installed, append an
     // "EXTENSIONS:" section to the help output so they are visible in
     // `pup --help` / `pup help`, similar to how `gh` lists extensions.
-    let mut cmd = Cli::command();
+    let mut cmd = cli_command();
     #[cfg(not(target_arch = "wasm32"))]
     {
         let ext_help = extensions::discovery::build_extensions_help_section();
@@ -14568,37 +14640,27 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
             },
             IdpActions::Entities { action } => match *action {
-                IdpEntitiesActions::Query {
-                    query,
-                    field,
-                    include,
-                    order_by,
-                    limit,
-                    cursor,
-                    free_text_match,
-                    include_total_count,
-                    timeseries_interval,
-                    relation_limit,
-                    raw,
+                IdpEntitiesActions::Query { query, options } => {
+                    cfg.validate_auth()?;
+                    commands::idp::query_entities(&cfg, options.into_query_options(query)).await?;
+                }
+                IdpEntitiesActions::List {
+                    filter_kind,
+                    options,
                 } => {
                     cfg.validate_auth()?;
-                    commands::idp::query_entities(
-                        &cfg,
-                        commands::idp::EntityQueryOptions {
-                            query,
-                            fields: field,
-                            include,
-                            order_by,
-                            limit,
-                            cursor,
-                            free_text_match,
-                            include_total_count,
-                            timeseries_interval,
-                            relation_limit,
-                            raw,
-                        },
-                    )
-                    .await?;
+                    let query = commands::idp::build_scoped_query(&filter_kind, None)?;
+                    commands::idp::query_entities(&cfg, options.into_query_options(query)).await?;
+                }
+                IdpEntitiesActions::Search {
+                    filter_kind,
+                    query,
+                    options,
+                } => {
+                    cfg.validate_auth()?;
+                    let query =
+                        commands::idp::build_scoped_query(&filter_kind, Some(query.as_str()))?;
+                    commands::idp::query_entities(&cfg, options.into_query_options(query)).await?;
                 }
                 IdpEntitiesActions::Facets {
                     query,

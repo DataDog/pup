@@ -5319,7 +5319,7 @@ enum IdpActions {
     /// Query entities and traverse their relations
     Entities {
         #[command(subcommand)]
-        action: IdpEntitiesActions,
+        action: Box<IdpEntitiesActions>,
     },
     /// Get an opinionated service summary with suggested next actions
     ///
@@ -5494,7 +5494,8 @@ enum IdpEntitiesActions {
     /// Use --field for returned attributes and --include only for relations.
     /// Discover valid names with `pup idp kinds describe <kind>`.
     /// Results are normalized for agents by default; use --raw for the original
-    /// JSON:API response. Pagination is explicit through --cursor.
+    /// JSON:API response. Continue manually with --cursor, or use --max-results
+    /// to fetch a bounded inventory across pages.
     ///
     /// EXAMPLES:
     ///   pup idp entities query 'kind:service AND owner:payments'
@@ -5508,6 +5509,12 @@ enum IdpEntitiesActions {
         /// Attributes to return (comma-separated or repeated)
         #[arg(long, value_delimiter = ',')]
         field: Vec<String>,
+        /// Fields for a kind: <kind>=<field>,<field> (repeatable; shared by all entities of that kind)
+        #[arg(long)]
+        fields: Vec<String>,
+        /// Edge measurements: <included-relation>=<field>,<field> (repeatable)
+        #[arg(long)]
+        edge_fields: Vec<String>,
         /// Relations to expand (comma-separated or repeated)
         #[arg(long, value_delimiter = ',')]
         include: Vec<String>,
@@ -5517,19 +5524,31 @@ enum IdpEntitiesActions {
         /// Maximum entities in this page (1-100)
         #[arg(long, default_value_t = 25)]
         limit: usize,
+        /// Fetch successive pages up to this entity budget (1-10000)
+        #[arg(long, conflicts_with = "raw")]
+        max_results: Option<usize>,
         /// Cursor returned by the previous page
         #[arg(long)]
         cursor: Option<String>,
-        /// Text matching mode: partial or fuzzy
+        /// Matching mode for bare search terms (e.g. 'kind:service AND catalog'); not field filters
         #[arg(long, value_parser = ["partial", "fuzzy"])]
         free_text_match: Option<String>,
         /// Ask the API to return the total matching entity count
         #[arg(long)]
         include_total_count: bool,
-        /// Lookback for timeseries-backed calculated fields (for example 1h or 24h)
-        #[arg(long, default_value = "1h")]
-        timeseries_interval: String,
-        /// Maximum related entities sampled per expanded relation (1-100)
+        /// Lookback for timeseries fields (default 1h; accepts 24h or 7d)
+        #[arg(long, conflicts_with = "from")]
+        timeseries_interval: Option<String>,
+        /// Start of a measurement window (RFC3339, Unix timestamp, or relative time)
+        #[arg(long, requires = "to", conflicts_with = "timeseries_interval")]
+        from: Option<String>,
+        /// End of a measurement window; does not reconstruct historical entity state
+        #[arg(long, requires = "from")]
+        to: Option<String>,
+        /// Property scope <name>=<value> (repeatable; does not scope all relations)
+        #[arg(long)]
+        scope: Vec<String>,
+        /// Maximum related entities displayed per relation (1-100; does not limit server work)
         #[arg(long, default_value_t = 25)]
         relation_limit: usize,
         /// Return the original JSON:API response instead of normalized output
@@ -14524,17 +14543,23 @@ async fn main_inner() -> anyhow::Result<()> {
                     commands::idp::describe_kind(&cfg, &kind, no_examples).await?;
                 }
             },
-            IdpActions::Entities { action } => match action {
+            IdpActions::Entities { action } => match *action {
                 IdpEntitiesActions::Query {
                     query,
                     field,
+                    fields,
+                    edge_fields,
                     include,
                     order_by,
                     limit,
+                    max_results,
                     cursor,
                     free_text_match,
                     include_total_count,
                     timeseries_interval,
+                    from,
+                    to,
+                    scope,
                     relation_limit,
                     raw,
                 } => {
@@ -14544,13 +14569,19 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::idp::EntityQueryOptions {
                             query,
                             fields: field,
+                            fields_by_kind: fields,
+                            edge_fields,
                             include,
                             order_by,
                             limit,
+                            max_results,
                             cursor,
                             free_text_match,
                             include_total_count,
                             timeseries_interval,
+                            from,
+                            to,
+                            scopes: scope,
                             relation_limit,
                             raw,
                         },

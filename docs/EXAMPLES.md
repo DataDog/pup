@@ -1076,6 +1076,26 @@ pup idp find "kind:team AND name:backend"
 pup idp owner my-service
 ```
 
+### Query Connected Context and Portfolios
+```bash
+# Discover the fields, relations, and measurement scopes available in your org.
+pup --read-only idp kinds describe service
+
+# Select the service and its owner team attributes in one graph request.
+pup --read-only idp entities query 'kind:service AND name:payments-api' \
+  --field name,owner --include owner_teams --fields team=name,handle
+
+# Download up to 500 services, at most 100 per request.
+pup --read-only idp entities query 'kind:service AND owner:payments' \
+  --field name,owner --limit 100 --max-results 500
+```
+
+Check `page.stop_reason` and `page.truncated`; `next_request.args` preserves the
+query's controls for continuation. Graph inventories can change between pages.
+Unknown health values remain null, and a missing relationship is not proof that
+no relationship exists. Expanded relationships are samples; their displayed
+limit does not bound backend work.
+
 ### Show Service Dependencies
 ```bash
 # List upstream (callers) and downstream (callees) services

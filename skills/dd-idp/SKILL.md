@@ -58,13 +58,15 @@ Use Pup's read-only Unified Entity Graph (UEG) to discover software, ownership, 
 
    This is the high-value default: identity, ownership, health, and declared service dependencies in one request. Add runtime, datastore, queue, deployment, or operational relations only when the question needs them; do not expand every service relation.
 
-4. Inspect `warnings`, `page.truncated`, `page.next_cursor`, and every relationship's `count` and `truncated` state. Continue pages explicitly when completeness matters:
+4. Inspect warnings, `page.truncated`, and every relationship's `count` and `truncated` state. For a bounded inventory, set an explicit result budget:
 
    ```bash
    pup --read-only idp entities query 'kind:service AND owner:"<team-handle>"' \
      --field name,owner \
-     --cursor '<next_cursor>'
+     --limit 100 --max-results 500
    ```
+
+   Check `page.stop_reason`; use `next_request.args` to continue if the budget was reached. Without `--max-results`, queries still fetch one page.
 
 5. Follow returned refs instead of inventing joins:
 
@@ -82,8 +84,9 @@ Use Pup's read-only Unified Entity Graph (UEG) to discover software, ownership, 
 - Keep the kind/ref outside alternatives: `kind:service AND (owner:payments OR team:payments)`. A top-level `OR` is invalid.
 - Never write `kind:"service"`; the quoted kind silently returns no results upstream and Pup rejects it.
 - `--field` selects attributes. `--include` expands relations. Discover both with `kinds describe` rather than guessing.
-- `--free-text-match` only chooses `partial` or `fuzzy` matching; search text still belongs in a real field filter such as `name:*catalog*`.
-- Use Go-style lookbacks such as `1h`, `24h`, or `168h`; do not use `7d` for `--timeseries-interval`.
+- Use `--fields kind=field,field` to select related entity attributes and `--edge-fields relation=field,field` for verified relationship measurements. See the DSL reference for shared-kind projections and measurement limitations.
+- Use bare terms such as `kind:service AND catalog` with `--free-text-match partial`. The mode does not change field filters such as `name:*catalog*`. Verify empty fuzzy searches with partial matching before concluding absence.
+- Use `--timeseries-interval 1h`, `24h`, or `7d` for supported measurements; use `--from` and `--to` together for an explicit window. A time window does not reconstruct historical entity state. Property scopes apply only where the schema supports them.
 - Treat expanded relations as bounded samples. Increase `--relation-limit` or query the related kind directly when the full set matters.
 - Treat `null` or absent counts/booleans as unknown, never as zero or false.
 - Preserve source boundaries: UEG establishes graph facts; product APIs establish detailed operational facts.

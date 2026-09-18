@@ -17,6 +17,24 @@ This is the default service-context workflow: ownership, system and code placeme
 
 Describe `service` before adding a different relation family. Depending on the live schema and question, useful families may include runtime upstream/downstream services, datastores, queues, external providers, inferred services, incidents, monitors, SLOs, deployments, Kubernetes workloads, Terraform, and security findings. Select one relevant family rather than expanding every relation.
 
+## Selected owner context and runtime edge measurements
+
+```bash
+pup --read-only idp entities query 'ref:"ref:service:<service-name>"' \
+  --field name,owner \
+  --include owner_teams,runtime_downstream_services \
+  --fields team=name,handle \
+  --edge-fields runtime_downstream_services=requests_count,error_rate \
+  --timeseries-interval 1h --relation-limit 5 --limit 1
+```
+
+This selects team attributes separately from service attributes and keeps traffic
+measurements on each edge. Describe the entity kinds first. Runtime edge metrics
+are window aggregates, not anomaly or causality scores. Current runtime edge
+queries aggregate across the org without environment grouping, and upstream can
+coalesce missing measurements to zero. Do not use a zero as proof of health.
+Requesting edge measurements can also change which observed edges are discovered.
+
 ## Team portfolio and missing ownership
 
 ```bash

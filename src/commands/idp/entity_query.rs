@@ -14,8 +14,8 @@ use crate::config::Config;
 use crate::formatter::{self, Metadata};
 use crate::raw_client;
 
-const ENTITIES_PATH: &str = "/api/v2/idp/entity_graph/entities";
-const MAX_PAGE_LIMIT: usize = 100;
+pub(super) const ENTITIES_PATH: &str = "/api/v2/idp/entity_graph/entities";
+pub(super) const MAX_PAGE_LIMIT: usize = 100;
 const MAX_RELATION_LIMIT: usize = 100;
 
 #[derive(Debug, Clone)]
@@ -112,21 +112,7 @@ fn normalize_options(options: EntityQueryOptions) -> Result<NormalizedQueryOptio
     if query.is_empty() {
         bail!("query is required");
     }
-    let kind = infer_kind(&query).ok_or_else(|| {
-        anyhow::anyhow!(
-            "query must include kind:<kind> or ref:\"ref:<kind>:<id>\"; quoted kind filters like kind:\"service\" are invalid"
-        )
-    })?;
-    if has_semantic_top_level_or(&query) {
-        bail!(
-            "top-level OR is invalid because the entity graph cannot determine one result kind; keep kind:<kind> or ref:\"ref:<kind>:<id>\" in the shared scope, for example kind:service AND (owner:idp OR team:idp)"
-        );
-    }
-    if free_text_pattern().is_match(&query) {
-        bail!(
-            "free_text is not an entity field; use a real field such as name:*text*, or set --free-text-match to partial or fuzzy"
-        );
-    }
+    let kind = validate_query_scope(&query)?;
     validate_limit("limit", options.limit, MAX_PAGE_LIMIT)?;
     validate_limit("relation-limit", options.relation_limit, MAX_RELATION_LIMIT)?;
 
@@ -165,7 +151,26 @@ fn normalize_options(options: EntityQueryOptions) -> Result<NormalizedQueryOptio
     })
 }
 
-fn validate_limit(name: &str, value: usize, maximum: usize) -> Result<()> {
+pub(super) fn validate_query_scope(query: &str) -> Result<String> {
+    let kind = infer_kind(query).ok_or_else(|| {
+        anyhow::anyhow!(
+            "query must include kind:<kind> or ref:\"ref:<kind>:<id>\"; quoted kind filters like kind:\"service\" are invalid"
+        )
+    })?;
+    if has_semantic_top_level_or(query) {
+        bail!(
+            "top-level OR is invalid because the entity graph cannot determine one result kind; keep kind:<kind> or ref:\"ref:<kind>:<id>\" in the shared scope, for example kind:service AND (owner:idp OR team:idp)"
+        );
+    }
+    if free_text_pattern().is_match(query) {
+        bail!(
+            "free_text is not an entity field; use a real field such as name:*text*, or set --free-text-match to partial or fuzzy"
+        );
+    }
+    Ok(kind)
+}
+
+pub(super) fn validate_limit(name: &str, value: usize, maximum: usize) -> Result<()> {
     if value == 0 || value > maximum {
         bail!("--{name} must be between 1 and {maximum}, got {value}");
     }
@@ -488,7 +493,7 @@ pub(super) fn parse_relationship_data(value: &Value) -> Vec<ResourceIdentifier> 
         .unwrap_or_default()
 }
 
-fn raw_response_metadata(raw: &Value) -> (Option<usize>, bool, Option<String>) {
+pub(super) fn raw_response_metadata(raw: &Value) -> (Option<usize>, bool, Option<String>) {
     let count = raw.get("data").and_then(Value::as_array).map(Vec::len);
     let cursor = raw
         .pointer("/meta/page/next_cursor")

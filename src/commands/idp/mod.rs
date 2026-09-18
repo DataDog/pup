@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
 use crate::config::Config;
@@ -516,25 +516,78 @@ pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
     )
 }
 
+fn find_query(query: &str) -> Result<String> {
+    let query = query.trim();
+    if query.is_empty() {
+        bail!("search query cannot be empty");
+    }
+    if query.contains("kind:") || query.contains("ref:") {
+        entity_query::validate_query_scope(query)?;
+        return Ok(query.to_string());
+    }
+    Ok(format!(
+        "kind:service AND name:*{}*",
+        escape_ueg_glob_literal(query)
+    ))
+}
+
+fn escape_ueg_glob_literal(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_whitespace()
+            || matches!(
+                character,
+                '\\' | '+'
+                    | '-'
+                    | '='
+                    | '&'
+                    | '|'
+                    | '>'
+                    | '<'
+                    | '!'
+                    | '('
+                    | ')'
+                    | '{'
+                    | '}'
+                    | '['
+                    | ']'
+                    | '^'
+                    | '"'
+                    | '~'
+                    | '*'
+                    | '?'
+                    | ':'
+            )
+        {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
+}
+
 /// Find entities matching a query.
-pub async fn find(cfg: &Config, query: &str) -> Result<()> {
-    // The UEG API requires kind in the query. If the user didn't specify one, default to service.
-    let full_query = if query.contains("kind:") {
-        query.to_string()
-    } else {
-        format!("kind:service AND name:*{query}*")
-    };
-    let encoded = util_ext::percent_encode(&full_query);
-    let path = format!("/api/v2/idp/entity_graph/entities?query={encoded}&page%5Blimit%5D=10");
-    let data = raw_client::raw_get(cfg, &path, &[]).await?;
+pub async fn find(cfg: &Config, query: &str, limit: usize, cursor: Option<&str>) -> Result<()> {
+    entity_query::validate_limit("limit", limit, entity_query::MAX_PAGE_LIMIT)?;
+    let full_query = find_query(query)?;
+    let limit = limit.to_string();
+    let mut params = vec![
+        ("query", full_query.as_str()),
+        ("page[limit]", limit.as_str()),
+    ];
+    if let Some(cursor) = cursor.filter(|cursor| !cursor.trim().is_empty()) {
+        params.push(("page[cursor]", cursor));
+    }
+    let data = raw_client::raw_get(cfg, entity_query::ENTITIES_PATH, &params).await?;
+    let (count, truncated, next_action) = entity_query::raw_response_metadata(&data);
 
     let meta = formatter::Metadata {
-        count: data.get("data").and_then(|d| d.as_array()).map(|a| a.len()),
-        truncated: false,
+        count,
+        truncated,
         command: Some(format!("idp find {query}")),
-        next_action: Some(
-            "Use `pup idp assist <entity>` for full context on a specific entity".into(),
-        ),
+        next_action: next_action.or_else(|| {
+            Some("Use `pup idp assist <entity>` for full context on a specific entity".into())
+        }),
     };
 
     formatter::format_and_print(
@@ -1058,5 +1111,115 @@ mod tests {
 
         mock.assert_async().await;
         crate::test_support::cleanup_env();
+    }
+
+    #[test]
+    fn test_find_query_defaults_to_service_name_search() {
+        assert_eq!(
+            find_query("  catalog  ").unwrap(),
+            "kind:service AND name:*catalog*"
+        );
+    }
+
+    #[test]
+    fn test_find_query_escapes_literal_text_from_ueg_syntax() {
+        assert_eq!(
+            find_query("catalog OR api").unwrap(),
+            r"kind:service AND name:*catalog\ OR\ api*"
+        );
+        assert_eq!(
+            find_query(r#"payments:(api)*\v2"#).unwrap(),
+            r#"kind:service AND name:*payments\:\(api\)\*\\v2*"#
+        );
+    }
+
+    #[test]
+    fn test_find_query_preserves_explicit_kind_or_ref() {
+        assert_eq!(
+            find_query("kind:team AND name:*platform*").unwrap(),
+            "kind:team AND name:*platform*"
+        );
+        assert_eq!(
+            find_query(r#"ref:"ref:service:catalog-http""#).unwrap(),
+            r#"ref:"ref:service:catalog-http""#
+        );
+    }
+
+    #[test]
+    fn test_find_query_rejects_empty_or_invalid_scope() {
+        assert!(find_query("   ").unwrap_err().to_string().contains("empty"));
+        assert!(find_query(r#"kind:"service""#)
+            .unwrap_err()
+            .to_string()
+            .contains("query must include kind:<kind>"));
+        assert!(find_query("kind:service OR kind:team")
+            .unwrap_err()
+            .to_string()
+            .contains("top-level OR is invalid"));
+        assert!(find_query("kind:service AND free_text:catalog")
+            .unwrap_err()
+            .to_string()
+            .contains("free_text is not an entity field"));
+    }
+
+    #[tokio::test]
+    async fn test_find_sends_limit_and_cursor_to_ueg() {
+        let _guard = crate::test_support::lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", entity_query::ENTITIES_PATH)
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("query".into(), "kind:service AND name:*catalog*".into()),
+                Matcher::UrlEncoded("page[limit]".into(), "5".into()),
+                Matcher::UrlEncoded("page[cursor]".into(), "next-page".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[],"meta":{"page":{"next_cursor":"another-page"}}}"#)
+            .create_async()
+            .await;
+        let cfg = crate::test_support::test_config(&server.url());
+
+        find(&cfg, "catalog", 5, Some("next-page")).await.unwrap();
+
+        mock.assert_async().await;
+        crate::test_support::cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_find_escapes_literal_text_before_request() {
+        let _guard = crate::test_support::lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", entity_query::ENTITIES_PATH)
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded(
+                    "query".into(),
+                    r"kind:service AND name:*catalog\ OR\ api*".into(),
+                ),
+                Matcher::UrlEncoded("page[limit]".into(), "10".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+        let cfg = crate::test_support::test_config(&server.url());
+
+        find(&cfg, "catalog OR api", 10, None).await.unwrap();
+
+        mock.assert_async().await;
+        crate::test_support::cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_find_rejects_invalid_limit_before_request() {
+        let cfg = crate::test_support::test_config("http://unused.local");
+
+        let error = find(&cfg, "catalog", 0, None).await.unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("--limit must be between 1 and 100"));
     }
 }

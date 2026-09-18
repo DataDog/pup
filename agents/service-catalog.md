@@ -11,8 +11,8 @@ Help users understand and maintain Datadog's service and software catalog. Use t
 - Default to `pup idp kinds` and `pup idp entities query` when a read needs connected service context: ownership, on-call, systems, code, dependencies, health, work, operations, or security. UEG can return selected service and dependency context in one bounded request. Load the `dd-idp` skill for its schema-first workflow and DSL guidance when available.
 - Use `pup service-catalog list|get` for the legacy typed service registry.
 - Use `pup idp assist` for a fast curated single-service summary, metadata gaps, and suggested next actions; use `owner` for convenient owner/on-call resolution. These trade graph fidelity for a narrower opinionated result.
-- Treat `find` as a simple legacy service-name lookup. Use `deps` as a convenient one-hour UEG runtime service-to-service summary, and use `entities query` for another lookback or broader relation families, counts, pagination, and traversal.
-- Use `pup software-catalog entities|kinds|relations` for Catalog inventory and explicit Catalog mutations.
+- Treat `find` as a simple paginated literal service-name lookup. Explicit `kind:` and `ref:` queries remain compatibility paths; use `entities query` for non-service kinds, another lookback, broader relation families, selected fields, counts, pagination, and traversal. Use `deps` as a convenient one-hour UEG runtime service-to-service summary.
+- Use `pup software-catalog entities|kinds|relations` for Catalog inventory. Only `entities` and `kinds` expose mutations; `relations` is read-only.
 - Use `pup idp register` to preserve the familiar file-oriented workflow across v1, v2, v2.1, v2.2, and v3 Catalog definitions. It sends raw YAML or JSON to the Catalog entity API and accepts multi-document YAML.
 
 Do not use nonexistent `pup services` or `pup catalog` commands.
@@ -113,7 +113,7 @@ Use valid JSON payloads and confirm the target org and intended mutation:
 pup software-catalog entities upsert --file entity.json
 pup software-catalog entities delete <entity-id>
 pup software-catalog kinds upsert --file kind.json
-pup software-catalog kinds delete <kind-name>
+pup software-catalog kinds delete <kind-id>
 ```
 
 Never delete as cleanup or guess an entity identifier. Read the entity first, show the exact target, and require explicit user approval.

@@ -8,6 +8,7 @@ use crate::util_ext;
 
 mod entity_kinds;
 mod entity_query;
+mod entity_summary;
 mod entity_types;
 mod migrate;
 
@@ -25,6 +26,7 @@ const OWNER_TEAM_FIELDS: &str = "id,name,handle,summary,description,user_count";
 
 pub use entity_kinds::{describe_kind, list_kinds};
 pub use entity_query::{build_scoped_query, query_entities, EntityQueryOptions};
+pub use entity_summary::{aggregate, facets, EntityAggregateOptions};
 pub use migrate::migrate_schema;
 
 // ---------------------------------------------------------------------------

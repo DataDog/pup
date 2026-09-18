@@ -12,6 +12,15 @@ Use this reference when a query fails, returns zero unexpectedly, or supports a 
 
 ## Syntax that silently misleads
 
+### Calculated fields in aggregate filters
+
+A field supported by entity queries is not necessarily supported inside a named
+aggregate count filter. Some deployments fail on health fields such as
+`alert_monitors_count` with a missing SQL column error. Use direct attributes
+such as `owner`, `name`, or `lifecycle` for portable grouped counts. For health
+counts, query the required fields with a bounded inventory and disclose any
+truncation, or use the relevant product API. Do not reinterpret the error as zero.
+
 ### Quoted kind
 
 ```text

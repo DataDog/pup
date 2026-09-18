@@ -5330,7 +5330,7 @@ enum IdpActions {
     /// Query entities and traverse their relations
     Entities {
         #[command(subcommand)]
-        action: IdpEntitiesActions,
+        action: Box<IdpEntitiesActions>,
     },
     /// Get an opinionated service summary with suggested next actions
     ///
@@ -5548,6 +5548,49 @@ impl IdpEntityRequestOptions {
 
 #[derive(Subcommand)]
 enum IdpEntitiesActions {
+    /// List observed field values and their counts without fetching every entity
+    ///
+    /// Example: pup idp entities facets 'kind:service' --facet owner,lifecycle
+    /// Inspect null_count as well as values; a page may contain only some values.
+    Facets {
+        /// Entity graph filter selecting one kind
+        query: String,
+        /// Fields to facet (comma-separated or repeated)
+        #[arg(long, required = true, value_delimiter = ',')]
+        facet: Vec<String>,
+        /// Maximum displayed values per facet (1-100; some providers ignore server paging)
+        #[arg(long, default_value_t = 25)]
+        limit: usize,
+        #[arg(long)]
+        cursor: Option<String>,
+        #[arg(long)]
+        raw: bool,
+    },
+    /// Count matching entities by field, with optional named filtered counts
+    ///
+    /// Example: pup idp entities aggregate 'kind:service' --group-by lifecycle
+    /// --count 'unowned=_missing_:owner' --order-by unowned:desc
+    /// Every group includes a count metric. This is a read-only operation.
+    Aggregate {
+        /// Entity graph filter selecting one kind
+        query: String,
+        /// Fields to group by (comma-separated or repeated)
+        #[arg(long, required = true, value_delimiter = ',')]
+        group_by: Vec<String>,
+        /// Additional count: <name>=<filter> (repeatable)
+        #[arg(long)]
+        count: Vec<String>,
+        /// Sort groups by field or metric <name>[:asc|desc]
+        #[arg(long, value_delimiter = ',')]
+        order_by: Vec<String>,
+        /// Maximum groups in this page (1-100)
+        #[arg(long, default_value_t = 25)]
+        limit: usize,
+        #[arg(long)]
+        cursor: Option<String>,
+        #[arg(long)]
+        raw: bool,
+    },
     /// Query entities using the Datadog entity graph DSL
     ///
     /// The query must select exactly one top-level kind with kind:<kind> or a
@@ -14596,7 +14639,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     commands::idp::describe_kind(&cfg, &kind, no_examples).await?;
                 }
             },
-            IdpActions::Entities { action } => match action {
+            IdpActions::Entities { action } => match *action {
                 IdpEntitiesActions::Query { query, options } => {
                     cfg.validate_auth()?;
                     commands::idp::query_entities(&cfg, options.into_query_options(query)).await?;
@@ -14618,6 +14661,40 @@ async fn main_inner() -> anyhow::Result<()> {
                     let query =
                         commands::idp::build_scoped_query(&filter_kind, Some(query.as_str()))?;
                     commands::idp::query_entities(&cfg, options.into_query_options(query)).await?;
+                }
+                IdpEntitiesActions::Facets {
+                    query,
+                    facet,
+                    limit,
+                    cursor,
+                    raw,
+                } => {
+                    cfg.validate_auth()?;
+                    commands::idp::facets(&cfg, &query, facet, limit, cursor, raw).await?;
+                }
+                IdpEntitiesActions::Aggregate {
+                    query,
+                    group_by,
+                    count,
+                    order_by,
+                    limit,
+                    cursor,
+                    raw,
+                } => {
+                    cfg.validate_auth()?;
+                    commands::idp::aggregate(
+                        &cfg,
+                        commands::idp::EntityAggregateOptions {
+                            query,
+                            group_by,
+                            counts: count,
+                            order_by,
+                            limit,
+                            cursor,
+                            raw,
+                        },
+                    )
+                    .await?;
                 }
             },
             IdpActions::Assist { entity } => {

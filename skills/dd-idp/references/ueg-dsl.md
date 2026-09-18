@@ -114,3 +114,22 @@ Treat `null` or a missing field as unknown/not returned. Only report zero, false
 ## Output modes
 
 Normalized JSON is the reasoning contract. Agent mode may wrap it in Pup's `{status,data,metadata}` envelope. Global `--jq` expressions target the command payload before envelope formatting. Use `--raw` only to debug the server contract or access fields the normalized representation intentionally omits.
+
+## Portfolio summaries
+
+`entities facets QUERY --facet field` and `entities aggregate QUERY --group-by
+field` reuse the same result-kind DSL. Both accept `--limit`, `--cursor`, and
+`--raw`. Aggregate also accepts `--count 'name=filter'` and `--order-by name:desc`.
+Its built-in `count` is the total within each group; additional counts use the
+main query plus their filter. These commands are read-only, including the
+aggregate endpoint's POST. Their normalized `results` retain the API's facet or
+group/metric attributes.
+
+Facet providers may ignore server pagination. Normalized facets cap displayed
+values using `--limit` and report `values_returned` and `values_truncated` per
+facet. `page.truncated` includes this local sampling. A cursor cannot recover
+locally omitted values: use `--raw` to inspect all values returned by the API,
+or `aggregate --group-by <field>` for pageable value/count groups. Neither shape
+proves that a provider returned its entire possible value vocabulary. Summary
+commands do not expose time/scope controls; use fields whose default semantics
+answer the question.

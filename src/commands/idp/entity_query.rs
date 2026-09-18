@@ -1,14 +1,18 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
 
 use anyhow::{bail, Context, Result};
 use regex::Regex;
 use serde_json::Value;
 
-use super::entity_kinds::{fetch_kind, validate_includes_against_kind, validate_kind_name};
+use super::entity_kinds::{
+    default_fields_from_schema, fetch_kind, validate_fields, validate_includes_against_kind,
+    validate_kind_name,
+};
 use super::entity_types::{
-    EntitiesResponse, EntityIdentity, EntityResource, NormalizedEntitiesResponse, NormalizedEntity,
-    NormalizedPage, QueryEcho, RelationshipSummary, ResourceIdentifier,
+    EntitiesResponse, EntityIdentity, EntityResource, NextRequest, NormalizedEntitiesResponse,
+    NormalizedEntity, NormalizedPage, QueryEcho, RelatedEntity, RelationshipSummary,
+    ResourceIdentifier, ServerPageWarnings,
 };
 use crate::config::Config;
 use crate::formatter::{self, Metadata};
@@ -17,26 +21,27 @@ use crate::raw_client;
 pub(super) const ENTITIES_PATH: &str = "/api/v2/idp/entity_graph/entities";
 pub(super) const MAX_PAGE_LIMIT: usize = 100;
 const MAX_RELATION_LIMIT: usize = 100;
+const MAX_RESULTS: usize = 10_000;
 
 #[derive(Debug, Clone)]
 pub struct EntityQueryOptions {
     pub query: String,
     pub fields: Vec<String>,
+    pub fields_by_kind: Vec<String>,
+    pub edge_fields: Vec<String>,
     pub include: Vec<String>,
     pub order_by: Vec<String>,
     pub limit: usize,
+    pub max_results: Option<usize>,
     pub cursor: Option<String>,
     pub free_text_match: Option<String>,
     pub include_total_count: bool,
-    pub timeseries_interval: String,
+    pub timeseries_interval: Option<String>,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub scopes: Vec<String>,
     pub relation_limit: usize,
     pub raw: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct OrderBy {
-    field: String,
-    direction: String,
 }
 
 #[derive(Debug, Clone)]
@@ -44,15 +49,27 @@ struct NormalizedQueryOptions {
     query: String,
     kind: String,
     fields: Vec<String>,
+    explicit_fields: bool,
+    fields_by_kind: BTreeMap<String, Vec<String>>,
+    edge_fields: BTreeMap<String, Vec<String>>,
     include: Vec<String>,
-    order_by: Vec<OrderBy>,
+    order_by: Vec<String>,
     limit: usize,
+    max_results: Option<usize>,
     cursor: Option<String>,
     free_text_match: Option<String>,
     include_total_count: bool,
-    timeseries_interval: String,
+    time: QueryTime,
+    scopes: BTreeMap<String, String>,
     relation_limit: usize,
     raw: bool,
+}
+
+#[derive(Debug, Clone)]
+struct QueryTime {
+    past: Option<String>,
+    start: Option<i64>,
+    end: Option<i64>,
 }
 
 /// Build a kind-scoped entity query for the list/search convenience commands.
@@ -75,19 +92,16 @@ pub fn build_scoped_query(kind: &str, filter: Option<&str>) -> Result<String> {
 }
 
 pub async fn query_entities(cfg: &Config, options: EntityQueryOptions) -> Result<()> {
-    let options = normalize_options(options)?;
-    let relation_target_kinds = validate_includes(cfg, &options).await?;
+    let mut options = normalize_options(options)?;
+    let mut warnings = Vec::new();
+    let relation_target_kinds = prepare_query(cfg, &mut options, &mut warnings).await?;
 
     let query_pairs = entity_query_params(&options, &relation_target_kinds);
-    let query_refs: Vec<(&str, &str)> = query_pairs
-        .iter()
-        .map(|(key, value)| (key.as_str(), value.as_str()))
-        .collect();
-    let raw = raw_client::raw_get(cfg, ENTITIES_PATH, &query_refs)
-        .await
-        .context("failed to query Datadog entities")?;
-
     if options.raw {
+        let raw = fetch_entity_page(cfg, &query_pairs).await?;
+        for warning in &warnings {
+            eprintln!("Warning: {warning}");
+        }
         let (count, truncated, next_action) = raw_response_metadata(&raw);
         return formatter::format_and_print(
             &raw,
@@ -103,14 +117,34 @@ pub async fn query_entities(cfg: &Config, options: EntityQueryOptions) -> Result
         );
     }
 
-    let response: EntitiesResponse =
-        serde_json::from_value(raw).context("failed to decode Datadog entity response")?;
-    let normalized = normalize_entities_response(&options, response);
-    let next_action = normalized
+    let mut normalized = fetch_normalized_pages(cfg, &options, &query_pairs).await?;
+    normalized.warnings.extend(warnings);
+    if normalized.count == 0 && options.free_text_match.as_deref() == Some("fuzzy") {
+        normalized.warnings.push(
+            "No fuzzy matches were returned. Verify with --free-text-match partial or an explicit name filter before concluding that the entity is absent; some providers miss fuzzy matches when combined with other filters.".into(),
+        );
+    }
+    if normalized.page.truncated {
+        normalized.warnings.push(
+            "The API returned a continuation cursor. Use next_request.args to check for more results.".into(),
+        );
+    }
+    normalized.next_request = normalized
         .page
         .next_cursor
         .as_ref()
-        .map(|cursor| format!("Fetch the next page with --cursor {cursor}"));
+        .map(|cursor| next_request(cfg, &options, &query_pairs, cursor));
+    let next_action = normalized.next_request.as_ref().map(|request| {
+        format!(
+            "Continue with: pup {}",
+            request
+                .args
+                .iter()
+                .map(|arg| shell_words::quote(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    });
     let metadata = Metadata {
         count: Some(normalized.count),
         truncated: normalized.page.truncated,
@@ -126,6 +160,89 @@ pub async fn query_entities(cfg: &Config, options: EntityQueryOptions) -> Result
     )
 }
 
+async fn fetch_entity_page(cfg: &Config, params: &[(String, String)]) -> Result<Value> {
+    let refs: Vec<(&str, &str)> = params
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    raw_client::raw_get(cfg, ENTITIES_PATH, &refs)
+        .await
+        .context("failed to query Datadog entities")
+}
+
+async fn fetch_normalized_pages(
+    cfg: &Config,
+    options: &NormalizedQueryOptions,
+    params: &[(String, String)],
+) -> Result<NormalizedEntitiesResponse> {
+    let budget = options.max_results.unwrap_or(options.limit);
+    let mut combined: Option<NormalizedEntitiesResponse> = None;
+    let mut cursor = options.cursor.clone();
+    let mut seen_cursors = HashSet::new();
+    if let Some(cursor) = &cursor {
+        seen_cursors.insert(cursor.clone());
+    }
+    loop {
+        let collected = combined.as_ref().map_or(0, |result| result.count);
+        let page_limit = options.limit.min(budget - collected);
+        let mut page_params = params.to_vec();
+        page_params.retain(|(key, _)| key != "page[limit]" && key != "page[cursor]");
+        page_params.push(("page[limit]".into(), page_limit.to_string()));
+        if let Some(cursor) = &cursor {
+            page_params.push(("page[cursor]".into(), cursor.clone()));
+        }
+        let raw = fetch_entity_page(cfg, &page_params).await?;
+        let response: EntitiesResponse =
+            serde_json::from_value(raw).context("failed to decode Datadog entity response")?;
+        cursor = (!response.meta.page.next_cursor.is_empty())
+            .then(|| response.meta.page.next_cursor.clone());
+        if options.max_results.is_some() {
+            if response.data.len() > page_limit {
+                bail!("UEG returned more entities than the requested page limit; cannot safely continue the bounded query");
+            }
+            if let Some(cursor) = &cursor {
+                if !seen_cursors.insert(cursor.clone()) {
+                    bail!("UEG repeated a pagination cursor; refusing to return an incomplete inventory");
+                }
+                if response.data.is_empty() {
+                    bail!("UEG returned an empty page with a continuation cursor; cannot safely continue the bounded query");
+                }
+            }
+        }
+        let page = normalize_entities_response(options, response);
+        if let Some(result) = &mut combined {
+            result.results.extend(page.results);
+            result.count = result.results.len();
+            result.page.pages_fetched += 1;
+            result.page.next_cursor = page.page.next_cursor;
+            result.page.truncated = page.page.truncated;
+            result.warnings.extend(page.warnings);
+            if let Some(warnings) = page.server_warnings {
+                result.additional_page_warnings.push(ServerPageWarnings {
+                    page: result.page.pages_fetched,
+                    warnings,
+                });
+            }
+            if result.total_count != page.total_count && page.total_count.is_some() {
+                result.warnings.push("The API's total count changed between pages; this inventory is not a consistent snapshot.".into());
+            }
+        } else {
+            combined = Some(page);
+        }
+        let result = combined.as_mut().expect("first page initialized");
+        result.page.stop_reason = if cursor.is_none() {
+            "end_of_results"
+        } else if options.max_results.is_none() {
+            "page_limit"
+        } else if result.count >= budget {
+            "result_limit"
+        } else {
+            continue;
+        };
+        return Ok(combined.expect("first page initialized"));
+    }
+}
+
 fn normalize_options(options: EntityQueryOptions) -> Result<NormalizedQueryOptions> {
     let query = options.query.trim().to_string();
     if query.is_empty() {
@@ -133,18 +250,28 @@ fn normalize_options(options: EntityQueryOptions) -> Result<NormalizedQueryOptio
     }
     let kind = validate_query_scope(&query)?;
     validate_limit("limit", options.limit, MAX_PAGE_LIMIT)?;
+    if let Some(max_results) = options.max_results {
+        validate_limit("max-results", max_results, MAX_RESULTS)?;
+        if options.raw {
+            bail!("--max-results cannot be combined with --raw; raw mode returns one API response");
+        }
+    }
     validate_limit("relation-limit", options.relation_limit, MAX_RELATION_LIMIT)?;
 
+    let time = normalize_time(&options)?;
+    let scopes = normalize_scopes(options.scopes, &kind)?;
     let free_text_match = normalize_free_text_match(options.free_text_match)?;
-    let timeseries_interval = options.timeseries_interval.trim().to_string();
-    if !is_valid_go_duration(&timeseries_interval) {
-        bail!(
-            "invalid timeseries interval {:?}: use a duration such as 1h, 24h, or 168h",
-            options.timeseries_interval
-        );
-    }
 
-    let fields = clean_strings(options.fields);
+    let mut fields_by_kind = parse_field_selections(options.fields_by_kind, "fields")?;
+    let edge_fields = parse_field_selections(options.edge_fields, "edge-fields")?;
+    let mut fields = clean_strings(options.fields);
+    if let Some(kind_fields) = fields_by_kind.remove(&kind) {
+        if !fields.is_empty() {
+            bail!("use either --field or --fields {kind}=... for the result kind, not both");
+        }
+        fields = kind_fields;
+    }
+    let explicit_fields = !fields.is_empty();
     let fields = if fields.is_empty() {
         default_fields_for_kind(&kind)
             .iter()
@@ -154,20 +281,138 @@ fn normalize_options(options: EntityQueryOptions) -> Result<NormalizedQueryOptio
         fields
     };
 
+    let include = clean_strings(options.include);
+    for relation in edge_fields.keys() {
+        if !include.contains(relation) {
+            bail!("--edge-fields {relation}=... requires --include {relation}");
+        }
+    }
+    if !fields_by_kind.is_empty() && include.is_empty() {
+        bail!("--fields for related kinds requires --include to expand their relations");
+    }
     Ok(NormalizedQueryOptions {
         query,
         kind,
         fields,
-        include: clean_strings(options.include),
+        explicit_fields,
+        fields_by_kind,
+        edge_fields,
+        include,
         order_by: normalize_order_by(options.order_by)?,
         limit: options.limit,
+        max_results: options.max_results,
         cursor: options.cursor.filter(|cursor| !cursor.trim().is_empty()),
         free_text_match,
         include_total_count: options.include_total_count,
-        timeseries_interval,
+        time,
+        scopes,
         relation_limit: options.relation_limit,
         raw: options.raw,
     })
+}
+
+fn normalize_time(options: &EntityQueryOptions) -> Result<QueryTime> {
+    match (&options.from, &options.to) {
+        (Some(from), Some(to)) => {
+            if options.timeseries_interval.is_some() {
+                bail!("--from/--to cannot be combined with --timeseries-interval");
+            }
+            let start = crate::util_ext::parse_time_to_datetime(from)?.timestamp_millis();
+            let end = crate::util_ext::parse_time_to_datetime(to)?.timestamp_millis();
+            if start >= end {
+                bail!("--from must be earlier than --to");
+            }
+            Ok(QueryTime {
+                past: None,
+                start: Some(start),
+                end: Some(end),
+            })
+        }
+        (None, None) => {
+            let interval = options
+                .timeseries_interval
+                .as_deref()
+                .unwrap_or("1h")
+                .trim();
+            if interval.starts_with(['+', '-']) {
+                bail!("--timeseries-interval must be positive");
+            }
+            // Accept familiar day/week lookbacks while sending a Go duration even
+            // to deployments predating UEG's day/week parser support.
+            let interval = if interval.ends_with(['d', 'w']) {
+                let millis = crate::util_ext::parse_duration_to_millis(interval)?;
+                if millis <= 0 {
+                    bail!("--timeseries-interval must be positive");
+                }
+                format!("{millis}ms")
+            } else {
+                interval.to_string()
+            };
+            if !is_valid_go_duration(&interval)
+                || !interval.chars().any(|ch| matches!(ch, '1'..='9'))
+            {
+                bail!("invalid timeseries interval {interval:?}: use a positive duration such as 1h, 24h, or 7d");
+            }
+            Ok(QueryTime {
+                past: Some(interval),
+                start: None,
+                end: None,
+            })
+        }
+        _ => bail!("--from and --to must be supplied together"),
+    }
+}
+
+fn normalize_scopes(values: Vec<String>, kind: &str) -> Result<BTreeMap<String, String>> {
+    if !values.is_empty() && kind.contains('.') {
+        bail!("the UEG HTTP API does not support property scope parameters for dotted kind names");
+    }
+    let mut scopes = BTreeMap::new();
+    for value in values {
+        let (name, value) = value
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("invalid --scope: use <name>=<value>"))?;
+        let (name, value) = (name.trim(), value.trim());
+        if name.is_empty()
+            || value.is_empty()
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b".:_-".contains(&byte))
+        {
+            bail!("invalid --scope {name}={value}: use nonempty names and values supported by the UEG scope API");
+        }
+        if scopes.insert(name.to_string(), value.to_string()).is_some() {
+            bail!("duplicate --scope {name:?}");
+        }
+    }
+    Ok(scopes)
+}
+
+fn parse_field_selections(
+    values: Vec<String>,
+    flag: &str,
+) -> Result<BTreeMap<String, Vec<String>>> {
+    let mut selections: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for value in values {
+        let (key, fields) = value.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!("invalid --{flag} {value:?}: use <kind-or-relation>=<field>,<field>")
+        })?;
+        let key = key.trim();
+        validate_kind_name(key)?;
+        let entry = selections.entry(key.to_string()).or_default();
+        for field in fields.split(',').map(str::trim) {
+            if field.is_empty() || field.contains('=') {
+                bail!("invalid --{flag} {value:?}: field names cannot be empty or contain '='");
+            }
+            if !entry.iter().any(|existing| existing == field) {
+                entry.push(field.to_string());
+            }
+        }
+    }
+    Ok(selections)
 }
 
 pub(super) fn validate_query_scope(query: &str) -> Result<String> {
@@ -183,7 +428,7 @@ pub(super) fn validate_query_scope(query: &str) -> Result<String> {
     }
     if free_text_pattern().is_match(query) {
         bail!(
-            "free_text is not an entity field; use a real field such as name:*text*, or set --free-text-match to partial or fuzzy"
+            "free_text is not an entity field; use name:*text* for a field filter, or a bare term such as 'kind:service AND catalog' with --free-text-match partial"
         );
     }
     Ok(kind)
@@ -204,13 +449,13 @@ fn normalize_free_text_match(value: Option<String>) -> Result<Option<String>> {
     match normalized.as_str() {
         "partial" | "fuzzy" => Ok(Some(normalized)),
         _ => bail!(
-            "invalid free-text match {:?}: use partial or fuzzy; put search text in a real field filter such as name:*text*",
+            "invalid free-text match {:?}: use partial or fuzzy with a bare search term such as 'kind:service AND catalog'",
             value
         ),
     }
 }
 
-fn normalize_order_by(values: Vec<String>) -> Result<Vec<OrderBy>> {
+pub(super) fn normalize_order_by(values: Vec<String>) -> Result<Vec<String>> {
     clean_strings(values)
         .into_iter()
         .map(|value| {
@@ -225,10 +470,7 @@ fn normalize_order_by(values: Vec<String>) -> Result<Vec<OrderBy>> {
                     "invalid --order-by direction {direction:?} for field {field:?}: use asc or desc"
                 );
             }
-            Ok(OrderBy {
-                field: field.to_string(),
-                direction,
-            })
+            Ok(format!("{field}:{direction}"))
         })
         .collect()
 }
@@ -241,22 +483,69 @@ fn clean_strings(values: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-async fn validate_includes(cfg: &Config, options: &NormalizedQueryOptions) -> Result<Vec<String>> {
-    if options.include.is_empty() {
+async fn prepare_query(
+    cfg: &Config,
+    options: &mut NormalizedQueryOptions,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<String>> {
+    if options.scopes.is_empty()
+        && options.include.is_empty()
+        && !options.explicit_fields
+        && has_specific_default_fields(&options.kind)
+    {
         return Ok(Vec::new());
     }
     let Ok(schema) = fetch_kind(cfg, &options.kind).await else {
+        warnings.push(format!(
+            "Live schema for {:?} was unavailable; fields, relations, and scopes could not be validated.",
+            options.kind
+        ));
         return Ok(Vec::new());
     };
     validate_includes_against_kind(&options.kind, &options.include, &schema)?;
-    Ok(options
+    for scope in options.scopes.keys() {
+        if !schema.attributes.attribute_types.values().any(|field| {
+            field.scopes.iter().any(|declared| {
+                &declared.name == scope
+                    || (scope == "default_primary_tag" && declared.is_primary_tag)
+            })
+        }) {
+            bail!("scope {scope:?} is not declared for kind {:?}; inspect `pup idp kinds describe {}`", options.kind, options.kind);
+        }
+    }
+    if !options.scopes.is_empty()
+        && options
+            .include
+            .iter()
+            .any(|relation| relation.starts_with("runtime_"))
+    {
+        warnings.push("Property scopes do not establish environment isolation of runtime dependency edges; current runtime edge aggregates are org-wide.".into());
+    }
+    if options.explicit_fields {
+        validate_fields(&options.kind, &options.fields, &schema)?;
+    } else if !schema.attributes.attribute_types.is_empty() {
+        options.fields = default_fields_from_schema(&schema);
+    }
+    let target_kinds: Vec<String> = options
         .include
         .iter()
         .filter_map(|relation| schema.attributes.relations.get(relation))
         .map(|relation| relation.target_kind.trim())
         .filter(|kind| !kind.is_empty())
         .map(str::to_string)
-        .collect())
+        .collect();
+    for (kind, fields) in &options.fields_by_kind {
+        if !target_kinds.contains(kind) {
+            bail!("--fields {kind}=... does not target any expanded relation; inspect `pup idp kinds describe {}`", options.kind);
+        }
+        match fetch_kind(cfg, kind).await {
+            Ok(schema) => validate_fields(kind, fields, &schema)?,
+            Err(_) => warnings.push(format!(
+                "Live schema for {kind:?} was unavailable; related fields could not be validated."
+            )),
+        }
+    }
+    Ok(target_kinds)
 }
 
 fn entity_query_params(
@@ -266,8 +555,22 @@ fn entity_query_params(
     let mut params = vec![
         ("query".into(), options.query.clone()),
         ("page[limit]".into(), options.limit.to_string()),
-        ("time[past]".into(), options.timeseries_interval.clone()),
     ];
+    if let Some(past) = &options.time.past {
+        params.push(("time[past]".into(), past.clone()));
+    }
+    if let Some(start) = options.time.start {
+        params.push(("time[start]".into(), start.to_string()));
+    }
+    if let Some(end) = options.time.end {
+        params.push(("time[end]".into(), end.to_string()));
+    }
+    for (name, value) in &options.scopes {
+        params.push((
+            format!("properties[{}][scope][*][{name}]", options.kind),
+            value.clone(),
+        ));
+    }
     if let Some(cursor) = &options.cursor {
         params.push(("page[cursor]".into(), cursor.clone()));
     }
@@ -280,17 +583,18 @@ fn entity_query_params(
             options.fields.join(","),
         ));
     }
+    for (kind, fields) in &options.fields_by_kind {
+        params.push((format!("fields[{kind}]"), fields.join(",")));
+    }
+    for (relation, fields) in &options.edge_fields {
+        params.push((
+            format!("fields[{}.{relation}]", options.kind),
+            fields.join(","),
+        ));
+    }
     add_required_included_fields(&mut params, options, relation_target_kinds);
     if !options.order_by.is_empty() {
-        params.push((
-            "order_by".into(),
-            options
-                .order_by
-                .iter()
-                .map(|order| format!("{}:{}", order.field, order.direction))
-                .collect::<Vec<_>>()
-                .join(","),
-        ));
+        params.push(("order_by".into(), options.order_by.join(",")));
     }
     if let Some(mode) = &options.free_text_match {
         params.push(("free_text_match".into(), mode.clone()));
@@ -299,6 +603,79 @@ fn entity_query_params(
         params.push(("meta[fields]".into(), "total_count".into()));
     }
     params
+}
+
+fn next_request(
+    cfg: &Config,
+    options: &NormalizedQueryOptions,
+    params: &[(String, String)],
+    cursor: &str,
+) -> NextRequest {
+    let mut args = vec!["--read-only".into()];
+    if let Some(org) = &cfg.org {
+        args.extend(["--org".into(), org.clone()]);
+    }
+    args.extend([
+        "idp".into(),
+        "entities".into(),
+        "query".into(),
+        options.query.clone(),
+    ]);
+    let mut add = |flag: &str, value: String| {
+        args.push(flag.into());
+        args.push(value);
+    };
+    add("--limit", options.limit.to_string());
+    if let Some(max_results) = options.max_results {
+        add("--max-results", max_results.to_string());
+    }
+    add("--cursor", cursor.into());
+    add("--relation-limit", options.relation_limit.to_string());
+    if !options.include.is_empty() {
+        add("--include", options.include.join(","));
+    }
+    for (key, value) in params {
+        if let Some(kind) = key
+            .strip_prefix("fields[")
+            .and_then(|key| key.strip_suffix(']'))
+        {
+            if let Some(relation) = options
+                .edge_fields
+                .keys()
+                .find(|relation| format!("{}.{relation}", options.kind) == kind)
+            {
+                add("--edge-fields", format!("{relation}={value}"));
+            } else {
+                add("--fields", format!("{kind}={value}"));
+            }
+        }
+    }
+    if let Some(past) = &options.time.past {
+        add("--timeseries-interval", past.clone());
+    }
+    for (flag, timestamp) in [("--from", options.time.start), ("--to", options.time.end)] {
+        if let Some(timestamp) = timestamp {
+            add(
+                flag,
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .expect("validated timestamp")
+                    .to_rfc3339(),
+            );
+        }
+    }
+    for (name, value) in &options.scopes {
+        add("--scope", format!("{name}={value}"));
+    }
+    for order in &options.order_by {
+        add("--order-by", order.clone());
+    }
+    if let Some(mode) = &options.free_text_match {
+        add("--free-text-match", mode.clone());
+    }
+    if options.include_total_count {
+        args.push("--include-total-count".into());
+    }
+    NextRequest { args }
 }
 
 fn add_required_included_fields(
@@ -365,16 +742,20 @@ fn normalize_entities_response(
     let results = response
         .data
         .into_iter()
-        .map(|entity| normalize_entity(entity, &included, options.relation_limit, &mut warnings))
+        .map(|entity| {
+            for relation in &options.include {
+                if !entity.relationships.contains_key(relation) {
+                    warnings.push(format!(
+                        "Requested relationship {relation:?} on {} was not returned; absence does not establish that no related entities exist.",
+                        entity.id
+                    ));
+                }
+            }
+            normalize_entity(entity, &included, options.relation_limit, &mut warnings)
+        })
         .collect::<Vec<_>>();
     let next_cursor =
         (!response.meta.page.next_cursor.is_empty()).then_some(response.meta.page.next_cursor);
-    if next_cursor.is_some() {
-        warnings.push(
-            "Results are truncated. Use --cursor with the returned next_cursor to fetch the next page."
-                .into(),
-        );
-    }
 
     NormalizedEntitiesResponse {
         query: QueryEcho {
@@ -382,18 +763,37 @@ fn normalize_entities_response(
             inferred_kind: options.kind.clone(),
             include: options.include.clone(),
             fields: options.fields.clone(),
-            timeseries_interval: options.timeseries_interval.clone(),
+            fields_by_kind: options.fields_by_kind.clone(),
+            edge_fields: options.edge_fields.clone(),
+            timeseries_interval: options.time.past.clone(),
+            from: options.time.start,
+            to: options.time.end,
+            scopes: options.scopes.clone(),
+            order_by: options.order_by.clone(),
+            cursor: options.cursor.clone(),
+            free_text_match: options.free_text_match.clone(),
+            include_total_count: options.include_total_count,
             relation_limit: options.relation_limit,
         },
         count: results.len(),
         results,
         page: NormalizedPage {
             limit: options.limit,
+            pages_fetched: 1,
+            stop_reason: if next_cursor.is_some() {
+                "page_limit"
+            } else {
+                "end_of_results"
+            },
+            max_results: options.max_results,
             truncated: next_cursor.is_some(),
             next_cursor,
         },
         total_count: response.meta.total_count,
         warnings,
+        server_warnings: response.meta.warnings,
+        additional_page_warnings: Vec::new(),
+        next_request: None,
     }
 }
 
@@ -404,24 +804,30 @@ fn normalize_entity(
     warnings: &mut Vec<String>,
 ) -> NormalizedEntity {
     let identity = entity_identity(&entity, false);
-    let fields = data_fields(&entity.attributes);
     let relationships = entity
         .relationships
         .iter()
         .filter_map(|(name, relation)| {
-            let identifiers = parse_relationship_data(&relation.data);
-            if identifiers.is_empty() {
-                return None;
-            }
+            let identifiers = match try_parse_relationship_data(&relation.data) {
+                Ok(identifiers) => identifiers,
+                Err(_) => {
+                    warnings.push(format!(
+                        "Relationship {name:?} on {} could not be decoded; its contents are unknown.",
+                        identity.entity_ref
+                    ));
+                    return None;
+                }
+            };
             let truncated = identifiers.len() > relation_limit;
             let sample = identifiers
                 .iter()
                 .take(relation_limit)
-                .map(|identifier| {
-                    included
+                .map(|identifier| RelatedEntity {
+                    entity: included
                         .get(&entity_key(&identifier.kind, &identifier.id))
                         .map(|related| entity_identity(related, true))
-                        .unwrap_or_else(|| identifier_identity(identifier))
+                        .unwrap_or_else(|| identifier_identity(identifier)),
+                    edge_fields: identifier.meta.clone(),
                 })
                 .collect();
             if truncated {
@@ -444,7 +850,7 @@ fn normalize_entity(
 
     NormalizedEntity {
         entity: identity,
-        fields,
+        fields: entity.attributes,
         relationships,
     }
 }
@@ -468,7 +874,7 @@ fn entity_identity(entity: &EntityResource, include_fields: bool) -> EntityIdent
         id: entity.id.clone(),
         display_name,
         fields: if include_fields {
-            data_fields(&entity.attributes)
+            entity.attributes.clone()
         } else {
             BTreeMap::new()
         },
@@ -489,27 +895,21 @@ fn identifier_identity(identifier: &ResourceIdentifier) -> EntityIdentity {
     }
 }
 
-fn data_fields(attributes: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
-    attributes
-        .iter()
-        .filter(|(key, _)| !matches!(key.as_str(), "ref" | "name" | "display_name"))
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect()
-}
-
 fn string_attribute<'a>(attributes: &'a BTreeMap<String, Value>, key: &str) -> Option<&'a str> {
     attributes.get(key).and_then(Value::as_str)
 }
 
 pub(super) fn parse_relationship_data(value: &Value) -> Vec<ResourceIdentifier> {
+    try_parse_relationship_data(value).unwrap_or_default()
+}
+
+fn try_parse_relationship_data(value: &Value) -> serde_json::Result<Vec<ResourceIdentifier>> {
     if value.is_null() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    serde_json::from_value::<Vec<ResourceIdentifier>>(value.clone())
-        .or_else(|_| {
-            serde_json::from_value::<ResourceIdentifier>(value.clone()).map(|item| vec![item])
-        })
-        .unwrap_or_default()
+    serde_json::from_value::<Vec<ResourceIdentifier>>(value.clone()).or_else(|_| {
+        serde_json::from_value::<ResourceIdentifier>(value.clone()).map(|item| vec![item])
+    })
 }
 
 pub(super) fn raw_response_metadata(raw: &Value) -> (Option<usize>, bool, Option<String>) {
@@ -883,7 +1283,7 @@ pub(super) fn default_fields_for_kind(kind: &str) -> &'static [&'static str] {
     }
 }
 
-fn has_specific_default_fields(kind: &str) -> bool {
+pub(super) fn has_specific_default_fields(kind: &str) -> bool {
     matches!(
         kind,
         "service"
@@ -925,13 +1325,19 @@ mod tests {
         EntityQueryOptions {
             query: query.into(),
             fields: Vec::new(),
+            fields_by_kind: Vec::new(),
+            edge_fields: Vec::new(),
             include: Vec::new(),
             order_by: Vec::new(),
             limit: 25,
+            max_results: None,
             cursor: None,
             free_text_match: None,
             include_total_count: false,
-            timeseries_interval: "1h".into(),
+            timeseries_interval: None,
+            from: None,
+            to: None,
+            scopes: Vec::new(),
             relation_limit: 25,
             raw: false,
         }
@@ -1009,7 +1415,7 @@ mod tests {
         assert!(normalize_options(invalid).is_err());
 
         let mut invalid = options("kind:service");
-        invalid.timeseries_interval = "7d".into();
+        invalid.timeseries_interval = Some("0h".into());
         assert!(normalize_options(invalid).is_err());
 
         let error = normalize_options(options("kind:service AND free_text:catalog")).unwrap_err();
@@ -1022,18 +1428,104 @@ mod tests {
     }
 
     #[test]
+    fn absolute_windows_and_day_lookbacks_map_to_api_parameters() {
+        let mut input = options("kind:service");
+        input.from = Some("2026-09-17T10:00:00Z".into());
+        input.to = Some("2026-09-17T11:00:00Z".into());
+        input.scopes = vec!["env=prod".into()];
+        let normalized = normalize_options(input).unwrap();
+        let params: BTreeMap<_, _> = entity_query_params(&normalized, &[]).into_iter().collect();
+        assert!(!params.contains_key("time[past]"));
+        assert_eq!(params["time[start]"], "1789639200000");
+        assert_eq!(params["time[end]"], "1789642800000");
+        assert_eq!(params["properties[service][scope][*][env]"], "prod");
+        let mut input = options("kind:service");
+        input.timeseries_interval = Some("7d".into());
+        assert_eq!(
+            normalize_options(input).unwrap().time.past.as_deref(),
+            Some("604800000ms")
+        );
+    }
+
+    #[test]
+    fn rejects_incomplete_reversed_conflicting_windows_and_bad_scopes() {
+        let mut input = options("kind:service");
+        input.from = Some("2026-09-17T11:00:00Z".into());
+        assert!(normalize_options(input.clone()).is_err());
+        input.to = Some("2026-09-17T10:00:00Z".into());
+        assert!(normalize_options(input.clone()).is_err());
+        input.to = Some("2026-09-17T12:00:00Z".into());
+        input.timeseries_interval = Some("1h".into());
+        assert!(normalize_options(input).is_err());
+        let mut input = options("kind:service");
+        input.timeseries_interval = Some("-7d".into());
+        assert!(normalize_options(input).is_err());
+        for bad in ["env", "env=", "env=prod*", "env=prod OR test"] {
+            assert!(normalize_scopes(vec![bad.into()], "service").is_err());
+        }
+        assert!(normalize_scopes(vec!["env=prod".into(), "env=dev".into()], "service").is_err());
+        assert!(normalize_scopes(vec!["env=prod".into()], "integration.test").is_err());
+    }
+
+    #[test]
     fn builds_entity_query_parameters() {
         let mut input = options("kind:integration.github.repository AND name:api");
         input.include = vec!["pull_requests".into()];
-        input.order_by = vec!["updated_at:desc".into()];
+        input.order_by = vec![" updated_at:DESC ".into(), "name".into()];
         input.cursor = Some("cursor value".into());
         input.include_total_count = true;
         let normalized = normalize_options(input).unwrap();
         let params: BTreeMap<_, _> = entity_query_params(&normalized, &[]).into_iter().collect();
         assert_eq!(params["page[cursor]"], "cursor value");
-        assert_eq!(params["order_by"], "updated_at:desc");
+        assert_eq!(params["order_by"], "updated_at:desc,name:asc");
         assert_eq!(params["meta[fields]"], "total_count");
         assert!(params.contains_key("fields[integration.github.pull_request]"));
+    }
+
+    #[test]
+    fn projects_related_kinds_and_edges_without_overwriting_root_fields() {
+        let mut input = options("kind:service");
+        input.fields = vec!["name".into()];
+        input.include = vec!["owner_teams".into(), "runtime_downstream_services".into()];
+        input.fields_by_kind = vec!["team=name,handle".into(), "team=handle,user_count".into()];
+        input.edge_fields = vec!["runtime_downstream_services=requests_count,error_rate".into()];
+        let normalized = normalize_options(input).unwrap();
+        let params: BTreeMap<_, _> =
+            entity_query_params(&normalized, &["team".into(), "service".into()])
+                .into_iter()
+                .collect();
+        assert_eq!(params["fields[service]"], "name");
+        assert_eq!(params["fields[team]"], "name,handle,user_count");
+        assert_eq!(
+            params["fields[service.runtime_downstream_services]"],
+            "requests_count,error_rate"
+        );
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_unused_field_selections() {
+        for bad in ["team", "=name", "team=", "team=name,", "team=name=owner"] {
+            assert!(
+                parse_field_selections(vec![bad.into()], "fields").is_err(),
+                "{bad}"
+            );
+        }
+        let mut input = options("kind:service");
+        input.fields = vec!["name".into()];
+        input.fields_by_kind = vec!["service=owner".into()];
+        assert!(normalize_options(input)
+            .unwrap_err()
+            .to_string()
+            .contains("either --field"));
+        let mut input = options("kind:service");
+        input.edge_fields = vec!["runtime_downstream_services=error_rate".into()];
+        assert!(normalize_options(input)
+            .unwrap_err()
+            .to_string()
+            .contains("requires --include"));
+        let mut input = options("kind:service");
+        input.fields_by_kind = vec!["team=name".into()];
+        assert!(normalize_options(input).is_err());
     }
 
     #[test]
@@ -1060,6 +1552,7 @@ mod tests {
         assert!(normalized.page.truncated);
         assert_eq!(
             normalized.results[0].relationships["owner_teams"].sample[0]
+                .entity
                 .display_name
                 .as_deref(),
             Some("Payments")
@@ -1097,12 +1590,62 @@ mod tests {
         assert_eq!(entity.relationships["single"].count, 1);
         assert_eq!(entity.relationships["many"].count, 2);
         assert!(entity.relationships["many"].truncated);
-        assert!(!entity.relationships.contains_key("empty"));
+        assert_eq!(entity.relationships["empty"].count, 0);
         assert!(!entity.relationships.contains_key("malformed"));
         assert!(normalized
             .warnings
             .iter()
+            .any(|warning| warning.contains("could not be decoded")));
+        assert!(normalized
+            .warnings
+            .iter()
             .any(|warning| warning.contains("sample limited to 1")));
+    }
+
+    #[test]
+    fn preserves_selected_attributes_edge_values_and_server_warnings() {
+        let mut input = options("kind:service");
+        input.include = vec!["runtime_downstream_services".into(), "owner_teams".into()];
+        let opts = normalize_options(input).unwrap();
+        let response = serde_json::from_value(serde_json::json!({
+            "data": [{"type": "service", "id": "ref:service:checkout", "attributes": {
+                "name": "checkout", "display_name": "Checkout API", "active_incidents_count": null
+            }, "relationships": {"runtime_downstream_services": {"data": [{
+                "type": "service", "id": "ref:service:payments",
+                "meta": {"requests_count": 42, "error_rate": null}
+            }]}}}],
+            "meta": {"warnings": {"omitted_relations": [{"relation": "owner_teams", "reason": "access denied"}]}}
+        })).unwrap();
+        let result = normalize_entities_response(&opts, response);
+        assert_eq!(result.results[0].fields["name"], "checkout");
+        assert_eq!(result.results[0].fields["display_name"], "Checkout API");
+        assert!(result.results[0].fields["active_incidents_count"].is_null());
+        let edge = &result.results[0].relationships["runtime_downstream_services"].sample[0];
+        assert_eq!(edge.entity.entity_ref, "ref:service:payments");
+        assert_eq!(edge.edge_fields["requests_count"], 42);
+        assert!(edge.edge_fields["error_rate"].is_null());
+        assert!(result.server_warnings.is_some());
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("owner_teams")));
+    }
+
+    #[test]
+    fn rejects_missing_entity_list_instead_of_reporting_empty_results() {
+        assert!(serde_json::from_value::<EntitiesResponse>(
+            serde_json::json!({"unexpected": true})
+        )
+        .is_err());
+        // A relationship without linkage data is unknown, not an empty relation.
+        assert!(
+            serde_json::from_value::<EntitiesResponse>(serde_json::json!({
+                "data": [{"type": "service", "id": "checkout", "relationships": {
+                    "owner_teams": {"links": {"related": "/teams"}}
+                }}]
+            }))
+            .is_err()
+        );
     }
 
     #[tokio::test]

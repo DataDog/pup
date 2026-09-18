@@ -872,23 +872,23 @@ fn test_idp_entity_graph_commands_parse() {
 
     match cli.command {
         crate::Commands::Idp {
-            action:
-                crate::IdpActions::Entities {
-                    action: crate::IdpEntitiesActions::Query { query, options },
-                },
-        } => {
-            assert_eq!(query, "kind:service AND owner:payments");
-            assert_eq!(options.field, vec!["name", "owner"]);
-            assert_eq!(options.include, vec!["owner_teams"]);
-            assert_eq!(options.order_by, vec!["name:desc"]);
-            assert_eq!(options.limit, 50);
-            assert_eq!(options.cursor.as_deref(), Some("next-page"));
-            assert_eq!(options.free_text_match.as_deref(), Some("fuzzy"));
-            assert!(options.include_total_count);
-            assert_eq!(options.timeseries_interval, "24h");
-            assert_eq!(options.relation_limit, 10);
-            assert!(options.raw);
-        }
+            action: crate::IdpActions::Entities { action },
+        } => match *action {
+            crate::IdpEntitiesActions::Query { query, options } => {
+                assert_eq!(query, "kind:service AND owner:payments");
+                assert_eq!(options.field, vec!["name", "owner"]);
+                assert_eq!(options.include, vec!["owner_teams"]);
+                assert_eq!(options.order_by, vec!["name:desc"]);
+                assert_eq!(options.limit, 50);
+                assert_eq!(options.cursor.as_deref(), Some("next-page"));
+                assert_eq!(options.free_text_match.as_deref(), Some("fuzzy"));
+                assert!(options.include_total_count);
+                assert_eq!(serde_json::json!(options.timeseries_interval), "24h");
+                assert_eq!(options.relation_limit, 10);
+                assert!(options.raw);
+            }
+            _ => panic!("expected IdpEntitiesActions::Query"),
+        },
         _ => panic!("expected IdpEntitiesActions::Query"),
     }
 
@@ -973,20 +973,19 @@ fn test_idp_entity_scoped_commands_parse() {
     .expect("IDP scoped entity list should parse");
     match list.command {
         crate::Commands::Idp {
-            action:
-                crate::IdpActions::Entities {
-                    action:
-                        crate::IdpEntitiesActions::List {
-                            filter_kind,
-                            options,
-                        },
-                },
-        } => {
-            assert_eq!(filter_kind, "integration.github.pull_request");
-            assert_eq!(options.field, vec!["title", "state"]);
-            assert_eq!(options.order_by, vec!["updated_at:desc"]);
-            assert_eq!(options.limit, 10);
-        }
+            action: crate::IdpActions::Entities { action },
+        } => match *action {
+            crate::IdpEntitiesActions::List {
+                filter_kind,
+                options,
+            } => {
+                assert_eq!(filter_kind, "integration.github.pull_request");
+                assert_eq!(options.field, vec!["title", "state"]);
+                assert_eq!(options.order_by, vec!["updated_at:desc"]);
+                assert_eq!(options.limit, 10);
+            }
+            _ => panic!("expected IdpEntitiesActions::List"),
+        },
         _ => panic!("expected IdpEntitiesActions::List"),
     }
 
@@ -1005,20 +1004,19 @@ fn test_idp_entity_scoped_commands_parse() {
     .expect("IDP scoped entity search should parse");
     match search.command {
         crate::Commands::Idp {
-            action:
-                crate::IdpActions::Entities {
-                    action:
-                        crate::IdpEntitiesActions::Search {
-                            filter_kind,
-                            query,
-                            options,
-                        },
-                },
-        } => {
-            assert_eq!(filter_kind, "service");
-            assert_eq!(query, "owner:idp OR team:idp");
-            assert_eq!(options.cursor.as_deref(), Some("next-page"));
-        }
+            action: crate::IdpActions::Entities { action },
+        } => match *action {
+            crate::IdpEntitiesActions::Search {
+                filter_kind,
+                query,
+                options,
+            } => {
+                assert_eq!(filter_kind, "service");
+                assert_eq!(query, "owner:idp OR team:idp");
+                assert_eq!(options.cursor.as_deref(), Some("next-page"));
+            }
+            _ => panic!("expected IdpEntitiesActions::Search"),
+        },
         _ => panic!("expected IdpEntitiesActions::Search"),
     }
 

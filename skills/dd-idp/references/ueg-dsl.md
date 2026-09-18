@@ -77,17 +77,33 @@ Simple identifiers can remain bare: `owner:payments`.
 | Flag | Meaning |
 | --- | --- |
 | `--field name,owner` | Returned attributes; repeatable or comma-delimited |
+| `--fields team=name,handle` | Override fields for an included kind; repeatable; applies to every entity of that kind |
+| `--edge-fields runtime_downstream_services=requests_count,error_rate` | Select attributes of an included relationship, returned in `sample[].edge_fields` |
 | `--include owner_teams` | Expanded declared relations; repeatable or comma-delimited |
 | `--order-by field:asc` | Sort; repeatable or comma-delimited |
 | `--limit 25` | Result page size, 1–100; default 25 |
+| `--max-results 500` | Opt in to successive pages up to 1–10000 entities; conflicts with `--raw` |
 | `--cursor <cursor>` | Continue the same query from `page.next_cursor` |
-| `--relation-limit 25` | Per-relation sample cap, 1–100; default 25 |
+| `--relation-limit 25` | Client-side output sample cap, 1–100; default 25; does not limit backend expansion |
 | `--timeseries-interval 24h` | Lookback for calculated time-window fields; default 1h |
+| `--from <time> --to <time>` | Explicit measurement window; conflicts with relative lookback; accepts RFC3339, Unix timestamps, or Pup relative times |
+| `--scope env=prod` | Scope supported properties of the result kind; repeatable; discover names in field scopes |
 | `--include-total-count` | Request a total when the backend can provide one |
-| `--free-text-match partial` | Matching mode only; search text remains in a real field filter |
+| `--free-text-match partial` | Mode for bare terms such as `kind:service AND catalog`; does not change field filters |
 | `--raw` | Original JSON:API response; prefer normalized output for reasoning |
 
 Request only the fields and relations needed to answer the question. Start with `--limit 25`; widen only after the query is proven useful.
+
+`--fields service=...` can also select the result kind; use it or `--field`, not
+both for that kind. Projections are per kind, so a service-to-service include
+shares the service field selection. Edge selections require the matching
+`--include`. The current HTTP kind schema does not list edge fields; use verified
+fields for the deployed API and check that the requested values were returned.
+
+Pup validates explicit entity fields when live schema is available; typos fail
+before running the entity query. Schema lookup failures remain recoverable and
+produce a warning. `kinds describe` includes descriptions, display properties,
+field scopes, and calculation details when supplied by UEG.
 
 ## Pagination and completeness
 
@@ -97,17 +113,53 @@ Normalized output contains:
 page.limit
 page.truncated
 page.next_cursor
+next_request.args
 relationships.<name>.count
 relationships.<name>.truncated
 relationships.<name>.sample
 warnings
+server_warnings
 ```
 
 When `page.truncated` is true and the user needs complete coverage, repeat the identical query and flags with the returned cursor. Do not claim completeness until no next cursor remains. A complete result page does not make a truncated relationship sample complete; query that related kind directly when necessary.
 
+For entity queries, `next_request.args` is a complete argument array after the
+`pup` executable. Run it as argv without shell interpolation. It preserves the
+effective projections, ordering, matching mode, measurement window, scopes,
+org profile, and cursor. Keep the same authentication, `DD_SITE`, and config environment;
+credentials are never embedded in the arguments. The query echo records absolute
+times as Unix milliseconds.
+
+Entity query output also reports `page.pages_fetched` and `page.stop_reason`:
+`end_of_results`, `page_limit` (manual mode), or `result_limit` (automatic mode).
+`--max-results` bounds entities across requests; `--limit` remains the maximum
+size of each request. Pup reduces the last page size to fit the remaining budget
+without discarding rows. A final empty page is valid. Repeated cursors, empty
+nonterminal pages, and later request failures exit unsuccessfully without
+presenting a successful partial inventory. Subsequent pages' server warnings
+appear in `additional_page_warnings` with their page numbers; `server_warnings`
+retains the first page's warnings. Neither paging mode provides snapshot isolation.
+
+`count` on a relationship counts references returned by the server; `truncated`
+reports whether Pup shortened that returned sample. It does not prove upstream
+completeness. Explicit empty relations retain a zero count. A requested relation
+that was omitted or could not be decoded produces a warning; do not interpret it
+as no relationships. Preserve any `server_warnings` when explaining limitations.
+
+Returned attributes remain in `fields`, including distinct `name` and
+`display_name` values. Relationship samples retain per-edge measurements in
+`edge_fields` when supplied by UEG; those belong to the connection, not the entity.
+
 ## Time windows and nulls
 
-Some aggregate fields are calculated over `--timeseries-interval`. Use Go durations such as `1h`, `24h`, and `168h`, and state the window in the answer when it affects meaning.
+Some fields are calculated over `--timeseries-interval`. Use durations such as
+`1h`, `24h`, `168h`, or `7d`; Pup converts day/week lookbacks to a compatible API
+duration. State the window when it affects meaning. `--from`/`--to` affect
+supported measurements, not every entity attribute or historical entity state.
+
+Use `--scope` only for schema-declared scopes on the result kind's properties.
+See [measurement limitations](footguns.md#time-windows-change-meaning) before
+combining scopes, time windows, and runtime edges.
 
 Treat `null` or a missing field as unknown/not returned. Only report zero, false, healthy, or no findings when the API explicitly returned evidence for that claim.
 

@@ -1082,6 +1082,15 @@ pup idp owner my-service
 pup idp deps my-service
 ```
 
+### Summarize Service Ownership
+```bash
+# Count ownership gaps by lifecycle without downloading the inventory.
+pup --read-only idp entities aggregate 'kind:service' --group-by lifecycle \
+  --count 'unowned=_missing_:owner' --order-by unowned:desc
+```
+
+Inspect group metrics and continue all returned pages before claiming complete coverage.
+
 ### Register Catalog Entities
 ```bash
 # Register v1-v3 Catalog entities from YAML or JSON

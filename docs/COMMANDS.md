@@ -149,6 +149,19 @@ alternatives below a shared kind instead, for example
 `--include` expands relations. Output is normalized and bounded for agents by
 default; pass `--raw` for the original JSON:API response.
 
+### IDP Portfolio Summaries
+
+```bash
+# Observe field values and summarize ownership gaps by lifecycle.
+pup idp entities facets 'kind:service' --facet owner,lifecycle
+pup idp entities aggregate 'kind:service' --group-by lifecycle \
+  --count 'unowned=_missing_:owner' --order-by unowned:desc
+```
+
+For facets, `--limit` caps displayed values per field; providers can ignore
+server pagination. Inspect `values_truncated` and use `--raw` for all returned
+values, or `aggregate --group-by` for pageable counts.
+
 ### Create/Update/Delete
 ```bash
 pup <domain> create [--flags]

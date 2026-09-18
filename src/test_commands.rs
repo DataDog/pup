@@ -804,36 +804,35 @@ fn test_idp_entity_graph_commands_parse() {
 
     match cli.command {
         crate::Commands::Idp {
-            action:
-                crate::IdpActions::Entities {
-                    action:
-                        crate::IdpEntitiesActions::Query {
-                            query,
-                            field,
-                            include,
-                            order_by,
-                            limit,
-                            cursor,
-                            free_text_match,
-                            include_total_count,
-                            timeseries_interval,
-                            relation_limit,
-                            raw,
-                        },
-                },
-        } => {
-            assert_eq!(query, "kind:service AND owner:payments");
-            assert_eq!(field, vec!["name", "owner"]);
-            assert_eq!(include, vec!["owner_teams"]);
-            assert_eq!(order_by, vec!["name:desc"]);
-            assert_eq!(limit, 50);
-            assert_eq!(cursor.as_deref(), Some("next-page"));
-            assert_eq!(free_text_match.as_deref(), Some("fuzzy"));
-            assert!(include_total_count);
-            assert_eq!(timeseries_interval, "24h");
-            assert_eq!(relation_limit, 10);
-            assert!(raw);
-        }
+            action: crate::IdpActions::Entities { action },
+        } => match *action {
+            crate::IdpEntitiesActions::Query {
+                query,
+                field,
+                include,
+                order_by,
+                limit,
+                cursor,
+                free_text_match,
+                include_total_count,
+                timeseries_interval,
+                relation_limit,
+                raw,
+                ..
+            } if query == "kind:service AND owner:payments" => {
+                assert_eq!(field, vec!["name", "owner"]);
+                assert_eq!(include, vec!["owner_teams"]);
+                assert_eq!(order_by, vec!["name:desc"]);
+                assert_eq!(limit, 50);
+                assert_eq!(cursor.as_deref(), Some("next-page"));
+                assert_eq!(free_text_match.as_deref(), Some("fuzzy"));
+                assert!(include_total_count);
+                assert_eq!(serde_json::json!(timeseries_interval), "24h");
+                assert_eq!(relation_limit, 10);
+                assert!(raw);
+            }
+            _ => panic!("expected IdpEntitiesActions::Query with the supplied query"),
+        },
         _ => panic!("expected IdpEntitiesActions::Query"),
     }
 

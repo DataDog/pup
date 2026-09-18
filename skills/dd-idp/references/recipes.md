@@ -37,6 +37,31 @@ pup --read-only idp entities query 'kind:service AND _missing_:owner' \
 
 ## Team portfolio health
 
+For a portfolio summary, count ownership gaps by lifecycle on the server:
+
+```bash
+pup --read-only idp entities aggregate 'kind:service' \
+  --group-by lifecycle --count 'unowned=_missing_:owner' \
+  --order-by unowned:desc --limit 25
+```
+
+Each result contains `group` and named `metrics`, including the built-in `count`
+for that group. Filtered counts apply within the main query. Preserve null group
+values and follow `page.next_cursor` before claiming a complete ranking. Metrics
+and field support depend on the deployed provider; unsupported operations fail.
+
+Discover observed values without fetching every service:
+
+```bash
+pup --read-only idp entities facets 'kind:service' --facet owner,lifecycle
+```
+
+Inspect `results[].facet_name`, `values`, `null_count`, and `values_truncated`;
+providers can ignore pagination, so Pup caps the displayed values locally.
+Use `--raw` for the full returned response or grouped counts for pageable values.
+Summary commands currently do not expose time/scope controls, so use
+them for fields whose default semantics answer the question.
+
 Describe `service` and select the aggregate fields currently available for incidents, SLOs, monitors, scorecards, vulnerabilities, or health. Keep alternatives beneath the shared kind:
 
 ```bash

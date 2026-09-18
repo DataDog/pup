@@ -8,6 +8,7 @@ use crate::util_ext;
 
 mod entity_kinds;
 mod entity_query;
+mod entity_summary;
 mod entity_types;
 mod migrate;
 
@@ -17,6 +18,7 @@ const RUNTIME_DEPENDENCY_LOOKBACK: &str = "1h";
 
 pub use entity_kinds::{describe_kind, list_kinds};
 pub use entity_query::{query_entities, EntityQueryOptions};
+pub use entity_summary::{aggregate, facets, EntityAggregateOptions};
 pub use migrate::migrate_schema;
 
 // ---------------------------------------------------------------------------

@@ -91,6 +91,21 @@ Request only the fields and relations needed to answer the question. Start with 
 
 ## Pagination and completeness
 
+`entities facets QUERY --facet field` and `entities aggregate QUERY --group-by
+field` reuse the same result-kind DSL. Both accept `--limit`, `--cursor`, and
+`--raw`. Aggregate also accepts `--count 'name=filter'` and `--order-by name:desc`.
+Its built-in `count` is the total within each group; additional counts use the
+main query plus their filter. These commands are read-only, including the
+aggregate endpoint's POST. Their normalized `results` retain the API's facet or
+group/metric attributes.
+
+Facet providers may ignore server pagination. Normalized facets cap displayed
+values using `--limit` and report `values_returned` and `values_truncated` per
+facet. `page.truncated` includes this local sampling. A cursor cannot recover
+locally omitted values: use `--raw` to inspect all values returned by the API,
+or `aggregate --group-by <field>` for pageable value/count groups. Neither shape
+proves that a provider returned its entire possible value vocabulary.
+
 Normalized output contains:
 
 ```text

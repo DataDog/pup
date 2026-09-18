@@ -463,17 +463,45 @@ fn test_extension_list_remote_parses() {
 
 #[test]
 fn test_top_level_commands_sorted_alphabetically() {
-    let app = crate::Cli::command();
-    let names: Vec<&str> = app
+    let mut app = crate::cli_command();
+    let visible_names: Vec<String> = app
         .get_subcommands()
         .filter(|cmd| cmd.get_name() != "help" && !cmd.is_hide_set())
-        .map(|cmd| cmd.get_name())
+        .map(|cmd| cmd.get_name().to_string())
         .collect();
-    let mut sorted = names.clone();
-    sorted.sort_unstable();
+    let help = app.render_help().to_string();
+    let names: Vec<&str> = help
+        .lines()
+        .skip_while(|line| line.trim() != "Commands:")
+        .skip(1)
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| visible_names.iter().any(|visible| visible == name))
+        .collect();
+    let mut expected: Vec<&str> = visible_names.iter().map(String::as_str).collect();
+    expected.sort_unstable();
     assert_eq!(
-        names, sorted,
-        "top-level commands must be in alphabetical order.\nActual:   {names:?}\nExpected: {sorted:?}"
+        names, expected,
+        "top-level commands in help must be in alphabetical order.\nActual:   {names:?}\nExpected: {expected:?}"
+    );
+}
+
+#[test]
+fn test_shared_display_order_sorts_appended_subcommand_in_help() {
+    let mut app =
+        crate::cli_command().subcommand(clap::Command::new("downtime-z-test").display_order(0));
+    let help = app.render_help().to_string();
+    let names: Vec<&str> = help
+        .lines()
+        .skip_while(|line| line.trim() != "Commands:")
+        .skip(1)
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| matches!(*name, "downtime" | "downtime-z-test" | "error-tracking"))
+        .collect();
+
+    assert_eq!(
+        names,
+        ["downtime", "downtime-z-test", "error-tracking"],
+        "display order did not interleave the appended command:\n{help}"
     );
 }
 

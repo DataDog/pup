@@ -81,6 +81,10 @@ pub(crate) struct Cli {
     command: Commands,
 }
 
+pub(crate) fn cli_command() -> clap::Command {
+    Cli::command().mut_subcommands(|command| command.display_order(0))
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Start a local ACP server that proxies to Datadog Bits AI
@@ -13384,7 +13388,7 @@ async fn main_inner() -> anyhow::Result<()> {
     // Build the clap Command and, when extensions are installed, append an
     // "EXTENSIONS:" section to the help output so they are visible in
     // `pup --help` / `pup help`, similar to how `gh` lists extensions.
-    let mut cmd = Cli::command();
+    let mut cmd = cli_command();
     #[cfg(not(target_arch = "wasm32"))]
     {
         let ext_help = extensions::discovery::build_extensions_help_section();

@@ -1070,6 +1070,22 @@ pup idp find payments --limit 5 --cursor '<next-cursor>'
 pup idp find "kind:team AND name:backend"
 ```
 
+### List and Search UEG Entities
+```bash
+# List one known kind without writing the kind predicate yourself
+pup idp entities list --filter-kind=service --field=name,owner
+
+# Search within the selected kind; OR expressions stay scoped to services
+pup idp entities search \
+  --filter-kind=service \
+  --query='owner:idp OR team:idp' \
+  --field=name,owner,contacts
+
+# Use full DSL control for concrete refs, relation expansion, or advanced queries
+pup idp entities query 'kind:service AND name:*payments*' \
+  --include=owner_teams,systems
+```
+
 ### Get Ownership and On-Call
 ```bash
 # Show owning team and current on-call responders

@@ -8,6 +8,21 @@ use support::{payload, pup};
 
 use std::process::Output;
 
+const ENTITY_COMMANDS: &[(&[&str], &str)] = &[
+    (&["query", "kind:service"], "kind:service"),
+    (&["list", "--filter-kind", "service"], "kind:service"),
+    (
+        &[
+            "search",
+            "--filter-kind",
+            "service",
+            "--query",
+            "name:checkout OR name:payments",
+        ],
+        "kind:service AND (name:checkout OR name:payments)",
+    ),
+];
+
 fn service_response() -> Value {
     json!({"data": [{"type": "service", "id": "ref:service:checkout", "attributes": {
         "name": "checkout", "display_name": "Checkout API", "active_incidents_count": null
@@ -88,82 +103,85 @@ fn query_preserves_evidence_in_human_agent_jq_and_raw_modes() {
 
 #[test]
 fn related_fields_and_edge_measurements_use_the_ueg_wire_contract() {
-    let mut server = Server::new();
-    let _schema = service_schema(&mut server);
-    let team = server
-        .mock("GET", "/api/v2/idp/entity_graph/kinds/team")
-        .with_header("content-type", "application/json")
-        .with_body(
-            json!({"data": {"id": "team", "attributes": {"attribute_types": {
-                "handle": {"dataType": "string"}, "user_count": {"dataType": "int"}
-            }}}})
-            .to_string(),
-        )
-        .create();
-    let request = server
-        .mock("GET", "/api/v2/idp/entity_graph/entities")
-        .match_query(Matcher::AllOf(vec![
-            Matcher::UrlEncoded("fields[service]".into(), "name,owner".into()),
-            Matcher::UrlEncoded("fields[team]".into(), "handle,user_count".into()),
-            Matcher::UrlEncoded(
-                "fields[service.runtime_downstream_services]".into(),
-                "requests_count,error_rate".into(),
-            ),
-        ]))
-        .with_header("content-type", "application/json")
-        .with_body(service_response().to_string())
-        .create();
-    let result = payload(pup(
-        &server,
-        &[
-            "--no-agent",
-            "idp",
-            "entities",
-            "query",
-            "kind:service",
-            "--field",
-            "name,owner",
-            "--include",
-            "owner_teams,runtime_downstream_services",
-            "--fields",
-            "team=handle,user_count",
-            "--edge-fields",
-            "runtime_downstream_services=requests_count,error_rate",
-        ],
-    ));
-    assert_eq!(
-        result["query"]["fields_by_kind"]["team"],
-        json!(["handle", "user_count"])
-    );
-    request.assert();
-    team.assert();
+    for (command, query) in ENTITY_COMMANDS {
+        let mut server = Server::new();
+        let _schema = service_schema(&mut server);
+        let team = server
+            .mock("GET", "/api/v2/idp/entity_graph/kinds/team")
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({"data": {"id": "team", "attributes": {"attribute_types": {
+                    "handle": {"dataType": "string"}, "user_count": {"dataType": "int"}
+                }}}})
+                .to_string(),
+            )
+            .create();
+        let request = server
+            .mock("GET", "/api/v2/idp/entity_graph/entities")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("query".into(), (*query).into()),
+                Matcher::UrlEncoded("fields[service]".into(), "name,owner".into()),
+                Matcher::UrlEncoded("fields[team]".into(), "handle,user_count".into()),
+                Matcher::UrlEncoded(
+                    "fields[service.runtime_downstream_services]".into(),
+                    "requests_count,error_rate".into(),
+                ),
+            ]))
+            .with_header("content-type", "application/json")
+            .with_body(service_response().to_string())
+            .create();
+        let result = payload(pup(
+            &server,
+            &[
+                &["idp", "entities"][..],
+                *command,
+                &[
+                    "--no-agent",
+                    "--field",
+                    "name,owner",
+                    "--include",
+                    "owner_teams,runtime_downstream_services",
+                    "--fields",
+                    "team=handle,user_count",
+                    "--edge-fields",
+                    "runtime_downstream_services=requests_count,error_rate",
+                ][..],
+            ]
+            .concat(),
+        ));
+        assert_eq!(
+            result["query"]["fields_by_kind"]["team"],
+            json!(["handle", "user_count"])
+        );
+        request.assert();
+        team.assert();
+    }
 }
 
 #[test]
 fn field_typos_fail_before_querying_entities() {
-    let mut server = Server::new();
-    let schema = service_schema(&mut server);
-    let entities = server
-        .mock("GET", "/api/v2/idp/entity_graph/entities")
-        .match_query(Matcher::Any)
-        .expect(0)
-        .create();
-    let output = pup(
-        &server,
-        &[
-            "--no-agent",
-            "idp",
-            "entities",
-            "query",
-            "kind:service",
-            "--field",
-            "owenr",
-        ],
-    );
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
-    schema.assert();
-    entities.assert();
+    for (command, _) in ENTITY_COMMANDS {
+        let mut server = Server::new();
+        let schema = service_schema(&mut server);
+        let entities = server
+            .mock("GET", "/api/v2/idp/entity_graph/entities")
+            .match_query(Matcher::Any)
+            .expect(0)
+            .create();
+        let output = pup(
+            &server,
+            &[
+                &["idp", "entities"][..],
+                *command,
+                &["--no-agent", "--field", "owenr"][..],
+            ]
+            .concat(),
+        );
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+        schema.assert();
+        entities.assert();
+    }
 }
 
 #[test]
@@ -187,78 +205,82 @@ fn malformed_entity_response_exits_unsuccessfully() {
 
 #[test]
 fn continuation_replays_projections_absolute_time_scope_and_sorting() {
-    let mut server = Server::new();
-    let _schema = service_schema(&mut server);
-    let common = vec![
-        Matcher::UrlEncoded("fields[service]".into(), "name,requests_per_second".into()),
-        Matcher::UrlEncoded("time[start]".into(), "1789639200000".into()),
-        Matcher::UrlEncoded("time[end]".into(), "1789642800000".into()),
-        Matcher::UrlEncoded("properties[service][scope][*][env]".into(), "prod".into()),
-        Matcher::UrlEncoded("order_by".into(), "name:desc".into()),
-        Matcher::UrlEncoded("free_text_match".into(), "partial".into()),
-        Matcher::UrlEncoded("meta[fields]".into(), "total_count".into()),
-    ];
-    let first = server
-        .mock("GET", "/api/v2/idp/entity_graph/entities")
-        .match_query(Matcher::AllOf(common.clone()))
-        .with_header("content-type", "application/json")
-        .with_body(
-            json!({"data": [], "meta": {"page": {"next_cursor": "opaque cursor"}}}).to_string(),
-        )
-        .create();
-    let result = payload(pup(
-        &server,
-        &[
-            "--no-agent",
-            "--org",
-            "fixture-org",
-            "idp",
-            "entities",
-            "query",
-            "kind:service",
-            "--field",
-            "name,requests_per_second",
-            "--from",
-            "2026-09-17T10:00:00Z",
-            "--to",
-            "2026-09-17T11:00:00Z",
-            "--scope",
-            "env=prod",
-            "--order-by",
-            "name:desc",
-            "--free-text-match",
-            "partial",
-            "--include-total-count",
-        ],
-    ));
-    first.assert();
-    let continuation = result["next_request"]["args"].as_array().unwrap();
-    assert!(continuation
-        .windows(2)
-        .any(|pair| pair == [json!("--org"), json!("fixture-org")]));
-    let mut continued = common;
-    continued.push(Matcher::UrlEncoded(
-        "page[cursor]".into(),
-        "opaque cursor".into(),
-    ));
-    let second = server
-        .mock("GET", "/api/v2/idp/entity_graph/entities")
-        .match_query(Matcher::AllOf(continued))
-        .with_header("content-type", "application/json")
-        .with_body("{\"data\":[]}")
-        .create();
-    let mut args = vec!["--no-agent"];
-    args.extend(
-        result["next_request"]["args"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|value| value.as_str().unwrap()),
-    );
-    let next = payload(pup(&server, &args));
-    assert_eq!(next["page"]["truncated"], false);
-    assert!(next.get("next_request").is_none());
-    second.assert();
+    for (command, query) in ENTITY_COMMANDS {
+        let mut server = Server::new();
+        let _schema = service_schema(&mut server);
+        let common = vec![
+            Matcher::UrlEncoded("query".into(), (*query).into()),
+            Matcher::UrlEncoded("fields[service]".into(), "name,requests_per_second".into()),
+            Matcher::UrlEncoded("time[start]".into(), "1789639200000".into()),
+            Matcher::UrlEncoded("time[end]".into(), "1789642800000".into()),
+            Matcher::UrlEncoded("properties[service][scope][*][env]".into(), "prod".into()),
+            Matcher::UrlEncoded("order_by".into(), "name:desc".into()),
+            Matcher::UrlEncoded("free_text_match".into(), "partial".into()),
+            Matcher::UrlEncoded("meta[fields]".into(), "total_count".into()),
+        ];
+        let first = server
+            .mock("GET", "/api/v2/idp/entity_graph/entities")
+            .match_query(Matcher::AllOf(common.clone()))
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({"data": [], "meta": {"page": {"next_cursor": "opaque cursor"}}}).to_string(),
+            )
+            .create();
+        let result = payload(pup(
+            &server,
+            &[
+                &["idp", "entities"][..],
+                *command,
+                &[
+                    "--no-agent",
+                    "--org",
+                    "fixture-org",
+                    "--field",
+                    "name,requests_per_second",
+                    "--from",
+                    "2026-09-17T10:00:00Z",
+                    "--to",
+                    "2026-09-17T11:00:00Z",
+                    "--scope",
+                    "env=prod",
+                    "--order-by",
+                    "name:desc",
+                    "--free-text-match",
+                    "partial",
+                    "--include-total-count",
+                ][..],
+            ]
+            .concat(),
+        ));
+        first.assert();
+        let continuation = result["next_request"]["args"].as_array().unwrap();
+        assert!(continuation
+            .windows(2)
+            .any(|pair| pair == [json!("--org"), json!("fixture-org")]));
+        let mut continued = common;
+        continued.push(Matcher::UrlEncoded(
+            "page[cursor]".into(),
+            "opaque cursor".into(),
+        ));
+        let second = server
+            .mock("GET", "/api/v2/idp/entity_graph/entities")
+            .match_query(Matcher::AllOf(continued))
+            .with_header("content-type", "application/json")
+            .with_body("{\"data\":[]}")
+            .create();
+        let mut args = vec!["--no-agent"];
+        args.extend(
+            result["next_request"]["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_str().unwrap()),
+        );
+        let next = payload(pup(&server, &args));
+        assert_eq!(next["page"]["truncated"], false);
+        assert!(next.get("next_request").is_none());
+        second.assert();
+    }
 }
 
 #[test]

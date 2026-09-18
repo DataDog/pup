@@ -14,9 +14,17 @@ mod migrate;
 const RUNTIME_DEPENDENCY_RELATIONS: &str = "runtime_upstream_services,runtime_downstream_services";
 const ASSIST_RELATIONS: &str = "owner_teams,runtime_upstream_services,runtime_downstream_services";
 const RUNTIME_DEPENDENCY_LOOKBACK: &str = "1h";
+// Calculated health counts are not part of UEG's default projection.
+const ASSIST_SERVICE_FIELDS: &str = concat!(
+    "name,display_name,description,lifecycle,tier,owner,definition_github_url,contacts,links,",
+    "service_health_status,ok_monitors_count,alert_monitors_count,warning_monitors_count,",
+    "no_data_monitors_count,active_incidents_count,stable_incidents_count,ok_slos_count,",
+    "breached_slos_count,warning_slos_count,no_data_slos_count"
+);
+const OWNER_TEAM_FIELDS: &str = "id,name,handle,summary,description,user_count";
 
 pub use entity_kinds::{describe_kind, list_kinds};
-pub use entity_query::{query_entities, EntityQueryOptions};
+pub use entity_query::{build_scoped_query, query_entities, EntityQueryOptions};
 pub use migrate::migrate_schema;
 
 // ---------------------------------------------------------------------------
@@ -35,6 +43,8 @@ struct AssistResponse {
     metadata_gaps: Vec<String>,
     links: Vec<LinkEntry>,
     suggested_next_actions: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -70,7 +80,7 @@ struct OwnerInfo {
     team_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
-    member_count: i64,
+    member_count: Option<i64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     contacts: Vec<ContactEntry>,
 }
@@ -106,24 +116,24 @@ struct HealthSummary {
 
 #[derive(Serialize)]
 struct MonitorCounts {
-    ok: i64,
-    alert: i64,
-    warn: i64,
-    no_data: i64,
+    ok: Option<i64>,
+    alert: Option<i64>,
+    warn: Option<i64>,
+    no_data: Option<i64>,
 }
 
 #[derive(Serialize)]
 struct IncidentCounts {
-    active: i64,
-    stable: i64,
+    active: Option<i64>,
+    stable: Option<i64>,
 }
 
 #[derive(Serialize)]
 struct SloCounts {
-    ok: i64,
-    breached: i64,
-    warning: i64,
-    no_data: i64,
+    ok: Option<i64>,
+    breached: Option<i64>,
+    warning: Option<i64>,
+    no_data: Option<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -140,8 +150,8 @@ fn str_attr(attrs: &serde_json::Value, key: &str) -> Option<String> {
     attrs.get(key).and_then(|v| v.as_str()).map(String::from)
 }
 
-fn i64_attr(attrs: &serde_json::Value, key: &str) -> i64 {
-    attrs.get(key).and_then(|v| v.as_i64()).unwrap_or(0)
+fn i64_attr(attrs: &serde_json::Value, key: &str) -> Option<i64> {
+    attrs.get(key).and_then(|v| v.as_i64())
 }
 
 fn extract_entity_summary(entity: &serde_json::Value) -> EntitySummary {
@@ -212,12 +222,16 @@ fn extract_team_id(included: &serde_json::Value) -> Option<String> {
 }
 
 /// Fetch on-call responders from the on-call API for a given team ID.
-async fn fetch_on_call(cfg: &Config, team_id: &str) -> Option<OnCallInfo> {
+async fn fetch_on_call(cfg: &Config, team_id: &str) -> Result<Option<OnCallInfo>> {
     let path = format!(
         "/api/v2/on-call/teams/{team_id}/on-call?include=responders,escalations.responders"
     );
-    let data = raw_client::raw_get(cfg, &path, &[]).await.ok()?;
-    let included = data.get("included")?.as_array()?;
+    let data = raw_client::raw_get(cfg, &path, &[]).await?;
+    let included = data
+        .get("included")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
 
     // Primary responders come from data.relationships.responders
     let primary_ids: Vec<String> = data
@@ -302,9 +316,38 @@ async fn fetch_on_call(cfg: &Config, team_id: &str) -> Option<OnCallInfo> {
     }
 
     if responders.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(OnCallInfo { responders })
+        Ok(Some(OnCallInfo { responders }))
+    }
+}
+
+async fn resolve_on_call(
+    cfg: &Config,
+    included: &serde_json::Value,
+    warnings: &mut Vec<String>,
+) -> Option<OnCallInfo> {
+    let team_count = included
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|entity| entity["type"] == "team")
+        .count();
+    if team_count > 1 {
+        warnings.push("Multiple owner teams were returned; this helper shows the first. Use idp entities query --include owner_teams,current_oncalls for all available ownership context.".into());
+    }
+    let Some(team_id) = extract_team_id(included) else {
+        warnings.push("No owner team ID was available; on-call was not checked.".into());
+        return None;
+    };
+    match fetch_on_call(cfg, &team_id).await {
+        Ok(on_call) => on_call,
+        Err(error) => {
+            warnings.push(format!(
+                "On-call lookup failed; responders are unknown: {error}"
+            ));
+            None
+        }
     }
 }
 
@@ -380,12 +423,14 @@ fn compute_metadata_gaps(
 fn compute_next_actions(entity_name: &str, health: &HealthSummary, gaps: &[String]) -> Vec<String> {
     let mut actions = Vec::new();
 
-    if health.monitors.alert > 0 || health.incidents.active > 0 {
+    if health.monitors.alert.is_some_and(|count| count > 0)
+        || health.incidents.active.is_some_and(|count| count > 0)
+    {
         actions.push(format!(
             "Investigate active alerts: `pup monitors list --tag=\"service:{entity_name}\"`"
         ));
     }
-    if health.slos.breached > 0 {
+    if health.slos.breached.is_some_and(|count| count > 0) {
         actions.push(format!(
             "Review breached SLOs: `pup slos list` and filter for {entity_name}"
         ));
@@ -461,7 +506,15 @@ fn entity_query_url(entity: &str, include: &str) -> String {
 /// Flagship command: returns concise entity context + suggested next actions.
 pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
     let entity_path = entity_query_url(entity, ASSIST_RELATIONS);
-    let entity_data = raw_client::raw_get(cfg, &entity_path, &[]).await?;
+    let entity_data = raw_client::raw_get(
+        cfg,
+        &entity_path,
+        &[
+            ("fields[service]", ASSIST_SERVICE_FIELDS),
+            ("fields[team]", OWNER_TEAM_FIELDS),
+        ],
+    )
+    .await?;
 
     // Parse entity from UEG response (JSON:API format: { data: [...], included: [...] })
     let primary = first_entity(&entity_data, entity)?;
@@ -477,10 +530,8 @@ pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
     let health = extract_health(attrs);
 
     // Fetch on-call using team ID from the entity graph response
-    let on_call = match extract_team_id(&included) {
-        Some(team_id) => fetch_on_call(cfg, &team_id).await,
-        None => None,
-    };
+    let mut warnings = Vec::new();
+    let on_call = resolve_on_call(cfg, &included, &mut warnings).await;
     let links = extract_links(attrs);
     let gaps = compute_metadata_gaps(&summary, attrs, &links);
     let next_actions = compute_next_actions(&summary.name, &health, &gaps);
@@ -496,6 +547,7 @@ pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
         metadata_gaps: gaps,
         links,
         suggested_next_actions: next_actions,
+        warnings,
     };
 
     let meta = formatter::Metadata {
@@ -602,7 +654,15 @@ pub async fn find(cfg: &Config, query: &str, limit: usize, cursor: Option<&str>)
 /// Resolve owner, team, and on-call context for an entity.
 pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
     let path = entity_query_url(entity, "owner_teams");
-    let data = raw_client::raw_get(cfg, &path, &[]).await?;
+    let data = raw_client::raw_get(
+        cfg,
+        &path,
+        &[
+            ("fields[service]", "contacts"),
+            ("fields[team]", OWNER_TEAM_FIELDS),
+        ],
+    )
+    .await?;
 
     let primary = first_entity(&data, entity)?;
     let included = data
@@ -611,10 +671,8 @@ pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
         .unwrap_or(serde_json::json!([]));
     let contacts = extract_contacts(&primary["attributes"]);
     let owner_info = extract_owner(&included, contacts);
-    let on_call = match extract_team_id(&included) {
-        Some(team_id) => fetch_on_call(cfg, &team_id).await,
-        None => None,
-    };
+    let mut warnings = Vec::new();
+    let on_call = resolve_on_call(cfg, &included, &mut warnings).await;
 
     let mut response = serde_json::json!({
         "entity": entity,
@@ -624,6 +682,9 @@ pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
     }
     if let Some(oc) = &on_call {
         response["on_call"] = serde_json::to_value(oc)?;
+    }
+    if !warnings.is_empty() {
+        response["warnings"] = serde_json::to_value(warnings)?;
     }
 
     let meta = formatter::Metadata {
@@ -645,7 +706,8 @@ pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
 /// Show dependency and relationship context for an entity.
 pub async fn deps(cfg: &Config, entity: &str) -> Result<()> {
     let entity_path = entity_query_url(entity, RUNTIME_DEPENDENCY_RELATIONS);
-    let entity_data = raw_client::raw_get(cfg, &entity_path, &[]).await?;
+    let entity_data =
+        raw_client::raw_get(cfg, &entity_path, &[("fields[service]", "name")]).await?;
     let primary = first_entity(&entity_data, entity)?;
     let dependencies = extract_runtime_dependencies(primary);
     let dependency_count = dependencies.upstream.len() + dependencies.downstream.len();
@@ -781,6 +843,49 @@ mod tests {
     use super::*;
     use crate::test_support::*;
     use mockito::Matcher;
+
+    #[test]
+    fn health_counts_preserve_unknown_zero_and_positive_values() {
+        let health = extract_health(&serde_json::json!({
+            "active_incidents_count": null, "ok_monitors_count": 0,
+            "alert_monitors_count": 2, "breached_slos_count": "unknown"
+        }));
+        assert_eq!(health.monitors.ok, Some(0));
+        assert_eq!(health.monitors.alert, Some(2));
+        assert_eq!(health.incidents.active, None);
+        assert_eq!(health.slos.breached, None);
+        let value = serde_json::to_value(&health).unwrap();
+        assert!(value["incidents"]["active"].is_null());
+        assert!(compute_next_actions("checkout", &health, &[])
+            .iter()
+            .any(|action| action.contains("Investigate")));
+        let unknown = extract_health(&serde_json::json!({}));
+        assert!(!compute_next_actions("checkout", &unknown, &[])
+            .iter()
+            .any(|action| action.contains("Investigate")));
+    }
+
+    #[tokio::test]
+    async fn on_call_failures_are_visible_without_losing_service_context() {
+        let _guard = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/v2/on-call/teams/team-id/on-call")
+            .match_query(Matcher::Any)
+            .with_status(403)
+            .with_body("forbidden")
+            .create_async()
+            .await;
+        let included = serde_json::json!([{"type": "team", "attributes": {"id": "team-id"}}]);
+        let mut warnings = Vec::new();
+        assert!(resolve_on_call(&cfg, &included, &mut warnings)
+            .await
+            .is_none());
+        assert!(warnings[0].contains("responders are unknown"));
+        mock.assert_async().await;
+        cleanup_env();
+    }
 
     fn service_with_runtime_dependencies() -> serde_json::Value {
         serde_json::json!({
@@ -1052,6 +1157,7 @@ mod tests {
                 Matcher::UrlEncoded("page[limit]".into(), "1".into()),
                 Matcher::UrlEncoded("time[past]".into(), RUNTIME_DEPENDENCY_LOOKBACK.into()),
                 Matcher::UrlEncoded("include".into(), RUNTIME_DEPENDENCY_RELATIONS.into()),
+                Matcher::UrlEncoded("fields[service]".into(), "name".into()),
             ]))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -1214,6 +1320,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_rejects_invalid_limit_before_request() {
+        let _guard = crate::test_support::lock_env().await;
         let cfg = crate::test_support::test_config("http://unused.local");
 
         let error = find(&cfg, "catalog", 0, None).await.unwrap_err();

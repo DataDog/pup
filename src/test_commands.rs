@@ -461,19 +461,87 @@ fn test_extension_list_remote_parses() {
     }
 }
 
+fn visible_top_level_command_names(app: &clap::Command) -> Vec<String> {
+    app.get_subcommands()
+        .filter(|command| command.get_name() != "help" && !command.is_hide_set())
+        .map(|command| command.get_name().to_string())
+        .collect()
+}
+
+fn rendered_top_level_command_names(app: &mut clap::Command) -> Vec<String> {
+    let visible_names = visible_top_level_command_names(app);
+    let help = app.render_help().to_string();
+
+    help.lines()
+        .skip_while(|line| line.trim() != "Commands:")
+        .skip(1)
+        .take_while(|line| !line.trim().is_empty())
+        .filter_map(|line| line.strip_prefix("  "))
+        .filter(|line| !line.starts_with(' '))
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| visible_names.iter().any(|visible| visible == name))
+        .map(str::to_string)
+        .collect()
+}
+
 #[test]
 fn test_top_level_commands_sorted_alphabetically() {
-    let app = crate::Cli::command();
-    let names: Vec<&str> = app
-        .get_subcommands()
-        .filter(|cmd| cmd.get_name() != "help" && !cmd.is_hide_set())
-        .map(|cmd| cmd.get_name())
-        .collect();
-    let mut sorted = names.clone();
-    sorted.sort_unstable();
+    let mut app = crate::cli_command();
+    let mut expected = visible_top_level_command_names(&app);
+    expected.sort_unstable();
+    let names = rendered_top_level_command_names(&mut app);
+
     assert_eq!(
-        names, sorted,
-        "top-level commands must be in alphabetical order.\nActual:   {names:?}\nExpected: {sorted:?}"
+        names, expected,
+        "top-level commands in help must be in alphabetical order.\nActual:   {names:?}\nExpected: {expected:?}"
+    );
+}
+
+#[test]
+fn test_top_level_commands_share_display_order() {
+    assert!(
+        crate::cli_command()
+            .get_subcommands()
+            .all(|command| command.get_display_order() == 0),
+        "top-level commands must share a display order so clap sorts them by name"
+    );
+}
+
+#[test]
+fn test_top_level_command_names_and_aliases_are_unique() {
+    let app = crate::Cli::command();
+    let mut names = std::collections::HashMap::new();
+
+    for command in app.get_subcommands() {
+        for name in std::iter::once(command.get_name()).chain(command.get_all_aliases()) {
+            if let Some(existing) = names.insert(name, command.get_name()) {
+                panic!(
+                    "top-level command name or alias `{name}` for `{}` conflicts with `{existing}`",
+                    command.get_name()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_shared_display_order_sorts_appended_subcommand_in_help() {
+    let mut app =
+        crate::cli_command().subcommand(clap::Command::new("downtime-z-test").display_order(0));
+    let names: Vec<String> = rendered_top_level_command_names(&mut app)
+        .into_iter()
+        .filter(|name| {
+            matches!(
+                name.as_str(),
+                "downtime" | "downtime-z-test" | "error-tracking"
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        names,
+        ["downtime", "downtime-z-test", "error-tracking"],
+        "display order did not interleave the appended command"
     );
 }
 
@@ -806,32 +874,20 @@ fn test_idp_entity_graph_commands_parse() {
         crate::Commands::Idp {
             action: crate::IdpActions::Entities { action },
         } => match *action {
-            crate::IdpEntitiesActions::Query {
-                query,
-                field,
-                include,
-                order_by,
-                limit,
-                cursor,
-                free_text_match,
-                include_total_count,
-                timeseries_interval,
-                relation_limit,
-                raw,
-                ..
-            } if query == "kind:service AND owner:payments" => {
-                assert_eq!(field, vec!["name", "owner"]);
-                assert_eq!(include, vec!["owner_teams"]);
-                assert_eq!(order_by, vec!["name:desc"]);
-                assert_eq!(limit, 50);
-                assert_eq!(cursor.as_deref(), Some("next-page"));
-                assert_eq!(free_text_match.as_deref(), Some("fuzzy"));
-                assert!(include_total_count);
-                assert_eq!(serde_json::json!(timeseries_interval), "24h");
-                assert_eq!(relation_limit, 10);
-                assert!(raw);
+            crate::IdpEntitiesActions::Query { query, options } => {
+                assert_eq!(query, "kind:service AND owner:payments");
+                assert_eq!(options.field, vec!["name", "owner"]);
+                assert_eq!(options.include, vec!["owner_teams"]);
+                assert_eq!(options.order_by, vec!["name:desc"]);
+                assert_eq!(options.limit, 50);
+                assert_eq!(options.cursor.as_deref(), Some("next-page"));
+                assert_eq!(options.free_text_match.as_deref(), Some("fuzzy"));
+                assert!(options.include_total_count);
+                assert_eq!(serde_json::json!(options.timeseries_interval), "24h");
+                assert_eq!(options.relation_limit, 10);
+                assert!(options.raw);
             }
-            _ => panic!("expected IdpEntitiesActions::Query with the supplied query"),
+            _ => panic!("expected IdpEntitiesActions::Query"),
         },
         _ => panic!("expected IdpEntitiesActions::Query"),
     }
@@ -894,6 +950,86 @@ fn test_idp_entity_graph_commands_parse() {
         }
         _ => panic!("expected IdpActions::Find"),
     }
+}
+
+#[test]
+fn test_idp_entity_scoped_commands_parse() {
+    use clap::Parser;
+
+    let list = crate::Cli::try_parse_from([
+        "pup",
+        "idp",
+        "entities",
+        "list",
+        "--filter-kind",
+        "integration.github.pull_request",
+        "--field",
+        "title,state",
+        "--order-by",
+        "updated_at:desc",
+        "--limit",
+        "10",
+    ])
+    .expect("IDP scoped entity list should parse");
+    match list.command {
+        crate::Commands::Idp {
+            action: crate::IdpActions::Entities { action },
+        } => match *action {
+            crate::IdpEntitiesActions::List {
+                filter_kind,
+                options,
+            } => {
+                assert_eq!(filter_kind, "integration.github.pull_request");
+                assert_eq!(options.field, vec!["title", "state"]);
+                assert_eq!(options.order_by, vec!["updated_at:desc"]);
+                assert_eq!(options.limit, 10);
+            }
+            _ => panic!("expected IdpEntitiesActions::List"),
+        },
+        _ => panic!("expected IdpEntitiesActions::List"),
+    }
+
+    let search = crate::Cli::try_parse_from([
+        "pup",
+        "idp",
+        "entities",
+        "search",
+        "--filter-kind",
+        "service",
+        "--query",
+        "owner:idp OR team:idp",
+        "--cursor",
+        "next-page",
+    ])
+    .expect("IDP scoped entity search should parse");
+    match search.command {
+        crate::Commands::Idp {
+            action: crate::IdpActions::Entities { action },
+        } => match *action {
+            crate::IdpEntitiesActions::Search {
+                filter_kind,
+                query,
+                options,
+            } => {
+                assert_eq!(filter_kind, "service");
+                assert_eq!(query, "owner:idp OR team:idp");
+                assert_eq!(options.cursor.as_deref(), Some("next-page"));
+            }
+            _ => panic!("expected IdpEntitiesActions::Search"),
+        },
+        _ => panic!("expected IdpEntitiesActions::Search"),
+    }
+
+    assert!(crate::Cli::try_parse_from(["pup", "idp", "entities", "list"]).is_err());
+    assert!(crate::Cli::try_parse_from([
+        "pup",
+        "idp",
+        "entities",
+        "search",
+        "--filter-kind",
+        "service"
+    ])
+    .is_err());
 }
 
 #[test]
@@ -1000,6 +1136,21 @@ fn test_idp_entity_graph_schema_marks_commands_read_only() {
         .unwrap()
         .iter()
         .any(|flag| flag["name"] == "--relation-limit"));
+
+    for name in ["list", "search"] {
+        let command = entities["subcommands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|command| command["name"] == name)
+            .unwrap_or_else(|| panic!("idp entities {name} should exist"));
+        assert_eq!(command["read_only"], true);
+        assert!(command["flags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|flag| flag["name"] == "--filter-kind"));
+    }
 }
 
 #[test]
@@ -1010,6 +1161,17 @@ fn test_read_only_guard_allows_idp_entity_graph_commands() {
         vec!["pup", "idp", "kinds", "list"],
         vec!["pup", "idp", "kinds", "describe", "service"],
         vec!["pup", "idp", "entities", "query", "kind:service"],
+        vec!["pup", "idp", "entities", "list", "--filter-kind", "service"],
+        vec![
+            "pup",
+            "idp",
+            "entities",
+            "search",
+            "--filter-kind",
+            "service",
+            "--query",
+            "owner:idp",
+        ],
     ] {
         let matches = crate::Cli::command().try_get_matches_from(args).unwrap();
         let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();

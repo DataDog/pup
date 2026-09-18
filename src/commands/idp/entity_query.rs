@@ -72,6 +72,25 @@ struct QueryTime {
     end: Option<i64>,
 }
 
+/// Build a kind-scoped entity query for the list/search convenience commands.
+///
+/// The explicit kind is validated before interpolation so query operators cannot
+/// escape the `kind:<kind>` scope. Search expressions are parenthesized to keep
+/// top-level OR alternatives beneath that scope.
+pub fn build_scoped_query(kind: &str, filter: Option<&str>) -> Result<String> {
+    let kind = kind.trim();
+    validate_kind_name(kind).context("invalid --filter-kind")?;
+
+    let Some(filter) = filter else {
+        return Ok(format!("kind:{kind}"));
+    };
+    let filter = filter.trim();
+    if filter.is_empty() {
+        bail!("--query cannot be blank");
+    }
+    Ok(format!("kind:{kind} AND ({filter})"))
+}
+
 pub async fn query_entities(cfg: &Config, options: EntityQueryOptions) -> Result<()> {
     let mut options = normalize_options(options)?;
     let mut warnings = Vec::new();
@@ -1322,6 +1341,30 @@ mod tests {
             relation_limit: 25,
             raw: false,
         }
+    }
+
+    #[test]
+    fn builds_kind_scoped_convenience_queries() {
+        assert_eq!(
+            build_scoped_query(" service ", None).unwrap(),
+            "kind:service"
+        );
+        assert_eq!(
+            build_scoped_query(
+                "integration.k8s.deployment",
+                Some("name:api OR name:worker")
+            )
+            .unwrap(),
+            "kind:integration.k8s.deployment AND (name:api OR name:worker)"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_scoped_convenience_queries() {
+        assert!(build_scoped_query(" ", None).is_err());
+        assert!(build_scoped_query("service", Some("  ")).is_err());
+        assert!(build_scoped_query("service) OR (kind:repository", None).is_err());
+        assert!(build_scoped_query("service", Some("")).is_err());
     }
 
     #[test]

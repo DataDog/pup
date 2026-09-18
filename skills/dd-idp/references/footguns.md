@@ -75,6 +75,11 @@ A service kind can expose dozens of relation types. For a fast one-step context 
 
 Count and boolean fields may be null. Null does not mean zero, false, healthy, compliant, authenticated, or rate-limited. Distinguish “no matching rows,” “explicitly zero,” and “no data returned.”
 
+`idp assist` also preserves unavailable health counts as null. `assist` and
+`owner` surface unsuccessful on-call lookups in `warnings`; missing responders
+after a failed lookup do not mean nobody is on call. For multiple owner teams,
+use the query command's `owner_teams` and `current_oncalls` relations.
+
 ### Time windows change meaning
 
 Use `--timeseries-interval 168h` or `7d`, or supply both `--from` and `--to`.

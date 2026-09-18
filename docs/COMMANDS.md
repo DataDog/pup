@@ -121,18 +121,6 @@ pup metrics timeseries --file=request.json
 pup events search --query="@user.id:12345"
 ```
 
-### IDP Service Context
-
-`assist` preserves unavailable health counts as null and explicitly requests
-the calculated counts it reports. `assist` and `owner` expose failed on-call
-lookups in `warnings`; a failed lookup does not mean nobody is on call.
-
-```bash
-pup idp assist my-service
-pup idp owner my-service
-pup idp deps my-service
-```
-
 ### IDP Entity Graph
 
 Use kind discovery before writing flexible cross-entity queries:

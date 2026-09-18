@@ -138,6 +138,12 @@ pup idp entities query 'kind:service AND owner:payments' \
   --field name,owner,contacts,service_health_status \
   --include owner_teams,systems
 
+# Use scoped convenience wrappers when the kind is already known.
+pup idp entities list --filter-kind=service \
+  --field name,owner,contacts
+pup idp entities search --filter-kind=service \
+  --query='owner:idp OR team:idp'
+
 # Continue an explicitly paginated query.
 pup idp entities query 'kind:service' --cursor '<next_cursor>'
 ```
@@ -145,9 +151,11 @@ pup idp entities query 'kind:service' --cursor '<next_cursor>'
 Every query must contain one unquoted `kind:<kind>` filter or a concrete
 `ref:"ref:<kind>:<id>"`. Top-level `OR` across result kinds is rejected; group
 alternatives below a shared kind instead, for example
-`kind:service AND (owner:idp OR team:idp)`. `--field` selects attributes and
-`--include` expands relations. Output is normalized and bounded for agents by
-default; pass `--raw` for the original JSON:API response.
+`kind:service AND (owner:idp OR team:idp)`. The scoped `list` and `search`
+commands build that kind scope from `--filter-kind`; `search` wraps `--query`
+in parentheses so `OR` alternatives cannot escape the kind. `--field` selects
+attributes and `--include` expands relations. Output is normalized and bounded
+for agents by default; pass `--raw` for the original JSON:API response.
 
 ### Create/Update/Delete
 ```bash

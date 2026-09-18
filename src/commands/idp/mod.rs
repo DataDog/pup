@@ -16,7 +16,7 @@ const ASSIST_RELATIONS: &str = "owner_teams,runtime_upstream_services,runtime_do
 const RUNTIME_DEPENDENCY_LOOKBACK: &str = "1h";
 
 pub use entity_kinds::{describe_kind, list_kinds};
-pub use entity_query::{query_entities, EntityQueryOptions};
+pub use entity_query::{build_scoped_query, query_entities, EntityQueryOptions};
 pub use migrate::migrate_schema;
 
 // ---------------------------------------------------------------------------

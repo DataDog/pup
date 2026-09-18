@@ -81,6 +81,8 @@ pub(crate) struct Cli {
     command: Commands,
 }
 
+/// Build the CLI with top-level subcommands sorted by name in help output.
+/// Nested subcommands retain their declared display order.
 pub(crate) fn cli_command() -> clap::Command {
     Cli::command().mut_subcommands(|command| command.display_order(0))
 }
@@ -13337,7 +13339,7 @@ async fn main_inner() -> anyhow::Result<()> {
     let has_agent_flag = args.iter().any(|a| a == "--agent");
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
     if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
-        let cmd = Cli::command();
+        let cmd = cli_command();
         if let Some(schema) = agent_help_schema(&cmd, &args) {
             println!("{}", serde_json::to_string_pretty(&schema).unwrap());
             return Ok(());

@@ -48,7 +48,7 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Release: bump Cargo.toml/Cargo.lock on a release/<tag> branch and open a PR.
+  # Release: bump Cargo.toml/Cargo.lock and plugin.json on a release/<tag> branch and open a PR.
   # Merging the PR triggers release-tag.yml, which creates the tag and triggers
   # release.yml.
   # ---------------------------------------------------------------------------
@@ -132,6 +132,17 @@ jobs:
             exit 1
           fi
 
+      - name: Bump plugin.json
+        # the portable Agent Plugins manifest follows the CLI's version
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new-version }}"
+          sed -i "s/^  \"version\": \"[0-9]*\.[0-9]*\.[0-9]*\"/  \"version\": \"${NEW_VERSION}\"/" plugin.json
+          PLUGIN_VERSION=$(grep '^  "version": ' plugin.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+          if [[ "$PLUGIN_VERSION" != "$NEW_VERSION" ]]; then
+            echo "::error::plugin.json version update failed (got '${PLUGIN_VERSION}', expected '${NEW_VERSION}')"
+            exit 1
+          fi
+
       - name: Refresh Cargo.lock
         run: cargo check --quiet 2>&1 | grep -v "^$" || true
 
@@ -154,21 +165,25 @@ jobs:
             | gh api "repos/${REPO}/git/blobs" --input - --jq .sha)
           CARGO_LOCK_BLOB=$(jq -n --rawfile c Cargo.lock '{content: $c, encoding: "utf-8"}' \
             | gh api "repos/${REPO}/git/blobs" --input - --jq .sha)
+          PLUGIN_JSON_BLOB=$(jq -n --rawfile c plugin.json '{content: $c, encoding: "utf-8"}' \
+            | gh api "repos/${REPO}/git/blobs" --input - --jq .sha)
 
           TREE_SHA=$(jq -n \
             --arg base "${BASE_TREE}" \
             --arg toml "${CARGO_TOML_BLOB}" \
             --arg lock "${CARGO_LOCK_BLOB}" \
+            --arg plugin "${PLUGIN_JSON_BLOB}" \
             '{
               base_tree: $base,
               tree: [
                 {path: "Cargo.toml", mode: "100644", type: "blob", sha: $toml},
-                {path: "Cargo.lock", mode: "100644", type: "blob", sha: $lock}
+                {path: "Cargo.lock", mode: "100644", type: "blob", sha: $lock},
+                {path: "plugin.json", mode: "100644", type: "blob", sha: $plugin}
               ]
             }' | gh api "repos/${REPO}/git/trees" --input - --jq .sha)
 
-          MESSAGE=$(printf 'chore(release): bump version to %s\n\n- Update Cargo.toml package version %s → %s\n- Refresh Cargo.lock' \
-            "${NEW_TAG}" "${CURRENT_TAG#v}" "${NEW_VERSION}")
+          MESSAGE=$(printf 'chore(release): bump version to %s\n\n- Update Cargo.toml package version %s → %s\n- Refresh Cargo.lock\n- Update plugin.json version to %s' \
+            "${NEW_TAG}" "${CURRENT_TAG#v}" "${NEW_VERSION}" "${NEW_VERSION}")
 
           COMMIT_SHA=$(jq -n \
             --arg msg "${MESSAGE}" \

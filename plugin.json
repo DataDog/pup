@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "pup",
+  "version": "1.22.1",
+  "description": "Datadog API CLI with 49 command groups, 300+ subcommands. Skills and domain agents for monitoring, logs, APM, security, and infrastructure.",
+  "author": {
+    "name": "Datadog",
+    "email": "support@datadoghq.com"
+  },
+  "homepage": "https://github.com/DataDog/pup#readme",
+  "repository": "https://github.com/DataDog/pup",
+  "license": "Apache-2.0",
+  "keywords": ["datadog", "monitoring", "logs", "apm", "metrics", "security", "infrastructure"]
+}

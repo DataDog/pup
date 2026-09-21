@@ -7,7 +7,7 @@
 #   1. Validates you're on main with a clean working tree
 #   2. Computes the next version via git-semver
 #   3. Creates a release branch (chore/release-vX.Y.Z)
-#   4. Updates Cargo.toml + Cargo.lock
+#   4. Updates Cargo.toml + Cargo.lock, and plugin.json
 #   5. Creates a signed commit and pushes the branch
 #   6. Opens a GitHub PR with release description, asks y/N to proceed
 #   7. Merges the PR, pulls main, creates an annotated tag, and pushes it
@@ -87,6 +87,16 @@ if [[ "$CARGO_VERSION" != "$NEW_VERSION" ]]; then
 fi
 echo "updated Cargo.toml: $CARGO_VERSION"
 
+# ── update plugin.json (the portable Agent Plugins manifest follows the CLI's version) ──
+
+PLUGIN_JSON="$(git rev-parse --show-toplevel)/plugin.json"
+sed -i '' "s/^  \"version\": \"[0-9]*\.[0-9]*\.[0-9]*\"/  \"version\": \"${NEW_VERSION}\"/" "$PLUGIN_JSON"
+PLUGIN_VERSION=$(grep '^  "version": ' "$PLUGIN_JSON" | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+if [[ "$PLUGIN_VERSION" != "$NEW_VERSION" ]]; then
+    die "plugin.json version update failed (got '$PLUGIN_VERSION', expected '$NEW_VERSION')"
+fi
+echo "updated plugin.json: $PLUGIN_VERSION"
+
 # ── refresh Cargo.lock ────────────────────────────────────────────────────────
 
 echo "refreshing Cargo.lock..."
@@ -94,12 +104,13 @@ cargo check --quiet 2>&1 | grep -v "^$" || true
 
 # ── commit (gpgsign=true in .gitconfig, so signing is automatic) ──────────────
 
-git add Cargo.toml Cargo.lock
+git add Cargo.toml Cargo.lock plugin.json
 git commit -m "$(cat <<EOF
 chore(release): bump version to ${NEW_TAG}
 
 - Update Cargo.toml package version ${CURRENT_TAG#v} → ${NEW_VERSION}
 - Refresh Cargo.lock
+- Update plugin.json version to ${NEW_VERSION}
 
 EOF
 )"
@@ -124,6 +135,7 @@ Release ${NEW_TAG}: version bump from ${CURRENT_TAG} to ${NEW_TAG}.
 ## Changes
 - Update \`Cargo.toml\` package version ${CURRENT_TAG#v} → ${NEW_VERSION}
 - Refresh \`Cargo.lock\`
+- Update \`plugin.json\` version to ${NEW_VERSION}
 
 ## Testing
 - CI will run \`cargo test\`, \`cargo clippy\`, and \`cargo fmt --check\`

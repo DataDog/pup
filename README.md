@@ -629,6 +629,9 @@ Pup ships plugin manifest files for several AI coding assistants:
 # Codex (reads .codex-plugin/plugin.json from the repo, or marketplace.json from ~/.agents/plugins/)
 
 # Cursor (reads .cursor-plugin/plugin.json from the repo)
+
+# Agent Plugins format (plugin.json at the repo root, read by GitHub Copilot CLI and by
+# marketplaces in that format; its version follows the CLI's release)
 ```
 
 ## ACP Server

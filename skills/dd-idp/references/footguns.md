@@ -12,6 +12,12 @@ Use this reference when a query fails, returns zero unexpectedly, or supports a 
 
 ## Syntax that silently misleads
 
+### Float comparisons
+
+Some deployments reject comparisons such as `cost_dollar_weekly_change:>0`
+even when the live schema advertises them. Select the field, sort with
+`--order-by`, and inspect the returned values within an explicit result budget.
+
 ### Calculated fields in aggregate filters
 
 A field supported by entity queries is not necessarily supported inside a named
@@ -98,6 +104,8 @@ support is field-specific, and current runtime edges are not environment-isolate
 Runtime edge values are window aggregates, not anomaly or causality scores.
 Upstream can coalesce missing measurements to zero; zero does not prove health.
 Requesting edge measurements can also change which observed edges are discovered.
+Runtime queue edges use producer operations; they do not establish a complete
+producer/consumer topology.
 
 Some deployments fail when an absolute window, a property scope, a timeseries
 attribute such as `requests_per_second`, and runtime relationship expansion are

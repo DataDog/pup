@@ -33,17 +33,17 @@ Use service `contacts` for contact channels and returned code locations for repo
 
 ## Which callers could be affected by a change?
 
-For an SRE or service owner planning a change: inspect observed callers and the request/error measurements on their connections to this service.
+For an SRE or service owner investigating a failure or planning a change: find the services that call a shared dependency and their owners. Start with a returned ref for a `service`, `datastore`, `queue`, `external_provider`, or `inferred_service`.
 
 ```bash
-pup --read-only idp entities query 'ref:"<service-ref>"' \
-  --field name,owner \
+pup --read-only idp entities query 'ref:"<entity-ref>"' \
+  --fields service=name,owner \
   --include runtime_upstream_services \
   --edge-fields runtime_upstream_services=requests_count,error_rate \
   --timeseries-interval 1h --relation-limit 5 --limit 1
 ```
 
-`runtime_upstream_services` are callers of this service; `runtime_downstream_services` are services it calls. Follow returned caller refs for ownership or deeper investigation. Report the window and sampled coverage; this is observed dependency context, not a complete blast radius or proof of causality. See [measurement limitations](footguns.md#time-windows-change-meaning) before interpreting edge values or environment scope.
+`runtime_upstream_services` are services observed calling the selected entity. Follow returned caller refs for deeper investigation. Report the window and sampled coverage; this is observed dependency context, not a complete blast radius or proof of causality. See [measurement limitations](footguns.md#time-windows-change-meaning) before interpreting edge values, queue direction, or environment scope.
 
 ## Which services does our team own?
 
@@ -57,6 +57,21 @@ pup --read-only idp entities query 'kind:service AND owner:"<team-handle>"' \
 ```
 
 Check `page.stop_reason` before calling this a complete inventory. If the result budget is reached, use the returned `next_request.args`; see [pagination](ueg-dsl.md#pagination-and-completeness).
+
+## Which services increased in cost?
+
+For an engineering lead or FinOps partner: review cost changes and estimated savings for a team's primary-owned services.
+
+```bash
+pup --read-only idp entities query 'kind:service AND owner:"<team-handle>"' \
+  --field name,owner,current_week_cost,previous_week_cost,cost_dollar_weekly_change,potential_monthly_savings \
+  --order-by cost_dollar_weekly_change:desc,name:asc \
+  --limit 25 --max-results 100
+```
+
+Inspect positive changes in the sorted results; see [float filters](footguns.md#float-comparisons). Check [pagination](ueg-dsl.md#pagination-and-completeness) before summarizing the whole team.
+
+The cost fields compare two seven-day periods adjusted for billing-data stability, not calendar weeks. `--timeseries-interval` does not change those periods. Savings are monthly estimates from Cloud Cost Management recommendations; inspect those recommendations before deciding what to change.
 
 ## Which services are missing a primary owner?
 
@@ -214,7 +229,30 @@ pup --read-only idp entities query \
 
 Do not trust the query predicate alone: verify `endpoint_is_public` on every returned row. Live schema-declared booleans may arrive as JSON booleans or as strings (`"true"` / `"false"`). Normalize only those explicit forms; treat null or absent authentication/rate-limit values as unknown, and report only explicit false values as missing controls.
 
-## Repository-scoped security and code quality
+## Security findings and code quality
+
+### Which services and owners are affected by this advisory?
+
+For a security engineer routing remediation: find services linked to a library vulnerability advisory and return their owners. Use the advisory identifier recorded by UEG, which may be a GHSA or CVE identifier.
+
+```bash
+pup --read-only idp entities query \
+  'kind:service AND library_vulnerability.advisory_id:"<advisory-id>"' \
+  --field name,owner --order-by name:asc --limit 25
+```
+
+For the package, version, and repository evidence behind the advisory:
+
+```bash
+pup --read-only idp entities query \
+  'kind:library_vulnerability AND advisory_id:"<advisory-id>"' \
+  --field severity,advisory_id,package_normalized_name,package_version,services,repository_id,package_decl_filename \
+  --limit 25
+```
+
+These are reported vulnerability associations, not proof of exploitability. Use the returned finding details with `pup security` for remediation context.
+
+### Repository-scoped security and code quality
 
 Discover exact deployed kinds first. Representative shapes include:
 
@@ -240,6 +278,21 @@ pup --read-only idp entities query \
 ```
 
 Repository association is authoritative for the repository, not necessarily for each service in a monorepo. Label free-text service matching as inferred and route to `pup security` or `pup static-analysis` when the user needs product-specific detail.
+
+## Which Terraform workspaces have drift?
+
+For a platform engineer with the Terraform integration connected: find drifted workspaces and the repository directories containing their configuration.
+
+```bash
+pup --read-only idp entities query \
+  'kind:integration.terraform.workspace AND vcs_repo_identifier:"<org>/<repository>" AND terraform_assessment_result.drifted:true' \
+  --field name,vcs_repo_identifier,working_directory \
+  --include terraform_assessment_result \
+  --fields integration.terraform.assessment_result=drifted,resources_drifted,checks_failed \
+  --relation-limit 1 --limit 25
+```
+
+Confirm the returned assessment reports `drifted: true`, then inspect the workspace and its configuration. Start from the workspace: the reverse assessment-to-workspace relationship may be omitted.
 
 ## Bounded Kubernetes inventory
 

@@ -1,6 +1,6 @@
 ---
 name: dd-idp
-description: Answer questions about who owns a service or endpoint, where its code lives, which callers a change could affect, and which services need health, ownership, or security attention. Use Pup's read-only Datadog entity graph to connect services, teams, code, dependencies, and operational context.
+description: Answer questions about service and endpoint ownership, source code, dependency impact, team health and cost, vulnerability advisories, and Terraform drift using Pup's read-only Datadog entity graph.
 metadata:
   version: "1.0.0"
   author: datadog-labs
@@ -15,18 +15,21 @@ Use Pup's read-only Unified Entity Graph (UEG) to discover software, ownership, 
 ## Start with the user's question
 
 Choose the closest recipe for the task.
-Start from the identifier the user has (an endpoint, service, repository, or team)
-and follow returned refs to connect it to the answer.
+Start from the identifier the user has and follow returned refs to connect it
+to the answer.
 
 | Question | Often useful to | Recipe |
 | --- | --- | --- |
 | Which service handles this endpoint, and who owns it? | On-call engineer | [Endpoint to service](references/recipes.md#which-service-handles-this-endpoint) |
 | Where is this service's code, and whom should I contact? | Engineer joining a team | [Service context](references/recipes.md#where-is-this-services-code-and-who-owns-it) |
 | Who is on call for this service now? | Incident lead | [On-call contact](references/recipes.md#who-is-on-call-for-this-service) |
-| Which callers could be affected if I change this service? | SRE or service owner | [Caller impact](references/recipes.md#which-callers-could-be-affected-by-a-change) |
+| Which services depend on this service, database, queue, or provider? | SRE or service owner | [Caller impact](references/recipes.md#which-callers-could-be-affected-by-a-change) |
 | What does our team own, and what needs attention? | Engineering lead | [Portfolio](references/recipes.md#which-services-does-our-team-own) and [health](references/recipes.md#which-services-need-reliability-attention) |
+| Which services increased in cost, and where are savings suggested? | Engineering lead or FinOps partner | [Team cost](references/recipes.md#which-services-increased-in-cost) |
 | Which services need ownership or standards cleanup? | Platform engineer | [Ownership gaps](references/recipes.md#which-services-are-missing-a-primary-owner) and [scorecard levels](references/recipes.md#which-services-are-below-our-scorecard-target) |
 | Which public endpoints lack protections, and who owns them? | Security engineer | [API posture](references/recipes.md#which-public-endpoints-need-security-attention) |
+| Which services and owners need to act on this vulnerability advisory? | Security engineer | [Advisory to owners](references/recipes.md#which-services-and-owners-are-affected-by-this-advisory) |
+| Which Terraform workspaces have drift, and where is their configuration? | Platform engineer | [Terraform drift](references/recipes.md#which-terraform-workspaces-have-drift) |
 
 For deployment, infrastructure, repository, PR, and Jira questions, use the
 other [recipes](references/recipes.md). Discover unfamiliar integration or custom
@@ -86,4 +89,4 @@ sharing a repository or a similar name does not establish service impact.
 
 - Read [UEG DSL](references/ueg-dsl.md) when constructing or paginating a query, choosing flags, or following relations.
 - Read [UEG footguns](references/footguns.md) when a query fails, unexpectedly returns zero, or touches timestamps, negation, high-cardinality relations, APIs, GitHub, Jira, scorecards, or security findings.
-- Read [IDP recipes](references/recipes.md) for one-step service context, dependency and change impact, team health, repository, PR, Jira, incident, SLO, API, and security workflows.
+- Read [IDP recipes](references/recipes.md) for runnable queries answering the questions above and other integration workflows.

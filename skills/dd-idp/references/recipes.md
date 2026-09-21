@@ -163,7 +163,7 @@ For an incident lead: resolve the owning team and current responders together.
 pup --read-only idp owner "<service-name>"
 ```
 
-This helper uses the service's owner team to look up responders in the on-call API. Check `warnings` if enrichment fails; an absent responder is not proof that nobody is responsible. Prefer this path when the graph's `current_oncalls` relation is unavailable. Use the returned contacts for the escalation the user requested.
+Datadog On-Call responder data is not yet available in UEG. This helper resolves the owning team through UEG and reads that team's responders from the Datadog On-Call API. Check `warnings` if enrichment fails; an absent responder is not proof that nobody is responsible. When Datadog On-Call support is added to UEG, verify its live schema and returned data before using the graph for this lookup.
 
 ## GitHub pull requests
 

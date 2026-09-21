@@ -57,7 +57,14 @@ kind:service AND owner_teams.name:idp
 
 ### Free-text pseudo-field
 
-`free_text` is not a field. `--free-text-match partial|fuzzy` selects a mode but does not supply search text. Put text in a real filter such as `name:*catalog*`.
+`free_text` is not a field. `--free-text-match partial|fuzzy` applies to bare
+terms, for example `kind:service AND owner:payments AND catalog`. It does not
+change field-filter semantics: `name:catalog` remains an exact field filter;
+use `name:*catalog*` for a substring in that field.
+
+Some deployments return false-empty fuzzy results when additional filters are
+present, even for known names. Prefer partial matching for filtered searches
+and verify empty fuzzy results before concluding that no entity exists.
 
 ### Unsupported absence and advanced operators
 
@@ -84,7 +91,21 @@ use the query command's `owner_teams` and `current_oncalls` relations.
 
 ### Time windows change meaning
 
-Use `--timeseries-interval 168h`, not `7d`. Mention the window for incidents, monitor/SLO state, health, or other calculated fields.
+Use `--timeseries-interval 168h` or `7d`, or supply both `--from` and `--to`.
+Only supported measurements use the window; current entity state and arbitrary
+health counts do not become historical because a window was supplied. Scope
+support is field-specific, and current runtime edges are not environment-isolated.
+Runtime edge values are window aggregates, not anomaly or causality scores.
+Upstream can coalesce missing measurements to zero; zero does not prove health.
+Requesting edge measurements can also change which observed edges are discovered.
+
+Some deployments fail when an absolute window, a property scope, a timeseries
+attribute such as `requests_per_second`, and runtime relationship expansion are
+combined, with a Trino `metric_filter_fn` syntax error. Split the read: fetch the
+scoped measurement with `--from/--to`, then fetch runtime edges for the returned
+ref and same window without `--scope`. Keep the distinction explicit: runtime
+edges are org-wide. Relative-window requests worked in the same validation, but
+do not substitute a different window when the user needs a specific interval.
 
 ## Known domain hazards
 
@@ -108,7 +129,19 @@ Scope every PR query with `repository.full_name` when the repository is known. A
 kind:integration.github.pull_request AND repository.full_name:"<org>/<repository>" AND number:<number>
 ```
 
-Prefer `integration.github.repository` and `integration.github.pull_request`. Native `github.repository`, `github.pull_request`, and `github.commit` kinds may return backend errors. PR entities do not establish service impact unless the live schema exposes a real relation.
+Prefer `integration.github.repository` and `integration.github.pull_request`
+when available. Native `github.repository` reads require `hostname` and
+`owner.login`; use `name` to select a known repository:
+
+```text
+kind:github.repository AND hostname:github.com AND owner.login:example AND name:checkout
+```
+
+Native GitHub providers can require separate GitHub app authorization in
+addition to Pup's Datadog OAuth session. A backend request for that login is an
+access limitation, not an empty repository. Native providers can have additional
+query requirements.
+PR entities do not establish service impact unless the live schema exposes a real relation.
 
 ### Jira
 

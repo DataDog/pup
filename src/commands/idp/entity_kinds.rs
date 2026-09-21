@@ -3,9 +3,10 @@ use std::collections::BTreeMap;
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
-use super::entity_query::default_fields_for_kind;
+use super::entity_query::{default_fields_for_kind, has_specific_default_fields};
 use super::entity_types::{
-    KindAttribute, KindListResponse, KindRelation, KindResource, KindResponse,
+    KindAttribute, KindCalculation, KindListResponse, KindRelation, KindResource, KindResponse,
+    KindScope,
 };
 use crate::config::Config;
 use crate::formatter::{self, Metadata};
@@ -55,6 +56,8 @@ struct DescribeKindResponse {
     display_name: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     description: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    display_name_property: String,
     kind_exists: bool,
     schema_available: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -80,6 +83,10 @@ struct AttributeSummary {
     operators: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     calculation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    calculation_details: Option<KindCalculation>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    scopes: Vec<KindScope>,
 }
 
 #[derive(Debug, Serialize)]
@@ -364,11 +371,7 @@ fn live_kind_summary_with_limits(
 
 fn describe_response(schema: KindResource, include_examples: bool) -> DescribeKindResponse {
     let kind = schema.kind().to_string();
-    let default_fields = default_fields_for_kind(&kind)
-        .iter()
-        .filter(|field| schema.attributes.attribute_types.contains_key(**field))
-        .map(|field| (*field).to_string())
-        .collect();
+    let default_fields = default_fields_from_schema(&schema);
     let attributes = summarize_attributes(&schema.attributes.attribute_types);
     let relations = summarize_relations(&schema.attributes.relations);
     let examples = if include_examples {
@@ -383,7 +386,8 @@ fn describe_response(schema: KindResource, include_examples: bool) -> DescribeKi
     DescribeKindResponse {
         kind: kind.clone(),
         display_name: schema.attributes.display_name,
-        description: String::new(),
+        description: schema.attributes.description,
+        display_name_property: schema.attributes.display.display_name_property,
         kind_exists: true,
         schema_available: true,
         default_fields,
@@ -423,6 +427,7 @@ fn describe_fallback_response(
         kind: summary.kind.clone(),
         display_name: summary.display_name,
         description: summary.why_use,
+        display_name_property: String::new(),
         kind_exists: true,
         schema_available: false,
         default_fields: summary.top_fields,
@@ -450,8 +455,45 @@ fn summarize_attributes(attributes: &BTreeMap<String, KindAttribute>) -> Vec<Att
                 .as_ref()
                 .map(|calculation| calculation.calculation_type.clone())
                 .filter(|calculation| !calculation.is_empty()),
+            calculation_details: attribute.calculation.clone(),
+            scopes: attribute.scopes.clone(),
         })
         .collect()
+}
+
+pub(super) fn default_fields_from_schema(schema: &KindResource) -> Vec<String> {
+    let candidates = if has_specific_default_fields(schema.kind()) {
+        default_fields_for_kind(schema.kind()).to_vec()
+    } else {
+        vec![
+            schema.attributes.display.display_name_property.as_str(),
+            "name",
+            "display_name",
+            "html_url",
+            "ref",
+        ]
+    };
+    let mut fields = Vec::new();
+    for field in candidates {
+        if schema.attributes.attribute_types.contains_key(field)
+            && !fields.iter().any(|existing| existing == field)
+        {
+            fields.push(field.to_string());
+        }
+    }
+    if fields.is_empty() {
+        fields.push("ref".into());
+    }
+    fields
+}
+
+pub(super) fn validate_fields(kind: &str, fields: &[String], schema: &KindResource) -> Result<()> {
+    for field in fields {
+        if !schema.attributes.attribute_types.contains_key(field) && field != "ref" {
+            bail!("unknown field {field:?} for kind {kind:?}; inspect `pup idp kinds describe {kind}` for valid attributes");
+        }
+    }
+    Ok(())
 }
 
 fn summarize_relations(relations: &BTreeMap<String, KindRelation>) -> Vec<RelationSummary> {
@@ -511,6 +553,10 @@ fn hints_for_kind(kind: &str) -> Vec<String> {
         "scorecard_outcome" => &["scorecard_outcome is deprecated in the entity graph. Prefer service aggregate fields such as highest_completed_scorecard_level."],
         "scorecard_rule" | "scorecard_entity" => &["Do not expand the deprecated scorecard_outcomes relation. Prefer service aggregate fields for high-level scorecard reports."],
         "integration.github.pull_request" => &["When filtering by pull request number, also scope by repository.full_name to avoid repository fanout limits."],
+        "github.repository" => &[
+            "Native repository reads require hostname and owner.login filters; add name to select one repository.",
+            "The GitHub provider can require a separate GitHub app login in addition to Pup's Datadog OAuth session.",
+        ],
         "source_code_vulnerability_secfinding" => &["service_name is useful when populated, but many rows may not be service-attributed. Treat repository-scoped monorepo results as broad fan-in, not exact service ownership."],
         "integration.k8s.deployment" => &["Always scope deployment queries by team or service. Unscoped fleet-wide queries can return very large result sets."],
         "recommended_system" => &["Use recommended_system for system-grouping recommendations."],
@@ -599,6 +645,13 @@ fn examples_for_kind(
             ],
             &[],
             Some("24h"),
+        )],
+        "github.repository" => vec![example(
+            "Read a repository with the native provider's required scope",
+            "kind:github.repository AND hostname:github.com AND owner.login:example AND name:checkout",
+            &["name", "name_with_owner", "url"],
+            &[],
+            None,
         )],
         "integration.github.pull_request" => vec![example(
             "Open pull requests by author",
@@ -998,6 +1051,41 @@ mod tests {
         assert!(numeric.operators.contains(&"gte".into()));
         assert_eq!(numeric.calculation.as_deref(), Some("timeseries"));
         assert!(!response.examples.is_empty());
+    }
+
+    #[test]
+    fn discovery_preserves_meaning_and_unfamiliar_kind_identity() {
+        let schema: KindResource = serde_json::from_value(serde_json::json!({
+            "id": "custom_widget", "attributes": {
+                "description": "A deployed widget", "display": {"display_name_property": "label"},
+                "attribute_types": {
+                    "label": {"dataType": "string"},
+                    "requests": {"dataType": "int", "scopes": [{"name": "env"}],
+                        "calculation": {"type": "aggregation", "relation": "services", "query": "state:active", "by": "count"}}
+                }
+            }
+        })).unwrap();
+        assert_eq!(default_fields_from_schema(&schema), vec!["label"]);
+        assert!(validate_fields("custom_widget", &["requests".into()], &schema).is_ok());
+        assert!(validate_fields("custom_widget", &["requestz".into()], &schema).is_err());
+        let described = describe_response(schema, false);
+        assert_eq!(described.description, "A deployed widget");
+        assert_eq!(described.display_name_property, "label");
+        let field = described
+            .attributes
+            .iter()
+            .find(|field| field.name == "requests")
+            .unwrap();
+        assert_eq!(field.scopes[0].name, "env");
+        assert_eq!(
+            field
+                .calculation_details
+                .as_ref()
+                .unwrap()
+                .relation
+                .as_deref(),
+            Some("services")
+        );
     }
 
     #[test]

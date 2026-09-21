@@ -1,48 +1,66 @@
 # IDP Query Recipes
 
-Use these as starting shapes, not a static schema. Replace every `<placeholder>` with an organization value. Run `pup --read-only idp kinds describe <kind>` before using a recipe and adjust fields or relations to the live response.
+Choose the question closest to the user's task. Replace every `<placeholder>` with an organization value; `<service-ref>` is a full returned ref such as `ref:service:checkout`. Describe unfamiliar kinds with `pup --read-only idp kinds describe <kind>` and use the live fields and relations. Each recipe returns evidence for the stated question; follow the suggested next step only when the user needs it.
 
-## One-step service and dependency context
+## Which service handles this endpoint?
+
+For an on-call engineer starting with a route and HTTP method: resolve the serving service and its owner before looking for logs or paging a team.
 
 ```bash
-pup --read-only idp entities query 'kind:service AND name:"<service-name>"' \
-  --field name,display_name,description,owner,team,contacts,service_health_status,active_incidents_count,alert_monitors_count,breached_slos_count \
-  --include owner_teams,systems,code_locations,current_oncalls,upstream_services,downstream_services \
-  --relation-limit 3 \
-  --timeseries-interval 24h \
-  --limit 1
+pup --read-only idp entities query \
+  'kind:api_endpoint AND http_route:"<route>" AND http_method:"<method>"' \
+  --field http_route,http_method,service_name \
+  --include service --fields service=name,owner,contacts \
+  --relation-limit 5 --limit 10
 ```
 
-This is the default service-context workflow: ownership, system and code placement, declared dependencies, and health signals in one request. Relationship `count` can exceed the returned sample, so report truncation instead of presenting the first three dependencies as complete.
+Use the returned service ref with the service-context or on-call recipe below. A route can match several services; preserve those matches and narrow with a known service or host from the live schema. This establishes routing/ownership context, not the cause of an incident.
 
-Describe `service` before adding a different relation family. Depending on the live schema and question, useful families may include runtime upstream/downstream services, datastores, queues, external providers, inferred services, incidents, monitors, SLOs, deployments, Kubernetes workloads, Terraform, and security findings. Select one relevant family rather than expanding every relation.
+## Where is this service's code and who owns it?
 
-## Selected owner context and runtime edge measurements
+For an engineer investigating unfamiliar code: return the service's description, contacts, owning team, system membership, and source locations together.
 
 ```bash
-pup --read-only idp entities query 'ref:"ref:service:<service-name>"' \
-  --field name,owner \
-  --include owner_teams,runtime_downstream_services \
+pup --read-only idp entities query 'ref:"<service-ref>"' \
+  --field name,description,owner,contacts,links \
+  --include owner_teams,systems,code_locations \
   --fields team=name,handle \
-  --edge-fields runtime_downstream_services=requests_count,error_rate \
+  --fields code_location=repository_id,path_pattern \
+  --relation-limit 5 --limit 1
+```
+
+Use service `contacts` for contact channels and returned code locations for repository paths. Follow a system or code-location ref when more detail is needed; do not infer a source-code connection from a similar service name. For responders, use [on-call](#who-is-on-call-for-this-service).
+
+## Which callers could be affected by a change?
+
+For an SRE or service owner planning a change: inspect observed callers and the request/error measurements on their connections to this service.
+
+```bash
+pup --read-only idp entities query 'ref:"<service-ref>"' \
+  --field name,owner \
+  --include runtime_upstream_services \
+  --edge-fields runtime_upstream_services=requests_count,error_rate \
   --timeseries-interval 1h --relation-limit 5 --limit 1
 ```
 
-This selects team attributes separately from service attributes. Check the
-[measurement limitations](footguns.md#time-windows-change-meaning) when
-interpreting runtime edge values.
+`runtime_upstream_services` are callers of this service; `runtime_downstream_services` are services it calls. Follow returned caller refs for ownership or deeper investigation. Report the window and sampled coverage; this is observed dependency context, not a complete blast radius or proof of causality. See [measurement limitations](footguns.md#time-windows-change-meaning) before interpreting edge values or environment scope.
 
-## Team portfolio and missing ownership
+## Which services does our team own?
+
+For an engineering lead: list primary-owned services with lifecycle, tier, and contact information. This query filters `owner`; selecting `additional_owners` does not include services where the team is only an additional owner.
 
 ```bash
 pup --read-only idp entities query 'kind:service AND owner:"<team-handle>"' \
-  --field name,display_name,owner,team,additional_owners,contacts,links \
-  --include owner_teams \
-  --include-total-count \
-  --limit 25
+  --field name,owner,additional_owners,lifecycle,tier,contacts \
+  --order-by name:asc --include-total-count \
+  --limit 100 --max-results 500
 ```
 
-For missing ownership, `_missing_:owner` applies to an attribute, not a relation:
+Check `page.stop_reason` before calling this a complete inventory. If the result budget is reached, use the returned `next_request.args`; see [pagination](ueg-dsl.md#pagination-and-completeness).
+
+## Which services are missing a primary owner?
+
+For a platform engineer cleaning up ownership: find services without the primary `owner` attribute. This does not prove that other ownership metadata or contacts are absent.
 
 ```bash
 pup --read-only idp entities query 'kind:service AND _missing_:owner' \
@@ -50,9 +68,7 @@ pup --read-only idp entities query 'kind:service AND _missing_:owner' \
   --limit 25
 ```
 
-## Team portfolio health
-
-For a portfolio summary, count ownership gaps by lifecycle on the server:
+For a count of ownership gaps by lifecycle, use the server-side summary instead of downloading every service:
 
 ```bash
 pup --read-only idp entities aggregate 'kind:service' \
@@ -68,18 +84,31 @@ pup --read-only idp entities facets 'kind:service' --facet owner,lifecycle
 
 See [portfolio summaries](ueg-dsl.md#portfolio-summaries) for result fields and pagination limits.
 
-Describe `service` and select the aggregate fields currently available for incidents, SLOs, monitors, scorecards, vulnerabilities, or health. Keep alternatives beneath the shared kind:
+## Which services need reliability attention?
+
+For an engineering lead reviewing a team's portfolio: find services with active incidents or breached SLOs and return the counts that explain why they matched.
 
 ```bash
 pup --read-only idp entities query \
-  'kind:service AND owner:"<team-handle>" AND (active_incidents_count:>0 OR breached_slos_count:>0 OR critical_vulnerabilities_count:>0 OR high_vulnerabilities_count:>0)' \
-  --field name,display_name,owner,active_incidents_count,breached_slos_count,critical_vulnerabilities_count,high_vulnerabilities_count,service_health_status \
-  --include systems,code_locations \
-  --timeseries-interval 24h \
+  'kind:service AND owner:"<team-handle>" AND (active_incidents_count:>0 OR breached_slos_count:>0)' \
+  --field name,owner,active_incidents_count,breached_slos_count \
   --limit 25
 ```
 
-Report explicit nonzero values, null/unknown fields, the time window, result pagination, and truncated relations separately. Use product-specific commands for incident, SLO, monitor, or vulnerability detail after identifying the relevant entities.
+Use the returned service names with `pup incidents` or `pup slos` for operational detail. Report null/unknown counts separately; a time flag does not turn these health summaries into historical state.
+
+## Which services are below our scorecard target?
+
+For a platform engineer prioritizing standards work: inspect primary-owned services below a chosen scorecard level. This example uses level 2; choose the threshold meaningful to the organization's scorecards.
+
+```bash
+pup --read-only idp entities query \
+  'kind:service AND owner:"<team-handle>" AND highest_completed_scorecard_level:<2' \
+  --field name,owner,highest_completed_scorecard_level \
+  --order-by highest_completed_scorecard_level:asc,name:asc --limit 25
+```
+
+Keep the name tie-breaker when paging services with equal levels. Inspect the matching services' scorecard rules before deciding what to remediate. Missing levels are unknown, not level zero; the numeric filter does not include them. Use this service field rather than the deprecated `scorecard_outcome` kind.
 
 ## Systems and code locations
 
@@ -126,18 +155,15 @@ pup --read-only idp entities query \
 
 After graph discovery, use `pup incidents`, `pup monitors`, or `pup slos` for authoritative product detail.
 
-## On-call
+## Who is on call for this service?
 
-For service ownership context, include the declared `current_oncalls` relation:
+For an incident lead: resolve the owning team and current responders together.
 
 ```bash
-pup --read-only idp entities query 'kind:service AND name:"<service-name>"' \
-  --field name,owner,team \
-  --include current_oncalls \
-  --relation-limit 25
+pup --read-only idp owner "<service-name>"
 ```
 
-For a provider inventory, describe and query `current_oncall` directly. Treat a truncated relation as a sample, not a full roster.
+This helper uses the service's owner team to look up responders in the on-call API. Check `warnings` if enrichment fails; an absent responder is not proof that nobody is responsible. Prefer this path when the graph's `current_oncalls` relation is unavailable. Use the returned contacts for the escalation the user requested.
 
 ## GitHub pull requests
 
@@ -174,9 +200,9 @@ pup --read-only idp entities query \
 
 Prefer direct fields first; relation includes may fail. Do not infer a service link from project names or text.
 
-## Public API posture
+## Which public endpoints need security attention?
 
-Scope by a service or team relation, then inspect the explicit returned values:
+For a security engineer: list a team's public endpoints with authentication, rate-limit, service, and ownership evidence. Inspect the returned protection values to identify the follow-up work.
 
 ```bash
 pup --read-only idp entities query \
@@ -240,15 +266,3 @@ pup --read-only idp entities query 'kind:service AND name:"<service-name>"' \
 ```
 
 Use the returned refs to inspect a deployment kind directly. If `kinds describe service` does not declare `service_deployments` in the current tenant, omit it and use the deployment or Kubernetes kind named by the live schema. UEG establishes the declared graph context; product deployment and telemetry commands establish detailed rollout state.
-
-## Cursor continuation
-
-When `page.next_cursor` is present, repeat the exact query, selection, includes, limits, and time window with:
-
-```bash
-pup --read-only idp entities query '<same-query>' \
-  --field '<same-fields>' \
-  --cursor '<next_cursor>'
-```
-
-Continue only as far as the user's completeness requirement warrants, and state when results or relationship samples remain truncated.

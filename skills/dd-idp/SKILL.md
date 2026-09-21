@@ -1,6 +1,6 @@
 ---
 name: dd-idp
-description: Explore Datadog software, ownership, health, and work across services, teams, systems, repositories, pull requests, Jira, incidents, SLOs, monitors, on-call, APIs, scorecards, vulnerabilities, and security findings using Pup's read-only IDP entity graph.
+description: Answer questions about who owns a service or endpoint, where its code lives, which callers a change could affect, and which services need health, ownership, or security attention. Use Pup's read-only Datadog entity graph to connect services, teams, code, dependencies, and operational context.
 metadata:
   version: "1.0.0"
   author: datadog-labs
@@ -12,6 +12,27 @@ metadata:
 
 Use Pup's read-only Unified Entity Graph (UEG) to discover software, ownership, work, and operational context. Its main payoff is connected context in one bounded request: a service plus its owners, systems, code, dependencies, and health signals through declared relationships.
 
+## Start with the user's question
+
+Choose the closest recipe for the task.
+Start from the identifier the user has (an endpoint, service, repository, or team)
+and follow returned refs to connect it to the answer.
+
+| Question | Often useful to | Recipe |
+| --- | --- | --- |
+| Which service handles this endpoint, and who owns it? | On-call engineer | [Endpoint to service](references/recipes.md#which-service-handles-this-endpoint) |
+| Where is this service's code, and whom should I contact? | Engineer joining a team | [Service context](references/recipes.md#where-is-this-services-code-and-who-owns-it) |
+| Who is on call for this service now? | Incident lead | [On-call contact](references/recipes.md#who-is-on-call-for-this-service) |
+| Which callers could be affected if I change this service? | SRE or service owner | [Caller impact](references/recipes.md#which-callers-could-be-affected-by-a-change) |
+| What does our team own, and what needs attention? | Engineering lead | [Portfolio](references/recipes.md#which-services-does-our-team-own) and [health](references/recipes.md#which-services-need-reliability-attention) |
+| Which services need ownership or standards cleanup? | Platform engineer | [Ownership gaps](references/recipes.md#which-services-are-missing-a-primary-owner) and [scorecard levels](references/recipes.md#which-services-are-below-our-scorecard-target) |
+| Which public endpoints lack protections, and who owns them? | Security engineer | [API posture](references/recipes.md#which-public-endpoints-need-security-attention) |
+
+For deployment, infrastructure, repository, PR, and Jira questions, use the
+other [recipes](references/recipes.md). Discover unfamiliar integration or custom
+kinds from the live schema. Connect resources only through returned relationships;
+sharing a repository or a similar name does not establish service impact.
+
 ## Choose the right surface
 
 - Default to `pup idp kinds` and `pup idp entities query` when the answer needs connected context across services, teams, systems, repositories, dependencies, work, operations, or security kinds.
@@ -20,15 +41,6 @@ Use Pup's read-only Unified Entity Graph (UEG) to discover software, ownership, 
 - Use product commands such as `pup incidents`, `pup slos`, `pup monitors`, `pup logs`, `pup traces`, or `pup security` when the user needs deeper or current telemetry.
 - Use `idp entities facets` for observed field values and `idp entities aggregate` for grouped or filtered counts. Prefer these over paging an inventory just to count it.
 - Use `pup service-catalog` for the legacy typed service registry and `pup software-catalog` for Catalog entity/kind reads and writes. Do not use graph queries for mutations.
-
-## Highest-value workflows
-
-- Build a service 360 in one request: owner/on-call, system and code placement, selected dependencies, and aggregate health.
-- Estimate blast radius by following declared or runtime service, datastore, queue, external-provider, and inferred-service relations relevant to the question.
-- Triage a team's portfolio from service health aggregates, then pivot to product APIs for detail.
-- Add deployment or infrastructure relations to ownership and dependencies for change context.
-- Inspect repository-linked APIs, code quality, secrets, and vulnerabilities without inventing service attribution.
-- Discover integration and custom kinds schema-first for tenant-specific work rather than relying on a fixed kind catalog.
 
 ## Schema-first workflow
 
@@ -46,38 +58,17 @@ Use Pup's read-only Unified Entity Graph (UEG) to discover software, ownership, 
    pup --read-only idp kinds describe integration.github.pull_request
    ```
 
-3. Query exactly one top-level result kind. Select only needed attributes with `--field`; expand only the relation family needed for the question with `--include`:
+3. Choose a query from the relevant recipe. Select only the attributes and
+   relation family needed to answer the question. Use `--fields <kind>=...` to
+   select related attributes. Follow returned refs when the next question needs
+   another hop; avoid expanding every service relation into one large response.
 
-   ```bash
-   pup --read-only idp entities query 'kind:service AND name:"<service-name>"' \
-     --field name,display_name,owner,service_health_status,active_incidents_count,alert_monitors_count,breached_slos_count \
-     --include owner_teams,systems,code_locations,upstream_services,downstream_services \
-     --relation-limit 3 \
-     --timeseries-interval 24h \
-     --limit 1
-   ```
+4. Inspect warnings and result/relationship truncation. For inventories, use the
+   recipe's explicit `--max-results` budget and check `page.stop_reason`. Continue
+   with `next_request.args` when completeness is required; see
+   [pagination](references/ueg-dsl.md#pagination-and-completeness).
 
-   This is the high-value default: identity, ownership, health, and declared service dependencies in one request. Add runtime, datastore, queue, deployment, or operational relations only when the question needs them; do not expand every service relation.
-
-4. Inspect warnings, `page.truncated`, and every relationship's `count` and `truncated` state. For a bounded inventory, set an explicit result budget:
-
-   ```bash
-   pup --read-only idp entities query 'kind:service AND owner:"<team-handle>"' \
-     --field name,owner \
-     --limit 100 --max-results 500
-   ```
-
-   Check `page.stop_reason`; use `next_request.args` to continue if the budget was reached. Without `--max-results`, queries still fetch one page.
-
-5. Follow returned refs instead of inventing joins:
-
-   ```bash
-   pup --read-only idp entities query 'ref:"ref:system:checkout"' \
-     --field name,display_name,owner \
-     --include services
-   ```
-
-6. Synthesize only what the returned fields and declared relations establish. Label noisy matches as inferred and missing edges as unavailable.
+5. Synthesize only what the returned fields and declared relations establish. Label noisy matches as inferred and missing edges as unavailable.
 
 ## Correctness rules
 

@@ -546,6 +546,48 @@ fn test_shared_display_order_sorts_appended_subcommand_in_help() {
 }
 
 #[test]
+fn test_shared_display_order_sorts_flattened_nested_subcommands_in_help() {
+    #[derive(clap::Subcommand)]
+    enum GeneratedActions {
+        List,
+        Mute,
+    }
+
+    #[derive(clap::Subcommand)]
+    enum MergedActions {
+        Get,
+        Silence,
+        #[command(flatten)]
+        Generated(GeneratedActions),
+    }
+
+    #[derive(clap::Parser)]
+    #[command(name = "merge-host")]
+    struct MergeHostCli {
+        #[command(subcommand)]
+        action: MergedActions,
+    }
+
+    let unsorted = MergeHostCli::command();
+    let declaration_order = visible_top_level_command_names(&unsorted);
+    let mut alphabetical_order = declaration_order.clone();
+    alphabetical_order.sort_unstable();
+
+    assert_eq!(declaration_order, ["get", "silence", "list", "mute"]);
+    assert_ne!(
+        declaration_order, alphabetical_order,
+        "fixture declaration order must not already be alphabetical"
+    );
+
+    let mut app = crate::sort_subcommands_by_name(unsorted);
+    assert_eq!(
+        rendered_top_level_command_names(&mut app),
+        ["get", "list", "mute", "silence"],
+        "shared display order did not interleave flattened subcommands"
+    );
+}
+
+#[test]
 fn test_dbm_samples_search_parses() {
     use clap::Parser;
 

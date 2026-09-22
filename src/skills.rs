@@ -143,7 +143,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "dd-idp",
-        description: "Map Datadog services, dependencies, ownership, health, and declared relationships.",
+        description: "Explore software, ownership, engineering work and delivery, infrastructure, operations, and security through Datadog's entity graph, connected integrations, and custom entities.",
         entry_type: "skill",
         content: include_str!("../skills/dd-idp/SKILL.md"),
         platform: "",

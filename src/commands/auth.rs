@@ -421,63 +421,68 @@ pub fn status(cfg: &Config) -> Result<()> {
 
     // In WASM, just report env var status
     with_storage(|store| {
-        match store.load_tokens(site, org)? {
-            Some(tokens) => {
-                let expires_at_ts = tokens.issued_at + tokens.expires_in;
-                let now = chrono::Utc::now().timestamp();
-                let remaining_secs = expires_at_ts - now;
-
-                let (status, remaining_str) = if tokens.is_expired() {
-                    ("expired".to_string(), "expired".to_string())
-                } else {
-                    let mins = remaining_secs / 60;
-                    let secs = remaining_secs % 60;
-                    ("valid".to_string(), format!("{mins}m{secs}s"))
-                };
-
-                let org_label = org_suffix(org);
-                if tokens.is_expired() {
-                    eprintln!("⚠️  Token expired for site: {site}{org_label}");
-                } else {
-                    eprintln!("✅ Authenticated for site: {site}{org_label}");
-                    eprintln!("   Token expires in: {remaining_str}");
-                }
-
-                let expires_at = chrono::DateTime::from_timestamp(expires_at_ts, 0)
-                    .map(|dt| dt.with_timezone(&chrono::Local).to_rfc3339())
-                    .unwrap_or_default();
-
-                let scopes = sorted_scopes(&tokens.scope);
-
-                let json = serde_json::json!({
-                    "authenticated": true,
-                    "expires_at": expires_at,
-                    "has_refresh": !tokens.refresh_token.is_empty(),
-                    "org": org,
-                    "scopes": scopes,
-                    "site": site,
-                    "status": status,
-                    "token_type": tokens.token_type,
-                });
-                println!("{}", serde_json::to_string_pretty(&json).unwrap());
-            }
-            None => {
-                let (msg, json) = build_non_oauth_status(cfg);
-                eprintln!("{msg}");
-                println!("{}", serde_json::to_string_pretty(&json).unwrap());
-            }
-        }
+        let json = match store.load_tokens(site, org)? {
+            Some(tokens) => oauth_status_json(site, org, &tokens),
+            None => build_non_oauth_status(cfg),
+        };
+        println!("{}", serde_json::to_string_pretty(&json).unwrap());
         Ok(())
     })
 }
 
-/// Build the human-readable line and JSON payload for `auth status` when no
-/// OAuth2 tokens are stored. API-key and bearer-token credentials are
-/// surfaced as authenticated so agents that wrap pup don't conclude auth is
-/// broken when API keys are working fine. Auth-type precedence is delegated
-/// to `raw_raw_client::get_auth_type` so this command can never disagree with the
-/// auth headers the client actually sends.
-fn build_non_oauth_status(cfg: &Config) -> (String, serde_json::Value) {
+/// JSON payload for `auth status` when OAuth2 tokens are stored.
+///
+/// The human-readable line lives in `status_message`, immediately after
+/// `status`, so stdout is a single JSON document that formatters can color.
+fn oauth_status_json(
+    site: &str,
+    org: Option<&str>,
+    tokens: &crate::auth::types::TokenSet,
+) -> serde_json::Value {
+    let expires_at_ts = tokens.issued_at + tokens.expires_in;
+    let org_label = org_suffix(org);
+    let (status, status_message) = if tokens.is_expired() {
+        (
+            "expired",
+            format!("⚠️  Token expired for site: {site}{org_label}"),
+        )
+    } else {
+        let remaining_secs = expires_at_ts - chrono::Utc::now().timestamp();
+        let mins = remaining_secs / 60;
+        let secs = remaining_secs % 60;
+        (
+            "valid",
+            format!(
+                "✅ Authenticated for site: {site}{org_label}. Token expires in: {mins}m{secs}s"
+            ),
+        )
+    };
+
+    let expires_at = chrono::DateTime::from_timestamp(expires_at_ts, 0)
+        .map(|dt| dt.with_timezone(&chrono::Local).to_rfc3339())
+        .unwrap_or_default();
+
+    serde_json::json!({
+        "authenticated": true,
+        "expires_at": expires_at,
+        "has_refresh": !tokens.refresh_token.is_empty(),
+        "org": org,
+        "scopes": sorted_scopes(&tokens.scope),
+        "site": site,
+        "status": status,
+        "status_message": status_message,
+        "token_type": tokens.token_type,
+    })
+}
+
+/// Build the JSON payload for `auth status` when no OAuth2 tokens are stored.
+/// API-key and bearer-token credentials are surfaced as authenticated so
+/// agents that wrap pup don't conclude auth is broken when API keys are
+/// working fine. Auth-type precedence is delegated to
+/// `raw_client::get_auth_type` so this command can never disagree with the
+/// auth headers the client actually sends. The human-readable line is
+/// `status_message`, placed immediately after `status`.
+fn build_non_oauth_status(cfg: &Config) -> serde_json::Value {
     use crate::raw_client::{get_auth_type, AuthType};
 
     let site = &cfg.site;
@@ -486,37 +491,33 @@ fn build_non_oauth_status(cfg: &Config) -> (String, serde_json::Value) {
 
     match get_auth_type(cfg) {
         AuthType::OAuth => {
-            let msg = format!("✅ Authenticated for site: {site}{org_label} (bearer token)");
-            let json = serde_json::json!({
+            serde_json::json!({
                 "authenticated": true,
                 "auth_method": "bearer_token",
                 "org": org,
                 "site": site,
                 "status": "valid",
-            });
-            (msg, json)
+                "status_message": format!("✅ Authenticated for site: {site}{org_label} (bearer token)"),
+            })
         }
         AuthType::ApiKeys => {
-            let msg =
-                format!("✅ Authenticated for site: {site}{org_label} (DD_API_KEY + DD_APP_KEY)");
-            let json = serde_json::json!({
+            serde_json::json!({
                 "authenticated": true,
                 "auth_method": "api_keys",
                 "org": org,
                 "site": site,
                 "status": "valid",
-            });
-            (msg, json)
+                "status_message": format!("✅ Authenticated for site: {site}{org_label} (DD_API_KEY + DD_APP_KEY)"),
+            })
         }
         AuthType::None => {
-            let msg = format!("❌ Not authenticated for site: {site}{org_label}");
-            let json = serde_json::json!({
+            serde_json::json!({
                 "authenticated": false,
                 "org": org,
                 "site": site,
                 "status": "no token",
-            });
-            (msg, json)
+                "status_message": format!("❌ Not authenticated for site: {site}{org_label}"),
+            })
         }
     }
 }
@@ -831,16 +832,43 @@ mod tests {
     // bearer-token paths are covered without touching storage.
     // ------------------------------------------------------------------
 
+    fn status_message(json: &serde_json::Value) -> &str {
+        json["status_message"]
+            .as_str()
+            .expect("status_message should be a string")
+    }
+
+    /// `status_message` must sit immediately after `status` so the field
+    /// order in the pretty-printed document stays stable for formatters.
+    fn assert_status_message_follows_status(json: &serde_json::Value) {
+        let rendered = serde_json::to_string_pretty(json).unwrap();
+        let status_at = rendered.find("\"status\":").expect("status field missing");
+        let message_at = rendered
+            .find("\"status_message\":")
+            .expect("status_message field missing");
+        assert!(
+            message_at > status_at,
+            "status_message should follow status: {rendered}"
+        );
+        let between = &rendered[status_at..message_at];
+        assert!(
+            !between.contains("\"token_type\"") && !between.contains("\"auth_method\""),
+            "no other field should sit between status and status_message: {rendered}"
+        );
+    }
+
     #[test]
     fn test_build_non_oauth_status_unauthenticated() {
         let cfg = base_config();
-        let (msg, json) = build_non_oauth_status(&cfg);
+        let json = build_non_oauth_status(&cfg);
+        let msg = status_message(&json);
 
         assert!(msg.contains("❌ Not authenticated"));
         assert!(msg.contains("datadoghq.com"));
         assert_eq!(json["authenticated"], serde_json::json!(false));
         assert_eq!(json["status"], serde_json::json!("no token"));
         assert!(json.get("auth_method").is_none());
+        assert_status_message_follows_status(&json);
     }
 
     #[test]
@@ -848,26 +876,30 @@ mod tests {
         let mut cfg = base_config();
         cfg.api_key = Some("api".into());
         cfg.app_key = Some("app".into());
-        let (msg, json) = build_non_oauth_status(&cfg);
+        let json = build_non_oauth_status(&cfg);
+        let msg = status_message(&json);
 
         assert!(msg.contains("✅ Authenticated"));
         assert!(msg.contains("DD_API_KEY"));
         assert_eq!(json["authenticated"], serde_json::json!(true));
         assert_eq!(json["auth_method"], serde_json::json!("api_keys"));
         assert_eq!(json["status"], serde_json::json!("valid"));
+        assert_status_message_follows_status(&json);
     }
 
     #[test]
     fn test_build_non_oauth_status_with_bearer_token() {
         let mut cfg = base_config();
         cfg.access_token = Some("bearer".into());
-        let (msg, json) = build_non_oauth_status(&cfg);
+        let json = build_non_oauth_status(&cfg);
+        let msg = status_message(&json);
 
         assert!(msg.contains("✅ Authenticated"));
         assert!(msg.contains("bearer token"));
         assert_eq!(json["authenticated"], serde_json::json!(true));
         assert_eq!(json["auth_method"], serde_json::json!("bearer_token"));
         assert_eq!(json["status"], serde_json::json!("valid"));
+        assert_status_message_follows_status(&json);
     }
 
     #[test]
@@ -880,9 +912,10 @@ mod tests {
         cfg.access_token = Some("bearer".into());
         cfg.api_key = Some("api".into());
         cfg.app_key = Some("app".into());
-        let (_msg, json) = build_non_oauth_status(&cfg);
+        let json = build_non_oauth_status(&cfg);
 
         assert_eq!(json["auth_method"], serde_json::json!("bearer_token"));
+        assert!(status_message(&json).contains("bearer token"));
     }
 
     #[test]
@@ -892,9 +925,9 @@ mod tests {
         // rather than misreporting as authenticated.
         let mut cfg = base_config();
         cfg.api_key = Some("api".into());
-        let (msg, json) = build_non_oauth_status(&cfg);
+        let json = build_non_oauth_status(&cfg);
 
-        assert!(msg.contains("❌ Not authenticated"));
+        assert!(status_message(&json).contains("❌ Not authenticated"));
         assert_eq!(json["authenticated"], serde_json::json!(false));
     }
 
@@ -904,18 +937,80 @@ mod tests {
         cfg.api_key = Some("api".into());
         cfg.app_key = Some("app".into());
         cfg.org = Some("prod-child".into());
-        let (msg, json) = build_non_oauth_status(&cfg);
+        let json = build_non_oauth_status(&cfg);
 
-        assert!(msg.contains("(org: prod-child)"));
+        assert!(status_message(&json).contains("(org: prod-child)"));
         assert_eq!(json["org"], serde_json::json!("prod-child"));
+    }
+
+    fn token_set(
+        issued_at: i64,
+        expires_in: i64,
+        refresh_token: &str,
+    ) -> crate::auth::types::TokenSet {
+        crate::auth::types::TokenSet {
+            access_token: "access".into(),
+            refresh_token: refresh_token.into(),
+            token_type: "Bearer".into(),
+            expires_in,
+            issued_at,
+            scope: "monitors_read apm_read".into(),
+            client_id: "client".into(),
+        }
+    }
+
+    #[test]
+    fn test_oauth_status_json_expired_puts_warning_in_status_message() {
+        let now = chrono::Utc::now().timestamp();
+        let tokens = token_set(now - 7200, 3600, "refresh");
+        let json = oauth_status_json("datadoghq.com", None, &tokens);
+
+        assert_eq!(json["authenticated"], serde_json::json!(true));
+        assert_eq!(json["status"], serde_json::json!("expired"));
+        assert_eq!(json["has_refresh"], serde_json::json!(true));
+        assert_eq!(json["token_type"], serde_json::json!("Bearer"));
+        assert_eq!(
+            json["status_message"],
+            serde_json::json!("⚠️  Token expired for site: datadoghq.com")
+        );
+        assert_eq!(
+            json["scopes"],
+            serde_json::json!(["apm_read", "monitors_read"])
+        );
+        assert_status_message_follows_status(&json);
+    }
+
+    #[test]
+    fn test_oauth_status_json_valid_includes_remaining_time() {
+        let now = chrono::Utc::now().timestamp();
+        let tokens = token_set(now, 3600, "refresh");
+        let json = oauth_status_json("datadoghq.com", Some("prod-child"), &tokens);
+        let msg = status_message(&json);
+
+        assert_eq!(json["status"], serde_json::json!("valid"));
+        assert_eq!(json["org"], serde_json::json!("prod-child"));
+        assert!(msg.starts_with("✅ Authenticated for site: datadoghq.com (org: prod-child)"));
+        assert!(msg.contains("Token expires in:"));
+        assert_status_message_follows_status(&json);
+    }
+
+    #[test]
+    fn test_oauth_status_json_empty_refresh_token_reports_has_refresh_false() {
+        let now = chrono::Utc::now().timestamp();
+        let tokens = token_set(now - 7200, 3600, "");
+        let json = oauth_status_json("datadoghq.com", None, &tokens);
+
+        assert_eq!(json["status"], serde_json::json!("expired"));
+        assert_eq!(json["has_refresh"], serde_json::json!(false));
+        assert!(status_message(&json).contains("Token expired"));
     }
 
     #[tokio::test]
     async fn test_status_returns_ok_with_api_keys_set() {
         // Wiring test: when storage has no OAuth tokens but DD_API_KEY +
-        // DD_APP_KEY are configured, status() must consume the helper's
-        // tuple correctly (msg → stderr, json → stdout) and return Ok.
-        // Catches regressions in the `None =>` arm of status().
+        // DD_APP_KEY are configured, status() must print the helper's JSON
+        // (including status_message) and return Ok. Catches regressions in
+        // the `None =>` arm of status().
         let _lock = crate::test_support::lock_env().await;
         let tmp = TempDir::new("status_apikeys");
         std::env::set_var("PUP_CONFIG_DIR", tmp.path());

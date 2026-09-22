@@ -1,0 +1,572 @@
+{
+  "name": "integrations",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "aws",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "cloud-auth",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "persona-mappings",
+              "read_only": true,
+              "subcommands": [
+                {
+                  "name": "create",
+                  "read_only": false,
+                  "flags": [
+                    {
+                      "name": "--file",
+                      "type": "string",
+                      "required": true
+                    }
+                  ]
+                },
+                {
+                  "name": "delete",
+                  "read_only": false,
+                  "args": [
+                    {
+                      "name": "mapping_id",
+                      "type": "string",
+                      "required": true
+                    }
+                  ]
+                },
+                {
+                  "name": "get",
+                  "read_only": true,
+                  "args": [
+                    {
+                      "name": "mapping_id",
+                      "type": "string",
+                      "required": true
+                    }
+                  ]
+                },
+                {
+                  "name": "list",
+                  "read_only": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "google-chat",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "handles",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "org_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "org_id",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "handle_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "org_id",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "handle_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "org_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "update",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "org_id",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "handle_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "space-get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "domain_name",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "space_display_name",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "jira",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "accounts",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "account_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            }
+          ]
+        },
+        {
+          "name": "templates",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "template_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "template_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            },
+            {
+              "name": "update",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "template_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "read_only": true
+    },
+    {
+      "name": "ms-teams",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "channel-get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "tenant_name",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "team_name",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "channel_name",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "handles",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "handle_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "handle_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            },
+            {
+              "name": "update",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "handle_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "workflows",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "handle_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "handle_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            },
+            {
+              "name": "update",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "handle_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pagerduty",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true
+        }
+      ]
+    },
+    {
+      "name": "servicenow",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "assignment-groups",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "list",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "instance_name",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "business-services",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "list",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "instance_name",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "instances",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "list",
+              "read_only": true
+            }
+          ]
+        },
+        {
+          "name": "templates",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "template_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "template_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            },
+            {
+              "name": "update",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "template_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "users",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "list",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "instance_name",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "slack",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true
+        }
+      ]
+    },
+    {
+      "name": "webhooks",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true
+        }
+      ]
+    }
+  ]
+}

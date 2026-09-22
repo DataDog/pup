@@ -1,0 +1,910 @@
+{
+  "name": "costs",
+  "aliases": [
+    "cost"
+  ],
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "anomalies",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true
+        }
+      ]
+    },
+    {
+      "name": "ccm",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "budgets",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "budget_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "budget_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--actual",
+                  "type": "bool",
+                  "required": false,
+                  "arity": {
+                    "min": 0,
+                    "max": 0,
+                    "repeatable": false
+                  }
+                },
+                {
+                  "name": "--end",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--forecast",
+                  "type": "bool",
+                  "required": false,
+                  "arity": {
+                    "min": 0,
+                    "max": 0,
+                    "repeatable": false
+                  }
+                },
+                {
+                  "name": "--start",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            },
+            {
+              "name": "upsert",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "validate",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "commitments",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "coverage",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--commitment-type",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--filter-by",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--from",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--product",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--to",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "coverage-ts",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--commitment-type",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--filter-by",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--from",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--product",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--to",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "hotspots",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--commitment-type",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--filter-by",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--from",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--product",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--to",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--commitment-type",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--filter-by",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--from",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--product",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--to",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "savings",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--commitment-type",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--filter-by",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--from",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--product",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--to",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "savings-ts",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--commitment-type",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--filter-by",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--from",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--product",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--to",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "utilization",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--commitment-type",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--filter-by",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--from",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--product",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--to",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "utilization-ts",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--commitment-type",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--filter-by",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--from",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--product",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--to",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "custom-costs",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "file_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "file_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--page-size",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--sort",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--status",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            },
+            {
+              "name": "upload",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "tag-descriptions",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "delete",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--cloud",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--tag-key",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "generate",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--tag-key",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--cloud",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--tag-key",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--cloud",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            },
+            {
+              "name": "upsert",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--cloud",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--description",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--tag-key",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "tag-keys",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "key",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--metric",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--metric",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--tag",
+                  "type": "string",
+                  "required": false,
+                  "arity": {
+                    "min": 1,
+                    "max": 1,
+                    "repeatable": true
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "tag-metadata",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "currency",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--month",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--daily",
+                  "type": "bool",
+                  "required": false,
+                  "arity": {
+                    "min": 0,
+                    "max": 0,
+                    "repeatable": false
+                  }
+                },
+                {
+                  "name": "--metric",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--month",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--tag-key",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            },
+            {
+              "name": "metrics",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--month",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            },
+            {
+              "name": "orchestrators",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--month",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            },
+            {
+              "name": "tag-sources",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--month",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--provider",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "tags",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "list",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--match",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--metric",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "--tag",
+                  "type": "string",
+                  "required": false,
+                  "arity": {
+                    "min": 1,
+                    "max": 1,
+                    "repeatable": true
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "datadog",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "attribution",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--end",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--fields",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--start",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "aws-config",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            }
+          ]
+        },
+        {
+          "name": "azure-config",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            }
+          ]
+        },
+        {
+          "name": "by-org",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--end-month",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--start-month",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--view",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "gcp-config",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            }
+          ]
+        },
+        {
+          "name": "projected",
+          "read_only": true
+        }
+      ]
+    }
+  ]
+}

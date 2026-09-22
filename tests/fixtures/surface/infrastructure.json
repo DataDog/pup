@@ -1,0 +1,69 @@
+{
+  "name": "infrastructure",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "hosts",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "hostname",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--count",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--filter",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--include-hosts-metadata",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--include-muted-hosts-data",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--sort",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--start",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

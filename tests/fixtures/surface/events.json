@@ -1,0 +1,147 @@
+{
+  "name": "events",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "get",
+      "read_only": true,
+      "args": [
+        {
+          "name": "event_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--filter",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--tags",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "post",
+      "read_only": false,
+      "args": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "flags": [
+        {
+          "name": "--aggregation-key",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--alert-type",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--date-happened",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--device-name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--handle",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--host",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--no-host",
+          "type": "bool",
+          "required": false,
+          "arity": {
+            "min": 0,
+            "max": 0,
+            "repeatable": false
+          }
+        },
+        {
+          "name": "--priority",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--related-event-id",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--source-type-name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--tags",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "search",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--limit",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--query",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

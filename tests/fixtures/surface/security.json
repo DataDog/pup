@@ -1,0 +1,616 @@
+{
+  "name": "security",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "asm-custom-rules",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "custom_rule_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "custom_rule_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "custom_rule_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "asm-exclusions",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "exclusion_filter_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "exclusion_filter_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "exclusion_filter_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "content-packs",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "activate",
+          "read_only": false,
+          "args": [
+            {
+              "name": "pack_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "deactivate",
+          "read_only": false,
+          "args": [
+            {
+              "name": "pack_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        }
+      ]
+    },
+    {
+      "name": "findings",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "analyze",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--query",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "mute",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "schema",
+          "read_only": true
+        },
+        {
+          "name": "search",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--query",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "iocs",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "indicator",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--limit",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--offset",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--query",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--sort-column",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--sort-order",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "restriction-policies",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "resource_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "resource_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "resource_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "risk-scores",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--query",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rules",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "bulk-convert",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "bulk-export",
+          "read_only": true,
+          "args": [
+            {
+              "name": "rule_ids",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": null,
+                "repeatable": true
+              }
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "rule_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--filter",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--page-number",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--page-size",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--sort",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "to-terraform",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "signals",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "investigation-queries",
+          "read_only": true,
+          "args": [
+            {
+              "name": "signal_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--query",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--sort",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "suggested-actions",
+          "read_only": true,
+          "args": [
+            {
+              "name": "signal_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "suppressions",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "suppression_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "suppression_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--sort",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "suppression_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "validate",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "terraform",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "bulk-export",
+          "read_only": true,
+          "args": [
+            {
+              "name": "resource_type",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--output-file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "convert",
+          "read_only": true,
+          "args": [
+            {
+              "name": "resource_type",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "export",
+          "read_only": true,
+          "args": [
+            {
+              "name": "resource_type",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "resource_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

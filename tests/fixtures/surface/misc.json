@@ -1,0 +1,14 @@
+{
+  "name": "misc",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "ip-ranges",
+      "read_only": true
+    },
+    {
+      "name": "status",
+      "read_only": true
+    }
+  ]
+}

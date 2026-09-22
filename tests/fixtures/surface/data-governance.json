@@ -1,0 +1,22 @@
+{
+  "name": "data-governance",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "scanner",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "rules",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "list",
+              "read_only": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

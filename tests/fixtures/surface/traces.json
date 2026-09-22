@@ -1,0 +1,144 @@
+{
+  "name": "traces",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "aggregate",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--compute",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--group-by",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--query",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "metrics",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "metric_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "metric_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "metric_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "search",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--cursor",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--limit",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--live",
+          "type": "bool",
+          "required": false,
+          "arity": {
+            "min": 0,
+            "max": 0,
+            "repeatable": false
+          }
+        },
+        {
+          "name": "--query",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--sort",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

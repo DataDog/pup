@@ -1,0 +1,23 @@
+{
+  "name": "completions",
+  "read_only": true,
+  "args": [
+    {
+      "name": "shell",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "flags": [
+    {
+      "name": "--install",
+      "type": "bool",
+      "required": false,
+      "arity": {
+        "min": 0,
+        "max": 0,
+        "repeatable": false
+      }
+    }
+  ]
+}

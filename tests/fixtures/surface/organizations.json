@@ -1,0 +1,200 @@
+{
+  "name": "organizations",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "get",
+      "read_only": true
+    },
+    {
+      "name": "list",
+      "read_only": true
+    },
+    {
+      "name": "policies",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "policy_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "policy_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--group-id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--name",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--page-number",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--page-size",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--sort",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "policy_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "policy-configs",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true
+        }
+      ]
+    },
+    {
+      "name": "policy-overrides",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "override_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "override_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--group-id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--page-number",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--page-size",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--policy-id",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--sort",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "override_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

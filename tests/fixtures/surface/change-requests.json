@@ -1,0 +1,109 @@
+{
+  "name": "change-requests",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "create",
+      "read_only": false,
+      "flags": [
+        {
+          "name": "--file",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "create-branch",
+      "read_only": false,
+      "args": [
+        {
+          "name": "change_request_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--file",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "decisions",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "change_request_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "decision_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "change_request_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "decision_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "get",
+      "read_only": true,
+      "args": [
+        {
+          "name": "change_request_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "update",
+      "read_only": false,
+      "args": [
+        {
+          "name": "change_request_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--file",
+          "type": "string",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

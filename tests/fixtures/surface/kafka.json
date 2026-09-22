@@ -1,0 +1,131 @@
+{
+  "name": "kafka",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "broker-configs",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--broker-id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--kafka-cluster-id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "client-configs",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--kafka-cluster-id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--service",
+          "type": "string",
+          "required": true,
+          "arity": {
+            "min": 1,
+            "max": 1,
+            "repeatable": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "read-messages",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--bootstrap-servers",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--consumer-group-id",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--filter",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--max-scanned-messages",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--n-messages-retrieved",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--partition",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--start-offset",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--start-timestamp",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--topic",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "subject-schemas",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--kafka-cluster-id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--subject",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "topic-configs",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--kafka-cluster-id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--topic",
+          "type": "string",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

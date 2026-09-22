@@ -1,0 +1,221 @@
+{
+  "name": "agentless-scanning",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "aws",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "account_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "account_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        },
+        {
+          "name": "on-demand",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "task_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "account_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "azure",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "subscription_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "subscription_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "subscription_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "gcp",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "project_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "project_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "project_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

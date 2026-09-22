@@ -1,0 +1,84 @@
+{
+  "name": "ddsql",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "schema",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "columns",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--offset",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--table-id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "tables",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--offset",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--query",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "spec",
+      "read_only": true
+    },
+    {
+      "name": "table",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--limit",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--query",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

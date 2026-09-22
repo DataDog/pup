@@ -1,0 +1,145 @@
+{
+  "name": "static-analysis",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "custom-rules",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "args": [
+            {
+              "name": "ruleset",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "ruleset",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "rule",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "ruleset",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "rule",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "revision",
+          "read_only": true,
+          "args": [
+            {
+              "name": "ruleset",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "rule",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "revision_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "revisions",
+          "read_only": true,
+          "args": [
+            {
+              "name": "ruleset",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "rule",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "custom-rulesets",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,197 @@
+{
+  "name": "deployment-gates",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "evaluations",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "evaluation_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "trigger",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "gates",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "gate_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "gate_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--page-cursor",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--page-size",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "gate_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rules",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "args": [
+            {
+              "name": "gate_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "gate_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "rule_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "gate_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "rule_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "args": [
+            {
+              "name": "gate_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "gate_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "rule_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "name": "data-deletion",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "requests",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "cancel",
+          "read_only": false,
+          "args": [
+            {
+              "name": "request_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--product",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--product",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--query",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--status",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

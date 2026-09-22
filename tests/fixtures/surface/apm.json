@@ -1,0 +1,640 @@
+{
+  "name": "apm",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "adaptive-sampling",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "check",
+          "read_only": true
+        },
+        {
+          "name": "get-allotment",
+          "read_only": true
+        },
+        {
+          "name": "offboard",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--service",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "onboard",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--service",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "onboarding-status",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--service",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "preview",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--bytes",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--percent",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "set-allotment",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--bytes",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--percent",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dependencies",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--primary-tag",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "entities",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--include",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--offset",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--primary-tag",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--types",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "flow-map",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--env",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--limit",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--query",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "sampling-rules",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--resource",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--sample-rate",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--service",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--service",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--resource",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--sample-rate",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--service",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "service-config",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--service-instance-ids",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--service-name",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "service-library-config",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--language",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--mixed",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--service-name",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "service-remapping",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--filter",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--name",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--rule-type",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--value",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--filter",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--name",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--rule-type",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--value",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "services",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--primary-tag",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "operations",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--primary-only",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--primary-tag",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--service",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "resources",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--name",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--peer-service",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--primary-tag",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--service",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "stats",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--env",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--primary-tag",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "troubleshooting",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--hostname",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--result",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--timeframe",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "code-coverage",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "branch-summary",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--branch",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--repo",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "commit-summary",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--commit",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--repo",
+          "type": "string",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

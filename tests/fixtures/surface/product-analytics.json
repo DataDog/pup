@@ -1,0 +1,71 @@
+{
+  "name": "product-analytics",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "events",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "send",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--app-id",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--event",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--file",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--properties",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--user-id",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "query",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "scalar",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "timeseries",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

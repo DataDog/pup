@@ -1,0 +1,101 @@
+{
+  "name": "test-optimization",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "flaky-tests",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "policies",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "get",
+              "read_only": true,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "update",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "settings",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "delete",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

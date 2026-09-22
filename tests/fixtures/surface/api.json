@@ -1,0 +1,83 @@
+{
+  "name": "api",
+  "read_only": true,
+  "args": [
+    {
+      "name": "endpoint",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "flags": [
+    {
+      "name": "--field",
+      "type": "string",
+      "required": false,
+      "arity": {
+        "min": 1,
+        "max": 1,
+        "repeatable": true
+      }
+    },
+    {
+      "name": "--header",
+      "type": "string",
+      "required": false,
+      "arity": {
+        "min": 1,
+        "max": 1,
+        "repeatable": true
+      }
+    },
+    {
+      "name": "--include",
+      "type": "bool",
+      "required": false,
+      "arity": {
+        "min": 0,
+        "max": 0,
+        "repeatable": false
+      }
+    },
+    {
+      "name": "--input",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "--method",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "--raw-field",
+      "type": "string",
+      "required": false,
+      "arity": {
+        "min": 1,
+        "max": 1,
+        "repeatable": true
+      }
+    },
+    {
+      "name": "--silent",
+      "type": "bool",
+      "required": false,
+      "arity": {
+        "min": 0,
+        "max": 0,
+        "repeatable": false
+      }
+    },
+    {
+      "name": "--verbose",
+      "type": "bool",
+      "required": false,
+      "arity": {
+        "min": 0,
+        "max": 0,
+        "repeatable": false
+      }
+    }
+  ]
+}

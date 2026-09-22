@@ -1,0 +1,79 @@
+{
+  "name": "error-tracking",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "issues",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "issue_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--assignee",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--order-by",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--persona",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--query",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--state",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--team",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--track",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "domain-allowlist",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "get",
+      "read_only": true
+    }
+  ]
+}

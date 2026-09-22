@@ -1,0 +1,515 @@
+{
+  "name": "synthetics",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "downtime",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "downtime_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--filter-active",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--filter-test-ids",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "locations",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true
+        }
+      ]
+    },
+    {
+      "name": "multistep",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get-subtest-parents",
+          "read_only": true,
+          "args": [
+            {
+              "name": "public_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get-subtests",
+          "read_only": true,
+          "args": [
+            {
+              "name": "public_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "suites",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "suite_ids",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": null,
+                "repeatable": true
+              }
+            }
+          ],
+          "flags": [
+            {
+              "name": "--ids",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "suite_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--query",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "suite_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tests",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "public_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get-browser-result",
+          "read_only": true,
+          "args": [
+            {
+              "name": "public_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "result_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--event-id",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--timestamp",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "get-fast-result",
+          "read_only": true,
+          "args": [
+            {
+              "name": "result_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get-result",
+          "read_only": true,
+          "args": [
+            {
+              "name": "public_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "result_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--event-id",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--timestamp",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "get-version",
+          "read_only": true,
+          "args": [
+            {
+              "name": "public_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--include-change-metadata",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--page-number",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--page-size",
+              "type": "int",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "list-latest-browser-results",
+          "read_only": true,
+          "args": [
+            {
+              "name": "public_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--device-id",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--from-ts",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--probe-dc",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--run-type",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--status",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to-ts",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "list-latest-results",
+          "read_only": true,
+          "args": [
+            {
+              "name": "public_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--device-id",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--from-ts",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--probe-dc",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--run-type",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--status",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to-ts",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "list-versions",
+          "read_only": true,
+          "args": [
+            {
+              "name": "public_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--last-version-number",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--limit",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "poll-results",
+          "read_only": true,
+          "args": [
+            {
+              "name": "result_ids",
+              "type": "string",
+              "required": true,
+              "arity": {
+                "min": 1,
+                "max": null,
+                "repeatable": true
+              }
+            }
+          ]
+        },
+        {
+          "name": "run",
+          "read_only": false,
+          "args": [
+            {
+              "name": "public_ids",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": null,
+                "repeatable": true
+              }
+            }
+          ],
+          "flags": [
+            {
+              "name": "--timeout",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--tunnel",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--count",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--facets-only",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--include-full-config",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--sort",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--start",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--text",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,526 @@
+{
+  "name": "cases",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "archive",
+      "read_only": false,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "assign",
+      "read_only": false,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--user-id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "comments",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "args": [
+            {
+              "name": "case_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--body",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "case_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--comment-id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "case_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--comment-id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "args": [
+            {
+              "name": "case_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "case_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--body",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--comment-id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "create",
+      "read_only": false,
+      "flags": [
+        {
+          "name": "--description",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--file",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--priority",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--project-id",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--title",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--type-id",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "get",
+      "read_only": true,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "jira",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create-issue",
+          "read_only": false,
+          "args": [
+            {
+              "name": "case_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "link",
+          "read_only": false,
+          "args": [
+            {
+              "name": "case_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "unlink",
+          "read_only": false,
+          "args": [
+            {
+              "name": "case_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "move",
+      "read_only": false,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--project-id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "projects",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--key",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--name",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "project_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "project_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        },
+        {
+          "name": "notification-rules",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "project_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "project_id",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "rule_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "project_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "update",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "project_id",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "rule_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "project_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "search",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--page-number",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--page-size",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--query",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "servicenow",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create-ticket",
+          "read_only": false,
+          "args": [
+            {
+              "name": "case_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "timeline",
+      "read_only": true,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "unarchive",
+      "read_only": false,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "update-description",
+      "read_only": false,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--description",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "update-priority",
+      "read_only": false,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--priority",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "update-status",
+      "read_only": false,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--status",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "update-title",
+      "read_only": false,
+      "args": [
+        {
+          "name": "case_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--title",
+          "type": "string",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

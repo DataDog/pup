@@ -1,0 +1,134 @@
+{
+  "name": "network",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "devices",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "device_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "interfaces",
+          "read_only": true,
+          "args": [
+            {
+              "name": "device_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--ip-addresses",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true
+        },
+        {
+          "name": "tags",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "list",
+              "read_only": true,
+              "args": [
+                {
+                  "name": "device_id",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "name": "update",
+              "read_only": false,
+              "args": [
+                {
+                  "name": "device_id",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "flags": [
+                {
+                  "name": "--file",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "flows",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true
+        }
+      ]
+    },
+    {
+      "name": "interfaces",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "list",
+          "read_only": true,
+          "args": [
+            {
+              "name": "interface_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "interface_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "read_only": true
+    }
+  ]
+}

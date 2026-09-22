@@ -1,0 +1,56 @@
+{
+  "name": "audit-logs",
+  "aliases": [
+    "audit"
+  ],
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "list",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--limit",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "search",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--limit",
+          "type": "int",
+          "required": false
+        },
+        {
+          "name": "--query",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

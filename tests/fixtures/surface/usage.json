@@ -1,0 +1,38 @@
+{
+  "name": "usage",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "hourly",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "summary",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

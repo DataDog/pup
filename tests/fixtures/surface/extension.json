@@ -1,0 +1,135 @@
+{
+  "name": "extension",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "install",
+      "read_only": false,
+      "args": [
+        {
+          "name": "source",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--all",
+          "type": "bool",
+          "required": false,
+          "arity": {
+            "min": 0,
+            "max": 0,
+            "repeatable": false
+          }
+        },
+        {
+          "name": "--description",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--extension",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--force",
+          "type": "bool",
+          "required": false,
+          "arity": {
+            "min": 0,
+            "max": 0,
+            "repeatable": false
+          }
+        },
+        {
+          "name": "--link",
+          "type": "bool",
+          "required": false,
+          "arity": {
+            "min": 0,
+            "max": 0,
+            "repeatable": false
+          }
+        },
+        {
+          "name": "--local",
+          "type": "bool",
+          "required": false,
+          "arity": {
+            "min": 0,
+            "max": 0,
+            "repeatable": false
+          }
+        },
+        {
+          "name": "--name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--tag",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "read_only": true
+    },
+    {
+      "name": "list-remote",
+      "read_only": true,
+      "args": [
+        {
+          "name": "source",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--extension",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "remove",
+      "read_only": false,
+      "args": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "upgrade",
+      "read_only": false,
+      "args": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "flags": [
+        {
+          "name": "--all",
+          "type": "bool",
+          "required": false,
+          "arity": {
+            "min": 0,
+            "max": 0,
+            "repeatable": false
+          }
+        }
+      ]
+    }
+  ]
+}

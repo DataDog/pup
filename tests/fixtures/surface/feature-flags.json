@@ -1,0 +1,317 @@
+{
+  "name": "feature-flags",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "allocations",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "args": [
+            {
+              "name": "feature_flag_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "environment_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "feature_flag_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "environment_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "disable",
+      "read_only": false,
+      "args": [
+        {
+          "name": "feature_flag_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "feature_flags_env_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "enable",
+      "read_only": false,
+      "args": [
+        {
+          "name": "feature_flag_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "feature_flags_env_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "environments",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "feature_flags_env_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "feature_flags_env_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--key",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--limit",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--name",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--offset",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "feature_flags_env_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "exposure",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "pause",
+          "read_only": false,
+          "args": [
+            {
+              "name": "exposure_schedule_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "resume",
+          "read_only": false,
+          "args": [
+            {
+              "name": "exposure_schedule_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "start",
+          "read_only": false,
+          "args": [
+            {
+              "name": "exposure_schedule_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "stop",
+          "read_only": false,
+          "args": [
+            {
+              "name": "exposure_schedule_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "flags",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "archive",
+          "read_only": false,
+          "args": [
+            {
+              "name": "feature_flag_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "feature_flag_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--is-archived",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--key",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--limit",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--offset",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "unarchive",
+          "read_only": false,
+          "args": [
+            {
+              "name": "feature_flag_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "feature_flag_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

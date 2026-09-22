@@ -1,0 +1,170 @@
+{
+  "name": "skills",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "install",
+      "read_only": false,
+      "args": [
+        {
+          "name": "platform",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dir",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--project",
+          "type": "bool",
+          "required": false,
+          "arity": {
+            "min": 0,
+            "max": 0,
+            "repeatable": false
+          }
+        },
+        {
+          "name": "--type",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--type",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "path",
+      "read_only": true,
+      "args": [
+        {
+          "name": "platform",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "flags": [
+        {
+          "name": "--project",
+          "type": "bool",
+          "required": false,
+          "arity": {
+            "min": 0,
+            "max": 0,
+            "repeatable": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "remote",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "skill_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--intent",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--org-id",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--session-id",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--org-id",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--tag",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            }
+          ]
+        },
+        {
+          "name": "sessions",
+          "read_only": true,
+          "subcommands": [
+            {
+              "name": "create",
+              "read_only": false,
+              "flags": [
+                {
+                  "name": "--session-id",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--skill-id",
+                  "type": "string",
+                  "required": false,
+                  "arity": {
+                    "min": 1,
+                    "max": 1,
+                    "repeatable": true
+                  }
+                },
+                {
+                  "name": "--status",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "--summary",
+                  "type": "string",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

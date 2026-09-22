@@ -1,0 +1,344 @@
+{
+  "name": "dashboards",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "annotations",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "create",
+          "read_only": false,
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "read_only": false,
+          "args": [
+            {
+              "name": "annotation_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get-page",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--end",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--page-id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--start",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--end",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--page-id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--start",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--widget-id",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "annotation_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "create",
+      "read_only": false,
+      "flags": [
+        {
+          "name": "--file",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "delete",
+      "read_only": false,
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "diff",
+      "read_only": true,
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "file",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--ignore",
+          "type": "string",
+          "required": false,
+          "arity": {
+            "min": 1,
+            "max": 1,
+            "repeatable": true
+          }
+        },
+        {
+          "name": "--only",
+          "type": "string",
+          "required": false,
+          "arity": {
+            "min": 1,
+            "max": 1,
+            "repeatable": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "get",
+      "read_only": true,
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "read_only": true
+    },
+    {
+      "name": "update",
+      "read_only": false,
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--file",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "url",
+      "read_only": true,
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--from",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--live",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "widgets",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "add",
+          "read_only": false,
+          "args": [
+            {
+              "name": "dash_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "read_only": true,
+          "args": [
+            {
+              "name": "dash_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--index",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--widget-id",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "args": [
+            {
+              "name": "dash_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "remove",
+          "read_only": false,
+          "args": [
+            {
+              "name": "dash_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--index",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--widget-id",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "schema",
+          "read_only": true,
+          "args": [
+            {
+              "name": "type",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "types",
+          "read_only": true
+        },
+        {
+          "name": "update",
+          "read_only": false,
+          "args": [
+            {
+              "name": "dash_id",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--file",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--index",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--widget-id",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

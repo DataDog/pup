@@ -1,0 +1,17 @@
+{
+  "name": "docs",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "ask",
+      "read_only": true,
+      "args": [
+        {
+          "name": "question",
+          "type": "string",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

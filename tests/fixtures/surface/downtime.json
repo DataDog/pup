@@ -1,0 +1,43 @@
+{
+  "name": "downtime",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "cancel",
+      "read_only": false,
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "create",
+      "read_only": false,
+      "flags": [
+        {
+          "name": "--file",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get",
+      "read_only": true,
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "read_only": true
+    }
+  ]
+}

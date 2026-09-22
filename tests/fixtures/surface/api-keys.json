@@ -1,0 +1,43 @@
+{
+  "name": "api-keys",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "create",
+      "read_only": false,
+      "flags": [
+        {
+          "name": "--name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "delete",
+      "read_only": false,
+      "args": [
+        {
+          "name": "key_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get",
+      "read_only": true,
+      "args": [
+        {
+          "name": "key_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "read_only": true
+    }
+  ]
+}

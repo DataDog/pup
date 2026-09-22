@@ -1,0 +1,50 @@
+{
+  "name": "reference-tables",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "batch-query",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--file",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "create",
+      "read_only": false,
+      "flags": [
+        {
+          "name": "--file",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get",
+      "read_only": true,
+      "args": [
+        {
+          "name": "table_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "read_only": true,
+      "flags": [
+        {
+          "name": "--limit",
+          "type": "int",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

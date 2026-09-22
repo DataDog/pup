@@ -1,0 +1,671 @@
+{
+  "name": "idp",
+  "read_only": true,
+  "subcommands": [
+    {
+      "name": "assist",
+      "read_only": true,
+      "args": [
+        {
+          "name": "entity",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "deps",
+      "read_only": true,
+      "args": [
+        {
+          "name": "entity",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "entities",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "aggregate",
+          "read_only": true,
+          "args": [
+            {
+              "name": "query",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--count",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--cursor",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--group-by",
+              "type": "string",
+              "required": true,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--order-by",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--raw",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            }
+          ]
+        },
+        {
+          "name": "facets",
+          "read_only": true,
+          "args": [
+            {
+              "name": "query",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--cursor",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--facet",
+              "type": "string",
+              "required": true,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--raw",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--cursor",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--edge-fields",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--field",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--fields",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--filter-kind",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--free-text-match",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--include",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--include-total-count",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--max-results",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--order-by",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--raw",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--relation-limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--scope",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--timeseries-interval",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "query",
+          "read_only": true,
+          "args": [
+            {
+              "name": "query",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--cursor",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--edge-fields",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--field",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--fields",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--free-text-match",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--include",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--include-total-count",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--max-results",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--order-by",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--raw",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--relation-limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--scope",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--timeseries-interval",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--cursor",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--edge-fields",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--field",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--fields",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--filter-kind",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--free-text-match",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--from",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--include",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--include-total-count",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--max-results",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--order-by",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--query",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "--raw",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--relation-limit",
+              "type": "int",
+              "required": false
+            },
+            {
+              "name": "--scope",
+              "type": "string",
+              "required": false,
+              "arity": {
+                "min": 1,
+                "max": 1,
+                "repeatable": true
+              }
+            },
+            {
+              "name": "--timeseries-interval",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "--to",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "find",
+      "read_only": true,
+      "args": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "flags": [
+        {
+          "name": "--cursor",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "--limit",
+          "type": "int",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "kinds",
+      "read_only": true,
+      "subcommands": [
+        {
+          "name": "describe",
+          "read_only": true,
+          "args": [
+            {
+              "name": "kind",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "flags": [
+            {
+              "name": "--no-examples",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "read_only": true,
+          "flags": [
+            {
+              "name": "--all",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--exclude-experimental",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--include-custom",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            },
+            {
+              "name": "--include-low-level",
+              "type": "bool",
+              "required": false,
+              "arity": {
+                "min": 0,
+                "max": 0,
+                "repeatable": false
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "migrate-schema",
+      "read_only": true,
+      "args": [
+        {
+          "name": "file",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "owner",
+      "read_only": true,
+      "args": [
+        {
+          "name": "entity",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "register",
+      "read_only": false,
+      "args": [
+        {
+          "name": "file",
+          "type": "string",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

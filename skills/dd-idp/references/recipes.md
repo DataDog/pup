@@ -178,8 +178,6 @@ For an incident lead: resolve the owning team and current responders together.
 pup --read-only idp owner "<service-name>"
 ```
 
-Datadog On-Call responder data is not yet available in UEG. This helper resolves the owning team through UEG and reads that team's responders from the Datadog On-Call API. Check `warnings` if enrichment fails; an absent responder is not proof that nobody is responsible. When Datadog On-Call support is added to UEG, verify its live schema and returned data before using the graph for this lookup.
-
 ## GitHub pull requests
 
 Scope every pull-request search by repository. Numeric lookups can collide across repositories, and broad author/reviewer searches can exceed backend project-fanout limits:

@@ -1,6 +1,6 @@
 ---
 name: dd-idp
-description: Answer questions about service and endpoint ownership, source code, dependency impact, team health and cost, vulnerability advisories, and Terraform drift using Pup's read-only Datadog entity graph.
+description: Answer questions about service and endpoint ownership, source code, dependency impact, team health and cost, and vulnerability advisories using Pup's read-only Datadog entity graph.
 metadata:
   version: "1.0.0"
   author: datadog-labs

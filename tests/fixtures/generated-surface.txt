@@ -1,0 +1,5 @@
+# Generated surface fixture
+monitors
+monitors.list
+
+users.accounts.list

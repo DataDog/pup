@@ -81,10 +81,21 @@ pub(crate) struct Cli {
     command: Commands,
 }
 
+/// Give a command's immediate subcommands a shared display order so help sorts
+/// them by name.
+///
+/// Merge hosts should opt in only while their generated commands are present:
+/// `#[cfg(generated_tag = "<tag>")] { cmd = cmd.mut_subcommand("<tag>", sort_subcommands_by_name); }`
+fn sort_subcommands_by_name(command: clap::Command) -> clap::Command {
+    command.mut_subcommands(|subcommand| subcommand.display_order(0))
+}
+
 /// Build the CLI with top-level subcommands sorted by name in help output.
-/// Nested subcommands retain their declared display order.
+/// Nested subcommands retain their declared display order; merge hosts can opt
+/// into name sorting with `sort_subcommands_by_name` when generated commands
+/// are present.
 pub(crate) fn cli_command() -> clap::Command {
-    Cli::command().mut_subcommands(|command| command.display_order(0))
+    sort_subcommands_by_name(Cli::command())
 }
 
 #[derive(Subcommand)]

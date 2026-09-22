@@ -1,13 +1,12 @@
 {
   "name": "symdb",
-  "read_only": true,
   "subcommands": [
     {
       "name": "search",
       "read_only": true,
       "flags": [
         {
-          "name": "--no-allow-partial",
+          "name": "no-allow-partial",
           "type": "bool",
           "required": false,
           "arity": {
@@ -17,17 +16,17 @@
           }
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": false
         },
         {
-          "name": "--service",
+          "name": "service",
           "type": "string",
           "required": true
         },
         {
-          "name": "--view",
+          "name": "view",
           "type": "string",
           "required": false
         }

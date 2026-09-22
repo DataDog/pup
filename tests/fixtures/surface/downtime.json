@@ -1,6 +1,5 @@
 {
   "name": "downtime",
-  "read_only": true,
   "subcommands": [
     {
       "name": "cancel",
@@ -18,7 +17,7 @@
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }

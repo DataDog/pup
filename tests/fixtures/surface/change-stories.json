@@ -1,33 +1,32 @@
 {
   "name": "change-stories",
-  "read_only": true,
   "subcommands": [
     {
       "name": "list",
       "read_only": true,
       "flags": [
         {
-          "name": "--env",
+          "name": "env",
           "type": "string",
           "required": false
         },
         {
-          "name": "--filter-tags",
+          "name": "filter-tags",
           "type": "string",
           "required": false
         },
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": true
         },
         {
-          "name": "--service",
+          "name": "service",
           "type": "string",
           "required": true
         },
         {
-          "name": "--story-types",
+          "name": "story-types",
           "type": "string",
           "required": false,
           "arity": {
@@ -37,12 +36,12 @@
           }
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": true
         },
         {
-          "name": "--token-limit",
+          "name": "token-limit",
           "type": "string",
           "required": false
         }

@@ -1,17 +1,15 @@
 {
   "name": "synthetics",
-  "read_only": true,
   "subcommands": [
     {
       "name": "downtime",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -33,12 +31,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--filter-active",
+              "name": "filter-active",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-test-ids",
+              "name": "filter-test-ids",
               "type": "string",
               "required": false
             }
@@ -48,7 +46,6 @@
     },
     {
       "name": "locations",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
@@ -58,7 +55,6 @@
     },
     {
       "name": "multistep",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get-subtest-parents",
@@ -86,14 +82,13 @@
     },
     {
       "name": "suites",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -116,7 +111,7 @@
           ],
           "flags": [
             {
-              "name": "--ids",
+              "name": "ids",
               "type": "string",
               "required": false
             }
@@ -138,7 +133,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             }
@@ -156,7 +151,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -166,7 +161,6 @@
     },
     {
       "name": "tests",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
@@ -196,12 +190,12 @@
           ],
           "flags": [
             {
-              "name": "--event-id",
+              "name": "event-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--timestamp",
+              "name": "timestamp",
               "type": "string",
               "required": false
             }
@@ -235,12 +229,12 @@
           ],
           "flags": [
             {
-              "name": "--event-id",
+              "name": "event-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--timestamp",
+              "name": "timestamp",
               "type": "string",
               "required": false
             }
@@ -258,7 +252,7 @@
           ],
           "flags": [
             {
-              "name": "--include-change-metadata",
+              "name": "include-change-metadata",
               "type": "bool",
               "required": false,
               "arity": {
@@ -274,12 +268,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--page-number",
+              "name": "page-number",
               "type": "int",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "int",
               "required": false
             }
@@ -297,7 +291,7 @@
           ],
           "flags": [
             {
-              "name": "--device-id",
+              "name": "device-id",
               "type": "string",
               "required": false,
               "arity": {
@@ -307,12 +301,12 @@
               }
             },
             {
-              "name": "--from-ts",
+              "name": "from-ts",
               "type": "string",
               "required": false
             },
             {
-              "name": "--probe-dc",
+              "name": "probe-dc",
               "type": "string",
               "required": false,
               "arity": {
@@ -322,17 +316,17 @@
               }
             },
             {
-              "name": "--run-type",
+              "name": "run-type",
               "type": "string",
               "required": false
             },
             {
-              "name": "--status",
+              "name": "status",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to-ts",
+              "name": "to-ts",
               "type": "string",
               "required": false
             }
@@ -350,7 +344,7 @@
           ],
           "flags": [
             {
-              "name": "--device-id",
+              "name": "device-id",
               "type": "string",
               "required": false,
               "arity": {
@@ -360,12 +354,12 @@
               }
             },
             {
-              "name": "--from-ts",
+              "name": "from-ts",
               "type": "string",
               "required": false
             },
             {
-              "name": "--probe-dc",
+              "name": "probe-dc",
               "type": "string",
               "required": false,
               "arity": {
@@ -375,17 +369,17 @@
               }
             },
             {
-              "name": "--run-type",
+              "name": "run-type",
               "type": "string",
               "required": false
             },
             {
-              "name": "--status",
+              "name": "status",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to-ts",
+              "name": "to-ts",
               "type": "string",
               "required": false
             }
@@ -403,12 +397,12 @@
           ],
           "flags": [
             {
-              "name": "--last-version-number",
+              "name": "last-version-number",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "string",
               "required": false
             }
@@ -447,12 +441,12 @@
           ],
           "flags": [
             {
-              "name": "--timeout",
+              "name": "timeout",
               "type": "int",
               "required": false
             },
             {
-              "name": "--tunnel",
+              "name": "tunnel",
               "type": "bool",
               "required": false,
               "arity": {
@@ -468,12 +462,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--count",
+              "name": "count",
               "type": "int",
               "required": false
             },
             {
-              "name": "--facets-only",
+              "name": "facets-only",
               "type": "bool",
               "required": false,
               "arity": {
@@ -483,7 +477,7 @@
               }
             },
             {
-              "name": "--include-full-config",
+              "name": "include-full-config",
               "type": "bool",
               "required": false,
               "arity": {
@@ -493,17 +487,17 @@
               }
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             },
             {
-              "name": "--start",
+              "name": "start",
               "type": "int",
               "required": false
             },
             {
-              "name": "--text",
+              "name": "text",
               "type": "string",
               "required": false
             }

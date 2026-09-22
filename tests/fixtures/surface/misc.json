@@ -1,6 +1,5 @@
 {
   "name": "misc",
-  "read_only": true,
   "subcommands": [
     {
       "name": "ip-ranges",

@@ -1,6 +1,5 @@
 {
   "name": "tags",
-  "read_only": true,
   "subcommands": [
     {
       "name": "add",

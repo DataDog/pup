@@ -1,18 +1,17 @@
 {
   "name": "kafka",
-  "read_only": true,
   "subcommands": [
     {
       "name": "broker-configs",
       "read_only": true,
       "flags": [
         {
-          "name": "--broker-id",
+          "name": "broker-id",
           "type": "string",
           "required": true
         },
         {
-          "name": "--kafka-cluster-id",
+          "name": "kafka-cluster-id",
           "type": "string",
           "required": true
         }
@@ -23,12 +22,12 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--kafka-cluster-id",
+          "name": "kafka-cluster-id",
           "type": "string",
           "required": true
         },
         {
-          "name": "--service",
+          "name": "service",
           "type": "string",
           "required": true,
           "arity": {
@@ -44,52 +43,52 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--bootstrap-servers",
+          "name": "bootstrap-servers",
           "type": "string",
           "required": true
         },
         {
-          "name": "--cluster",
+          "name": "cluster",
           "type": "string",
           "required": true
         },
         {
-          "name": "--consumer-group-id",
+          "name": "consumer-group-id",
           "type": "string",
           "required": false
         },
         {
-          "name": "--filter",
+          "name": "filter",
           "type": "string",
           "required": false
         },
         {
-          "name": "--max-scanned-messages",
+          "name": "max-scanned-messages",
           "type": "int",
           "required": false
         },
         {
-          "name": "--n-messages-retrieved",
+          "name": "n-messages-retrieved",
           "type": "int",
           "required": false
         },
         {
-          "name": "--partition",
+          "name": "partition",
           "type": "string",
           "required": false
         },
         {
-          "name": "--start-offset",
+          "name": "start-offset",
           "type": "int",
           "required": false
         },
         {
-          "name": "--start-timestamp",
+          "name": "start-timestamp",
           "type": "string",
           "required": false
         },
         {
-          "name": "--topic",
+          "name": "topic",
           "type": "string",
           "required": true
         }
@@ -100,12 +99,12 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--kafka-cluster-id",
+          "name": "kafka-cluster-id",
           "type": "string",
           "required": true
         },
         {
-          "name": "--subject",
+          "name": "subject",
           "type": "string",
           "required": true
         }
@@ -116,12 +115,12 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--kafka-cluster-id",
+          "name": "kafka-cluster-id",
           "type": "string",
           "required": true
         },
         {
-          "name": "--topic",
+          "name": "topic",
           "type": "string",
           "required": true
         }

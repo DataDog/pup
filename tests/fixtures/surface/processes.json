@@ -1,23 +1,22 @@
 {
   "name": "processes",
-  "read_only": true,
   "subcommands": [
     {
       "name": "list",
       "read_only": true,
       "flags": [
         {
-          "name": "--page-limit",
+          "name": "page-limit",
           "type": "string",
           "required": false
         },
         {
-          "name": "--search",
+          "name": "search",
           "type": "string",
           "required": false
         },
         {
-          "name": "--tags",
+          "name": "tags",
           "type": "string",
           "required": false
         }

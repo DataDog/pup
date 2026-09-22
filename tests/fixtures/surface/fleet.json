@@ -1,10 +1,8 @@
 {
   "name": "fleet",
-  "read_only": true,
   "subcommands": [
     {
       "name": "agents",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
@@ -22,12 +20,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             }
@@ -45,22 +43,22 @@
           ],
           "flags": [
             {
-              "name": "--page-number",
+              "name": "page-number",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort-attribute",
+              "name": "sort-attribute",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort-descending",
+              "name": "sort-descending",
               "type": "bool",
               "required": false,
               "arity": {
@@ -79,7 +77,6 @@
     },
     {
       "name": "deployments",
-      "read_only": true,
       "subcommands": [
         {
           "name": "cancel",
@@ -97,7 +94,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -119,7 +116,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             }
@@ -130,7 +127,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -140,14 +137,13 @@
     },
     {
       "name": "schedules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -202,7 +198,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -212,34 +208,33 @@
     },
     {
       "name": "tracers",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-number",
+              "name": "page-number",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort-attribute",
+              "name": "sort-attribute",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort-descending",
+              "name": "sort-descending",
               "type": "bool",
               "required": false,
               "arity": {

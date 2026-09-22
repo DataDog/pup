@@ -1,10 +1,8 @@
 {
   "name": "infrastructure",
-  "read_only": true,
   "subcommands": [
     {
       "name": "hosts",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
@@ -22,17 +20,17 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--count",
+              "name": "count",
               "type": "int",
               "required": false
             },
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--include-hosts-metadata",
+              "name": "include-hosts-metadata",
               "type": "bool",
               "required": false,
               "arity": {
@@ -42,7 +40,7 @@
               }
             },
             {
-              "name": "--include-muted-hosts-data",
+              "name": "include-muted-hosts-data",
               "type": "bool",
               "required": false,
               "arity": {
@@ -52,12 +50,12 @@
               }
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             },
             {
-              "name": "--start",
+              "name": "start",
               "type": "string",
               "required": false
             }

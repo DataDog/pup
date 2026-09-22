@@ -1,21 +1,18 @@
 {
   "name": "test-optimization",
-  "read_only": true,
   "subcommands": [
     {
       "name": "flaky-tests",
-      "read_only": true,
       "subcommands": [
         {
           "name": "policies",
-          "read_only": true,
           "subcommands": [
             {
               "name": "get",
               "read_only": true,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -26,7 +23,7 @@
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -39,7 +36,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": false
             }
@@ -50,7 +47,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -60,14 +57,13 @@
     },
     {
       "name": "settings",
-      "read_only": true,
       "subcommands": [
         {
           "name": "delete",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -78,7 +74,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -89,7 +85,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }

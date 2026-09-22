@@ -1,6 +1,5 @@
 {
   "name": "investigations",
-  "read_only": true,
   "subcommands": [
     {
       "name": "get",
@@ -18,17 +17,17 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--monitor-id",
+          "name": "monitor-id",
           "type": "int",
           "required": false
         },
         {
-          "name": "--page-limit",
+          "name": "page-limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--page-offset",
+          "name": "page-offset",
           "type": "int",
           "required": false
         }
@@ -39,27 +38,27 @@
       "read_only": false,
       "flags": [
         {
-          "name": "--event-id",
+          "name": "event-id",
           "type": "string",
           "required": false
         },
         {
-          "name": "--event-ts",
+          "name": "event-ts",
           "type": "int",
           "required": false
         },
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": false
         },
         {
-          "name": "--monitor-id",
+          "name": "monitor-id",
           "type": "int",
           "required": false
         },
         {
-          "name": "--type",
+          "name": "type",
           "type": "string",
           "required": false
         }

@@ -1,6 +1,5 @@
 {
   "name": "extension",
-  "read_only": true,
   "subcommands": [
     {
       "name": "install",
@@ -14,7 +13,7 @@
       ],
       "flags": [
         {
-          "name": "--all",
+          "name": "all",
           "type": "bool",
           "required": false,
           "arity": {
@@ -24,17 +23,17 @@
           }
         },
         {
-          "name": "--description",
+          "name": "description",
           "type": "string",
           "required": false
         },
         {
-          "name": "--extension",
+          "name": "extension",
           "type": "string",
           "required": false
         },
         {
-          "name": "--force",
+          "name": "force",
           "type": "bool",
           "required": false,
           "arity": {
@@ -44,7 +43,7 @@
           }
         },
         {
-          "name": "--link",
+          "name": "link",
           "type": "bool",
           "required": false,
           "arity": {
@@ -54,7 +53,7 @@
           }
         },
         {
-          "name": "--local",
+          "name": "local",
           "type": "bool",
           "required": false,
           "arity": {
@@ -64,12 +63,12 @@
           }
         },
         {
-          "name": "--name",
+          "name": "name",
           "type": "string",
           "required": false
         },
         {
-          "name": "--tag",
+          "name": "tag",
           "type": "string",
           "required": false
         }
@@ -91,7 +90,7 @@
       ],
       "flags": [
         {
-          "name": "--extension",
+          "name": "extension",
           "type": "string",
           "required": false
         }
@@ -120,7 +119,7 @@
       ],
       "flags": [
         {
-          "name": "--all",
+          "name": "all",
           "type": "bool",
           "required": false,
           "arity": {

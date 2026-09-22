@@ -1,18 +1,17 @@
 {
   "name": "app-keys",
-  "read_only": true,
   "subcommands": [
     {
       "name": "create",
       "read_only": false,
       "flags": [
         {
-          "name": "--name",
+          "name": "name",
           "type": "string",
           "required": true
         },
         {
-          "name": "--scopes",
+          "name": "scopes",
           "type": "string",
           "required": false
         }
@@ -45,7 +44,7 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--all",
+          "name": "all",
           "type": "bool",
           "required": false,
           "arity": {
@@ -55,22 +54,22 @@
           }
         },
         {
-          "name": "--filter",
+          "name": "filter",
           "type": "string",
           "required": false
         },
         {
-          "name": "--page-number",
+          "name": "page-number",
           "type": "int",
           "required": false
         },
         {
-          "name": "--page-size",
+          "name": "page-size",
           "type": "int",
           "required": false
         },
         {
-          "name": "--sort",
+          "name": "sort",
           "type": "string",
           "required": false
         }
@@ -88,12 +87,12 @@
       ],
       "flags": [
         {
-          "name": "--name",
+          "name": "name",
           "type": "string",
           "required": false
         },
         {
-          "name": "--scopes",
+          "name": "scopes",
           "type": "string",
           "required": false
         }

@@ -1,10 +1,8 @@
 {
   "name": "error-tracking",
-  "read_only": true,
   "subcommands": [
     {
       "name": "issues",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
@@ -22,52 +20,52 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--assignee",
+              "name": "assignee",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--order-by",
+              "name": "order-by",
               "type": "string",
               "required": false
             },
             {
-              "name": "--persona",
+              "name": "persona",
               "type": "string",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--state",
+              "name": "state",
               "type": "string",
               "required": false
             },
             {
-              "name": "--team",
+              "name": "team",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             },
             {
-              "name": "--track",
+              "name": "track",
               "type": "string",
               "required": false
             }

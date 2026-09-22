@@ -1,6 +1,5 @@
 {
   "name": "events",
-  "read_only": true,
   "subcommands": [
     {
       "name": "get",
@@ -18,22 +17,22 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--filter",
+          "name": "filter",
           "type": "string",
           "required": false
         },
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--tags",
+          "name": "tags",
           "type": "string",
           "required": false
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }
@@ -56,37 +55,37 @@
       ],
       "flags": [
         {
-          "name": "--aggregation-key",
+          "name": "aggregation-key",
           "type": "string",
           "required": false
         },
         {
-          "name": "--alert-type",
+          "name": "alert-type",
           "type": "string",
           "required": false
         },
         {
-          "name": "--date-happened",
+          "name": "date-happened",
           "type": "string",
           "required": false
         },
         {
-          "name": "--device-name",
+          "name": "device-name",
           "type": "string",
           "required": false
         },
         {
-          "name": "--handle",
+          "name": "handle",
           "type": "string",
           "required": false
         },
         {
-          "name": "--host",
+          "name": "host",
           "type": "string",
           "required": false
         },
         {
-          "name": "--no-host",
+          "name": "no-host",
           "type": "bool",
           "required": false,
           "arity": {
@@ -96,22 +95,22 @@
           }
         },
         {
-          "name": "--priority",
+          "name": "priority",
           "type": "string",
           "required": false
         },
         {
-          "name": "--related-event-id",
+          "name": "related-event-id",
           "type": "string",
           "required": false
         },
         {
-          "name": "--source-type-name",
+          "name": "source-type-name",
           "type": "string",
           "required": false
         },
         {
-          "name": "--tags",
+          "name": "tags",
           "type": "string",
           "required": false
         }
@@ -122,22 +121,22 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": true
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }

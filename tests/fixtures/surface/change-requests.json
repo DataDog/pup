@@ -1,13 +1,12 @@
 {
   "name": "change-requests",
-  "read_only": true,
   "subcommands": [
     {
       "name": "create",
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -25,7 +24,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -33,7 +32,6 @@
     },
     {
       "name": "decisions",
-      "read_only": true,
       "subcommands": [
         {
           "name": "delete",
@@ -68,7 +66,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -99,7 +97,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }

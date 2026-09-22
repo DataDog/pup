@@ -1,6 +1,5 @@
 {
   "name": "saved-widgets",
-  "read_only": true,
   "subcommands": [
     {
       "name": "create",
@@ -14,7 +13,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -64,42 +63,42 @@
       ],
       "flags": [
         {
-          "name": "--filter-creator-handle",
+          "name": "filter-creator-handle",
           "type": "string",
           "required": false
         },
         {
-          "name": "--filter-is-favorited",
+          "name": "filter-is-favorited",
           "type": "string",
           "required": false
         },
         {
-          "name": "--filter-tags",
+          "name": "filter-tags",
           "type": "string",
           "required": false
         },
         {
-          "name": "--filter-title",
+          "name": "filter-title",
           "type": "string",
           "required": false
         },
         {
-          "name": "--filter-widget-type",
+          "name": "filter-widget-type",
           "type": "string",
           "required": false
         },
         {
-          "name": "--page-number",
+          "name": "page-number",
           "type": "string",
           "required": false
         },
         {
-          "name": "--page-size",
+          "name": "page-size",
           "type": "string",
           "required": false
         },
         {
-          "name": "--sort",
+          "name": "sort",
           "type": "string",
           "required": false
         }
@@ -122,7 +121,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }

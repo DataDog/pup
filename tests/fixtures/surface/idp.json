@@ -1,6 +1,5 @@
 {
   "name": "idp",
-  "read_only": true,
   "subcommands": [
     {
       "name": "assist",
@@ -26,7 +25,6 @@
     },
     {
       "name": "entities",
-      "read_only": true,
       "subcommands": [
         {
           "name": "aggregate",
@@ -40,7 +38,7 @@
           ],
           "flags": [
             {
-              "name": "--count",
+              "name": "count",
               "type": "string",
               "required": false,
               "arity": {
@@ -50,12 +48,12 @@
               }
             },
             {
-              "name": "--cursor",
+              "name": "cursor",
               "type": "string",
               "required": false
             },
             {
-              "name": "--group-by",
+              "name": "group-by",
               "type": "string",
               "required": true,
               "arity": {
@@ -65,12 +63,12 @@
               }
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--order-by",
+              "name": "order-by",
               "type": "string",
               "required": false,
               "arity": {
@@ -80,7 +78,7 @@
               }
             },
             {
-              "name": "--raw",
+              "name": "raw",
               "type": "bool",
               "required": false,
               "arity": {
@@ -103,12 +101,12 @@
           ],
           "flags": [
             {
-              "name": "--cursor",
+              "name": "cursor",
               "type": "string",
               "required": false
             },
             {
-              "name": "--facet",
+              "name": "facet",
               "type": "string",
               "required": true,
               "arity": {
@@ -118,12 +116,12 @@
               }
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--raw",
+              "name": "raw",
               "type": "bool",
               "required": false,
               "arity": {
@@ -139,12 +137,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--cursor",
+              "name": "cursor",
               "type": "string",
               "required": false
             },
             {
-              "name": "--edge-fields",
+              "name": "edge-fields",
               "type": "string",
               "required": false,
               "arity": {
@@ -154,7 +152,7 @@
               }
             },
             {
-              "name": "--field",
+              "name": "field",
               "type": "string",
               "required": false,
               "arity": {
@@ -164,7 +162,7 @@
               }
             },
             {
-              "name": "--fields",
+              "name": "fields",
               "type": "string",
               "required": false,
               "arity": {
@@ -174,22 +172,22 @@
               }
             },
             {
-              "name": "--filter-kind",
+              "name": "filter-kind",
               "type": "string",
               "required": true
             },
             {
-              "name": "--free-text-match",
+              "name": "free-text-match",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--include",
+              "name": "include",
               "type": "string",
               "required": false,
               "arity": {
@@ -199,7 +197,7 @@
               }
             },
             {
-              "name": "--include-total-count",
+              "name": "include-total-count",
               "type": "bool",
               "required": false,
               "arity": {
@@ -209,17 +207,17 @@
               }
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--max-results",
+              "name": "max-results",
               "type": "string",
               "required": false
             },
             {
-              "name": "--order-by",
+              "name": "order-by",
               "type": "string",
               "required": false,
               "arity": {
@@ -229,7 +227,7 @@
               }
             },
             {
-              "name": "--raw",
+              "name": "raw",
               "type": "bool",
               "required": false,
               "arity": {
@@ -239,12 +237,12 @@
               }
             },
             {
-              "name": "--relation-limit",
+              "name": "relation-limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--scope",
+              "name": "scope",
               "type": "string",
               "required": false,
               "arity": {
@@ -254,12 +252,12 @@
               }
             },
             {
-              "name": "--timeseries-interval",
+              "name": "timeseries-interval",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -277,12 +275,12 @@
           ],
           "flags": [
             {
-              "name": "--cursor",
+              "name": "cursor",
               "type": "string",
               "required": false
             },
             {
-              "name": "--edge-fields",
+              "name": "edge-fields",
               "type": "string",
               "required": false,
               "arity": {
@@ -292,7 +290,7 @@
               }
             },
             {
-              "name": "--field",
+              "name": "field",
               "type": "string",
               "required": false,
               "arity": {
@@ -302,7 +300,7 @@
               }
             },
             {
-              "name": "--fields",
+              "name": "fields",
               "type": "string",
               "required": false,
               "arity": {
@@ -312,17 +310,17 @@
               }
             },
             {
-              "name": "--free-text-match",
+              "name": "free-text-match",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--include",
+              "name": "include",
               "type": "string",
               "required": false,
               "arity": {
@@ -332,7 +330,7 @@
               }
             },
             {
-              "name": "--include-total-count",
+              "name": "include-total-count",
               "type": "bool",
               "required": false,
               "arity": {
@@ -342,17 +340,17 @@
               }
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--max-results",
+              "name": "max-results",
               "type": "string",
               "required": false
             },
             {
-              "name": "--order-by",
+              "name": "order-by",
               "type": "string",
               "required": false,
               "arity": {
@@ -362,7 +360,7 @@
               }
             },
             {
-              "name": "--raw",
+              "name": "raw",
               "type": "bool",
               "required": false,
               "arity": {
@@ -372,12 +370,12 @@
               }
             },
             {
-              "name": "--relation-limit",
+              "name": "relation-limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--scope",
+              "name": "scope",
               "type": "string",
               "required": false,
               "arity": {
@@ -387,12 +385,12 @@
               }
             },
             {
-              "name": "--timeseries-interval",
+              "name": "timeseries-interval",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -403,12 +401,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--cursor",
+              "name": "cursor",
               "type": "string",
               "required": false
             },
             {
-              "name": "--edge-fields",
+              "name": "edge-fields",
               "type": "string",
               "required": false,
               "arity": {
@@ -418,7 +416,7 @@
               }
             },
             {
-              "name": "--field",
+              "name": "field",
               "type": "string",
               "required": false,
               "arity": {
@@ -428,7 +426,7 @@
               }
             },
             {
-              "name": "--fields",
+              "name": "fields",
               "type": "string",
               "required": false,
               "arity": {
@@ -438,22 +436,22 @@
               }
             },
             {
-              "name": "--filter-kind",
+              "name": "filter-kind",
               "type": "string",
               "required": true
             },
             {
-              "name": "--free-text-match",
+              "name": "free-text-match",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--include",
+              "name": "include",
               "type": "string",
               "required": false,
               "arity": {
@@ -463,7 +461,7 @@
               }
             },
             {
-              "name": "--include-total-count",
+              "name": "include-total-count",
               "type": "bool",
               "required": false,
               "arity": {
@@ -473,17 +471,17 @@
               }
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--max-results",
+              "name": "max-results",
               "type": "string",
               "required": false
             },
             {
-              "name": "--order-by",
+              "name": "order-by",
               "type": "string",
               "required": false,
               "arity": {
@@ -493,12 +491,12 @@
               }
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": true
             },
             {
-              "name": "--raw",
+              "name": "raw",
               "type": "bool",
               "required": false,
               "arity": {
@@ -508,12 +506,12 @@
               }
             },
             {
-              "name": "--relation-limit",
+              "name": "relation-limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--scope",
+              "name": "scope",
               "type": "string",
               "required": false,
               "arity": {
@@ -523,12 +521,12 @@
               }
             },
             {
-              "name": "--timeseries-interval",
+              "name": "timeseries-interval",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -548,12 +546,12 @@
       ],
       "flags": [
         {
-          "name": "--cursor",
+          "name": "cursor",
           "type": "string",
           "required": false
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         }
@@ -561,7 +559,6 @@
     },
     {
       "name": "kinds",
-      "read_only": true,
       "subcommands": [
         {
           "name": "describe",
@@ -575,7 +572,7 @@
           ],
           "flags": [
             {
-              "name": "--no-examples",
+              "name": "no-examples",
               "type": "bool",
               "required": false,
               "arity": {
@@ -591,7 +588,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--all",
+              "name": "all",
               "type": "bool",
               "required": false,
               "arity": {
@@ -601,7 +598,7 @@
               }
             },
             {
-              "name": "--exclude-experimental",
+              "name": "exclude-experimental",
               "type": "bool",
               "required": false,
               "arity": {
@@ -611,7 +608,7 @@
               }
             },
             {
-              "name": "--include-custom",
+              "name": "include-custom",
               "type": "bool",
               "required": false,
               "arity": {
@@ -621,7 +618,7 @@
               }
             },
             {
-              "name": "--include-low-level",
+              "name": "include-low-level",
               "type": "bool",
               "required": false,
               "arity": {

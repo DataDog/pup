@@ -10,7 +10,7 @@
   ],
   "flags": [
     {
-      "name": "--field",
+      "name": "field",
       "type": "string",
       "required": false,
       "arity": {
@@ -20,7 +20,7 @@
       }
     },
     {
-      "name": "--header",
+      "name": "header",
       "type": "string",
       "required": false,
       "arity": {
@@ -30,7 +30,7 @@
       }
     },
     {
-      "name": "--include",
+      "name": "include",
       "type": "bool",
       "required": false,
       "arity": {
@@ -40,17 +40,17 @@
       }
     },
     {
-      "name": "--input",
+      "name": "input",
       "type": "string",
       "required": false
     },
     {
-      "name": "--method",
+      "name": "method",
       "type": "string",
       "required": false
     },
     {
-      "name": "--raw-field",
+      "name": "raw-field",
       "type": "string",
       "required": false,
       "arity": {
@@ -60,7 +60,7 @@
       }
     },
     {
-      "name": "--silent",
+      "name": "silent",
       "type": "bool",
       "required": false,
       "arity": {
@@ -70,7 +70,7 @@
       }
     },
     {
-      "name": "--verbose",
+      "name": "verbose",
       "type": "bool",
       "required": false,
       "arity": {

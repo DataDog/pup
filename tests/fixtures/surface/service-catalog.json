@@ -1,6 +1,5 @@
 {
   "name": "service-catalog",
-  "read_only": true,
   "subcommands": [
     {
       "name": "get",
@@ -18,12 +17,12 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--page-number",
+          "name": "page-number",
           "type": "int",
           "required": false
         },
         {
-          "name": "--page-size",
+          "name": "page-size",
           "type": "int",
           "required": false
         }

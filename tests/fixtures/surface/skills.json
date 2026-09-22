@@ -1,6 +1,5 @@
 {
   "name": "skills",
-  "read_only": true,
   "subcommands": [
     {
       "name": "install",
@@ -14,17 +13,17 @@
       ],
       "flags": [
         {
-          "name": "--dir",
+          "name": "dir",
           "type": "string",
           "required": false
         },
         {
-          "name": "--name",
+          "name": "name",
           "type": "string",
           "required": false
         },
         {
-          "name": "--project",
+          "name": "project",
           "type": "bool",
           "required": false,
           "arity": {
@@ -34,7 +33,7 @@
           }
         },
         {
-          "name": "--type",
+          "name": "type",
           "type": "string",
           "required": false
         }
@@ -45,7 +44,7 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--type",
+          "name": "type",
           "type": "string",
           "required": false
         }
@@ -63,7 +62,7 @@
       ],
       "flags": [
         {
-          "name": "--project",
+          "name": "project",
           "type": "bool",
           "required": false,
           "arity": {
@@ -76,7 +75,6 @@
     },
     {
       "name": "remote",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
@@ -90,17 +88,17 @@
           ],
           "flags": [
             {
-              "name": "--intent",
+              "name": "intent",
               "type": "string",
               "required": false
             },
             {
-              "name": "--org-id",
+              "name": "org-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--session-id",
+              "name": "session-id",
               "type": "string",
               "required": false
             }
@@ -111,12 +109,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--org-id",
+              "name": "org-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--tag",
+              "name": "tag",
               "type": "string",
               "required": false,
               "arity": {
@@ -129,19 +127,18 @@
         },
         {
           "name": "sessions",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--session-id",
+                  "name": "session-id",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--skill-id",
+                  "name": "skill-id",
                   "type": "string",
                   "required": false,
                   "arity": {
@@ -151,12 +148,12 @@
                   }
                 },
                 {
-                  "name": "--status",
+                  "name": "status",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--summary",
+                  "name": "summary",
                   "type": "string",
                   "required": true
                 }

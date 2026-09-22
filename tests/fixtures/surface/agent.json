@@ -1,6 +1,5 @@
 {
   "name": "agent",
-  "read_only": true,
   "subcommands": [
     {
       "name": "guide",
@@ -11,7 +10,7 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--compact",
+          "name": "compact",
           "type": "bool",
           "required": false,
           "arity": {

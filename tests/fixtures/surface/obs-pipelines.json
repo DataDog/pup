@@ -1,13 +1,12 @@
 {
   "name": "obs-pipelines",
-  "read_only": true,
   "subcommands": [
     {
       "name": "create",
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -41,7 +40,7 @@
       ],
       "flags": [
         {
-          "name": "--ignore",
+          "name": "ignore",
           "type": "string",
           "required": false,
           "arity": {
@@ -51,7 +50,7 @@
           }
         },
         {
-          "name": "--only",
+          "name": "only",
           "type": "string",
           "required": false,
           "arity": {
@@ -78,7 +77,7 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         }
@@ -96,7 +95,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -107,7 +106,7 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }

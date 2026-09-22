@@ -1,10 +1,8 @@
 {
   "name": "static-analysis",
-  "read_only": true,
   "subcommands": [
     {
       "name": "custom-rules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
@@ -18,7 +16,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -97,7 +95,6 @@
     },
     {
       "name": "custom-rulesets",
-      "read_only": true,
       "subcommands": [
         {
           "name": "delete",
@@ -133,7 +130,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }

@@ -1,10 +1,8 @@
 {
   "name": "data-deletion",
-  "read_only": true,
   "subcommands": [
     {
       "name": "requests",
-      "read_only": true,
       "subcommands": [
         {
           "name": "cancel",
@@ -22,12 +20,12 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             },
             {
-              "name": "--product",
+              "name": "product",
               "type": "string",
               "required": true
             }
@@ -38,17 +36,17 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--product",
+              "name": "product",
               "type": "string",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--status",
+              "name": "status",
               "type": "string",
               "required": false
             }

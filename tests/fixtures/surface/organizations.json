@@ -1,6 +1,5 @@
 {
   "name": "organizations",
-  "read_only": true,
   "subcommands": [
     {
       "name": "get",
@@ -12,14 +11,13 @@
     },
     {
       "name": "policies",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -52,27 +50,27 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--group-id",
+              "name": "group-id",
               "type": "string",
               "required": true
             },
             {
-              "name": "--name",
+              "name": "name",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-number",
+              "name": "page-number",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             }
@@ -90,7 +88,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -100,7 +98,6 @@
     },
     {
       "name": "policy-configs",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
@@ -110,14 +107,13 @@
     },
     {
       "name": "policy-overrides",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -150,27 +146,27 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--group-id",
+              "name": "group-id",
               "type": "string",
               "required": true
             },
             {
-              "name": "--page-number",
+              "name": "page-number",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             },
             {
-              "name": "--policy-id",
+              "name": "policy-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             }
@@ -188,7 +184,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }

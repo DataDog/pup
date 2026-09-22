@@ -1,13 +1,12 @@
 {
   "name": "tag-policies",
-  "read_only": true,
   "subcommands": [
     {
       "name": "create",
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -25,7 +24,7 @@
       ],
       "flags": [
         {
-          "name": "--hard-delete",
+          "name": "hard-delete",
           "type": "bool",
           "required": false,
           "arity": {
@@ -48,7 +47,7 @@
       ],
       "flags": [
         {
-          "name": "--include-score",
+          "name": "include-score",
           "type": "bool",
           "required": false,
           "arity": {
@@ -64,12 +63,12 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--filter-source",
+          "name": "filter-source",
           "type": "string",
           "required": false
         },
         {
-          "name": "--include-deleted",
+          "name": "include-deleted",
           "type": "bool",
           "required": false,
           "arity": {
@@ -79,7 +78,7 @@
           }
         },
         {
-          "name": "--include-disabled",
+          "name": "include-disabled",
           "type": "bool",
           "required": false,
           "arity": {
@@ -89,7 +88,7 @@
           }
         },
         {
-          "name": "--include-score",
+          "name": "include-score",
           "type": "bool",
           "required": false,
           "arity": {
@@ -112,12 +111,12 @@
       ],
       "flags": [
         {
-          "name": "--ts-end",
+          "name": "ts-end",
           "type": "string",
           "required": false
         },
         {
-          "name": "--ts-start",
+          "name": "ts-start",
           "type": "string",
           "required": false
         }
@@ -135,7 +134,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }

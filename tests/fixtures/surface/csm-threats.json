@@ -1,17 +1,15 @@
 {
   "name": "csm-threats",
-  "read_only": true,
   "subcommands": [
     {
       "name": "agent-policies",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -55,7 +53,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -65,14 +63,13 @@
     },
     {
       "name": "agent-rules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -90,7 +87,7 @@
           ],
           "flags": [
             {
-              "name": "--policy-id",
+              "name": "policy-id",
               "type": "string",
               "required": false
             }
@@ -108,7 +105,7 @@
           ],
           "flags": [
             {
-              "name": "--policy-id",
+              "name": "policy-id",
               "type": "string",
               "required": false
             }
@@ -119,7 +116,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--policy-id",
+              "name": "policy-id",
               "type": "string",
               "required": false
             }
@@ -137,12 +134,12 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             },
             {
-              "name": "--policy-id",
+              "name": "policy-id",
               "type": "string",
               "required": false
             }
@@ -152,14 +149,13 @@
     },
     {
       "name": "backend-rules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -192,7 +188,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             }
@@ -210,7 +206,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -221,7 +217,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -231,7 +227,6 @@
     },
     {
       "name": "policy",
-      "read_only": true,
       "subcommands": [
         {
           "name": "download",

@@ -1,10 +1,8 @@
 {
   "name": "software-catalog",
-  "read_only": true,
   "subcommands": [
     {
       "name": "entities",
-      "read_only": true,
       "subcommands": [
         {
           "name": "delete",
@@ -22,22 +20,22 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-kind",
+              "name": "filter-kind",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-owner",
+              "name": "filter-owner",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-ref",
+              "name": "filter-ref",
               "type": "string",
               "required": false
             }
@@ -52,7 +50,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -62,7 +60,6 @@
     },
     {
       "name": "kinds",
-      "read_only": true,
       "subcommands": [
         {
           "name": "delete",
@@ -84,7 +81,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -94,7 +91,6 @@
     },
     {
       "name": "relations",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",

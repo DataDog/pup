@@ -1,13 +1,12 @@
 {
   "name": "api-keys",
-  "read_only": true,
   "subcommands": [
     {
       "name": "create",
       "read_only": false,
       "flags": [
         {
-          "name": "--name",
+          "name": "name",
           "type": "string",
           "required": true
         }

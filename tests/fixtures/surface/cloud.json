@@ -1,10 +1,8 @@
 {
   "name": "cloud",
-  "read_only": true,
   "subcommands": [
     {
       "name": "aws",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
@@ -14,7 +12,6 @@
     },
     {
       "name": "azure",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
@@ -24,7 +21,6 @@
     },
     {
       "name": "gcp",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
@@ -34,18 +30,16 @@
     },
     {
       "name": "oci",
-      "read_only": true,
       "subcommands": [
         {
           "name": "products",
-          "read_only": true,
           "subcommands": [
             {
               "name": "list",
               "read_only": true,
               "flags": [
                 {
-                  "name": "--product-keys",
+                  "name": "product-keys",
                   "type": "string",
                   "required": true
                 }
@@ -55,14 +49,13 @@
         },
         {
           "name": "tenancies",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -106,7 +99,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }

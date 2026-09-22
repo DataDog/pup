@@ -1,33 +1,32 @@
 {
   "name": "traces",
-  "read_only": true,
   "subcommands": [
     {
       "name": "aggregate",
       "read_only": true,
       "flags": [
         {
-          "name": "--compute",
+          "name": "compute",
           "type": "string",
           "required": true
         },
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--group-by",
+          "name": "group-by",
           "type": "string",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": false
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }
@@ -35,14 +34,13 @@
     },
     {
       "name": "metrics",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -86,7 +84,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -99,22 +97,22 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--cursor",
+          "name": "cursor",
           "type": "string",
           "required": false
         },
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--live",
+          "name": "live",
           "type": "bool",
           "required": false,
           "arity": {
@@ -124,17 +122,17 @@
           }
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": false
         },
         {
-          "name": "--sort",
+          "name": "sort",
           "type": "string",
           "required": false
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }

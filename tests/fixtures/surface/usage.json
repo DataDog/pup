@@ -1,18 +1,17 @@
 {
   "name": "usage",
-  "read_only": true,
   "subcommands": [
     {
       "name": "hourly",
       "read_only": true,
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }
@@ -23,12 +22,12 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }

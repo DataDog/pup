@@ -3,11 +3,9 @@
   "aliases": [
     "cost"
   ],
-  "read_only": true,
   "subcommands": [
     {
       "name": "anomalies",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
@@ -17,11 +15,9 @@
     },
     {
       "name": "ccm",
-      "read_only": true,
       "subcommands": [
         {
           "name": "budgets",
-          "read_only": true,
           "subcommands": [
             {
               "name": "delete",
@@ -46,7 +42,7 @@
               ],
               "flags": [
                 {
-                  "name": "--actual",
+                  "name": "actual",
                   "type": "bool",
                   "required": false,
                   "arity": {
@@ -56,12 +52,12 @@
                   }
                 },
                 {
-                  "name": "--end",
+                  "name": "end",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--forecast",
+                  "name": "forecast",
                   "type": "bool",
                   "required": false,
                   "arity": {
@@ -71,7 +67,7 @@
                   }
                 },
                 {
-                  "name": "--start",
+                  "name": "start",
                   "type": "string",
                   "required": false
                 }
@@ -86,7 +82,7 @@
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -97,7 +93,7 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -107,39 +103,38 @@
         },
         {
           "name": "commitments",
-          "read_only": true,
           "subcommands": [
             {
               "name": "coverage",
               "read_only": true,
               "flags": [
                 {
-                  "name": "--commitment-type",
+                  "name": "commitment-type",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--filter-by",
+                  "name": "filter-by",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--from",
+                  "name": "from",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--product",
+                  "name": "product",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--to",
+                  "name": "to",
                   "type": "string",
                   "required": true
                 }
@@ -150,32 +145,32 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--commitment-type",
+                  "name": "commitment-type",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--filter-by",
+                  "name": "filter-by",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--from",
+                  "name": "from",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--product",
+                  "name": "product",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--to",
+                  "name": "to",
                   "type": "string",
                   "required": true
                 }
@@ -186,32 +181,32 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--commitment-type",
+                  "name": "commitment-type",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--filter-by",
+                  "name": "filter-by",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--from",
+                  "name": "from",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--product",
+                  "name": "product",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--to",
+                  "name": "to",
                   "type": "string",
                   "required": true
                 }
@@ -222,32 +217,32 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--commitment-type",
+                  "name": "commitment-type",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--filter-by",
+                  "name": "filter-by",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--from",
+                  "name": "from",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--product",
+                  "name": "product",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--to",
+                  "name": "to",
                   "type": "string",
                   "required": true
                 }
@@ -258,32 +253,32 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--commitment-type",
+                  "name": "commitment-type",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--filter-by",
+                  "name": "filter-by",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--from",
+                  "name": "from",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--product",
+                  "name": "product",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--to",
+                  "name": "to",
                   "type": "string",
                   "required": true
                 }
@@ -294,32 +289,32 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--commitment-type",
+                  "name": "commitment-type",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--filter-by",
+                  "name": "filter-by",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--from",
+                  "name": "from",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--product",
+                  "name": "product",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--to",
+                  "name": "to",
                   "type": "string",
                   "required": true
                 }
@@ -330,32 +325,32 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--commitment-type",
+                  "name": "commitment-type",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--filter-by",
+                  "name": "filter-by",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--from",
+                  "name": "from",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--product",
+                  "name": "product",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--to",
+                  "name": "to",
                   "type": "string",
                   "required": true
                 }
@@ -366,32 +361,32 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--commitment-type",
+                  "name": "commitment-type",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--filter-by",
+                  "name": "filter-by",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--from",
+                  "name": "from",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--product",
+                  "name": "product",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--to",
+                  "name": "to",
                   "type": "string",
                   "required": true
                 }
@@ -401,7 +396,6 @@
         },
         {
           "name": "custom-costs",
-          "read_only": true,
           "subcommands": [
             {
               "name": "delete",
@@ -430,17 +424,17 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--page-size",
+                  "name": "page-size",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--sort",
+                  "name": "sort",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--status",
+                  "name": "status",
                   "type": "string",
                   "required": false
                 }
@@ -451,7 +445,7 @@
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -461,19 +455,18 @@
         },
         {
           "name": "tag-descriptions",
-          "read_only": true,
           "subcommands": [
             {
               "name": "delete",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--cloud",
+                  "name": "cloud",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--tag-key",
+                  "name": "tag-key",
                   "type": "string",
                   "required": true
                 }
@@ -484,7 +477,7 @@
               "read_only": false,
               "flags": [
                 {
-                  "name": "--tag-key",
+                  "name": "tag-key",
                   "type": "string",
                   "required": true
                 }
@@ -495,12 +488,12 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--cloud",
+                  "name": "cloud",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--tag-key",
+                  "name": "tag-key",
                   "type": "string",
                   "required": true
                 }
@@ -511,7 +504,7 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--cloud",
+                  "name": "cloud",
                   "type": "string",
                   "required": false
                 }
@@ -522,17 +515,17 @@
               "read_only": false,
               "flags": [
                 {
-                  "name": "--cloud",
+                  "name": "cloud",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--description",
+                  "name": "description",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--tag-key",
+                  "name": "tag-key",
                   "type": "string",
                   "required": true
                 }
@@ -542,7 +535,6 @@
         },
         {
           "name": "tag-keys",
-          "read_only": true,
           "subcommands": [
             {
               "name": "get",
@@ -556,7 +548,7 @@
               ],
               "flags": [
                 {
-                  "name": "--metric",
+                  "name": "metric",
                   "type": "string",
                   "required": false
                 }
@@ -567,12 +559,12 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--metric",
+                  "name": "metric",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--tag",
+                  "name": "tag",
                   "type": "string",
                   "required": false,
                   "arity": {
@@ -587,19 +579,18 @@
         },
         {
           "name": "tag-metadata",
-          "read_only": true,
           "subcommands": [
             {
               "name": "currency",
               "read_only": true,
               "flags": [
                 {
-                  "name": "--month",
+                  "name": "month",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": false
                 }
@@ -610,7 +601,7 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--daily",
+                  "name": "daily",
                   "type": "bool",
                   "required": false,
                   "arity": {
@@ -620,22 +611,22 @@
                   }
                 },
                 {
-                  "name": "--metric",
+                  "name": "metric",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--month",
+                  "name": "month",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--tag-key",
+                  "name": "tag-key",
                   "type": "string",
                   "required": false
                 }
@@ -646,12 +637,12 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--month",
+                  "name": "month",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": false
                 }
@@ -662,12 +653,12 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--month",
+                  "name": "month",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": false
                 }
@@ -678,12 +669,12 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--month",
+                  "name": "month",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--provider",
+                  "name": "provider",
                   "type": "string",
                   "required": false
                 }
@@ -693,24 +684,23 @@
         },
         {
           "name": "tags",
-          "read_only": true,
           "subcommands": [
             {
               "name": "list",
               "read_only": true,
               "flags": [
                 {
-                  "name": "--match",
+                  "name": "match",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--metric",
+                  "name": "metric",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--tag",
+                  "name": "tag",
                   "type": "string",
                   "required": false,
                   "arity": {
@@ -727,24 +717,23 @@
     },
     {
       "name": "datadog",
-      "read_only": true,
       "subcommands": [
         {
           "name": "attribution",
           "read_only": true,
           "flags": [
             {
-              "name": "--end",
+              "name": "end",
               "type": "string",
               "required": false
             },
             {
-              "name": "--fields",
+              "name": "fields",
               "type": "string",
               "required": false
             },
             {
-              "name": "--start",
+              "name": "start",
               "type": "string",
               "required": true
             }
@@ -752,14 +741,13 @@
         },
         {
           "name": "aws-config",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -795,14 +783,13 @@
         },
         {
           "name": "azure-config",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -841,17 +828,17 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--end-month",
+              "name": "end-month",
               "type": "string",
               "required": false
             },
             {
-              "name": "--start-month",
+              "name": "start-month",
               "type": "string",
               "required": true
             },
             {
-              "name": "--view",
+              "name": "view",
               "type": "string",
               "required": false
             }
@@ -859,14 +846,13 @@
         },
         {
           "name": "gcp-config",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }

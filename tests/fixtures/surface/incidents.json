@@ -1,10 +1,8 @@
 {
   "name": "incidents",
-  "read_only": true,
   "subcommands": [
     {
       "name": "attachments",
-      "read_only": true,
       "subcommands": [
         {
           "name": "delete",
@@ -48,14 +46,13 @@
     },
     {
       "name": "handles",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -81,7 +78,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -94,7 +91,7 @@
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -105,12 +102,12 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": false
         }
@@ -118,14 +115,13 @@
     },
     {
       "name": "postmortem-templates",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -169,7 +165,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -179,7 +175,6 @@
     },
     {
       "name": "settings",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
@@ -190,7 +185,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }

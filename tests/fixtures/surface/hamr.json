@@ -1,17 +1,15 @@
 {
   "name": "hamr",
-  "read_only": true,
   "subcommands": [
     {
       "name": "connections",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }

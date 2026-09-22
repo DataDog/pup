@@ -1,6 +1,5 @@
 {
   "name": "users",
-  "read_only": true,
   "subcommands": [
     {
       "name": "get",
@@ -18,12 +17,12 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--page-number",
+          "name": "page-number",
           "type": "int",
           "required": false
         },
         {
-          "name": "--page-size",
+          "name": "page-size",
           "type": "int",
           "required": false
         }
@@ -31,34 +30,33 @@
     },
     {
       "name": "roles",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-id",
+              "name": "filter-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-number",
+              "name": "page-number",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             }
@@ -68,18 +66,16 @@
     },
     {
       "name": "seats",
-      "read_only": true,
       "subcommands": [
         {
           "name": "users",
-          "read_only": true,
           "subcommands": [
             {
               "name": "assign",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -90,12 +86,12 @@
               "read_only": true,
               "flags": [
                 {
-                  "name": "--limit",
+                  "name": "limit",
                   "type": "int",
                   "required": false
                 },
                 {
-                  "name": "--product",
+                  "name": "product",
                   "type": "string",
                   "required": true
                 }
@@ -106,7 +102,7 @@
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -118,11 +114,9 @@
     },
     {
       "name": "service-accounts",
-      "read_only": true,
       "subcommands": [
         {
           "name": "app-keys",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
@@ -136,7 +130,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -202,7 +196,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -215,7 +209,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }

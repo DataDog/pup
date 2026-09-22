@@ -1,18 +1,17 @@
 {
   "name": "acp",
-  "read_only": true,
   "subcommands": [
     {
       "name": "serve",
       "read_only": true,
       "flags": [
         {
-          "name": "--agent-id",
+          "name": "agent-id",
           "type": "string",
           "required": false
         },
         {
-          "name": "--auto-create",
+          "name": "auto-create",
           "type": "bool",
           "required": false,
           "arity": {
@@ -22,12 +21,12 @@
           }
         },
         {
-          "name": "--host",
+          "name": "host",
           "type": "string",
           "required": false
         },
         {
-          "name": "--port",
+          "name": "port",
           "type": "int",
           "required": false
         }

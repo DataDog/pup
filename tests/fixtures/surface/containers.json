@@ -1,32 +1,30 @@
 {
   "name": "containers",
-  "read_only": true,
   "subcommands": [
     {
       "name": "images",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--filter-tags",
+              "name": "filter-tags",
               "type": "string",
               "required": false
             },
             {
-              "name": "--group-by",
+              "name": "group-by",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             }
@@ -39,22 +37,22 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--filter-tags",
+          "name": "filter-tags",
           "type": "string",
           "required": false
         },
         {
-          "name": "--group-by",
+          "name": "group-by",
           "type": "string",
           "required": false
         },
         {
-          "name": "--page-size",
+          "name": "page-size",
           "type": "string",
           "required": false
         },
         {
-          "name": "--sort",
+          "name": "sort",
           "type": "string",
           "required": false
         }

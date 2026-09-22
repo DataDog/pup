@@ -1,17 +1,15 @@
 {
   "name": "dashboards",
-  "read_only": true,
   "subcommands": [
     {
       "name": "annotations",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -33,17 +31,17 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--end",
+              "name": "end",
               "type": "string",
               "required": true
             },
             {
-              "name": "--page-id",
+              "name": "page-id",
               "type": "string",
               "required": true
             },
             {
-              "name": "--start",
+              "name": "start",
               "type": "string",
               "required": true
             }
@@ -54,22 +52,22 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--end",
+              "name": "end",
               "type": "string",
               "required": true
             },
             {
-              "name": "--page-id",
+              "name": "page-id",
               "type": "string",
               "required": true
             },
             {
-              "name": "--start",
+              "name": "start",
               "type": "string",
               "required": true
             },
             {
-              "name": "--widget-id",
+              "name": "widget-id",
               "type": "string",
               "required": false
             }
@@ -87,7 +85,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -100,7 +98,7 @@
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -134,7 +132,7 @@
       ],
       "flags": [
         {
-          "name": "--ignore",
+          "name": "ignore",
           "type": "string",
           "required": false,
           "arity": {
@@ -144,7 +142,7 @@
           }
         },
         {
-          "name": "--only",
+          "name": "only",
           "type": "string",
           "required": false,
           "arity": {
@@ -182,7 +180,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -200,17 +198,17 @@
       ],
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--live",
+          "name": "live",
           "type": "string",
           "required": false
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }
@@ -218,7 +216,6 @@
     },
     {
       "name": "widgets",
-      "read_only": true,
       "subcommands": [
         {
           "name": "add",
@@ -232,7 +229,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -250,12 +247,12 @@
           ],
           "flags": [
             {
-              "name": "--index",
+              "name": "index",
               "type": "string",
               "required": false
             },
             {
-              "name": "--widget-id",
+              "name": "widget-id",
               "type": "string",
               "required": false
             }
@@ -284,12 +281,12 @@
           ],
           "flags": [
             {
-              "name": "--index",
+              "name": "index",
               "type": "string",
               "required": false
             },
             {
-              "name": "--widget-id",
+              "name": "widget-id",
               "type": "string",
               "required": false
             }
@@ -322,17 +319,17 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             },
             {
-              "name": "--index",
+              "name": "index",
               "type": "string",
               "required": false
             },
             {
-              "name": "--widget-id",
+              "name": "widget-id",
               "type": "string",
               "required": false
             }

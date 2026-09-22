@@ -1,9 +1,8 @@
 {
   "name": "profiling",
-  "read_only": true,
   "flags": [
     {
-      "name": "--header",
+      "name": "header",
       "type": "string",
       "required": false,
       "arity": {
@@ -16,24 +15,23 @@
   "subcommands": [
     {
       "name": "explore",
-      "read_only": true,
       "subcommands": [
         {
           "name": "flamegraph",
           "read_only": true,
           "flags": [
             {
-              "name": "--attribute",
+              "name": "attribute",
               "type": "string",
               "required": false
             },
             {
-              "name": "--attribute-values-regex-filter",
+              "name": "attribute-values-regex-filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--bypass-kind-truncation",
+              "name": "bypass-kind-truncation",
               "type": "bool",
               "required": false,
               "arity": {
@@ -43,77 +41,77 @@
               }
             },
             {
-              "name": "--endpoint-regex-filter",
+              "name": "endpoint-regex-filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--event-id",
+              "name": "event-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--frame-format",
+              "name": "frame-format",
               "type": "string",
               "required": false
             },
             {
-              "name": "--frame-grouping",
+              "name": "frame-grouping",
               "type": "string",
               "required": false
             },
             {
-              "name": "--frame-regex-filter",
+              "name": "frame-regex-filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit-top-stacktraces",
+              "name": "limit-top-stacktraces",
               "type": "int",
               "required": false
             },
             {
-              "name": "--max-stack-trace-size",
+              "name": "max-stack-trace-size",
               "type": "int",
               "required": false
             },
             {
-              "name": "--percent-cutoff",
+              "name": "percent-cutoff",
               "type": "int",
               "required": false
             },
             {
-              "name": "--profile-id",
+              "name": "profile-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--profile-type",
+              "name": "profile-type",
               "type": "string",
               "required": true
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--span-id",
+              "name": "span-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             },
             {
-              "name": "--trace-id",
+              "name": "trace-id",
               "type": "string",
               "required": false
             }
@@ -123,34 +121,33 @@
     },
     {
       "name": "profile-types",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--span-id",
+              "name": "span-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             },
             {
-              "name": "--trace-id",
+              "name": "trace-id",
               "type": "string",
               "required": false
             }
@@ -160,29 +157,28 @@
     },
     {
       "name": "profiles",
-      "read_only": true,
       "subcommands": [
         {
           "name": "download",
           "read_only": true,
           "flags": [
             {
-              "name": "--event-id",
+              "name": "event-id",
               "type": "string",
               "required": true
             },
             {
-              "name": "--file-name",
+              "name": "file-name",
               "type": "string",
               "required": false
             },
             {
-              "name": "--output-file",
+              "name": "output-file",
               "type": "string",
               "required": true
             },
             {
-              "name": "--profile-id",
+              "name": "profile-id",
               "type": "string",
               "required": true
             }
@@ -193,32 +189,32 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort-field",
+              "name": "sort-field",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort-order",
+              "name": "sort-order",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -228,24 +224,23 @@
     },
     {
       "name": "services",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }

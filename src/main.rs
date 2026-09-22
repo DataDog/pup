@@ -12561,9 +12561,23 @@ mod test_agent_schema {
         build_agent_schema(&cmd)
     }
 
-    fn project_parameter_surface(parameter: &serde_json::Value) -> serde_json::Value {
+    fn project_parameter_surface(
+        parameter: &serde_json::Value,
+        strip_flag_prefix: bool,
+    ) -> serde_json::Value {
         let mut surface = serde_json::Map::new();
-        for property in ["name", "type", "required"] {
+        let name = parameter["name"]
+            .as_str()
+            .expect("parameter must have a name");
+        surface.insert(
+            "name".into(),
+            serde_json::json!(if strip_flag_prefix {
+                name.strip_prefix("--").unwrap_or(name)
+            } else {
+                name
+            }),
+        );
+        for property in ["type", "required"] {
             surface.insert(property.into(), parameter[property].clone());
         }
 
@@ -12585,23 +12599,31 @@ mod test_agent_schema {
         if let Some(aliases) = command.get("aliases") {
             surface.insert("aliases".into(), aliases.clone());
         }
-        surface.insert("read_only".into(), command["read_only"].clone());
+
+        let subcommands = command
+            .get("subcommands")
+            .and_then(|value| value.as_array());
+        if subcommands.is_none() {
+            surface.insert("read_only".into(), command["read_only"].clone());
+        }
 
         for property in ["args", "flags"] {
             if let Some(parameters) = command.get(property).and_then(|value| value.as_array()) {
                 surface.insert(
                     property.into(),
                     serde_json::Value::Array(
-                        parameters.iter().map(project_parameter_surface).collect(),
+                        parameters
+                            .iter()
+                            .map(|parameter| {
+                                project_parameter_surface(parameter, property == "flags")
+                            })
+                            .collect(),
                     ),
                 );
             }
         }
 
-        if let Some(subcommands) = command
-            .get("subcommands")
-            .and_then(|value| value.as_array())
-        {
+        if let Some(subcommands) = subcommands {
             surface.insert(
                 "subcommands".into(),
                 serde_json::Value::Array(subcommands.iter().map(project_command_surface).collect()),
@@ -12795,13 +12817,28 @@ mod test_agent_schema {
         let full_schema = build_command_schema(&command, "parent");
         let surface = project_command_surface(&full_schema);
 
+        assert_eq!(full_schema["flags"][0]["name"], "--verbose");
         assert!(surface.get("description").is_none());
         assert!(surface.get("full_path").is_none());
         assert!(surface["args"][0].get("arity").is_none());
+        assert_eq!(surface["flags"][0]["name"], "verbose");
         assert_eq!(
             surface["flags"][0]["arity"],
             serde_json::json!({"min": 0, "max": 0, "repeatable": false})
         );
+    }
+
+    #[test]
+    fn surface_projection_emits_read_only_only_for_leaf_commands() {
+        let command = clap::Command::new("group")
+            .subcommand(clap::Command::new("leaf"))
+            .subcommand(clap::Command::new("write").arg(clap::Arg::new("file").long("file")));
+        let full_schema = build_command_schema(&command, "");
+        let surface = project_command_surface(&full_schema);
+
+        assert!(surface.get("read_only").is_none());
+        assert!(surface["subcommands"][0]["read_only"].is_boolean());
+        assert_eq!(surface["subcommands"][1]["flags"][0]["name"], "file");
     }
 
     #[test]

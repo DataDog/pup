@@ -1,17 +1,15 @@
 {
   "name": "on-call",
-  "read_only": true,
   "subcommands": [
     {
       "name": "escalation-policies",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -51,7 +49,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -61,7 +59,6 @@
     },
     {
       "name": "notification-channels",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
@@ -75,7 +72,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -128,7 +125,6 @@
     },
     {
       "name": "notification-rules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
@@ -142,7 +138,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -208,7 +204,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -218,14 +214,13 @@
     },
     {
       "name": "pages",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -247,27 +242,27 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--page",
+              "name": "page",
               "type": "int",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "int",
               "required": false
             },
             {
-              "name": "--responder",
+              "name": "responder",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             },
             {
-              "name": "--team",
+              "name": "team",
               "type": "string",
               "required": false
             }
@@ -277,14 +272,13 @@
     },
     {
       "name": "schedules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -324,7 +318,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -334,29 +328,28 @@
     },
     {
       "name": "teams",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--avatar",
+              "name": "avatar",
               "type": "string",
               "required": false
             },
             {
-              "name": "--description",
+              "name": "description",
               "type": "string",
               "required": false
             },
             {
-              "name": "--handle",
+              "name": "handle",
               "type": "string",
               "required": true
             },
             {
-              "name": "--hidden",
+              "name": "hidden",
               "type": "bool",
               "required": false,
               "arity": {
@@ -366,7 +359,7 @@
               }
             },
             {
-              "name": "--name",
+              "name": "name",
               "type": "string",
               "required": true
             }
@@ -400,7 +393,6 @@
         },
         {
           "name": "memberships",
-          "read_only": true,
           "subcommands": [
             {
               "name": "add",
@@ -414,12 +406,12 @@
               ],
               "flags": [
                 {
-                  "name": "--role",
+                  "name": "role",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--user-id",
+                  "name": "user-id",
                   "type": "string",
                   "required": true
                 }
@@ -437,17 +429,17 @@
               ],
               "flags": [
                 {
-                  "name": "--page-number",
+                  "name": "page-number",
                   "type": "int",
                   "required": false
                 },
                 {
-                  "name": "--page-size",
+                  "name": "page-size",
                   "type": "int",
                   "required": false
                 },
                 {
-                  "name": "--sort",
+                  "name": "sort",
                   "type": "string",
                   "required": false
                 }
@@ -486,7 +478,7 @@
               ],
               "flags": [
                 {
-                  "name": "--role",
+                  "name": "role",
                   "type": "string",
                   "required": true
                 }
@@ -506,12 +498,12 @@
           ],
           "flags": [
             {
-              "name": "--handle",
+              "name": "handle",
               "type": "string",
               "required": true
             },
             {
-              "name": "--name",
+              "name": "name",
               "type": "string",
               "required": true
             }

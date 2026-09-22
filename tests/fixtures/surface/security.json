@@ -1,17 +1,15 @@
 {
   "name": "security",
-  "read_only": true,
   "subcommands": [
     {
       "name": "asm-custom-rules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -55,7 +53,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -65,14 +63,13 @@
     },
     {
       "name": "asm-exclusions",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -116,7 +113,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -126,7 +123,6 @@
     },
     {
       "name": "content-packs",
-      "read_only": true,
       "subcommands": [
         {
           "name": "activate",
@@ -158,29 +154,28 @@
     },
     {
       "name": "findings",
-      "read_only": true,
       "subcommands": [
         {
           "name": "analyze",
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": true
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -191,7 +186,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -206,12 +201,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             }
@@ -221,7 +216,6 @@
     },
     {
       "name": "iocs",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
@@ -239,27 +233,27 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "string",
               "required": false
             },
             {
-              "name": "--offset",
+              "name": "offset",
               "type": "string",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort-column",
+              "name": "sort-column",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort-order",
+              "name": "sort-order",
               "type": "string",
               "required": false
             }
@@ -269,7 +263,6 @@
     },
     {
       "name": "restriction-policies",
-      "read_only": true,
       "subcommands": [
         {
           "name": "delete",
@@ -305,7 +298,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -315,14 +308,13 @@
     },
     {
       "name": "risk-scores",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             }
@@ -332,14 +324,13 @@
     },
     {
       "name": "rules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "bulk-convert",
           "read_only": true,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -377,22 +368,22 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-number",
+              "name": "page-number",
               "type": "int",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "int",
               "required": false
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             }
@@ -403,7 +394,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -413,7 +404,6 @@
     },
     {
       "name": "signals",
-      "read_only": true,
       "subcommands": [
         {
           "name": "investigation-queries",
@@ -431,27 +421,27 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": true
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -472,14 +462,13 @@
     },
     {
       "name": "suppressions",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -512,7 +501,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             }
@@ -530,7 +519,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -541,7 +530,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -551,7 +540,6 @@
     },
     {
       "name": "terraform",
-      "read_only": true,
       "subcommands": [
         {
           "name": "bulk-export",
@@ -565,12 +553,12 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             },
             {
-              "name": "--output-file",
+              "name": "output-file",
               "type": "string",
               "required": true
             }
@@ -588,7 +576,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }

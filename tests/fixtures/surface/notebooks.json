@@ -1,17 +1,15 @@
 {
   "name": "notebooks",
-  "read_only": true,
   "subcommands": [
     {
       "name": "annotations",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -33,17 +31,17 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--end",
+              "name": "end",
               "type": "string",
               "required": true
             },
             {
-              "name": "--page-id",
+              "name": "page-id",
               "type": "string",
               "required": true
             },
             {
-              "name": "--start",
+              "name": "start",
               "type": "string",
               "required": true
             }
@@ -54,22 +52,22 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--end",
+              "name": "end",
               "type": "string",
               "required": true
             },
             {
-              "name": "--page-id",
+              "name": "page-id",
               "type": "string",
               "required": true
             },
             {
-              "name": "--start",
+              "name": "start",
               "type": "string",
               "required": true
             },
             {
-              "name": "--widget-id",
+              "name": "widget-id",
               "type": "string",
               "required": false
             }
@@ -87,7 +85,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -100,12 +98,12 @@
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         },
         {
-          "name": "--markdown",
+          "name": "markdown",
           "type": "bool",
           "required": false,
           "arity": {
@@ -144,7 +142,7 @@
       ],
       "flags": [
         {
-          "name": "--ignore",
+          "name": "ignore",
           "type": "string",
           "required": false,
           "arity": {
@@ -154,7 +152,7 @@
           }
         },
         {
-          "name": "--only",
+          "name": "only",
           "type": "string",
           "required": false,
           "arity": {
@@ -177,12 +175,12 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         },
         {
-          "name": "--markdown",
+          "name": "markdown",
           "type": "bool",
           "required": false,
           "arity": {
@@ -205,7 +203,7 @@
       ],
       "flags": [
         {
-          "name": "--markdown",
+          "name": "markdown",
           "type": "bool",
           "required": false,
           "arity": {
@@ -218,7 +216,6 @@
     },
     {
       "name": "images",
-      "read_only": true,
       "subcommands": [
         {
           "name": "download",
@@ -232,7 +229,7 @@
           ],
           "flags": [
             {
-              "name": "--out",
+              "name": "out",
               "type": "string",
               "required": true
             }
@@ -250,7 +247,7 @@
           ],
           "flags": [
             {
-              "name": "--format",
+              "name": "format",
               "type": "string",
               "required": false
             }
@@ -266,7 +263,7 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--filter",
+          "name": "filter",
           "type": "string",
           "required": false,
           "arity": {
@@ -276,17 +273,17 @@
           }
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": false
         },
         {
-          "name": "--sort",
+          "name": "sort",
           "type": "string",
           "required": false
         }
@@ -304,12 +301,12 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         },
         {
-          "name": "--markdown",
+          "name": "markdown",
           "type": "bool",
           "required": false,
           "arity": {

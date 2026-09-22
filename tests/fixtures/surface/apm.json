@@ -1,10 +1,8 @@
 {
   "name": "apm",
-  "read_only": true,
   "subcommands": [
     {
       "name": "adaptive-sampling",
-      "read_only": true,
       "subcommands": [
         {
           "name": "check",
@@ -19,12 +17,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": true
             }
@@ -35,12 +33,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": true
             }
@@ -51,12 +49,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": false
             },
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": false
             }
@@ -67,12 +65,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--bytes",
+              "name": "bytes",
               "type": "string",
               "required": false
             },
             {
-              "name": "--percent",
+              "name": "percent",
               "type": "string",
               "required": false
             }
@@ -83,12 +81,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--bytes",
+              "name": "bytes",
               "type": "string",
               "required": false
             },
             {
-              "name": "--percent",
+              "name": "percent",
               "type": "string",
               "required": false
             }
@@ -98,29 +96,28 @@
     },
     {
       "name": "dependencies",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--primary-tag",
+              "name": "primary-tag",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -130,49 +127,48 @@
     },
     {
       "name": "entities",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--include",
+              "name": "include",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--offset",
+              "name": "offset",
               "type": "int",
               "required": false
             },
             {
-              "name": "--primary-tag",
+              "name": "primary-tag",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             },
             {
-              "name": "--types",
+              "name": "types",
               "type": "string",
               "required": false
             }
@@ -185,27 +181,27 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--env",
+          "name": "env",
           "type": "string",
           "required": false
         },
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": true
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }
@@ -213,29 +209,28 @@
     },
     {
       "name": "sampling-rules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--resource",
+              "name": "resource",
               "type": "string",
               "required": true
             },
             {
-              "name": "--sample-rate",
+              "name": "sample-rate",
               "type": "string",
               "required": true
             },
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": true
             }
@@ -268,12 +263,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": false
             },
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": false
             }
@@ -291,22 +286,22 @@
           ],
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--resource",
+              "name": "resource",
               "type": "string",
               "required": true
             },
             {
-              "name": "--sample-rate",
+              "name": "sample-rate",
               "type": "string",
               "required": true
             },
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": true
             }
@@ -316,24 +311,23 @@
     },
     {
       "name": "service-config",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": false
             },
             {
-              "name": "--service-instance-ids",
+              "name": "service-instance-ids",
               "type": "string",
               "required": false
             },
             {
-              "name": "--service-name",
+              "name": "service-name",
               "type": "string",
               "required": true
             }
@@ -343,24 +337,23 @@
     },
     {
       "name": "service-library-config",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": false
             },
             {
-              "name": "--language",
+              "name": "language",
               "type": "string",
               "required": false
             },
             {
-              "name": "--mixed",
+              "name": "mixed",
               "type": "bool",
               "required": false,
               "arity": {
@@ -370,7 +363,7 @@
               }
             },
             {
-              "name": "--service-name",
+              "name": "service-name",
               "type": "string",
               "required": true
             }
@@ -380,29 +373,28 @@
     },
     {
       "name": "service-remapping",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": true
             },
             {
-              "name": "--name",
+              "name": "name",
               "type": "string",
               "required": true
             },
             {
-              "name": "--rule-type",
+              "name": "rule-type",
               "type": "string",
               "required": true
             },
             {
-              "name": "--value",
+              "name": "value",
               "type": "string",
               "required": true
             }
@@ -446,22 +438,22 @@
           ],
           "flags": [
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": true
             },
             {
-              "name": "--name",
+              "name": "name",
               "type": "string",
               "required": true
             },
             {
-              "name": "--rule-type",
+              "name": "rule-type",
               "type": "string",
               "required": true
             },
             {
-              "name": "--value",
+              "name": "value",
               "type": "string",
               "required": true
             }
@@ -471,29 +463,28 @@
     },
     {
       "name": "services",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--primary-tag",
+              "name": "primary-tag",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -504,17 +495,17 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--primary-only",
+              "name": "primary-only",
               "type": "bool",
               "required": false,
               "arity": {
@@ -524,17 +515,17 @@
               }
             },
             {
-              "name": "--primary-tag",
+              "name": "primary-tag",
               "type": "string",
               "required": false
             },
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": true
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -545,37 +536,37 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--name",
+              "name": "name",
               "type": "string",
               "required": true
             },
             {
-              "name": "--peer-service",
+              "name": "peer-service",
               "type": "string",
               "required": false
             },
             {
-              "name": "--primary-tag",
+              "name": "primary-tag",
               "type": "string",
               "required": false
             },
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": true
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -586,22 +577,22 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--primary-tag",
+              "name": "primary-tag",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -611,24 +602,23 @@
     },
     {
       "name": "troubleshooting",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--hostname",
+              "name": "hostname",
               "type": "string",
               "required": false
             },
             {
-              "name": "--result",
+              "name": "result",
               "type": "string",
               "required": false
             },
             {
-              "name": "--timeframe",
+              "name": "timeframe",
               "type": "string",
               "required": false
             }

@@ -1,27 +1,25 @@
 {
   "name": "ddsql",
-  "read_only": true,
   "subcommands": [
     {
       "name": "schema",
-      "read_only": true,
       "subcommands": [
         {
           "name": "columns",
           "read_only": true,
           "flags": [
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--offset",
+              "name": "offset",
               "type": "int",
               "required": false
             },
             {
-              "name": "--table-id",
+              "name": "table-id",
               "type": "string",
               "required": true
             }
@@ -32,17 +30,17 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--offset",
+              "name": "offset",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             }
@@ -59,22 +57,22 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": true
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }

@@ -1,25 +1,21 @@
 {
   "name": "integrations",
-  "read_only": true,
   "subcommands": [
     {
       "name": "aws",
-      "read_only": true,
       "subcommands": [
         {
           "name": "cloud-auth",
-          "read_only": true,
           "subcommands": [
             {
               "name": "persona-mappings",
-              "read_only": true,
               "subcommands": [
                 {
                   "name": "create",
                   "read_only": false,
                   "flags": [
                     {
-                      "name": "--file",
+                      "name": "file",
                       "type": "string",
                       "required": true
                     }
@@ -59,11 +55,9 @@
     },
     {
       "name": "google-chat",
-      "read_only": true,
       "subcommands": [
         {
           "name": "handles",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
@@ -77,7 +71,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -143,7 +137,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -171,11 +165,9 @@
     },
     {
       "name": "jira",
-      "read_only": true,
       "subcommands": [
         {
           "name": "accounts",
-          "read_only": true,
           "subcommands": [
             {
               "name": "delete",
@@ -196,14 +188,13 @@
         },
         {
           "name": "templates",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -247,7 +238,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -263,7 +254,6 @@
     },
     {
       "name": "ms-teams",
-      "read_only": true,
       "subcommands": [
         {
           "name": "channel-get",
@@ -288,14 +278,13 @@
         },
         {
           "name": "handles",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -339,7 +328,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -349,14 +338,13 @@
         },
         {
           "name": "workflows",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -400,7 +388,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -412,7 +400,6 @@
     },
     {
       "name": "pagerduty",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
@@ -422,11 +409,9 @@
     },
     {
       "name": "servicenow",
-      "read_only": true,
       "subcommands": [
         {
           "name": "assignment-groups",
-          "read_only": true,
           "subcommands": [
             {
               "name": "list",
@@ -443,7 +428,6 @@
         },
         {
           "name": "business-services",
-          "read_only": true,
           "subcommands": [
             {
               "name": "list",
@@ -460,7 +444,6 @@
         },
         {
           "name": "instances",
-          "read_only": true,
           "subcommands": [
             {
               "name": "list",
@@ -470,14 +453,13 @@
         },
         {
           "name": "templates",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -521,7 +503,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -531,7 +513,6 @@
         },
         {
           "name": "users",
-          "read_only": true,
           "subcommands": [
             {
               "name": "list",
@@ -550,7 +531,6 @@
     },
     {
       "name": "slack",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
@@ -560,7 +540,6 @@
     },
     {
       "name": "webhooks",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",

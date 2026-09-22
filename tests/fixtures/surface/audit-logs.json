@@ -3,24 +3,23 @@
   "aliases": [
     "audit"
   ],
-  "read_only": true,
   "subcommands": [
     {
       "name": "list",
       "read_only": true,
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }
@@ -31,22 +30,22 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": true
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }

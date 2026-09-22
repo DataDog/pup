@@ -1,6 +1,5 @@
 {
   "name": "docs",
-  "read_only": true,
   "subcommands": [
     {
       "name": "ask",

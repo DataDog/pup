@@ -1,23 +1,22 @@
 {
   "name": "metrics",
-  "read_only": true,
   "subcommands": [
     {
       "name": "list",
       "read_only": true,
       "flags": [
         {
-          "name": "--filter",
+          "name": "filter",
           "type": "string",
           "required": false
         },
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--tag-filter",
+          "name": "tag-filter",
           "type": "string",
           "required": false
         }
@@ -25,7 +24,6 @@
     },
     {
       "name": "metadata",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
@@ -50,32 +48,32 @@
           ],
           "flags": [
             {
-              "name": "--description",
+              "name": "description",
               "type": "string",
               "required": false
             },
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": false
             },
             {
-              "name": "--per-unit",
+              "name": "per-unit",
               "type": "string",
               "required": false
             },
             {
-              "name": "--short-name",
+              "name": "short-name",
               "type": "string",
               "required": false
             },
             {
-              "name": "--type",
+              "name": "type",
               "type": "string",
               "required": false
             },
             {
-              "name": "--unit",
+              "name": "unit",
               "type": "string",
               "required": false
             }
@@ -88,17 +86,17 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": true
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }
@@ -109,17 +107,17 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": true
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }
@@ -130,37 +128,37 @@
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": false
         },
         {
-          "name": "--host",
+          "name": "host",
           "type": "string",
           "required": false
         },
         {
-          "name": "--interval",
+          "name": "interval",
           "type": "int",
           "required": false
         },
         {
-          "name": "--name",
+          "name": "name",
           "type": "string",
           "required": false
         },
         {
-          "name": "--tags",
+          "name": "tags",
           "type": "string",
           "required": false
         },
         {
-          "name": "--type",
+          "name": "type",
           "type": "string",
           "required": false
         },
         {
-          "name": "--value",
+          "name": "value",
           "type": "int",
           "required": false
         }
@@ -168,7 +166,6 @@
     },
     {
       "name": "tags",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
@@ -182,17 +179,17 @@
           ],
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             },
             {
-              "name": "--window-seconds",
+              "name": "window-seconds",
               "type": "string",
               "required": false
             }
@@ -205,7 +202,7 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }

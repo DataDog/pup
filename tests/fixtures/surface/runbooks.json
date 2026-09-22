@@ -1,6 +1,5 @@
 {
   "name": "runbooks",
-  "read_only": true,
   "subcommands": [
     {
       "name": "describe",
@@ -29,7 +28,7 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--tag",
+          "name": "tag",
           "type": "string",
           "required": false,
           "arity": {
@@ -52,7 +51,7 @@
       ],
       "flags": [
         {
-          "name": "--arg",
+          "name": "arg",
           "type": "string",
           "required": false,
           "arity": {

@@ -1,13 +1,12 @@
 {
   "name": "slos",
-  "read_only": true,
   "subcommands": [
     {
       "name": "create",
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -41,7 +40,7 @@
       ],
       "flags": [
         {
-          "name": "--ignore",
+          "name": "ignore",
           "type": "string",
           "required": false,
           "arity": {
@@ -51,7 +50,7 @@
           }
         },
         {
-          "name": "--only",
+          "name": "only",
           "type": "string",
           "required": false,
           "arity": {
@@ -78,27 +77,27 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "string",
           "required": false
         },
         {
-          "name": "--metrics-query",
+          "name": "metrics-query",
           "type": "string",
           "required": false
         },
         {
-          "name": "--offset",
+          "name": "offset",
           "type": "string",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": false
         },
         {
-          "name": "--tags-query",
+          "name": "tags-query",
           "type": "string",
           "required": false
         }
@@ -116,12 +115,12 @@
       ],
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": true
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": true
         }
@@ -139,7 +138,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }

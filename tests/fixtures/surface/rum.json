@@ -1,43 +1,42 @@
 {
   "name": "rum",
-  "read_only": true,
   "subcommands": [
     {
       "name": "aggregate",
       "read_only": true,
       "flags": [
         {
-          "name": "--compute",
+          "name": "compute",
           "type": "string",
           "required": false
         },
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--group-by",
+          "name": "group-by",
           "type": "string",
           "required": false
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": false
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         },
         {
-          "name": "--user-email",
+          "name": "user-email",
           "type": "string",
           "required": false
         }
@@ -45,19 +44,18 @@
     },
     {
       "name": "apps",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--app-type",
+              "name": "app-type",
               "type": "string",
               "required": false
             },
             {
-              "name": "--name",
+              "name": "name",
               "type": "string",
               "required": true
             }
@@ -101,17 +99,17 @@
           ],
           "flags": [
             {
-              "name": "--app-type",
+              "name": "app-type",
               "type": "string",
               "required": false
             },
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": false
             },
             {
-              "name": "--name",
+              "name": "name",
               "type": "string",
               "required": false
             }
@@ -124,22 +122,22 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--from",
+          "name": "from",
           "type": "string",
           "required": false
         },
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": false
         },
         {
-          "name": "--to",
+          "name": "to",
           "type": "string",
           "required": false
         }
@@ -147,24 +145,23 @@
     },
     {
       "name": "heatmaps",
-      "read_only": true,
       "subcommands": [
         {
           "name": "query",
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             },
             {
-              "name": "--view-name",
+              "name": "view-name",
               "type": "string",
               "required": true
             }
@@ -174,14 +171,13 @@
     },
     {
       "name": "metrics",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -225,7 +221,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -235,14 +231,13 @@
     },
     {
       "name": "playlists",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -276,7 +271,6 @@
         },
         {
           "name": "sessions",
-          "read_only": true,
           "subcommands": [
             {
               "name": "add",
@@ -290,17 +284,17 @@
               ],
               "flags": [
                 {
-                  "name": "--data-source",
+                  "name": "data-source",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--session-id",
+                  "name": "session-id",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--ts",
+                  "name": "ts",
                   "type": "string",
                   "required": false
                 }
@@ -318,7 +312,7 @@
               ],
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": true
                 }
@@ -336,12 +330,12 @@
               ],
               "flags": [
                 {
-                  "name": "--page-number",
+                  "name": "page-number",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--page-size",
+                  "name": "page-size",
                   "type": "int",
                   "required": false
                 }
@@ -359,7 +353,7 @@
               ],
               "flags": [
                 {
-                  "name": "--session-id",
+                  "name": "session-id",
                   "type": "string",
                   "required": true
                 }
@@ -379,7 +373,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -389,43 +383,41 @@
     },
     {
       "name": "replay",
-      "read_only": true,
       "subcommands": [
         {
           "name": "segments",
-          "read_only": true,
           "subcommands": [
             {
               "name": "get",
               "read_only": true,
               "flags": [
                 {
-                  "name": "--max-list-size",
+                  "name": "max-list-size",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--paging",
+                  "name": "paging",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--session-id",
+                  "name": "session-id",
                   "type": "string",
                   "required": true
                 },
                 {
-                  "name": "--source",
+                  "name": "source",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--ts",
+                  "name": "ts",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--view-id",
+                  "name": "view-id",
                   "type": "string",
                   "required": true
                 }
@@ -437,7 +429,6 @@
     },
     {
       "name": "retention-filters",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
@@ -451,7 +442,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -517,7 +508,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -527,24 +518,23 @@
     },
     {
       "name": "sessions",
-      "read_only": true,
       "subcommands": [
         {
           "name": "list",
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -555,22 +545,22 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -580,48 +570,46 @@
     },
     {
       "name": "viewership",
-      "read_only": true,
       "subcommands": [
         {
           "name": "history",
-          "read_only": true,
           "subcommands": [
             {
               "name": "list",
               "read_only": true,
               "flags": [
                 {
-                  "name": "--application-id",
+                  "name": "application-id",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--created-by",
+                  "name": "created-by",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--from",
+                  "name": "from",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--page-number",
+                  "name": "page-number",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--page-size",
+                  "name": "page-size",
                   "type": "int",
                   "required": false
                 },
                 {
-                  "name": "--session-ids",
+                  "name": "session-ids",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--to",
+                  "name": "to",
                   "type": "string",
                   "required": false
                 }
@@ -631,19 +619,18 @@
         },
         {
           "name": "watch",
-          "read_only": true,
           "subcommands": [
             {
               "name": "create",
               "read_only": false,
               "flags": [
                 {
-                  "name": "--file",
+                  "name": "file",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--session-id",
+                  "name": "session-id",
                   "type": "string",
                   "required": true
                 }
@@ -654,7 +641,7 @@
               "read_only": false,
               "flags": [
                 {
-                  "name": "--session-id",
+                  "name": "session-id",
                   "type": "string",
                   "required": true
                 }
@@ -664,24 +651,23 @@
         },
         {
           "name": "watchers",
-          "read_only": true,
           "subcommands": [
             {
               "name": "list",
               "read_only": true,
               "flags": [
                 {
-                  "name": "--page-number",
+                  "name": "page-number",
                   "type": "string",
                   "required": false
                 },
                 {
-                  "name": "--page-size",
+                  "name": "page-size",
                   "type": "int",
                   "required": false
                 },
                 {
-                  "name": "--session-id",
+                  "name": "session-id",
                   "type": "string",
                   "required": true
                 }

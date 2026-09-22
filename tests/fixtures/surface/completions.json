@@ -10,7 +10,7 @@
   ],
   "flags": [
     {
-      "name": "--install",
+      "name": "install",
       "type": "bool",
       "required": false,
       "arity": {

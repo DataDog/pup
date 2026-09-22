@@ -1,10 +1,8 @@
 {
   "name": "model-lab",
-  "read_only": true,
   "subcommands": [
     {
       "name": "projects",
-      "read_only": true,
       "subcommands": [
         {
           "name": "artifacts",
@@ -53,27 +51,27 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-tags",
+              "name": "filter-tags",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-number",
+              "name": "page-number",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             }
@@ -105,7 +103,6 @@
     },
     {
       "name": "runs",
-      "read_only": true,
       "subcommands": [
         {
           "name": "artifacts",
@@ -119,7 +116,7 @@
           ],
           "flags": [
             {
-              "name": "--path",
+              "name": "path",
               "type": "string",
               "required": false
             }
@@ -141,7 +138,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--filter-project-id",
+              "name": "filter-project-id",
               "type": "string",
               "required": true
             }
@@ -164,7 +161,7 @@
           ],
           "flags": [
             {
-              "name": "--filter-project-id",
+              "name": "filter-project-id",
               "type": "string",
               "required": true
             }
@@ -186,37 +183,37 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--filter",
+              "name": "filter",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-params",
+              "name": "filter-params",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-parent-run-id",
+              "name": "filter-parent-run-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-project-id",
+              "name": "filter-project-id",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-status",
+              "name": "filter-status",
               "type": "string",
               "required": false
             },
             {
-              "name": "--filter-tags",
+              "name": "filter-tags",
               "type": "string",
               "required": false
             },
             {
-              "name": "--include-pinned",
+              "name": "include-pinned",
               "type": "bool",
               "required": false,
               "arity": {
@@ -226,17 +223,17 @@
               }
             },
             {
-              "name": "--page-number",
+              "name": "page-number",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             },
             {
-              "name": "--pinned-first",
+              "name": "pinned-first",
               "type": "bool",
               "required": false,
               "arity": {
@@ -246,7 +243,7 @@
               }
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             }

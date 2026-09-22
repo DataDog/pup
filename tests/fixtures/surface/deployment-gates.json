@@ -1,10 +1,8 @@
 {
   "name": "deployment-gates",
-  "read_only": true,
   "subcommands": [
     {
       "name": "evaluations",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
@@ -22,7 +20,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -32,14 +30,13 @@
     },
     {
       "name": "gates",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -72,12 +69,12 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--page-cursor",
+              "name": "page-cursor",
               "type": "string",
               "required": false
             },
             {
-              "name": "--page-size",
+              "name": "page-size",
               "type": "string",
               "required": false
             }
@@ -95,7 +92,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -105,7 +102,6 @@
     },
     {
       "name": "rules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
@@ -119,7 +115,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -185,7 +181,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }

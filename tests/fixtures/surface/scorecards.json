@@ -1,17 +1,15 @@
 {
   "name": "scorecards",
-  "read_only": true,
   "subcommands": [
     {
       "name": "campaigns",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -55,7 +53,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -69,14 +67,13 @@
     },
     {
       "name": "outcomes",
-      "read_only": true,
       "subcommands": [
         {
           "name": "batch-create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -90,14 +87,13 @@
     },
     {
       "name": "rules",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -130,7 +126,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }

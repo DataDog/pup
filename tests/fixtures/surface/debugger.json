@@ -1,6 +1,5 @@
 {
   "name": "debugger",
-  "read_only": true,
   "subcommands": [
     {
       "name": "context",
@@ -14,12 +13,12 @@
       ],
       "flags": [
         {
-          "name": "--env",
+          "name": "env",
           "type": "string",
           "required": false
         },
         {
-          "name": "--fields",
+          "name": "fields",
           "type": "string",
           "required": false
         }
@@ -27,19 +26,18 @@
     },
     {
       "name": "probes",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--budget",
+              "name": "budget",
               "type": "int",
               "required": false
             },
             {
-              "name": "--capture",
+              "name": "capture",
               "type": "string",
               "required": false,
               "arity": {
@@ -49,52 +47,52 @@
               }
             },
             {
-              "name": "--condition",
+              "name": "condition",
               "type": "string",
               "required": false
             },
             {
-              "name": "--depth",
+              "name": "depth",
               "type": "int",
               "required": false
             },
             {
-              "name": "--env",
+              "name": "env",
               "type": "string",
               "required": true
             },
             {
-              "name": "--fields",
+              "name": "fields",
               "type": "string",
               "required": false
             },
             {
-              "name": "--language",
+              "name": "language",
               "type": "string",
               "required": false
             },
             {
-              "name": "--probe-location",
+              "name": "probe-location",
               "type": "string",
               "required": true
             },
             {
-              "name": "--rate",
+              "name": "rate",
               "type": "int",
               "required": false
             },
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": true
             },
             {
-              "name": "--template",
+              "name": "template",
               "type": "string",
               "required": false
             },
             {
-              "name": "--ttl",
+              "name": "ttl",
               "type": "string",
               "required": false
             }
@@ -127,7 +125,7 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--service",
+              "name": "service",
               "type": "string",
               "required": false
             }
@@ -145,27 +143,27 @@
           ],
           "flags": [
             {
-              "name": "--fields",
+              "name": "fields",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "string",
               "required": false
             },
             {
-              "name": "--timeout",
+              "name": "timeout",
               "type": "int",
               "required": false
             },
             {
-              "name": "--wait",
+              "name": "wait",
               "type": "int",
               "required": false
             }

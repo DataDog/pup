@@ -1,13 +1,12 @@
 {
   "name": "monitors",
-  "read_only": true,
   "subcommands": [
     {
       "name": "create",
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -41,7 +40,7 @@
       ],
       "flags": [
         {
-          "name": "--ignore",
+          "name": "ignore",
           "type": "string",
           "required": false,
           "arity": {
@@ -51,7 +50,7 @@
           }
         },
         {
-          "name": "--only",
+          "name": "only",
           "type": "string",
           "required": false,
           "arity": {
@@ -78,22 +77,22 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--limit",
+          "name": "limit",
           "type": "int",
           "required": false
         },
         {
-          "name": "--name",
+          "name": "name",
           "type": "string",
           "required": false
         },
         {
-          "name": "--page",
+          "name": "page",
           "type": "int",
           "required": false
         },
         {
-          "name": "--tags",
+          "name": "tags",
           "type": "string",
           "required": false
         }
@@ -104,22 +103,22 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--page",
+          "name": "page",
           "type": "int",
           "required": false
         },
         {
-          "name": "--per-page",
+          "name": "per-page",
           "type": "int",
           "required": false
         },
         {
-          "name": "--query",
+          "name": "query",
           "type": "string",
           "required": false
         },
         {
-          "name": "--sort",
+          "name": "sort",
           "type": "string",
           "required": false
         }
@@ -137,7 +136,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }

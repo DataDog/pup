@@ -1,17 +1,15 @@
 {
   "name": "workflows",
-  "read_only": true,
   "subcommands": [
     {
       "name": "connections",
-      "read_only": true,
       "subcommands": [
         {
           "name": "create",
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -51,7 +49,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -64,7 +62,7 @@
       "read_only": false,
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }
@@ -98,7 +96,7 @@
       ],
       "flags": [
         {
-          "name": "--ignore",
+          "name": "ignore",
           "type": "string",
           "required": false,
           "arity": {
@@ -108,7 +106,7 @@
           }
         },
         {
-          "name": "--only",
+          "name": "only",
           "type": "string",
           "required": false,
           "arity": {
@@ -132,7 +130,6 @@
     },
     {
       "name": "instances",
-      "read_only": true,
       "subcommands": [
         {
           "name": "cancel",
@@ -178,12 +175,12 @@
           ],
           "flags": [
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--page",
+              "name": "page",
               "type": "int",
               "required": false
             }
@@ -203,22 +200,22 @@
       ],
       "flags": [
         {
-          "name": "--payload",
+          "name": "payload",
           "type": "string",
           "required": false
         },
         {
-          "name": "--payload-file",
+          "name": "payload-file",
           "type": "string",
           "required": false
         },
         {
-          "name": "--timeout",
+          "name": "timeout",
           "type": "string",
           "required": false
         },
         {
-          "name": "--wait",
+          "name": "wait",
           "type": "bool",
           "required": false,
           "arity": {
@@ -241,7 +238,7 @@
       ],
       "flags": [
         {
-          "name": "--file",
+          "name": "file",
           "type": "string",
           "required": true
         }

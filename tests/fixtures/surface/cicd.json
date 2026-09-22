@@ -1,10 +1,8 @@
 {
   "name": "cicd",
-  "read_only": true,
   "subcommands": [
     {
       "name": "dora",
-      "read_only": true,
       "subcommands": [
         {
           "name": "patch-deployment",
@@ -18,7 +16,7 @@
           ],
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -28,39 +26,38 @@
     },
     {
       "name": "events",
-      "read_only": true,
       "subcommands": [
         {
           "name": "aggregate",
           "read_only": true,
           "flags": [
             {
-              "name": "--compute",
+              "name": "compute",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--group-by",
+              "name": "group-by",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": true
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -71,32 +68,32 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--level",
+              "name": "level",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": true
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -106,29 +103,28 @@
     },
     {
       "name": "flaky-tests",
-      "read_only": true,
       "subcommands": [
         {
           "name": "search",
           "read_only": true,
           "flags": [
             {
-              "name": "--cursor",
+              "name": "cursor",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--sort",
+              "name": "sort",
               "type": "string",
               "required": false
             }
@@ -139,7 +135,7 @@
           "read_only": false,
           "flags": [
             {
-              "name": "--file",
+              "name": "file",
               "type": "string",
               "required": true
             }
@@ -149,14 +145,13 @@
     },
     {
       "name": "pipelines",
-      "read_only": true,
       "subcommands": [
         {
           "name": "get",
           "read_only": true,
           "flags": [
             {
-              "name": "--pipeline-id",
+              "name": "pipeline-id",
               "type": "string",
               "required": true
             }
@@ -167,32 +162,32 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--branch",
+              "name": "branch",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--pipeline-name",
+              "name": "pipeline-name",
               "type": "string",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -202,39 +197,38 @@
     },
     {
       "name": "tests",
-      "read_only": true,
       "subcommands": [
         {
           "name": "aggregate",
           "read_only": true,
           "flags": [
             {
-              "name": "--compute",
+              "name": "compute",
               "type": "string",
               "required": false
             },
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--group-by",
+              "name": "group-by",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": true
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -245,22 +239,22 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": false
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }
@@ -271,22 +265,22 @@
           "read_only": true,
           "flags": [
             {
-              "name": "--from",
+              "name": "from",
               "type": "string",
               "required": false
             },
             {
-              "name": "--limit",
+              "name": "limit",
               "type": "int",
               "required": false
             },
             {
-              "name": "--query",
+              "name": "query",
               "type": "string",
               "required": true
             },
             {
-              "name": "--to",
+              "name": "to",
               "type": "string",
               "required": false
             }

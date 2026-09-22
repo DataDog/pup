@@ -1,6 +1,5 @@
 {
   "name": "alias",
-  "read_only": true,
   "subcommands": [
     {
       "name": "delete",

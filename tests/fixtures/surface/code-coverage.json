@@ -1,18 +1,17 @@
 {
   "name": "code-coverage",
-  "read_only": true,
   "subcommands": [
     {
       "name": "branch-summary",
       "read_only": true,
       "flags": [
         {
-          "name": "--branch",
+          "name": "branch",
           "type": "string",
           "required": true
         },
         {
-          "name": "--repo",
+          "name": "repo",
           "type": "string",
           "required": true
         }
@@ -23,12 +22,12 @@
       "read_only": true,
       "flags": [
         {
-          "name": "--commit",
+          "name": "commit",
           "type": "string",
           "required": true
         },
         {
-          "name": "--repo",
+          "name": "repo",
           "type": "string",
           "required": true
         }

@@ -6,7 +6,7 @@
   "read_only": true,
   "flags": [
     {
-      "name": "--columns",
+      "name": "columns",
       "type": "string",
       "required": false,
       "arity": {
@@ -16,32 +16,32 @@
       }
     },
     {
-      "name": "--command",
+      "name": "command",
       "type": "string",
       "required": false
     },
     {
-      "name": "--count",
+      "name": "count",
       "type": "string",
       "required": false
     },
     {
-      "name": "--input",
+      "name": "input",
       "type": "string",
       "required": false
     },
     {
-      "name": "--next-action",
+      "name": "next-action",
       "type": "string",
       "required": false
     },
     {
-      "name": "--row-at",
+      "name": "row-at",
       "type": "string",
       "required": false
     },
     {
-      "name": "--rows-at",
+      "name": "rows-at",
       "type": "string",
       "required": false
     }

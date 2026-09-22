@@ -49,7 +49,7 @@ pup skills list
 | **dd-docs** | Search Datadog documentation via llms.txt |
 | **dd-code-generation** | CLI vs code-gen decision, multi-language examples |
 | **dd-file-issue** | Issue routing to correct repo, duplicate search |
-| **dd-idp** | Schema-first entity graph discovery, querying, and traversal |
+| **dd-idp** | Explore software, work and delivery, infrastructure, operations, and security through entity kinds and relationships |
 
 ## Domain Agents (48)
 

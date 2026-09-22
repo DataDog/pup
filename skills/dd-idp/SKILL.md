@@ -1,6 +1,6 @@
 ---
 name: dd-idp
-description: Answer questions about service and endpoint ownership, source code, dependency impact, team health and cost, and vulnerability advisories using Pup's read-only Datadog entity graph. Discover other query paths through entity kinds and their live schemas.
+description: Find, filter, count, and connect software, teams, engineering work and delivery, infrastructure, and operational or security records through Pup's read-only Datadog entity graph. Use for inventory, ownership, dependencies, and status questions across connected integrations and custom entities. Discover available kinds, fields, and relationships progressively when no recipe fits.
 metadata:
   version: "1.0.0"
   author: datadog-labs
@@ -14,10 +14,11 @@ Use Pup's read-only Unified Entity Graph (UEG) to discover software, ownership, 
 
 ## Start with the user's question
 
-Use a recipe when one fits. For other questions about software, infrastructure,
-or engineering work, use the [schema-first workflow](#schema-first-workflow) to
-explore whether entity attributes or relationships can answer them. Start from
-the identifier the user has; the recipes are starting points for exploration.
+Use a recipe when one fits. For inventory, ownership, status, or relationship
+questions about software, infrastructure, or engineering work, check available
+entity kinds even when no recipe matches. Follow the
+[schema-first workflow](#schema-first-workflow), starting from the identifier
+the user has.
 
 | Question | Often useful to | Recipe |
 | --- | --- | --- |
@@ -37,7 +38,7 @@ a similar name does not establish service impact.
 
 ## Choose the right surface
 
-- Default to `pup idp kinds` and `pup idp entities query` when the answer needs connected context across services, teams, systems, repositories, dependencies, work, operations, or security kinds.
+- Default to `pup idp kinds` and `pup idp entities query` for inventory, ownership, status, or connected context across services, teams, systems, repositories, dependencies, work, operations, or security kinds.
 - Use `pup idp assist` when the user values a fast, curated single-service summary, metadata gaps, and suggested next actions over graph fidelity; use `owner` for convenient owner/on-call resolution.
 - Treat `find` as a simple paginated literal service-name lookup. Explicit `kind:` and `ref:` queries remain compatibility paths; use `entities query` for non-service kinds, another lookback, broader relation families, selected fields, counts, pagination, and traversal. Use `deps` as a convenient one-hour UEG runtime service-to-service dependency summary.
 - Use product commands such as `pup incidents`, `pup slos`, `pup monitors`, `pup logs`, `pup traces`, or `pup security` when the user needs deeper or current telemetry.
@@ -46,12 +47,13 @@ a similar name does not establish service impact.
 
 ## Schema-first workflow
 
-1. If the relevant kind is unclear, start with the curated kind index. Expand to
-   the live inventory, including custom kinds, when needed:
+1. If the relevant kind is unclear, start with the curated kind index. If it has
+   no suitable kind, check the live inventory, including custom kinds, before
+   concluding that UEG cannot help:
 
    ```bash
    pup --read-only idp kinds list
-   pup --read-only idp kinds list --all --include-custom
+   pup --read-only idp kinds list --all --include-custom --jq '.kinds | map({kind, display_name})'
    ```
 
    Add `--include-low-level` when looking for infrastructure kinds such as pods

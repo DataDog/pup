@@ -1,6 +1,6 @@
 ---
 name: dd-idp
-description: Answer questions about service and endpoint ownership, source code, dependency impact, team health and cost, and vulnerability advisories using Pup's read-only Datadog entity graph.
+description: Answer questions about service and endpoint ownership, source code, dependency impact, team health and cost, and vulnerability advisories using Pup's read-only Datadog entity graph. Discover other query paths through entity kinds and their live schemas.
 metadata:
   version: "1.0.0"
   author: datadog-labs
@@ -14,9 +14,10 @@ Use Pup's read-only Unified Entity Graph (UEG) to discover software, ownership, 
 
 ## Start with the user's question
 
-Choose the closest recipe for the task.
-Start from the identifier the user has and follow returned refs to connect it
-to the answer.
+Use a recipe when one fits. For other questions about software, infrastructure,
+or engineering work, use the [schema-first workflow](#schema-first-workflow) to
+explore whether entity attributes or relationships can answer them. Start from
+the identifier the user has; the recipes are starting points for exploration.
 
 | Question | Often useful to | Recipe |
 | --- | --- | --- |
@@ -31,10 +32,8 @@ to the answer.
 | Which services and owners need to act on this vulnerability advisory? | Security engineer | [Advisory to owners](references/recipes.md#which-services-and-owners-are-affected-by-this-advisory) |
 | Which Terraform workspaces have drift, and where is their configuration? | Platform engineer | [Terraform drift](references/recipes.md#which-terraform-workspaces-have-drift) |
 
-For deployment, infrastructure, repository, PR, and Jira questions, use the
-other [recipes](references/recipes.md). Discover unfamiliar integration or custom
-kinds from the live schema. Connect resources only through returned relationships;
-sharing a repository or a similar name does not establish service impact.
+Connect resources only through returned relationships; sharing a repository or
+a similar name does not establish service impact.
 
 ## Choose the right surface
 
@@ -47,27 +46,36 @@ sharing a repository or a similar name does not establish service impact.
 
 ## Schema-first workflow
 
-1. Discover candidate kinds when the request is broad or the entity vocabulary is unfamiliar:
+1. If the relevant kind is unclear, start with the curated kind index. Expand to
+   the live inventory, including custom kinds, when needed:
 
    ```bash
    pup --read-only idp kinds list
    pup --read-only idp kinds list --all --include-custom
    ```
 
-2. Describe each result kind before using unfamiliar fields or relations. Treat the live schema as authoritative:
+   Add `--include-low-level` when looking for infrastructure kinds such as pods
+   or containers.
+
+2. Describe a candidate kind to discover attribute names and types, supported
+   filters, and relations with their target kinds:
 
    ```bash
-   pup --read-only idp kinds describe service
-   pup --read-only idp kinds describe integration.github.pull_request
+   pup --read-only idp kinds describe '<kind>'
    ```
 
-3. Choose a query from the relevant recipe. Select only the attributes and
-   relation family needed to answer the question. Use `--fields <kind>=...` to
-   select related attributes. Follow returned refs when the next question needs
-   another hop; avoid expanding every service relation into one large response.
+   Describe a promising relation's target kind when its fields could help answer
+   the question. Inspect schemas progressively as the investigation needs them.
 
-4. Inspect warnings and result/relationship truncation. For inventories, use the
-   recipe's explicit `--max-results` budget and check `page.stop_reason`. Continue
+3. Build a small query from the discovered schema or adapt a recipe. Scope it to
+   a known identifier or filter, use a small page such as `--limit 5`, and select only the
+   attributes and relation family needed. Use `--fields <kind>=...` to select
+   related attributes. Inspect the returned values, then follow returned refs
+   when another hop is useful. Use the [query reference](references/ueg-dsl.md)
+   to construct queries beyond the examples.
+
+4. Inspect warnings and result/relationship truncation. For inventories, use
+   an explicit `--max-results` budget and check `page.stop_reason`. Continue
    with `next_request.args` when completeness is required; see
    [pagination](references/ueg-dsl.md#pagination-and-completeness).
 

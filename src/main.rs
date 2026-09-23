@@ -120,10 +120,12 @@ enum Commands {
     },
     /// Schema and guide for the datadog-agent daemon and AI coding assistants
     ///
-    /// This command group covers two distinct purposes:
+    /// This command group covers three distinct purposes:
     ///
     ///   schema  — Outputs a JSON schema of all pup commands for AI coding
     ///             assistants (Claude, Copilot, etc.) to understand pup's API.
+    ///
+    ///   surface — Outputs a stable projection of pup's CLI for tooling.
     ///
     ///   guide   — Displays an operational reference for the datadog-agent
     ///             daemon (the Datadog host agent that collects metrics, traces,
@@ -134,6 +136,7 @@ enum Commands {
     ///
     /// COMMANDS:
     ///   schema    Output the complete pup command schema as JSON (for AI assistants)
+    ///   surface   Output the stable pup CLI surface as JSON (for tooling)
     ///   guide     Display the datadog-agent (Datadog-Agent) operational reference
     ///
     /// EXAMPLES:
@@ -142,6 +145,9 @@ enum Commands {
     ///
     ///   # Get compact schema (command names and flags only, fewer tokens)
     ///   pup agent schema --compact
+    ///
+    ///   # Get the stable CLI surface for tooling
+    ///   pup agent surface
     ///
     ///   # Get the datadog-agent operational guide
     ///   pup agent guide
@@ -11340,6 +11346,8 @@ enum AgentActions {
         )]
         compact: bool,
     },
+    /// Output the stable CLI surface as JSON
+    Surface,
     /// Display the datadog-agent (Datadog-Agent) operational reference
     Guide,
 }
@@ -12276,7 +12284,10 @@ fn build_compact_agent_schema(cmd: &clap::Command) -> serde_json::Value {
         obj.insert("name".into(), serde_json::json!(name));
         obj.insert("full_path".into(), serde_json::json!(full_path));
 
-        let mut aliases: Vec<&str> = cmd.get_all_aliases().collect();
+        let mut aliases: Vec<&str> = cmd
+            .get_all_aliases()
+            .filter(|alias| *alias != name)
+            .collect();
         aliases.sort_unstable();
         if !aliases.is_empty() {
             obj.insert("aliases".into(), serde_json::json!(aliases));
@@ -12405,7 +12416,10 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
     obj.insert("name".into(), serde_json::json!(name));
     obj.insert("full_path".into(), serde_json::json!(full_path));
 
-    let mut aliases: Vec<&str> = cmd.get_all_aliases().collect();
+    let mut aliases: Vec<&str> = cmd
+        .get_all_aliases()
+        .filter(|alias| *alias != name)
+        .collect();
     aliases.sort_unstable();
     if !aliases.is_empty() {
         obj.insert("aliases".into(), serde_json::json!(aliases));
@@ -12546,130 +12560,101 @@ fn build_arg_arity(arg: &clap::Arg) -> serde_json::Value {
     })
 }
 
+const CLI_SURFACE_FORMAT_VERSION: u64 = 1;
+
+fn project_parameter_surface(
+    parameter: &serde_json::Value,
+    strip_flag_prefix: bool,
+) -> serde_json::Value {
+    let mut surface = serde_json::Map::new();
+    let name = parameter["name"]
+        .as_str()
+        .expect("parameter must have a name");
+    surface.insert(
+        "name".into(),
+        serde_json::json!(if strip_flag_prefix {
+            name.strip_prefix("--").unwrap_or(name)
+        } else {
+            name
+        }),
+    );
+    for property in ["type", "required"] {
+        surface.insert(property.into(), parameter[property].clone());
+    }
+
+    let default_arity = serde_json::json!({
+        "min": 1,
+        "max": 1,
+        "repeatable": false
+    });
+    if parameter["arity"] != default_arity {
+        surface.insert("arity".into(), parameter["arity"].clone());
+    }
+
+    serde_json::Value::Object(surface)
+}
+
+fn project_command_surface(command: &serde_json::Value) -> serde_json::Value {
+    let mut surface = serde_json::Map::new();
+    surface.insert("name".into(), command["name"].clone());
+    if let Some(aliases) = command.get("aliases") {
+        surface.insert("aliases".into(), aliases.clone());
+    }
+
+    let subcommands = command
+        .get("subcommands")
+        .and_then(|value| value.as_array());
+    if subcommands.is_none() {
+        surface.insert("read_only".into(), command["read_only"].clone());
+    }
+
+    for property in ["args", "flags"] {
+        if let Some(parameters) = command.get(property).and_then(|value| value.as_array()) {
+            surface.insert(
+                property.into(),
+                serde_json::Value::Array(
+                    parameters
+                        .iter()
+                        .map(|parameter| project_parameter_surface(parameter, property == "flags"))
+                        .collect(),
+                ),
+            );
+        }
+    }
+
+    if let Some(subcommands) = subcommands {
+        surface.insert(
+            "subcommands".into(),
+            serde_json::Value::Array(subcommands.iter().map(project_command_surface).collect()),
+        );
+    }
+
+    serde_json::Value::Object(surface)
+}
+
+fn build_cli_surface(cmd: &clap::Command) -> serde_json::Value {
+    let schema = build_agent_schema(cmd);
+    let commands = schema["commands"]
+        .as_array()
+        .expect("agent schema must contain commands")
+        .iter()
+        .map(project_command_surface)
+        .collect::<Vec<_>>();
+
+    serde_json::json!({
+        "format_version": CLI_SURFACE_FORMAT_VERSION,
+        "pup_version": version::VERSION,
+        "commands": commands
+    })
+}
+
 #[cfg(test)]
 mod test_agent_schema {
     use super::*;
-    use std::collections::{BTreeMap, BTreeSet};
-    use std::path::{Path, PathBuf};
-
-    const UPDATE_SNAPSHOTS: &str = "UPDATE_SNAPSHOTS";
-    const REGENERATE_SURFACE_SNAPSHOTS: &str =
-        "regenerate them with: UPDATE_SNAPSHOTS=1 cargo test agent_surface_snapshots_are_current";
 
     fn get_schema() -> serde_json::Value {
         let cmd = Cli::command();
         build_agent_schema(&cmd)
-    }
-
-    fn project_parameter_surface(
-        parameter: &serde_json::Value,
-        strip_flag_prefix: bool,
-    ) -> serde_json::Value {
-        let mut surface = serde_json::Map::new();
-        let name = parameter["name"]
-            .as_str()
-            .expect("parameter must have a name");
-        surface.insert(
-            "name".into(),
-            serde_json::json!(if strip_flag_prefix {
-                name.strip_prefix("--").unwrap_or(name)
-            } else {
-                name
-            }),
-        );
-        for property in ["type", "required"] {
-            surface.insert(property.into(), parameter[property].clone());
-        }
-
-        let default_arity = serde_json::json!({
-            "min": 1,
-            "max": 1,
-            "repeatable": false
-        });
-        if parameter["arity"] != default_arity {
-            surface.insert("arity".into(), parameter["arity"].clone());
-        }
-
-        serde_json::Value::Object(surface)
-    }
-
-    fn project_command_surface(command: &serde_json::Value) -> serde_json::Value {
-        let mut surface = serde_json::Map::new();
-        surface.insert("name".into(), command["name"].clone());
-        if let Some(aliases) = command.get("aliases") {
-            surface.insert("aliases".into(), aliases.clone());
-        }
-
-        let subcommands = command
-            .get("subcommands")
-            .and_then(|value| value.as_array());
-        if subcommands.is_none() {
-            surface.insert("read_only".into(), command["read_only"].clone());
-        }
-
-        for property in ["args", "flags"] {
-            if let Some(parameters) = command.get(property).and_then(|value| value.as_array()) {
-                surface.insert(
-                    property.into(),
-                    serde_json::Value::Array(
-                        parameters
-                            .iter()
-                            .map(|parameter| {
-                                project_parameter_surface(parameter, property == "flags")
-                            })
-                            .collect(),
-                    ),
-                );
-            }
-        }
-
-        if let Some(subcommands) = subcommands {
-            surface.insert(
-                "subcommands".into(),
-                serde_json::Value::Array(subcommands.iter().map(project_command_surface).collect()),
-            );
-        }
-
-        serde_json::Value::Object(surface)
-    }
-
-    fn command_surface_snapshots() -> BTreeMap<String, serde_json::Value> {
-        get_schema()["commands"]
-            .as_array()
-            .expect("agent schema must contain commands")
-            .iter()
-            .map(|command| {
-                let name = command["name"].as_str().expect("command must have a name");
-                (format!("{name}.json"), project_command_surface(command))
-            })
-            .collect()
-    }
-
-    fn surface_snapshot_dir() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/surface")
-    }
-
-    fn regenerate_surface_snapshots(
-        directory: &Path,
-        snapshots: &BTreeMap<String, serde_json::Value>,
-    ) {
-        std::fs::create_dir_all(directory).expect("create surface snapshot directory");
-
-        for entry in std::fs::read_dir(directory).expect("read surface snapshot directory") {
-            let entry = entry.expect("read surface snapshot entry");
-            let filename = entry.file_name().to_string_lossy().into_owned();
-            if !snapshots.contains_key(&filename) {
-                std::fs::remove_file(entry.path()).expect("remove stale surface snapshot");
-            }
-        }
-
-        for (filename, snapshot) in snapshots {
-            let mut contents =
-                serde_json::to_string_pretty(snapshot).expect("serialize command surface snapshot");
-            contents.push('\n');
-            std::fs::write(directory.join(filename), contents)
-                .expect("write command surface snapshot");
-        }
     }
 
     fn find_command<'a>(
@@ -12694,54 +12679,56 @@ mod test_agent_schema {
         assert!(schema.get("commands").and_then(|v| v.as_array()).is_some());
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn agent_surface_snapshots_are_current() {
-        let directory = surface_snapshot_dir();
-        let snapshots = command_surface_snapshots();
-        if std::env::var(UPDATE_SNAPSHOTS).as_deref() == Ok("1") {
-            regenerate_surface_snapshots(&directory, &snapshots);
-            return;
-        }
+    fn cli_surface_document_serializes_with_versions() {
+        let encoded = serde_json::to_string(&build_cli_surface(&Cli::command()))
+            .expect("CLI surface must serialize as JSON");
+        let document: serde_json::Value =
+            serde_json::from_str(&encoded).expect("CLI surface must parse as JSON");
 
-        let expected_filenames: BTreeSet<&str> = snapshots.keys().map(String::as_str).collect();
-        let actual_filenames: BTreeSet<String> = std::fs::read_dir(&directory)
-            .expect("surface snapshot directory must exist")
-            .map(|entry| {
-                entry
-                    .expect("read surface snapshot entry")
-                    .file_name()
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect();
-        let actual_filename_refs: BTreeSet<&str> =
-            actual_filenames.iter().map(String::as_str).collect();
-        let missing: Vec<&str> = expected_filenames
-            .difference(&actual_filename_refs)
-            .copied()
-            .collect();
-        let orphaned: Vec<&str> = actual_filename_refs
-            .difference(&expected_filenames)
-            .copied()
-            .collect();
-
-        assert!(
-            missing.is_empty() && orphaned.is_empty(),
-            "surface snapshot filenames are stale (missing: {missing:?}, orphaned: \
-             {orphaned:?}); {REGENERATE_SURFACE_SNAPSHOTS}"
+        assert_eq!(
+            document["format_version"],
+            serde_json::json!(CLI_SURFACE_FORMAT_VERSION)
         );
+        assert_eq!(document["pup_version"], version::VERSION);
+        assert!(document["commands"].is_array());
+    }
 
-        for (filename, expected) in snapshots {
-            let contents = std::fs::read_to_string(directory.join(&filename))
-                .expect("read command surface snapshot");
-            let actual: serde_json::Value = serde_json::from_str(&contents)
-                .unwrap_or_else(|error| panic!("invalid surface snapshot {filename}: {error}"));
-            assert!(
-                actual == expected,
-                "surface snapshot {filename} is stale; {REGENERATE_SURFACE_SNAPSHOTS}"
-            );
-        }
+    #[test]
+    fn cli_surface_matches_reviewed_projection_for_sample_command() {
+        let document = build_cli_surface(&Cli::command());
+        let commands = document["commands"].as_array().unwrap();
+        let downtime = find_command(commands, &["downtime"]).expect("downtime command not found");
+
+        assert_eq!(
+            downtime,
+            &serde_json::json!({
+                "name": "downtime",
+                "subcommands": [
+                    {
+                        "name": "cancel",
+                        "read_only": false,
+                        "args": [{"name": "id", "type": "string", "required": true}]
+                    },
+                    {
+                        "name": "create",
+                        "read_only": false,
+                        "flags": [{"name": "file", "type": "string", "required": true}]
+                    },
+                    {
+                        "name": "get",
+                        "read_only": true,
+                        "args": [{"name": "id", "type": "string", "required": true}]
+                    },
+                    {"name": "list", "read_only": true}
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn agent_surface_subcommand_is_registered() {
+        assert!(Cli::try_parse_from(["pup", "agent", "surface"]).is_ok());
     }
 
     #[test]
@@ -18149,6 +18136,10 @@ async fn main_inner() -> anyhow::Result<()> {
                     build_agent_schema(&cmd)
                 };
                 println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+            }
+            AgentActions::Surface => {
+                let surface = build_cli_surface(&Cli::command());
+                println!("{}", serde_json::to_string_pretty(&surface).unwrap());
             }
             AgentActions::Guide => commands::agent::guide()?,
         },

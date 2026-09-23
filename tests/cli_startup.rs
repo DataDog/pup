@@ -34,3 +34,17 @@ fn invalid_command_reports_a_cli_error() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("unrecognized subcommand"));
 }
+
+#[test]
+fn agent_surface_dispatches_versioned_projection() {
+    let output = run(&["agent", "surface"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let document: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("surface output must be valid JSON");
+    assert_eq!(document["format_version"], 1);
+}

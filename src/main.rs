@@ -12415,9 +12415,10 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
         obj.insert("description".into(), serde_json::json!(desc.to_string()));
     }
 
-    // Determine read_only based on command name — but only emit for leaf commands
-    // (commands with no subcommands), matching Go behavior
-    let is_write = is_write_command_name(&name);
+    // Determine read_only based on the spec-derived write fact first, falling back
+    // to the command-name vocabulary — but only emit for leaf commands (commands
+    // with no subcommands), matching Go behavior
+    let is_write = is_write_command(&full_path, &name);
 
     // Positional arguments (excluding globals and help/version)
     // Enumerated to preserve declaration order for correct CLI invocation
@@ -12620,6 +12621,67 @@ mod test_agent_schema {
         let full = find_command(commands, &["llm-obs", "datasets", "records-full"])
             .expect("llm-obs datasets records-full not found");
         assert_eq!(full["read_only"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn generated_write_outside_vocabulary_is_blocked_via_write_commands_fact() {
+        // Generated verbs like "mute"/"validate"/"restore" fall outside the
+        // hand-written vocabulary, so before consulting WRITE_COMMANDS a
+        // generated write command with such a verb was silently classified as
+        // read-only and would run under --read-only.
+        assert!(!is_write_command_name("mute"));
+        assert!(!is_write_command_name("validate"));
+        assert!(!is_write_command_name("restore"));
+
+        // Once the generator lists the command's full path, the fact-based
+        // check classifies it as a write regardless of the vocabulary gap.
+        let write_commands = ["downtimes mute"];
+        assert!(classify_write("downtimes mute", "mute", &write_commands));
+    }
+
+    #[test]
+    fn safe_post_is_not_misclassified_as_write_by_method() {
+        // A generated command whose x-undo.type is "safe" must not be blocked
+        // even though its HTTP method is POST — proving the classification
+        // comes from WRITE_COMMANDS (spec-derived from x-undo), not the verb
+        // or the HTTP method. "search" is not in the vocabulary either, so
+        // this also exercises the pure fallback path.
+        let write_commands = ["downtimes mute"];
+        assert!(!is_write_command_name("search"));
+        assert!(!classify_write("logs search", "search", &write_commands));
+    }
+
+    #[test]
+    fn hand_written_commands_are_unaffected_by_write_commands_fact() {
+        // A hand-written write (no fact available) still blocks via the
+        // vocabulary, and a hand-written read still runs, regardless of the
+        // contents of WRITE_COMMANDS.
+        let write_commands = ["downtimes mute"];
+        assert!(classify_write("monitors delete", "delete", &write_commands));
+        assert!(!classify_write("monitors list", "list", &write_commands));
+    }
+
+    #[test]
+    fn vocabulary_matched_generated_write_still_blocks_with_fact_present() {
+        // The two mechanisms must not interfere: a generated write whose verb
+        // IS in the vocabulary still blocks whether or not WRITE_COMMANDS also
+        // lists it.
+        assert!(classify_write("downtimes create", "create", &[]));
+        assert!(classify_write(
+            "downtimes create",
+            "create",
+            &["downtimes create"]
+        ));
+    }
+
+    #[test]
+    fn is_write_command_consults_real_write_commands_constant() {
+        // Wiring check: `is_write_command` (used by both the guard and
+        // build_command_schema) delegates to the real generated constant.
+        // WRITE_COMMANDS is an empty scaffold until the first generation run,
+        // so today this only exercises the vocabulary fallback.
+        assert!(is_write_command("monitors delete", "delete"));
+        assert!(!is_write_command("monitors list", "list"));
     }
 
     #[test]
@@ -12953,6 +13015,36 @@ pub(crate) fn get_top_level_subcommand_name(matches: &clap::ArgMatches) -> Optio
     matches.subcommand().map(|(name, _)| name.to_string())
 }
 
+/// Builds the full space-separated command path (e.g. "downtimes mute") from
+/// parsed `ArgMatches`, unlike `get_leaf_subcommand_name` which only returns
+/// the final segment.
+pub(crate) fn get_full_subcommand_path(matches: &clap::ArgMatches) -> Option<String> {
+    let (name, sub_matches) = matches.subcommand()?;
+    match get_full_subcommand_path(sub_matches) {
+        Some(rest) => Some(format!("{name} {rest}")),
+        None => Some(name.to_string()),
+    }
+}
+
+/// Classifies a command as a write, consulting `write_commands` (full command
+/// paths, e.g. "downtimes mute") first and falling back to the leaf-name
+/// vocabulary. Split out from `is_write_command` so the precedence rule is
+/// testable independently of the generator's (empty, until first generation)
+/// `WRITE_COMMANDS` list.
+fn classify_write(full_path: &str, leaf: &str, write_commands: &[&str]) -> bool {
+    write_commands.contains(&full_path) || is_write_command_name(leaf)
+}
+
+/// Returns true if a command is a write, consulting the spec-derived fact in
+/// `generated::writes::WRITE_COMMANDS` (built from each operation's
+/// `x-undo.type`) first. That is the source of truth for generated commands;
+/// the leaf-name vocabulary in `is_write_command_name` is a fallback for
+/// hand-written commands that have no such fact available. `full_path` and
+/// `leaf` may be the same command when called from the read-only guard.
+pub(crate) fn is_write_command(full_path: &str, leaf: &str) -> bool {
+    classify_write(full_path, leaf, generated::writes::WRITE_COMMANDS)
+}
+
 /// Whether a command is exempt from the read-only write guard because it only
 /// touches local state, never the Datadog API. `auth`/`alias` are always local.
 /// `skills` installs bundled files locally and is exempt too — except
@@ -12965,6 +13057,52 @@ pub(crate) fn is_read_only_exempt(matches: &clap::ArgMatches) -> bool {
             Some(("remote", _))
         ),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod subcommand_path_tests {
+    use super::*;
+
+    fn test_cmd() -> clap::Command {
+        clap::Command::new("pup").subcommand(
+            clap::Command::new("downtimes")
+                .subcommand(clap::Command::new("mute").subcommand(clap::Command::new("nested"))),
+        )
+    }
+
+    #[test]
+    fn full_path_covers_multi_level_subcommands() {
+        let matches = test_cmd().get_matches_from(["pup", "downtimes", "mute", "nested"]);
+        assert_eq!(
+            get_full_subcommand_path(&matches).as_deref(),
+            Some("downtimes mute nested")
+        );
+        assert_eq!(
+            get_leaf_subcommand_name(&matches).as_deref(),
+            Some("nested")
+        );
+    }
+
+    #[test]
+    fn full_path_matches_leaf_for_single_level_subcommand() {
+        let matches = clap::Command::new("pup")
+            .subcommand(clap::Command::new("delete"))
+            .get_matches_from(["pup", "delete"]);
+        assert_eq!(
+            get_full_subcommand_path(&matches).as_deref(),
+            Some("delete")
+        );
+        assert_eq!(
+            get_leaf_subcommand_name(&matches).as_deref(),
+            Some("delete")
+        );
+    }
+
+    #[test]
+    fn full_path_is_none_with_no_subcommand() {
+        let matches = clap::Command::new("pup").get_matches_from(["pup"]);
+        assert_eq!(get_full_subcommand_path(&matches), None);
     }
 }
 
@@ -13607,7 +13745,8 @@ async fn main_inner() -> anyhow::Result<()> {
     }
     if cfg.read_only && !is_read_only_exempt(&matches) {
         if let Some(leaf) = get_leaf_subcommand_name(&matches) {
-            if is_write_command_name(&leaf) {
+            let full_path = get_full_subcommand_path(&matches).unwrap_or_else(|| leaf.clone());
+            if is_write_command(&full_path, &leaf) {
                 anyhow::bail!(
                     "write operation '{}' is blocked in read-only mode \
                      (--read-only flag, DD_READ_ONLY / DD_CLI_READ_ONLY env var, \

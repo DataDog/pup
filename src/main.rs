@@ -131,10 +131,12 @@ enum Commands {
     },
     /// Schema and guide for the datadog-agent daemon and AI coding assistants
     ///
-    /// This command group covers two distinct purposes:
+    /// This command group covers three distinct purposes:
     ///
     ///   schema  — Outputs a JSON schema of all pup commands for AI coding
     ///             assistants (Claude, Copilot, etc.) to understand pup's API.
+    ///
+    ///   surface — Outputs a stable projection of pup's CLI for tooling.
     ///
     ///   guide   — Displays an operational reference for the datadog-agent
     ///             daemon (the Datadog host agent that collects metrics, traces,
@@ -145,6 +147,7 @@ enum Commands {
     ///
     /// COMMANDS:
     ///   schema    Output the complete pup command schema as JSON (for AI assistants)
+    ///   surface   Output the stable pup CLI surface as JSON (for tooling)
     ///   guide     Display the datadog-agent (Datadog-Agent) operational reference
     ///
     /// EXAMPLES:
@@ -153,6 +156,9 @@ enum Commands {
     ///
     ///   # Get compact schema (command names and flags only, fewer tokens)
     ///   pup agent schema --compact
+    ///
+    ///   # Get the stable CLI surface for tooling
+    ///   pup agent surface
     ///
     ///   # Get the datadog-agent operational guide
     ///   pup agent guide
@@ -11351,6 +11357,8 @@ enum AgentActions {
         )]
         compact: bool,
     },
+    /// Output the stable CLI surface as JSON
+    Surface,
     /// Display the datadog-agent (Datadog-Agent) operational reference
     Guide,
 }
@@ -12287,6 +12295,15 @@ fn build_compact_agent_schema(cmd: &clap::Command) -> serde_json::Value {
         obj.insert("name".into(), serde_json::json!(name));
         obj.insert("full_path".into(), serde_json::json!(full_path));
 
+        let mut aliases: Vec<&str> = cmd
+            .get_all_aliases()
+            .filter(|alias| *alias != name)
+            .collect();
+        aliases.sort_unstable();
+        if !aliases.is_empty() {
+            obj.insert("aliases".into(), serde_json::json!(aliases));
+        }
+
         let mut flags: Vec<String> = cmd
             .get_arguments()
             .filter(|a| {
@@ -12410,6 +12427,15 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
     obj.insert("name".into(), serde_json::json!(name));
     obj.insert("full_path".into(), serde_json::json!(full_path));
 
+    let mut aliases: Vec<&str> = cmd
+        .get_all_aliases()
+        .filter(|alias| *alias != name)
+        .collect();
+    aliases.sort_unstable();
+    if !aliases.is_empty() {
+        obj.insert("aliases".into(), serde_json::json!(aliases));
+    }
+
     // Prefer long_about so agents see full context (grouping, examples, field references)
     if let Some(desc) = cmd.get_long_about().or_else(|| cmd.get_about()) {
         obj.insert("description".into(), serde_json::json!(desc.to_string()));
@@ -12433,6 +12459,7 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
             arg.insert("name".into(), serde_json::json!(a.get_id().as_str()));
             arg.insert("type".into(), serde_json::json!("string"));
             arg.insert("required".into(), serde_json::json!(a.is_required_set()));
+            arg.insert("arity".into(), build_arg_arity(a));
             arg.insert("index".into(), serde_json::json!(i + 1));
             if let Some(help) = a.get_help() {
                 arg.insert("description".into(), serde_json::json!(help.to_string()));
@@ -12473,6 +12500,7 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
             };
             flag.insert("type".into(), serde_json::json!(type_str));
             flag.insert("required".into(), serde_json::json!(a.is_required_set()));
+            flag.insert("arity".into(), build_arg_arity(a));
             if let Some(def) = a.get_default_values().first() {
                 flag.insert(
                     "default".into(),
@@ -12519,6 +12547,118 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
     serde_json::Value::Object(obj)
 }
 
+fn build_arg_arity(arg: &clap::Arg) -> serde_json::Value {
+    let range = arg.get_num_args().unwrap_or_else(|| {
+        if arg.get_action().takes_values() {
+            clap::builder::ValueRange::SINGLE
+        } else {
+            clap::builder::ValueRange::EMPTY
+        }
+    });
+    let max = if range.max_values() == usize::MAX {
+        serde_json::Value::Null
+    } else {
+        serde_json::json!(range.max_values())
+    };
+
+    serde_json::json!({
+        "min": range.min_values(),
+        "max": max,
+        "repeatable": matches!(
+            arg.get_action(),
+            clap::ArgAction::Append | clap::ArgAction::Count
+        )
+    })
+}
+
+const CLI_SURFACE_FORMAT_VERSION: u64 = 1;
+
+fn project_parameter_surface(
+    parameter: &serde_json::Value,
+    strip_flag_prefix: bool,
+) -> serde_json::Value {
+    let mut surface = serde_json::Map::new();
+    let name = parameter["name"]
+        .as_str()
+        .expect("parameter must have a name");
+    surface.insert(
+        "name".into(),
+        serde_json::json!(if strip_flag_prefix {
+            name.strip_prefix("--").unwrap_or(name)
+        } else {
+            name
+        }),
+    );
+    for property in ["type", "required"] {
+        surface.insert(property.into(), parameter[property].clone());
+    }
+
+    let default_arity = serde_json::json!({
+        "min": 1,
+        "max": 1,
+        "repeatable": false
+    });
+    if parameter["arity"] != default_arity {
+        surface.insert("arity".into(), parameter["arity"].clone());
+    }
+
+    serde_json::Value::Object(surface)
+}
+
+fn project_command_surface(command: &serde_json::Value) -> serde_json::Value {
+    let mut surface = serde_json::Map::new();
+    surface.insert("name".into(), command["name"].clone());
+    if let Some(aliases) = command.get("aliases") {
+        surface.insert("aliases".into(), aliases.clone());
+    }
+
+    let subcommands = command
+        .get("subcommands")
+        .and_then(|value| value.as_array());
+    if subcommands.is_none() {
+        surface.insert("read_only".into(), command["read_only"].clone());
+    }
+
+    for property in ["args", "flags"] {
+        if let Some(parameters) = command.get(property).and_then(|value| value.as_array()) {
+            surface.insert(
+                property.into(),
+                serde_json::Value::Array(
+                    parameters
+                        .iter()
+                        .map(|parameter| project_parameter_surface(parameter, property == "flags"))
+                        .collect(),
+                ),
+            );
+        }
+    }
+
+    if let Some(subcommands) = subcommands {
+        surface.insert(
+            "subcommands".into(),
+            serde_json::Value::Array(subcommands.iter().map(project_command_surface).collect()),
+        );
+    }
+
+    serde_json::Value::Object(surface)
+}
+
+fn build_cli_surface(cmd: &clap::Command) -> serde_json::Value {
+    let schema = build_agent_schema(cmd);
+    let commands = schema["commands"]
+        .as_array()
+        .expect("agent schema must contain commands")
+        .iter()
+        .map(project_command_surface)
+        .collect::<Vec<_>>();
+
+    serde_json::json!({
+        "format_version": CLI_SURFACE_FORMAT_VERSION,
+        "pup_version": version::VERSION,
+        "commands": commands
+    })
+}
+
 #[cfg(test)]
 mod test_agent_schema {
     use super::*;
@@ -12548,6 +12688,172 @@ mod test_agent_schema {
     fn schema_has_commands_array() {
         let schema = get_schema();
         assert!(schema.get("commands").and_then(|v| v.as_array()).is_some());
+    }
+
+    #[test]
+    fn cli_surface_document_serializes_with_versions() {
+        let encoded = serde_json::to_string(&build_cli_surface(&Cli::command()))
+            .expect("CLI surface must serialize as JSON");
+        let document: serde_json::Value =
+            serde_json::from_str(&encoded).expect("CLI surface must parse as JSON");
+
+        assert_eq!(
+            document["format_version"],
+            serde_json::json!(CLI_SURFACE_FORMAT_VERSION)
+        );
+        assert_eq!(document["pup_version"], version::VERSION);
+        assert!(document["commands"].is_array());
+    }
+
+    #[test]
+    fn cli_surface_matches_reviewed_projection_for_sample_command() {
+        let document = build_cli_surface(&Cli::command());
+        let commands = document["commands"].as_array().unwrap();
+        let downtime = find_command(commands, &["downtime"]).expect("downtime command not found");
+
+        assert_eq!(
+            downtime,
+            &serde_json::json!({
+                "name": "downtime",
+                "subcommands": [
+                    {
+                        "name": "cancel",
+                        "read_only": false,
+                        "args": [{"name": "id", "type": "string", "required": true}]
+                    },
+                    {
+                        "name": "create",
+                        "read_only": false,
+                        "flags": [{"name": "file", "type": "string", "required": true}]
+                    },
+                    {
+                        "name": "get",
+                        "read_only": true,
+                        "args": [{"name": "id", "type": "string", "required": true}]
+                    },
+                    {"name": "list", "read_only": true}
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn agent_surface_subcommand_is_registered() {
+        assert!(Cli::try_parse_from(["pup", "agent", "surface"]).is_ok());
+    }
+
+    #[test]
+    fn command_aliases_are_sorted_and_canonical_name_is_excluded() {
+        let command = clap::Command::new("inspect").alias("z").visible_alias("a");
+        let schema = build_command_schema(&command, "parent");
+
+        assert_eq!(schema["aliases"], serde_json::json!(["a", "z"]));
+        assert!(!schema["aliases"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("inspect")));
+    }
+
+    #[test]
+    fn command_without_aliases_omits_aliases_field() {
+        let schema = build_command_schema(&clap::Command::new("inspect"), "");
+        assert!(schema.get("aliases").is_none());
+    }
+
+    #[test]
+    fn compact_schema_includes_command_aliases() {
+        let command =
+            clap::Command::new("pup").subcommand(clap::Command::new("inspect").alias("show"));
+        let schema = build_compact_agent_schema(&command);
+
+        assert_eq!(
+            schema["commands"][0]["aliases"],
+            serde_json::json!(["show"])
+        );
+    }
+
+    #[test]
+    fn argument_arity_captures_ranges_and_repeatability() {
+        let command = clap::Command::new("inspect")
+            .arg(clap::Arg::new("files").required(true).num_args(1..))
+            .arg(
+                clap::Arg::new("tag")
+                    .long("tag")
+                    .action(clap::ArgAction::Append),
+            )
+            .arg(
+                clap::Arg::new("verbose")
+                    .long("verbose")
+                    .action(clap::ArgAction::SetTrue),
+            );
+        let schema = build_command_schema(&command, "");
+
+        assert_eq!(
+            schema["args"][0]["arity"],
+            serde_json::json!({"min": 1, "max": null, "repeatable": false})
+        );
+        assert_eq!(
+            schema["flags"][0]["arity"],
+            serde_json::json!({"min": 1, "max": 1, "repeatable": true})
+        );
+        assert_eq!(
+            schema["flags"][1]["arity"],
+            serde_json::json!({"min": 0, "max": 0, "repeatable": false})
+        );
+    }
+
+    #[test]
+    fn surface_projection_omits_prose_paths_and_default_arity() {
+        let command = clap::Command::new("inspect")
+            .about("description that must not affect the surface")
+            .arg(clap::Arg::new("file").required(true))
+            .arg(
+                clap::Arg::new("verbose")
+                    .long("verbose")
+                    .action(clap::ArgAction::SetTrue),
+            );
+        let full_schema = build_command_schema(&command, "parent");
+        let surface = project_command_surface(&full_schema);
+
+        assert_eq!(full_schema["flags"][0]["name"], "--verbose");
+        assert!(surface.get("description").is_none());
+        assert!(surface.get("full_path").is_none());
+        assert!(surface["args"][0].get("arity").is_none());
+        assert_eq!(surface["flags"][0]["name"], "verbose");
+        assert_eq!(
+            surface["flags"][0]["arity"],
+            serde_json::json!({"min": 0, "max": 0, "repeatable": false})
+        );
+    }
+
+    #[test]
+    fn surface_projection_emits_read_only_only_for_leaf_commands() {
+        let command = clap::Command::new("group")
+            .subcommand(clap::Command::new("leaf"))
+            .subcommand(clap::Command::new("write").arg(clap::Arg::new("file").long("file")));
+        let full_schema = build_command_schema(&command, "");
+        let surface = project_command_surface(&full_schema);
+
+        assert!(surface.get("read_only").is_none());
+        assert!(surface["subcommands"][0]["read_only"].is_boolean());
+        assert_eq!(surface["subcommands"][1]["flags"][0]["name"], "file");
+    }
+
+    #[test]
+    fn surface_projection_is_independent_of_command_description() {
+        let first = build_command_schema(
+            &clap::Command::new("inspect").about("first description"),
+            "",
+        );
+        let second = build_command_schema(
+            &clap::Command::new("inspect").about("changed description"),
+            "",
+        );
+
+        assert_eq!(
+            project_command_surface(&first),
+            project_command_surface(&second)
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -17841,6 +18147,10 @@ async fn main_inner() -> anyhow::Result<()> {
                     build_agent_schema(&cmd)
                 };
                 println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+            }
+            AgentActions::Surface => {
+                let surface = build_cli_surface(&Cli::command());
+                println!("{}", serde_json::to_string_pretty(&surface).unwrap());
             }
             AgentActions::Guide => commands::agent::guide()?,
         },

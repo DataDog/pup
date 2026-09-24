@@ -12441,9 +12441,10 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
         obj.insert("description".into(), serde_json::json!(desc.to_string()));
     }
 
-    // Determine read_only based on command name — but only emit for leaf commands
-    // (commands with no subcommands), matching Go behavior
-    let is_write = is_write_command_name(&name);
+    // Determine read_only based on the spec-derived write fact first, falling back
+    // to the command-name vocabulary — but only emit for leaf commands (commands
+    // with no subcommands), matching Go behavior
+    let is_write = is_write_command(&full_path, &name);
 
     // Positional arguments (excluding globals and help/version)
     // Enumerated to preserve declaration order for correct CLI invocation
@@ -12929,6 +12930,71 @@ mod test_agent_schema {
     }
 
     #[test]
+    fn generated_write_outside_vocabulary_is_blocked_via_write_commands_fact() {
+        // Generated verbs like "mute"/"validate"/"restore" fall outside the
+        // hand-written vocabulary, so before consulting WRITE_COMMANDS a
+        // generated write command with such a verb was silently classified as
+        // read-only and would run under --read-only.
+        assert!(!is_write_command_name("mute"));
+        assert!(!is_write_command_name("validate"));
+        assert!(!is_write_command_name("restore"));
+
+        // Once the generator lists the command's full path, the fact-based
+        // check classifies it as a write regardless of the vocabulary gap.
+        let write_commands = ["downtimes mute"];
+        assert!(classify_write("downtimes mute", "mute", &write_commands));
+    }
+
+    #[test]
+    fn command_absent_from_write_commands_and_vocabulary_falls_through_to_read() {
+        // pup never sees HTTP methods or x-undo, so this only exercises the
+        // fallback path: a command missing from both WRITE_COMMANDS and the
+        // vocabulary is treated as a read. The actual proof that a safe POST
+        // isn't misclassified by method lives generator-side, in
+        // openapi-transformer's test_safe_post_is_not_a_write, since only the
+        // generator has method/x-undo information to get wrong.
+        let write_commands = ["downtimes mute"];
+        assert!(!is_write_command_name("search"));
+        assert!(!classify_write("logs search", "search", &write_commands));
+    }
+
+    #[test]
+    fn hand_written_commands_are_unaffected_by_write_commands_fact() {
+        // A hand-written write (no fact available) still blocks via the
+        // vocabulary, and a hand-written read still runs, regardless of the
+        // contents of WRITE_COMMANDS.
+        let write_commands = ["downtimes mute"];
+        assert!(classify_write("monitors delete", "delete", &write_commands));
+        assert!(!classify_write("monitors list", "list", &write_commands));
+    }
+
+    #[test]
+    fn vocabulary_matched_generated_write_still_blocks_with_fact_present() {
+        // The two mechanisms must not interfere: a generated write whose verb
+        // IS in the vocabulary still blocks whether or not WRITE_COMMANDS also
+        // lists it.
+        assert!(classify_write("downtimes create", "create", &[]));
+        assert!(classify_write(
+            "downtimes create",
+            "create",
+            &["downtimes create"]
+        ));
+    }
+
+    #[test]
+    fn is_write_command_falls_back_to_vocabulary_while_write_commands_is_empty() {
+        // This does NOT prove `is_write_command` delegates to
+        // generated::writes::WRITE_COMMANDS: with the constant empty,
+        // delegating to it and ignoring it are observationally identical, so
+        // this test passes either way. It becomes a real wiring check once a
+        // real generated write path exists to assert against — see
+        // classify_write's tests above for the fact-based behavior in
+        // isolation.
+        assert!(is_write_command("monitors delete", "delete"));
+        assert!(!is_write_command("monitors list", "list"));
+    }
+
+    #[test]
     fn leaf_command_has_required_fields() {
         let schema = get_schema();
         let commands = schema["commands"].as_array().unwrap();
@@ -13259,6 +13325,38 @@ pub(crate) fn get_top_level_subcommand_name(matches: &clap::ArgMatches) -> Optio
     matches.subcommand().map(|(name, _)| name.to_string())
 }
 
+/// Builds the full space-separated command path (e.g. "downtimes mute") from
+/// parsed `ArgMatches`, unlike `get_leaf_subcommand_name` which only returns
+/// the final segment.
+pub(crate) fn get_full_subcommand_path(matches: &clap::ArgMatches) -> Option<String> {
+    let (name, sub_matches) = matches.subcommand()?;
+    match get_full_subcommand_path(sub_matches) {
+        Some(rest) => Some(format!("{name} {rest}")),
+        None => Some(name.to_string()),
+    }
+}
+
+/// Classifies a command as a write, consulting `write_commands` (full command
+/// paths, e.g. "downtimes mute") first and falling back to the leaf-name
+/// vocabulary. Split out from `is_write_command` so the precedence rule is
+/// testable independently of the generator's (empty, until first generation)
+/// `WRITE_COMMANDS` list.
+fn classify_write(full_path: &str, leaf: &str, write_commands: &[&str]) -> bool {
+    write_commands.contains(&full_path) || is_write_command_name(leaf)
+}
+
+/// Returns true if a command is a write, consulting the spec-derived fact in
+/// `generated::writes::WRITE_COMMANDS` (built from each operation's
+/// `x-undo.type`) first. That fact is additive, not authoritative: the
+/// generator emits write paths only, so a generated command's absence from
+/// the list is ambiguous between "generated and safe" and "hand-written, no
+/// fact available" — either way it falls through to the leaf-name vocabulary
+/// in `is_write_command_name`. `full_path` and `leaf` may be the same command
+/// when called from the read-only guard.
+pub(crate) fn is_write_command(full_path: &str, leaf: &str) -> bool {
+    classify_write(full_path, leaf, generated::writes::WRITE_COMMANDS)
+}
+
 /// Whether a command is exempt from the read-only write guard because it only
 /// touches local state, never the Datadog API. `auth`/`alias` are always local.
 /// `skills` installs bundled files locally and is exempt too — except
@@ -13271,6 +13369,52 @@ pub(crate) fn is_read_only_exempt(matches: &clap::ArgMatches) -> bool {
             Some(("remote", _))
         ),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod subcommand_path_tests {
+    use super::*;
+
+    fn test_cmd() -> clap::Command {
+        clap::Command::new("pup").subcommand(
+            clap::Command::new("downtimes")
+                .subcommand(clap::Command::new("mute").subcommand(clap::Command::new("nested"))),
+        )
+    }
+
+    #[test]
+    fn full_path_covers_multi_level_subcommands() {
+        let matches = test_cmd().get_matches_from(["pup", "downtimes", "mute", "nested"]);
+        assert_eq!(
+            get_full_subcommand_path(&matches).as_deref(),
+            Some("downtimes mute nested")
+        );
+        assert_eq!(
+            get_leaf_subcommand_name(&matches).as_deref(),
+            Some("nested")
+        );
+    }
+
+    #[test]
+    fn full_path_matches_leaf_for_single_level_subcommand() {
+        let matches = clap::Command::new("pup")
+            .subcommand(clap::Command::new("delete"))
+            .get_matches_from(["pup", "delete"]);
+        assert_eq!(
+            get_full_subcommand_path(&matches).as_deref(),
+            Some("delete")
+        );
+        assert_eq!(
+            get_leaf_subcommand_name(&matches).as_deref(),
+            Some("delete")
+        );
+    }
+
+    #[test]
+    fn full_path_is_none_with_no_subcommand() {
+        let matches = clap::Command::new("pup").get_matches_from(["pup"]);
+        assert_eq!(get_full_subcommand_path(&matches), None);
     }
 }
 
@@ -13913,7 +14057,8 @@ async fn main_inner() -> anyhow::Result<()> {
     }
     if cfg.read_only && !is_read_only_exempt(&matches) {
         if let Some(leaf) = get_leaf_subcommand_name(&matches) {
-            if is_write_command_name(&leaf) {
+            let full_path = get_full_subcommand_path(&matches).unwrap_or_else(|| leaf.clone());
+            if is_write_command(&full_path, &leaf) {
                 anyhow::bail!(
                     "write operation '{}' is blocked in read-only mode \
                      (--read-only flag, DD_READ_ONLY / DD_CLI_READ_ONLY env var, \

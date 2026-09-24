@@ -587,6 +587,109 @@ fn test_shared_display_order_sorts_flattened_nested_subcommands_in_help() {
     );
 }
 
+// -------------------------------------------------------------------------
+// Generated surface reachability
+// -------------------------------------------------------------------------
+
+// Reuse build.rs's line parser so surface.txt has exactly one authority for
+// what counts as a path entry, rather than a second parser that happens to
+// agree with it today.
+#[path = "../build/surface.rs"]
+mod surface;
+
+/// Parse `src/generated/surface.txt` into CLI path segments (dot-joined lines
+/// split into per-depth clap subcommand names). Missing file means no paths,
+/// matching `build/surface.rs`'s behavior for an ungenerated checkout.
+fn generated_surface_paths() -> Vec<Vec<String>> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated/surface.txt");
+    surface::generated_cfgs(path)
+        .into_iter()
+        .map(|(_, line)| line.split('.').map(str::to_owned).collect())
+        .collect()
+}
+
+/// Assert every path resolves as a chain of subcommands under `top`. Returns
+/// the first unreachable path's error message instead of panicking, so the
+/// walk itself can be unit-tested against a synthetic clap tree independently
+/// of whether a real `surface.txt` exists.
+fn reachable_surface_paths(paths: &[Vec<String>], top: &clap::Command) -> Result<(), String> {
+    for segments in paths {
+        let mut command = top;
+        let mut resolved: Vec<&str> = Vec::new();
+
+        for segment in segments {
+            command = command.find_subcommand(segment).ok_or_else(|| {
+                format!(
+                    "generated surface entry `{}` is unreachable: no subcommand `{segment}` under `{}` \
+                     (a cleanup PR likely deleted a hand-written merge host without re-rendering the \
+                     generated registry)",
+                    segments.join("."),
+                    if resolved.is_empty() {
+                        "pup".to_owned()
+                    } else {
+                        resolved.join(" ")
+                    }
+                )
+            })?;
+            resolved.push(segment);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn test_reachable_surface_paths_flags_missing_top_level_tag() {
+    let top = clap::Command::new("pup").subcommand(clap::Command::new("domain-allowlist"));
+    let paths = vec![vec!["nonexistent-tag".to_owned()]];
+
+    let error = reachable_surface_paths(&paths, &top).expect_err("missing top-level tag must fail");
+    assert!(error.contains("generated surface entry `nonexistent-tag` is unreachable"));
+    assert!(error.contains("no subcommand `nonexistent-tag` under `pup`"));
+}
+
+#[test]
+fn test_reachable_surface_paths_flags_missing_nested_op() {
+    let top = clap::Command::new("pup")
+        .subcommand(clap::Command::new("domain-allowlist").subcommand(clap::Command::new("get")));
+    let paths = vec![vec![
+        "domain-allowlist".to_owned(),
+        "nonexistent-op".to_owned(),
+    ]];
+
+    let error = reachable_surface_paths(&paths, &top).expect_err("missing nested op must fail");
+    assert!(
+        error.contains("generated surface entry `domain-allowlist.nonexistent-op` is unreachable")
+    );
+    assert!(error.contains("no subcommand `nonexistent-op` under `domain-allowlist`"));
+}
+
+#[test]
+fn test_reachable_surface_paths_accepts_top_level_tag() {
+    let top = clap::Command::new("pup").subcommand(clap::Command::new("domain-allowlist"));
+    let paths = vec![vec!["domain-allowlist".to_owned()]];
+
+    assert_eq!(reachable_surface_paths(&paths, &top), Ok(()));
+}
+
+#[test]
+fn test_reachable_surface_paths_accepts_nested_op_chain() {
+    let top = clap::Command::new("pup")
+        .subcommand(clap::Command::new("domain-allowlist").subcommand(clap::Command::new("get")));
+    let paths = vec![vec!["domain-allowlist".to_owned(), "get".to_owned()]];
+
+    assert_eq!(reachable_surface_paths(&paths, &top), Ok(()));
+}
+
+#[test]
+fn test_generated_surface_is_reachable() {
+    let paths = generated_surface_paths();
+    let top = crate::Cli::command();
+
+    if let Err(message) = reachable_surface_paths(&paths, &top) {
+        panic!("{message}");
+    }
+}
+
 #[test]
 fn test_dbm_samples_search_parses() {
     use clap::Parser;

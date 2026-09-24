@@ -10,7 +10,7 @@ Pup auto-detects AI coding agents and switches to **agent mode**, which changes 
 
 | Method | Example |
 |--------|---------|
-| Auto-detect | `CLAUDECODE=1`, `CLAUDE_CODE=1`, `CURSOR_AGENT=1`, `CODEX=1`, `OPENAI_CODEX=1`, `OPENCODE=1`, `AIDER=1`, `CLINE=1`, `WINDSURF_AGENT=1`, `GITHUB_COPILOT=1`, `AMAZON_Q=1`, `AWS_Q_DEVELOPER=1`, `GEMINI_CODE_ASSIST=1`, `SRC_CODY=1`, `PI_CODING_AGENT=1`, `AGENT=1` |
+| Auto-detect | `CLAUDECODE=1`, `CLAUDE_CODE=1`, `CURSOR_AGENT=1`, `CODEX=1`, `OPENAI_CODEX=1`, `OPENCODE=1`, `AIDER=1`, `CLINE=1`, `WINDSURF_AGENT=1`, `GITHUB_COPILOT=1`, `COPILOT_CLI=1`, `AMAZON_Q=1`, `AWS_Q_DEVELOPER=1`, `GEMINI_CODE_ASSIST=1`, `GEMINI_CLI=1`, `SRC_CODY=1`, `PI_CODING_AGENT=1`, `AGENT=1`, or non-empty `CODEX_SESSION_ID`/`CODEX_THREAD_ID`/`CODEX_VERSION`/`CODEX_SANDBOX`/`CODEX_CI`/`COPILOT_AGENT_SESSION_ID`/`CURSOR_TRACE_ID`/`DEVIN_SESSION_ID` |
 | Explicit flag | `pup --agent <command>` |
 | Environment override | `FORCE_AGENT_MODE=1` |
 

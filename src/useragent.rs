@@ -8,62 +8,108 @@ pub struct AgentInfo {
 
 struct AgentDetector {
     name: &'static str,
-    env_vars: &'static [&'static str],
+    /// Marker variables that must be truthy ("1" or "true"), as documented by
+    /// the harness (e.g. CLAUDECODE=1, GEMINI_CLI=1).
+    truthy_vars: &'static [&'static str],
+    /// Variables whose non-empty presence marks the agent, e.g. harness-injected
+    /// session/thread IDs (CODEX_SESSION_ID, DEVIN_SESSION_ID). Checked after
+    /// truthy_vars. Never list user-configurable variables here.
+    presence_vars: &'static [&'static str],
 }
 
 /// Table-driven AI agent detection, checked in priority order.
 static AGENT_DETECTORS: &[AgentDetector] = &[
     AgentDetector {
         name: "claude-code",
-        env_vars: &["CLAUDECODE", "CLAUDE_CODE"],
+        truthy_vars: &["CLAUDECODE", "CLAUDE_CODE"],
+        presence_vars: &[],
     },
     AgentDetector {
         name: "cursor",
-        env_vars: &["CURSOR_AGENT"],
+        // CURSOR_AGENT marks the Cursor CLI agent; CURSOR_TRACE_ID is set by
+        // the Cursor editor.
+        truthy_vars: &["CURSOR_AGENT"],
+        presence_vars: &["CURSOR_TRACE_ID"],
     },
     AgentDetector {
         name: "codex",
-        env_vars: &["CODEX", "OPENAI_CODEX"],
+        // Codex does not export a truthy marker; inject_session_env injects
+        // CODEX_SESSION_ID, CODEX_THREAD_ID, and CODEX_VERSION into shell
+        // commands it runs (codex-rs exec_env.rs). CODEX_HOME is user config,
+        // not a marker.
+        truthy_vars: &["CODEX", "OPENAI_CODEX"],
+        presence_vars: &[
+            "CODEX_SESSION_ID",
+            "CODEX_THREAD_ID",
+            "CODEX_VERSION",
+            "CODEX_SANDBOX",
+            "CODEX_CI",
+        ],
     },
     AgentDetector {
         name: "opencode",
-        env_vars: &["OPENCODE"],
+        truthy_vars: &["OPENCODE"],
+        presence_vars: &[],
     },
     AgentDetector {
         name: "aider",
-        env_vars: &["AIDER"],
+        truthy_vars: &["AIDER"],
+        presence_vars: &[],
     },
     AgentDetector {
         name: "cline",
-        env_vars: &["CLINE"],
+        truthy_vars: &["CLINE"],
+        presence_vars: &[],
     },
     AgentDetector {
         name: "windsurf",
-        env_vars: &["WINDSURF_AGENT"],
+        truthy_vars: &["WINDSURF_AGENT"],
+        presence_vars: &[],
     },
     AgentDetector {
         name: "github-copilot",
-        env_vars: &["GITHUB_COPILOT"],
+        // Copilot CLI documents COPILOT_CLI=1 in subprocesses (changelog
+        // v0.0.421) and COPILOT_AGENT_SESSION_ID for shell commands and MCP
+        // servers (changelog v1.0.29).
+        truthy_vars: &["GITHUB_COPILOT", "COPILOT_CLI"],
+        presence_vars: &["COPILOT_AGENT_SESSION_ID"],
     },
     AgentDetector {
         name: "amazon-q",
-        env_vars: &["AMAZON_Q", "AWS_Q_DEVELOPER"],
+        truthy_vars: &["AMAZON_Q", "AWS_Q_DEVELOPER"],
+        presence_vars: &[],
     },
     AgentDetector {
         name: "gemini-code",
-        env_vars: &["GEMINI_CODE_ASSIST"],
+        truthy_vars: &["GEMINI_CODE_ASSIST"],
+        presence_vars: &[],
+    },
+    AgentDetector {
+        name: "gemini-cli",
+        // Gemini CLI sets GEMINI_CLI=1 in run_shell_command subprocesses
+        // (docs: tools/shell "Environment variables").
+        truthy_vars: &["GEMINI_CLI"],
+        presence_vars: &[],
     },
     AgentDetector {
         name: "sourcegraph-cody",
-        env_vars: &["SRC_CODY"],
+        truthy_vars: &["SRC_CODY"],
+        presence_vars: &[],
     },
     AgentDetector {
         name: "pi-dev",
-        env_vars: &["PI_CODING_AGENT"],
+        truthy_vars: &["PI_CODING_AGENT"],
+        presence_vars: &[],
+    },
+    AgentDetector {
+        name: "devin",
+        truthy_vars: &[],
+        presence_vars: &["DEVIN_SESSION_ID"],
     },
     AgentDetector {
         name: "generic-agent",
-        env_vars: &["AGENT"],
+        truthy_vars: &["AGENT"],
+        presence_vars: &[],
     },
 ];
 
@@ -80,20 +126,14 @@ fn is_env_present(key: &str) -> bool {
 
 pub fn detect_agent_info() -> AgentInfo {
     for detector in AGENT_DETECTORS {
-        for env_var in detector.env_vars {
-            if is_env_truthy(env_var) {
-                return AgentInfo {
-                    name: detector.name.to_string(),
-                    detected: true,
-                };
-            }
+        let detected = detector.truthy_vars.iter().any(|v| is_env_truthy(v))
+            || detector.presence_vars.iter().any(|v| is_env_present(v));
+        if detected {
+            return AgentInfo {
+                name: detector.name.to_string(),
+                detected: true,
+            };
         }
-    }
-    if is_env_present("DEVIN_SESSION_ID") {
-        return AgentInfo {
-            name: "devin".to_string(),
-            detected: true,
-        };
     }
     AgentInfo {
         name: String::new(),
@@ -173,13 +213,15 @@ mod tests {
 
     fn clear_all_agent_vars() {
         for det in AGENT_DETECTORS {
-            for var in det.env_vars {
+            for var in det.truthy_vars {
+                std::env::remove_var(var);
+            }
+            for var in det.presence_vars {
                 std::env::remove_var(var);
             }
         }
         std::env::remove_var("FORCE_AGENT_MODE");
         std::env::remove_var("PUP_AGENT_MODE");
-        std::env::remove_var("DEVIN_SESSION_ID");
     }
 
     #[test]
@@ -419,6 +461,95 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_agent_info_codex_via_session_id() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("CODEX_SESSION_ID", "sess-abc123");
+        let info = detect_agent_info();
+        assert!(info.detected);
+        assert_eq!(info.name, "codex");
+        std::env::remove_var("CODEX_SESSION_ID");
+    }
+
+    #[test]
+    fn test_detect_agent_info_codex_via_thread_id() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("CODEX_THREAD_ID", "thread-abc123");
+        let info = detect_agent_info();
+        assert!(info.detected);
+        assert_eq!(info.name, "codex");
+        std::env::remove_var("CODEX_THREAD_ID");
+    }
+
+    #[test]
+    fn test_detect_agent_info_codex_via_version() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("CODEX_VERSION", "0.155.0");
+        let info = detect_agent_info();
+        assert!(info.detected);
+        assert_eq!(info.name, "codex");
+        std::env::remove_var("CODEX_VERSION");
+    }
+
+    #[test]
+    fn test_detect_agent_info_cursor_via_trace_id() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("CURSOR_TRACE_ID", "trace-abc123");
+        let info = detect_agent_info();
+        assert!(info.detected);
+        assert_eq!(info.name, "cursor");
+        std::env::remove_var("CURSOR_TRACE_ID");
+    }
+
+    #[test]
+    fn test_detect_agent_info_codex_home_not_a_marker() {
+        // CODEX_HOME is user config, not a harness-injected marker; a user
+        // (or another agent's plugin) may export it without Codex running.
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("CODEX_HOME", "/Users/example/.codex");
+        let info = detect_agent_info();
+        assert!(!info.detected);
+        std::env::remove_var("CODEX_HOME");
+    }
+
+    #[test]
+    fn test_detect_agent_info_gemini_cli() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("GEMINI_CLI", "1");
+        let info = detect_agent_info();
+        assert!(info.detected);
+        assert_eq!(info.name, "gemini-cli");
+        std::env::remove_var("GEMINI_CLI");
+    }
+
+    #[test]
+    fn test_detect_agent_info_copilot_cli() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("COPILOT_CLI", "1");
+        let info = detect_agent_info();
+        assert!(info.detected);
+        assert_eq!(info.name, "github-copilot");
+        std::env::remove_var("COPILOT_CLI");
+    }
+
+    #[test]
+    fn test_detect_agent_info_copilot_via_session_id() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("COPILOT_AGENT_SESSION_ID", "sess-abc123");
+        let info = detect_agent_info();
+        assert!(info.detected);
+        assert_eq!(info.name, "github-copilot");
+        std::env::remove_var("COPILOT_AGENT_SESSION_ID");
+    }
+
+    #[test]
     fn test_detect_agent_info_generic_agent() {
         let _guard = ENV_LOCK.blocking_lock();
         clear_all_agent_vars();
@@ -433,7 +564,7 @@ mod tests {
     fn test_all_detectors_have_names() {
         for det in AGENT_DETECTORS {
             assert!(!det.name.is_empty());
-            assert!(!det.env_vars.is_empty());
+            assert!(!det.truthy_vars.is_empty() || !det.presence_vars.is_empty());
         }
     }
 }

@@ -472,7 +472,7 @@ pup skills install --name dd-idp
 
 When pup is invoked by an AI coding agent, it automatically switches to **agent mode** which returns structured JSON responses optimized for machine consumption (including metadata, error details, and hints). Agent mode also auto-approves confirmation prompts.
 
-Agent mode is **auto-detected** when any of these environment variables are set to `1` or `true`:
+Agent mode is **auto-detected** when any of these environment variables is set to `1` or `true`:
 
 | Variable | Agent |
 |----------|-------|
@@ -482,12 +482,22 @@ Agent mode is **auto-detected** when any of these environment variables are set 
 | `AIDER` | Aider |
 | `CLINE` | Cline |
 | `WINDSURF_AGENT` | Windsurf |
-| `GITHUB_COPILOT` | GitHub Copilot |
+| `GITHUB_COPILOT` or `COPILOT_CLI` | GitHub Copilot |
 | `AMAZON_Q` or `AWS_Q_DEVELOPER` | Amazon Q |
 | `GEMINI_CODE_ASSIST` | Gemini Code Assist |
+| `GEMINI_CLI` | Gemini CLI |
 | `SRC_CODY` | Sourcegraph Cody |
 | `PI_CODING_AGENT` | pi.dev |
 | `FORCE_AGENT_MODE` | Any agent (manual override) |
+
+It is also auto-detected when any of these harness-injected variables is present and non-empty:
+
+| Variable | Agent |
+|----------|-------|
+| `CODEX_SESSION_ID`, `CODEX_THREAD_ID`, `CODEX_VERSION`, `CODEX_SANDBOX`, or `CODEX_CI` | OpenAI Codex |
+| `COPILOT_AGENT_SESSION_ID` | GitHub Copilot |
+| `CURSOR_TRACE_ID` | Cursor |
+| `DEVIN_SESSION_ID` | Devin |
 
 You can also enable it explicitly with the `--agent` flag or by setting `FORCE_AGENT_MODE=1`:
 

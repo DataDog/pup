@@ -160,7 +160,7 @@ pup/v0.1.0 (rust; os darwin; arch arm64; ai-agent claude-code)  # With agent
 **AI Agent Detection** (`src/useragent.rs`):
 
 Table-driven registry detecting AI coding agents via environment variables. First match wins:
-- Claude Code (`CLAUDECODE`, `CLAUDE_CODE`), Cursor (`CURSOR_AGENT`), Codex (`CODEX`, `OPENAI_CODEX`), OpenCode (`OPENCODE`), Aider (`AIDER`), Cline (`CLINE`), Windsurf (`WINDSURF_AGENT`), GitHub Copilot (`GITHUB_COPILOT`), Amazon Q (`AMAZON_Q`, `AWS_Q_DEVELOPER`), Gemini Code Assist (`GEMINI_CODE_ASSIST`), Sourcegraph Cody (`SRC_CODY`), pi.dev (`PI_CODING_AGENT`), Generic Agent (`AGENT`)
+- Claude Code (`CLAUDECODE`, `CLAUDE_CODE`), Cursor (`CURSOR_AGENT`; or presence of `CURSOR_TRACE_ID`), Codex (`CODEX`, `OPENAI_CODEX`; or presence of `CODEX_SESSION_ID`/`CODEX_THREAD_ID`/`CODEX_VERSION`/`CODEX_SANDBOX`/`CODEX_CI`, which Codex injects into shell commands), OpenCode (`OPENCODE`), Aider (`AIDER`), Cline (`CLINE`), Windsurf (`WINDSURF_AGENT`), GitHub Copilot (`GITHUB_COPILOT`, `COPILOT_CLI`; or presence of `COPILOT_AGENT_SESSION_ID`), Amazon Q (`AMAZON_Q`, `AWS_Q_DEVELOPER`), Gemini Code Assist (`GEMINI_CODE_ASSIST`), Gemini CLI (`GEMINI_CLI`), Sourcegraph Cody (`SRC_CODY`), pi.dev (`PI_CODING_AGENT`), Devin (presence of `DEVIN_SESSION_ID`), Generic Agent (`AGENT`)
 - Manual override: `FORCE_AGENT_MODE=1` or `--agent` flag
 
 **Agent Mode Behavior** (when detected):

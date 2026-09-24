@@ -12640,12 +12640,13 @@ mod test_agent_schema {
     }
 
     #[test]
-    fn safe_post_is_not_misclassified_as_write_by_method() {
-        // A generated command whose x-undo.type is "safe" must not be blocked
-        // even though its HTTP method is POST — proving the classification
-        // comes from WRITE_COMMANDS (spec-derived from x-undo), not the verb
-        // or the HTTP method. "search" is not in the vocabulary either, so
-        // this also exercises the pure fallback path.
+    fn command_absent_from_write_commands_and_vocabulary_falls_through_to_read() {
+        // pup never sees HTTP methods or x-undo, so this only exercises the
+        // fallback path: a command missing from both WRITE_COMMANDS and the
+        // vocabulary is treated as a read. The actual proof that a safe POST
+        // isn't misclassified by method lives generator-side, in
+        // openapi-transformer's test_safe_post_is_not_a_write, since only the
+        // generator has method/x-undo information to get wrong.
         let write_commands = ["downtimes mute"];
         assert!(!is_write_command_name("search"));
         assert!(!classify_write("logs search", "search", &write_commands));
@@ -12675,11 +12676,14 @@ mod test_agent_schema {
     }
 
     #[test]
-    fn is_write_command_consults_real_write_commands_constant() {
-        // Wiring check: `is_write_command` (used by both the guard and
-        // build_command_schema) delegates to the real generated constant.
-        // WRITE_COMMANDS is an empty scaffold until the first generation run,
-        // so today this only exercises the vocabulary fallback.
+    fn is_write_command_falls_back_to_vocabulary_while_write_commands_is_empty() {
+        // This does NOT prove `is_write_command` delegates to
+        // generated::writes::WRITE_COMMANDS: with the constant empty,
+        // delegating to it and ignoring it are observationally identical, so
+        // this test passes either way. It becomes a real wiring check once a
+        // real generated write path exists to assert against — see
+        // classify_write's tests above for the fact-based behavior in
+        // isolation.
         assert!(is_write_command("monitors delete", "delete"));
         assert!(!is_write_command("monitors list", "list"));
     }
@@ -13037,10 +13041,12 @@ fn classify_write(full_path: &str, leaf: &str, write_commands: &[&str]) -> bool 
 
 /// Returns true if a command is a write, consulting the spec-derived fact in
 /// `generated::writes::WRITE_COMMANDS` (built from each operation's
-/// `x-undo.type`) first. That is the source of truth for generated commands;
-/// the leaf-name vocabulary in `is_write_command_name` is a fallback for
-/// hand-written commands that have no such fact available. `full_path` and
-/// `leaf` may be the same command when called from the read-only guard.
+/// `x-undo.type`) first. That fact is additive, not authoritative: the
+/// generator emits write paths only, so a generated command's absence from
+/// the list is ambiguous between "generated and safe" and "hand-written, no
+/// fact available" — either way it falls through to the leaf-name vocabulary
+/// in `is_write_command_name`. `full_path` and `leaf` may be the same command
+/// when called from the read-only guard.
 pub(crate) fn is_write_command(full_path: &str, leaf: &str) -> bool {
     classify_write(full_path, leaf, generated::writes::WRITE_COMMANDS)
 }

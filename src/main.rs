@@ -13804,6 +13804,14 @@ mod test_agent_schema {
                 None,
             ),
         ];
+        let fixtures = fixtures.into_iter().chain([(
+            "security findings schema",
+            serde_json::json!([{
+                "path": "@advisory.cve", "type": "string",
+                "section": "Advisory", "description": "Primary CVE identifier."
+            }]),
+            None,
+        )]);
         for (path, body, meta) in fixtures {
             let returns = commands::agent::returns_for(path);
             assert_eq!(returns["documented"], true, "{path} must be documented");

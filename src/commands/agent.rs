@@ -57,7 +57,8 @@ pub fn envelope_contract() -> serde_json::Value {
         "hoisting": "When the API body has a top-level `data` key, envelope `data` is that inner value and sibling keys (meta, links, included) are dropped.",
         "no_agent": "With --no-agent the raw API body is printed with no envelope and no hoisting.",
         "jq": "--jq runs on the raw API body (before hoisting); the filtered result becomes envelope `data`. See each command's returns.jq_root.",
-        "errors": "Failed calls print `Error: <message>` to stderr, print nothing to stdout, and exit non-zero. A few APIs report errors in the response body with exit 0; see the command's returns.notes."
+        "errors": "Failed calls print `Error: <message>` to stderr, print nothing to stdout, and exit non-zero. A few APIs report errors in the response body with exit 0; see the command's returns.notes.",
+        "non_json": "A few commands print plain text instead of JSON in some modes; their returns.notes say so."
     })
 }
 
@@ -70,6 +71,7 @@ pub fn returns_for(full_path: &str) -> serde_json::Value {
         "traces aggregate" => traces_aggregate_returns(),
         "traces search" => traces_search_returns(),
         "metrics query" | "metrics search" => metrics_query_returns(),
+        "security findings schema" => findings_schema_returns(),
         _ => generic_returns(),
     }
 }
@@ -270,6 +272,38 @@ fn metrics_query_returns() -> serde_json::Value {
             "response": {
                 "status": "success",
                 "data": {"status": "ok", "query": "avg:system.cpu.user{env:prod} by {host}", "series": [{"metric": "system.cpu.user", "scope": "env:prod,host:web-1", "pointlist": [[1767225600000.0, 12.5]]}]},
+                "metadata": {"note": "..."}
+            }
+        }
+    })
+}
+
+fn findings_schema_returns() -> serde_json::Value {
+    serde_json::json!({
+        "documented": true,
+        "data": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["path", "type", "section", "description"],
+                "properties": {
+                    "path": {"type": "string", "description": "Query path, e.g. @advisory.cve"},
+                    "type": {"type": "string", "description": "e.g. string, integer, array (string)"},
+                    "section": {"type": "string", "description": "Top-level namespace, e.g. Advisory"},
+                    "description": {"type": "string"}
+                }
+            }
+        },
+        "metadata": ["note"],
+        "jq_root": ".[]",
+        "notes": [
+            "Without --search or --section this command prints the full reference (~200 KB) as plain markdown on stdout: not JSON and no envelope. Pass a filter to get the structured shape above."
+        ],
+        "example": {
+            "invocation": "pup security findings schema --search cve",
+            "response": {
+                "status": "success",
+                "data": [{"path": "@advisory.cve", "type": "string", "section": "Advisory", "description": "Primary globally recognized identifier for a security vulnerability"}],
                 "metadata": {"note": "..."}
             }
         }

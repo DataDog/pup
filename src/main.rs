@@ -13970,26 +13970,38 @@ async fn main_inner() -> anyhow::Result<()> {
     // --- Extension interception (before clap parsing) ---
     // If the first positional arg is not a built-in command but matches an
     // installed extension, dispatch to it directly and bypass clap entirely.
+    // A first-party extension that is not installed yet is offered for install.
     #[cfg(not(target_arch = "wasm32"))]
     {
         let parsed = extensions::parse_extension_args(&args);
         if let Some(ref candidate) = parsed.candidate {
             if !extensions::is_builtin_command(candidate) {
-                if let Some(ext_path) = extensions::extension_path(candidate) {
+                let installed = extensions::extension_path(candidate);
+                let first_party = extensions::first_party::first_party_source(candidate).is_some();
+                if installed.is_some() || first_party {
                     let mut cfg = config::Config::from_env()?;
                     parsed.globals.apply_to(&mut cfg)?;
-                    #[cfg(not(feature = "browser"))]
-                    {
-                        let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
-                        let trusted_sites = config::configured_trusted_sites();
-                        cfg.ensure_site_trusted(
-                            parsed.globals.trust_site,
-                            interactive,
-                            &trusted_sites,
-                        )?;
+                    let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+                    let ext_path = match installed {
+                        Some(path) => Some(path),
+                        None => {
+                            extensions::first_party::offer_install(candidate, &cfg, interactive)?
+                        }
+                    };
+                    if let Some(ext_path) = ext_path {
+                        #[cfg(not(feature = "browser"))]
+                        {
+                            let trusted_sites = config::configured_trusted_sites();
+                            cfg.ensure_site_trusted(
+                                parsed.globals.trust_site,
+                                interactive,
+                                &trusted_sites,
+                            )?;
+                        }
+                        let exit_code =
+                            extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
+                        std::process::exit(exit_code);
                     }
-                    let exit_code = extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
-                    std::process::exit(exit_code);
                 }
             }
         }

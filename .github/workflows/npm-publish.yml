@@ -1,0 +1,92 @@
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to publish (e.g. v1.23.7)
+        required: true
+        type: string
+      dry_run:
+        description: Run npm publish with --dry-run
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write  # npm provenance
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Require npm token for real publishes
+        if: ${{ !inputs.dry_run }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN secret is not configured" >&2
+            exit 1
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Download release assets
+        run: |
+          VERSION="${TAG#v}"
+          mkdir -p assets
+          gh release download "$TAG" --dir assets \
+            --pattern "pup_${VERSION}_Darwin_*.tar.gz" \
+            --pattern "pup_${VERSION}_Linux_*.tar.gz" \
+            --pattern "pup_${VERSION}_Windows_*.zip" \
+            --pattern "pup_${VERSION}_checksums.txt" \
+            --pattern "pup_${VERSION}_checksums.txt.sigstore.json"
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify release signature and checksums
+        working-directory: assets
+        run: |
+          CHECKSUMS="pup_${TAG#v}_checksums.txt"
+          cosign verify-blob \
+            --bundle "${CHECKSUMS}.sigstore.json" \
+            --certificate-identity "https://github.com/DataDog/pup/.github/workflows/release.yml@refs/tags/${TAG}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$CHECKSUMS"
+          sha256sum --check --ignore-missing "$CHECKSUMS"
+        env:
+          TAG: ${{ inputs.tag }}
+
+      - name: Build packages
+        run: node npm/scripts/build-packages.js --version "${TAG#v}" --assets assets --out npm-out
+        env:
+          TAG: ${{ inputs.tag }}
+
+      # Platform packages first so the root package never points at missing versions.
+      - name: Publish
+        run: |
+          FLAGS="--access public --provenance"
+          if [ "$DRY_RUN" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+          for dir in npm-out/pup-*/ npm-out/pup/; do
+            npm publish "$dir" $FLAGS
+          done
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

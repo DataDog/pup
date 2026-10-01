@@ -11933,59 +11933,68 @@ enum AuthActions {
 /// value-taking global flag — so `--org myorg logs` yields `logs`, not `myorg`.
 /// The `--flag=value` form is a single `-`-prefixed token and needs no lookahead.
 fn top_level_subcommand(args: &[String]) -> Option<&str> {
+    positional_tokens(args).next()
+}
+
+/// Non-flag tokens from raw CLI args, skipping the binary name and the values
+/// of value-taking global flags. See `top_level_subcommand`.
+fn positional_tokens(args: &[String]) -> impl Iterator<Item = &str> {
     // Global flags that consume the following token as their value.
     const VALUE_GLOBALS: &[&str] = &["-o", "--output", "--org", "--jq"];
     let mut prev_consumes_value = false;
-    for arg in args.iter().skip(1) {
+    args.iter().skip(1).filter_map(move |arg| {
         if prev_consumes_value {
             prev_consumes_value = false;
-            continue;
+            return None;
         }
         if arg.starts_with('-') {
             prev_consumes_value = VALUE_GLOBALS.contains(&arg.as_str());
-            continue;
+            return None;
         }
-        return Some(arg.as_str());
-    }
-    None
+        Some(arg.as_str())
+    })
 }
 
-/// Walk the clap command tree to find the subcommand matching the given path.
-fn find_subcommand<'a>(cmd: &'a clap::Command, path: &[&str]) -> Option<&'a clap::Command> {
-    let mut current = cmd;
-    for name in path {
-        // Match canonical names and aliases so `audit` resolves the same way
-        // clap would resolve it to `audit-logs`.
-        current = current
-            .get_subcommands()
-            .find(|s| s.get_name() == *name || s.get_all_aliases().any(|a| a == *name))?;
+/// Resolve the deepest command named by raw CLI args, e.g. `pup logs aggregate
+/// --help` -> `["logs", "aggregate"]`. Stops at the first token that is not a
+/// subcommand (a positional value) and never descends into commands hidden
+/// from agent schemas. Returns canonical names, resolving aliases.
+fn help_command_path<'a>(
+    root: &'a clap::Command,
+    args: &[String],
+) -> (Vec<&'a str>, &'a clap::Command) {
+    let mut current = root;
+    let mut names: Vec<&str> = Vec::new();
+    for token in positional_tokens(args) {
+        let parent = names.join(" ");
+        let Some(next) = current.get_subcommands().find(|s| {
+            s.get_name() != "help"
+                && is_visible_in_agent_schema(&parent, s.get_name())
+                && (s.get_name() == token || s.get_all_aliases().any(|a| a == token))
+        }) else {
+            break;
+        };
+        names.push(next.get_name());
+        current = next;
     }
-    if path.is_empty() {
-        None
-    } else {
-        Some(current)
-    }
+    (names, current)
 }
 
 /// Return the agent-help schema for a valid command, or `None` when clap should
 /// handle an unknown command or invalid nested subcommand normally.
 fn agent_help_schema(cmd: &clap::Command, args: &[String]) -> Option<serde_json::Value> {
-    let top_level: Vec<&str> = top_level_subcommand(args).into_iter().collect();
-    let target_cmd = find_subcommand(cmd, &top_level);
-    let has_invalid_subcommand = target_cmd.is_some()
-        && cmd
-            .clone()
-            .try_get_matches_from(args)
-            .is_err_and(|error| error.kind() == clap::error::ErrorKind::InvalidSubcommand);
-
-    match target_cmd {
-        Some(target) if !has_invalid_subcommand => {
-            Some(build_agent_schema_scoped(cmd, target, &top_level))
-        }
-        Some(_) => None,
-        None if top_level.is_empty() => Some(build_agent_schema(cmd)),
-        None => None,
+    let (path, target) = help_command_path(cmd, args);
+    if path.is_empty() {
+        // Unknown top-level commands fall through to clap's normal error.
+        return top_level_subcommand(args)
+            .is_none()
+            .then(|| build_agent_schema(cmd));
     }
+    let has_invalid_subcommand = cmd
+        .clone()
+        .try_get_matches_from(args)
+        .is_err_and(|error| error.kind() == clap::error::ErrorKind::InvalidSubcommand);
+    (!has_invalid_subcommand).then(|| build_agent_schema_scoped(cmd, target, &path))
 }
 
 /// Guidance returned in the agent schema for LLMs that author shell scripts
@@ -12022,7 +12031,8 @@ fn agent_query_syntax() -> serde_json::Value {
     })
 }
 
-/// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`).
+/// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`
+/// or `pup logs aggregate --help`). `sub_path` is the target's canonical path.
 fn build_agent_schema_scoped(
     _root_cmd: &clap::Command,
     target: &clap::Command,
@@ -12030,6 +12040,7 @@ fn build_agent_schema_scoped(
 ) -> serde_json::Value {
     let mut root = serde_json::Map::new();
     root.insert("version".into(), serde_json::json!(version::VERSION));
+    root.insert("command".into(), serde_json::json!(sub_path.join(" ")));
 
     // Use the subcommand's description
     let desc = target
@@ -12083,8 +12094,12 @@ fn build_agent_schema_scoped(
         ]),
     );
 
-    // Build scoped command tree — only the target command
-    let cmd_schema = build_command_schema(target, "");
+    // Build scoped command tree — only the target command, with response
+    // contracts on its leaves (examples only for a single-command lookup)
+    let parent_path = sub_path[..sub_path.len() - 1].join(" ");
+    let mut cmd_schema = build_command_schema(target, &parent_path);
+    attach_returns(&mut cmd_schema, !target.has_subcommands());
+    root.insert("envelope".into(), commands::agent::envelope_contract());
     root.insert("commands".into(), serde_json::json!([cmd_schema]));
 
     // Include query_syntax: scoped to the matching command if it has one, full map otherwise

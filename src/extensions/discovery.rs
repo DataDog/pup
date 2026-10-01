@@ -1,6 +1,7 @@
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use super::install::validate_extension_name;
 use super::manifest::Manifest;
 use crate::config;
 
@@ -30,7 +31,15 @@ fn extension_executable_name(name: &str) -> String {
 }
 
 /// Look up an installed extension by name. Returns the path to the executable if found.
+/// A user-installed extension wins over one bundled with the pup release.
 pub fn extension_path(name: &str) -> Option<PathBuf> {
+    user_extension_path(name).or_else(|| {
+        let exe = std::env::current_exe().ok()?;
+        bundled_extension_path(&exe, name)
+    })
+}
+
+fn user_extension_path(name: &str) -> Option<PathBuf> {
     let dir = extension_dir()?;
     let exe_name = extension_executable_name(name);
     let path = dir.join(format!("pup-{name}")).join(&exe_name);
@@ -39,6 +48,20 @@ pub fn extension_path(name: &str) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+/// Extensions shipped inside the release archive live in
+/// `libexec/pup-extensions/` next to the pup binary (tarball layout) or one
+/// level up (Homebrew's `bin/` + `libexec/` layout).
+fn bundled_extension_path(pup_exe: &Path, name: &str) -> Option<PathBuf> {
+    validate_extension_name(name).ok()?;
+    let bin_dir = pup_exe.parent()?;
+    let exe_name = extension_executable_name(name);
+    [Some(bin_dir), bin_dir.parent()]
+        .into_iter()
+        .flatten()
+        .map(|dir| dir.join("libexec").join("pup-extensions").join(&exe_name))
+        .find(|path| path.is_file())
 }
 
 /// List all installed extensions by scanning the extensions directory.
@@ -144,6 +167,73 @@ mod tests {
         assert_eq!(result.unwrap(), exe_path);
 
         std::env::remove_var("PUP_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn write_bundled(root: &std::path::Path, name: &str) -> PathBuf {
+        let dir = root.join("libexec").join("pup-extensions");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(extension_executable_name(name));
+        std::fs::write(&path, "#!/bin/sh\n").unwrap();
+        path
+    }
+
+    #[test]
+    fn test_bundled_extension_next_to_binary() {
+        let dir = make_test_dir("bundled-sibling");
+        let expected = write_bundled(&dir, "setup");
+
+        let found = bundled_extension_path(&dir.join("pup"), "setup");
+        assert_eq!(found, Some(expected));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_bundled_extension_homebrew_layout() {
+        let dir = make_test_dir("bundled-brew");
+        let expected = write_bundled(&dir, "setup");
+
+        let found = bundled_extension_path(&dir.join("bin").join("pup"), "setup");
+        assert_eq!(found, Some(expected));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_bundled_extension_missing() {
+        let dir = make_test_dir("bundled-missing");
+        write_bundled(&dir, "setup");
+
+        assert_eq!(bundled_extension_path(&dir.join("pup"), "other"), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_bundled_extension_rejects_invalid_names() {
+        let dir = make_test_dir("bundled-invalid");
+        write_bundled(&dir, "setup");
+
+        for name in ["../setup", "Setup", "", "set/up"] {
+            assert_eq!(bundled_extension_path(&dir.join("pup"), name), None);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_bundled_extension_ignores_directories() {
+        let dir = make_test_dir("bundled-dir");
+        std::fs::create_dir_all(
+            dir.join("libexec")
+                .join("pup-extensions")
+                .join(extension_executable_name("setup")),
+        )
+        .unwrap();
+
+        assert_eq!(bundled_extension_path(&dir.join("pup"), "setup"), None);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

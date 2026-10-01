@@ -13783,6 +13783,16 @@ mod test_agent_schema {
         for (path, body, meta) in fixtures {
             let returns = commands::agent::returns_for(path);
             assert_eq!(returns["documented"], true, "{path} must be documented");
+            // `--jq` runs on the raw body before hoisting (see output.rs), so the
+            // published jq_root must select something from the raw body.
+            let jq_root = returns["jq_root"]
+                .as_str()
+                .expect("documented returns need jq_root");
+            let selected = filter::apply_jq(body.clone(), jq_root).unwrap();
+            assert!(
+                !selected.is_null() && selected != serde_json::json!([]),
+                "{path}: jq_root {jq_root} selected nothing"
+            );
             let envelope = output::build_agent_envelope(&body, meta.as_ref()).unwrap();
             assert_conforms(
                 &envelope,
@@ -13812,6 +13822,24 @@ mod test_agent_schema {
         let result =
             std::panic::catch_unwind(|| assert_conforms(&envelope["data"], &returns["data"], "x"));
         assert!(result.is_err());
+    }
+
+    /// `pup agent schema` splits paths on `.` and whitespace, so no command
+    /// name or alias may contain either.
+    #[test]
+    fn command_names_are_safe_to_split_on_dots_and_spaces() {
+        fn walk(cmd: &clap::Command) {
+            for sub in cmd.get_subcommands() {
+                for name in std::iter::once(sub.get_name()).chain(sub.get_all_aliases()) {
+                    assert!(
+                        !name.contains('.') && !name.contains(char::is_whitespace),
+                        "command name {name:?} breaks schema path splitting"
+                    );
+                }
+                walk(sub);
+            }
+        }
+        walk(&Cli::command());
     }
 
     #[test]

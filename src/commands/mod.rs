@@ -77,6 +77,7 @@ pub mod scorecards;
 pub mod seats;
 pub mod security;
 pub mod service_catalog;
+pub mod setup;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod skills;
 #[cfg(not(target_arch = "wasm32"))]

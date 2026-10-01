@@ -53,6 +53,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |
+| setup | verify | src/commands/setup.rs | ✅ |
 | idp | kinds (list, describe), entities (query), assist, find, owner, deps, register, migrate-schema | src/commands/idp/ | ✅ |
 | error-tracking | issues (search, get) | src/commands/error_tracking.rs | ✅ |
 | scorecards | rules (list, create, update, delete), outcomes (list, batch-create) | src/commands/scorecards.rs | ✅ |
@@ -220,6 +221,7 @@ pup infrastructure hosts list
 - **error-tracking** - Error management (issues search, issues get); search supports `--state`, `--team`, `--assignee` filters
 - **scorecards** - Service quality (rules, outcomes)
 - **service-catalog** - Service registry (list, get)
+- **setup** - Post-setup checks (verify that APM, Logs, or RUM data for a service is arriving)
 - **idp** - Entity graph discovery/query plus Service Catalog helpers (kinds, entities, assist, find, owner, deps, register, migrate-schema)
 - **debugger** - Live Debugger (probes list, get, create, delete, watch)
 

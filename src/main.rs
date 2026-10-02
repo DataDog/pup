@@ -4749,6 +4749,11 @@ enum ProfilingProfileTypesActions {
         trace_id: Option<String>,
         #[arg(long, help = "Span ID (used with --trace-id)")]
         span_id: Option<String>,
+        #[arg(
+            long,
+            help = "Approximate span time, e.g. a Unix timestamp or RFC3339 (required with --trace-id)"
+        )]
+        time_hint: Option<String>,
     },
 }
 
@@ -4838,6 +4843,11 @@ enum ProfilingExploreActions {
         trace_id: Option<String>,
         #[arg(long, help = "Span ID (used with --trace-id)")]
         span_id: Option<String>,
+        #[arg(
+            long,
+            help = "Approximate span time, e.g. a Unix timestamp or RFC3339 (required with --trace-id)"
+        )]
+        time_hint: Option<String>,
         #[arg(
             long,
             help = "Existing profile ID to scope the query instead of --query (used together with --event-id)"
@@ -19486,6 +19496,7 @@ async fn main_inner() -> anyhow::Result<()> {
                         to,
                         trace_id,
                         span_id,
+                        time_hint,
                     } => {
                         commands::profiling::profile_types_list(
                             &cfg,
@@ -19494,6 +19505,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             to,
                             trace_id,
                             span_id,
+                            time_hint,
                             &extra_headers,
                         )
                         .await?;
@@ -19507,6 +19519,7 @@ async fn main_inner() -> anyhow::Result<()> {
                         to,
                         trace_id,
                         span_id,
+                        time_hint,
                         profile_id,
                         event_id,
                         attribute,
@@ -19528,6 +19541,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             to,
                             trace_id,
                             span_id,
+                            time_hint,
                             profile_id,
                             event_id,
                             attribute,

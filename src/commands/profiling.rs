@@ -173,15 +173,13 @@ pub async fn profile_types_list(
     to: String,
     trace_id: Option<String>,
     span_id: Option<String>,
+    time_hint: Option<String>,
     extra_headers: &[(&str, &str)],
 ) -> Result<()> {
+    let trace_context = trace_context_json(trace_id, span_id, time_hint)?;
     let mut body = json!({ "filter": filter_json(&query, &from, &to)? });
-    if let Some(trace_id) = trace_id {
-        body["traceContext"] = json!({
-            "traceId": trace_id,
-            "spanId": span_id,
-            "timeHint": null,
-        });
+    if let Some(trace_context) = trace_context {
+        body["traceContext"] = trace_context;
     }
     let resp = raw_client::raw_post_with_headers(
         cfg,
@@ -205,6 +203,7 @@ pub async fn explore_flamegraph(
     to: String,
     trace_id: Option<String>,
     span_id: Option<String>,
+    time_hint: Option<String>,
     profile_id: Option<String>,
     event_id: Option<String>,
     attribute: Option<String>,
@@ -227,6 +226,7 @@ pub async fn explore_flamegraph(
     if profile_id.is_some() != event_id.is_some() {
         anyhow::bail!("--profile-id and --event-id must be used together");
     }
+    let trace_context = trace_context_json(trace_id, span_id, time_hint)?;
 
     let mut body = json!({
         "filter": filter_json(&query, &from, &to)?,
@@ -242,12 +242,8 @@ pub async fn explore_flamegraph(
         "frameGrouping": if frame_grouping == "line" { "LINE" } else { "METHOD" },
         "bypassKindTruncation": bypass_kind_truncation,
     });
-    if let Some(trace_id) = trace_id {
-        body["traceContext"] = json!({
-            "traceId": trace_id,
-            "spanId": span_id,
-            "timeHint": null,
-        });
+    if let Some(trace_context) = trace_context {
+        body["traceContext"] = trace_context;
     }
     if let Some(profile_id) = profile_id {
         body["profileContext"] = json!({
@@ -927,6 +923,7 @@ mod tests {
             "now".into(),
             None,
             None,
+            None,
             &[],
         )
         .await;
@@ -950,9 +947,17 @@ mod tests {
         let body = r#"{"data":[],"meta":{"emptyStateReason":{"reason":"NO_DATA","description":"no profiles found"}}}"#;
         let _mock = mock_any(&mut server, "POST", body).await;
 
-        let result =
-            super::profile_types_list(&cfg, "".into(), "1h".into(), "now".into(), None, None, &[])
-                .await;
+        let result = super::profile_types_list(
+            &cfg,
+            "".into(),
+            "1h".into(),
+            "now".into(),
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await;
         assert!(
             result.is_ok(),
             "profile_types_list failed: {:?}",
@@ -975,6 +980,7 @@ mod tests {
             .match_body(mockito::Matcher::AllOf(vec![
                 mockito::Matcher::Regex(r#""traceId":"trace-abc""#.into()),
                 mockito::Matcher::Regex(r#""spanId":"span-123""#.into()),
+                mockito::Matcher::Regex(r#""timeHint":"1700000000""#.into()),
             ]))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -989,6 +995,7 @@ mod tests {
             "now".into(),
             Some("trace-abc".into()),
             Some("span-123".into()),
+            Some("1700000000".into()),
             &[],
         )
         .await;
@@ -1016,9 +1023,17 @@ mod tests {
             .create_async()
             .await;
 
-        let result =
-            super::profile_types_list(&cfg, "".into(), "1h".into(), "now".into(), None, None, &[])
-                .await;
+        let result = super::profile_types_list(
+            &cfg,
+            "".into(),
+            "1h".into(),
+            "now".into(),
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await;
         assert!(
             result.is_err(),
             "expected error but got ok: {:?}",
@@ -1042,6 +1057,7 @@ mod tests {
         Option<String>,
         Option<String>,
         Option<String>,
+        Option<String>,
         f64,
         i32,
         i32,
@@ -1059,6 +1075,7 @@ mod tests {
             "service:my-service".into(),
             "1h".into(),
             "now".into(),
+            None,
             None,
             None,
             None,
@@ -1093,6 +1110,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1114,6 +1132,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1152,6 +1171,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1173,6 +1193,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1223,6 +1244,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1244,6 +1266,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1286,6 +1309,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1307,6 +1331,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1353,6 +1378,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1374,6 +1400,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1412,6 +1439,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1433,6 +1461,7 @@ mod tests {
             to,
             trace_id,
             span_id,
+            time_hint,
             profile_id,
             event_id,
             attribute,
@@ -1449,6 +1478,79 @@ mod tests {
         )
         .await;
         assert!(result.is_err(), "should fail without auth");
+
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_profiling_explore_flamegraph_trace_context_sends_time_hint() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock("POST", "/api/unstable/profiling/pup/explore/flamegraph")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "traceContext": {"traceId": "trace-abc", "spanId": "span-123", "timeHint": "1700000000"}
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"sortedStacktracesWithValues":[],"visualizationLink":{"title":"","url":""}}"#)
+            .create_async()
+            .await;
+
+        let (
+            profile_type,
+            _query,
+            from,
+            to,
+            _trace_id,
+            _span_id,
+            _time_hint,
+            profile_id,
+            event_id,
+            attribute,
+            percent_cutoff,
+            limit_top_stacktraces,
+            max_stack_trace_size,
+            frame_regex_filter,
+            endpoint_regex_filter,
+            attribute_values_regex_filter,
+            frame_format,
+            frame_grouping,
+            bypass_kind_truncation,
+        ) = flamegraph_args();
+        let result = super::explore_flamegraph(
+            &cfg,
+            profile_type,
+            "".into(),
+            from,
+            to,
+            Some("trace-abc".into()),
+            Some("span-123".into()),
+            Some("1700000000".into()),
+            profile_id,
+            event_id,
+            attribute,
+            percent_cutoff,
+            limit_top_stacktraces,
+            max_stack_trace_size,
+            frame_regex_filter,
+            endpoint_regex_filter,
+            attribute_values_regex_filter,
+            frame_format,
+            frame_grouping,
+            bypass_kind_truncation,
+            &[],
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "explore_flamegraph with trace context failed: {:?}",
+            result.err()
+        );
 
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");

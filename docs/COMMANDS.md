@@ -200,6 +200,7 @@ pup infrastructure hosts list
 - **network** - Network monitoring (flows list, devices list/get/interfaces/tags, interfaces list/update)
 - **tags** - Host tag management (list, get, add, update, delete)
 - **profiling** - Continuous Profiler search/download (profiles list/download, services list, profile-types list, explore flamegraph/callgraph/timeline)
+  - Uses unstable `/api/unstable/profiling/pup/...` endpoints with a reduced support guarantee: the latest pup release, plus 30 days for older versions (see [EXAMPLES.md](EXAMPLES.md#continuous-profiler))
 
 ### Security & Compliance
 - **security** - Security monitoring (rules, signals, findings, content-packs, risk-scores)

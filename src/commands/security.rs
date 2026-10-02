@@ -172,6 +172,9 @@ fn filter_schema_fields(
     section: Option<&str>,
 ) -> Result<Vec<SchemaField>> {
     let section = section.map(|s| s.trim().to_lowercase());
+    if section.as_deref() == Some("") {
+        anyhow::bail!("--section term must not be empty");
+    }
     if let Some(wanted) = &section {
         if !fields
             .iter()

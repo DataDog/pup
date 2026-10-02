@@ -245,8 +245,8 @@ fn metrics_query_returns() -> serde_json::Value {
                 "status": {"type": "string", "description": "\"ok\" or \"error\""},
                 "error": {"type": "string"},
                 "query": {"type": "string"},
-                "from_date": {"type": "integer", "description": "seconds since epoch"},
-                "to_date": {"type": "integer", "description": "seconds since epoch"},
+                "from_date": {"type": "integer", "description": "ms since epoch"},
+                "to_date": {"type": "integer", "description": "ms since epoch"},
                 "series": {
                     "type": "array",
                     "items": {

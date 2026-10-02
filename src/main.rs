@@ -2360,6 +2360,7 @@ enum Commands {
     ///   • Search and download profile events
     ///   • List services and profile types with profiling data
     ///   • Explore aggregated profiles as a flame graph / top stack traces
+    ///   • Explore aggregated profiles as a call graph
     ///
     /// EXAMPLES:
     ///   pup profiling profiles list --query "service:my-service" --from 1h
@@ -2367,6 +2368,8 @@ enum Commands {
     ///   pup profiling services list --query "env:prod" --from 1h
     ///   pup profiling profile-types list --query "service:my-service" --from 1h
     ///   pup profiling explore flamegraph --profile-type cpu-time \
+    ///     --query "service:my-service" --from 1h
+    ///   pup profiling explore callgraph --profile-type cpu-time \
     ///     --query "service:my-service" --from 1h
     ///   pup profiling --header "test-drive-hummer-aurora: 1" services list --from 1h
     ///
@@ -4896,6 +4899,71 @@ enum ProfilingExploreActions {
             help = "Bypass truncation of deep/kind-heavy stack traces"
         )]
         bypass_kind_truncation: bool,
+    },
+    /// Aggregate profiles into a call graph
+    Callgraph {
+        #[arg(long, help = "Profile type to analyze, e.g. 'cpu-time' (required)")]
+        profile_type: String,
+        #[arg(
+            long,
+            default_value = "",
+            help = "Filter query; required unless --trace-id or --profile-id is set"
+        )]
+        query: String,
+        #[arg(
+            long,
+            default_value = "1h",
+            help = "Start time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        from: String,
+        #[arg(
+            long,
+            default_value = "now",
+            help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
+        )]
+        to: String,
+        #[arg(long, help = "Trace ID to scope the query instead of --query")]
+        trace_id: Option<String>,
+        #[arg(long, help = "Span ID (used with --trace-id)")]
+        span_id: Option<String>,
+        #[arg(
+            long,
+            help = "Approximate span time, e.g. a Unix timestamp or RFC3339 (required with --trace-id)"
+        )]
+        time_hint: Option<String>,
+        #[arg(
+            long,
+            help = "Existing profile ID to scope the query instead of --query (used together with --event-id)"
+        )]
+        profile_id: Option<String>,
+        #[arg(
+            long,
+            help = "Event ID to scope the query (used together with --profile-id)"
+        )]
+        event_id: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 5.0,
+            help = "Drop nodes below this percent of total value (0 = unbounded)"
+        )]
+        percent_cutoff: f64,
+        #[arg(
+            long,
+            default_value_t = 10,
+            help = "Max number of top nodes to return (0 = unbounded)"
+        )]
+        limit_top_nodes: i32,
+        #[arg(
+            long,
+            default_value_t = 5,
+            help = "Max number of node details (e.g. outgoing edges) to return per node (0 = unbounded)"
+        )]
+        max_node_details: i32,
+        #[arg(
+            long,
+            help = "Glob pattern (* and ?) matched against frame fields, e.g. '*MyService*'"
+        )]
+        frame_filter: Option<String>,
     },
 }
 
@@ -20029,6 +20097,40 @@ async fn main_inner() -> anyhow::Result<()> {
                             frame_format,
                             frame_grouping,
                             bypass_kind_truncation,
+                            &extra_headers,
+                        )
+                        .await?;
+                    }
+                    ProfilingExploreActions::Callgraph {
+                        profile_type,
+                        query,
+                        from,
+                        to,
+                        trace_id,
+                        span_id,
+                        time_hint,
+                        profile_id,
+                        event_id,
+                        percent_cutoff,
+                        limit_top_nodes,
+                        max_node_details,
+                        frame_filter,
+                    } => {
+                        commands::profiling::explore_callgraph(
+                            &cfg,
+                            profile_type,
+                            query,
+                            from,
+                            to,
+                            trace_id,
+                            span_id,
+                            time_hint,
+                            profile_id,
+                            event_id,
+                            percent_cutoff,
+                            limit_top_nodes,
+                            max_node_details,
+                            frame_filter,
                             &extra_headers,
                         )
                         .await?;

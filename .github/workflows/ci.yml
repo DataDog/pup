@@ -244,3 +244,30 @@ jobs:
           ls -lh target/wasm32-wasip2/release/pup.wasm
           echo "Browser WASM:"
           ls -lh pkg/pup_wasm_bg.wasm
+
+  report:
+    name: Report status to datadog-api-spec
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'datadog-api-spec/generated/')
+    needs:
+      - check-test-coverage
+      - cross-compile-linux
+      - cross-compile-macos
+      - cross-compile-windows
+      - wasm
+    permissions:
+      id-token: write
+    steps:
+      - uses: DataDog/dd-octo-sts-action@c85802a58e202b7e764b5441e4378c76043c8108 # v1.0.5
+        id: octo-sts
+        with:
+          scope: DataDog/datadog-api-spec
+          policy: pup.ci.post-status-check
+      - name: Post status check
+        uses: DataDog/github-actions/post-status-check@65b4875f33ad773d7ba4b005a2cb5f35020295f3 # v2.3.0
+        with:
+          github-token: ${{ steps.octo-sts.outputs.token }}
+          repo: datadog-api-spec
+          # A cancelled run was superseded by a newer push to the generated branch.
+          status: ${{ contains(needs.*.result, 'cancelled') && 'pending' || (contains(needs.*.result, 'failure') || contains(needs.*.result, 'skipped')) && 'failure' || 'success' }}
+          context: main/unit

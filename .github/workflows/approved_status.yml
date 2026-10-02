@@ -1,0 +1,39 @@
+name: Send PR Approval Status
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: ["review_requested", "synchronize", "opened", "reopened"]
+  pull_request_review:
+    types:
+      - submitted
+      - dismissed
+
+jobs:
+  send_status:
+    runs-on: ubuntu-latest
+    if: >
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !contains(github.event.pull_request.labels.*.name, 'ci/skip') &&
+      !contains(github.event.pull_request.head.ref, 'datadog-api-spec/test/') &&
+      startsWith(github.event.pull_request.head.ref, 'datadog-api-spec/generated/')
+    permissions:
+      id-token: write
+    steps:
+      - name: Get GitHub token
+        id: get_token
+        uses: DataDog/dd-octo-sts-action@c85802a58e202b7e764b5441e4378c76043c8108 # v1.0.5
+        with:
+          scope: DataDog/datadog-api-spec
+          policy: pup.approved_status.post-review-status
+      - name: Post PR review status check
+        uses: DataDog/github-actions/post-review-status@65b4875f33ad773d7ba4b005a2cb5f35020295f3 # v2.3.0
+        with:
+          github-token: ${{ steps.get_token.outputs.token }}
+          repo: datadog-api-spec
+          context: pup/main

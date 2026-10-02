@@ -61,7 +61,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | containers | list, images (list) | src/commands/containers.rs | ✅ |
 | costs | datadog (projected, attribution, by-org, aws-config, azure-config, gcp-config), ccm (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments) | src/commands/cost.rs, src/commands/cost_ccm.rs | ✅ |
 | product-analytics | events send | src/commands/product_analytics.rs | ✅ |
-| profiling | profiles (list, download), services (list), profile-types (list), explore (flamegraph) | src/commands/profiling.rs | ✅ |
+| profiling | profiles (list, download), services (list), profile-types (list), explore (flamegraph, callgraph) | src/commands/profiling.rs | ✅ |
 | datasets | list, get, create, update, delete | src/commands/datasets.rs | ✅ |
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
@@ -199,7 +199,7 @@ pup infrastructure hosts list
 - **infrastructure** - Host inventory (hosts list, hosts get)
 - **network** - Network monitoring (flows list, devices list/get/interfaces/tags, interfaces list/update)
 - **tags** - Host tag management (list, get, add, update, delete)
-- **profiling** - Continuous Profiler search/download (profiles list/download, services list, profile-types list, explore flamegraph)
+- **profiling** - Continuous Profiler search/download (profiles list/download, services list, profile-types list, explore flamegraph/callgraph)
 
 ### Security & Compliance
 - **security** - Security monitoring (rules, signals, findings, content-packs, risk-scores)

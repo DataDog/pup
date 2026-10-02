@@ -372,6 +372,17 @@ Only GitHub-sourced extensions can be upgraded automatically. Extensions install
 pup extension install --local /path/to/updated-binary --force
 ```
 
+## First-Party Extensions
+
+A small allowlist of Datadog-maintained extensions can be installed on first use. Running `pup setup` when `setup` is not installed:
+
+| Mode | Behavior |
+|---|---|
+| Interactive terminal | Prompts `Install it now? [y/N]`; declining falls through to the normal unknown-command error |
+| `--yes` or agent mode | Prints a one-line notice on stderr, installs, then runs the extension |
+| Non-interactive without `--yes` | Exits with the `pup extension install` command to run |
+| `--read-only` | Refuses to install |
+
 ## Extension Directory
 
 Extensions are stored in pup's config directory:

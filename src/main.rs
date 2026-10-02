@@ -163,6 +163,14 @@ enum Commands {
     ///   # Get compact schema (command names and flags only, fewer tokens)
     ///   pup agent schema --compact
     ///
+    ///   # Get one command (or domain) with its response shape (`returns`)
+    ///   pup agent schema logs aggregate
+    ///   pup agent schema logs.aggregate
+    ///   pup agent schema logs
+    ///
+    ///   # Find commands by name or description
+    ///   pup agent schema --search aggregate
+    ///
     ///   # Get the stable CLI surface for tooling
     ///   pup agent surface
     ///
@@ -6182,12 +6190,21 @@ enum SecurityFindingActions {
     /// Get the schema (available fields and types) for security findings.
     /// Fetches the latest schema reference from Datadog documentation.
     /// Call this before using `findings analyze` to discover queryable fields.
+    /// The full reference is ~200 KB; use --search or --section to get only
+    /// matching fields as structured JSON (path, type, section, description).
     #[command(name = "schema")]
-    Schema,
+    Schema {
+        /// Only fields whose path or description contains TERM (case-insensitive)
+        #[arg(long, value_name = "TERM")]
+        search: Option<String>,
+        /// Only fields in sections whose name contains NAME (e.g. advisory, "cloud resource")
+        #[arg(long, value_name = "NAME")]
+        section: Option<String>,
+    },
     /// Analyze security findings using DDSQL. Workflow: 1) Run `pup security findings schema` to get fields, 2) Query with SQL. Function: dd.security_findings(columns => ARRAY['@field', ...], filter => '@field:value', finding_types => ARRAY['type', ...]). AS clause types: VARCHAR, BIGINT, DECIMAL, BOOLEAN, TIMESTAMP. Notes: 'columns' ordering MUST match the AS clause. Use -@compliance.evaluation:pass filter to exclude passing findings. Prefer ordering by @severity_details.adjusted.score. Use LIMIT to reduce output. Example: SELECT rule_name, finding_type, severity, count(*) as cnt FROM dd.security_findings(columns => ARRAY['@rule.name', '@finding_type', '@severity'], filter => '@status:open @severity:(high OR critical)') AS (rule_name VARCHAR, finding_type VARCHAR, severity VARCHAR) GROUP BY rule_name, finding_type, severity ORDER BY cnt DESC LIMIT 100
     #[command(
         name = "analyze",
-        long_about = "Analyze security findings using DDSQL with dd.security_findings().\n\nWorkflow: 1) Call `pup security findings schema` first to get available fields\n         2) Use this command to query with SQL\n\nQueries the current state of all security findings using flexible SQL aggregations,\nfiltering, and grouping.\n\nFunction signature:\n  dd.security_findings(\n    columns => ARRAY['@field1', '@field2', ...],\n    filter  => '@field:value',\n    finding_types => ARRAY['library_vulnerability', ...]\n  )\n\nThe AS clause must declare column names and DDSQL types:\n  AS (col1 VARCHAR, col2 BIGINT, ...)\n\nAvailable types: VARCHAR, BIGINT, DECIMAL, BOOLEAN, TIMESTAMP\n\nQuery structure (filter vs WHERE):\n  - filter => '...'  : Datadog query syntax, pushed down to the backing store.\n                        Use @ prefix: @status:open @severity:(high OR critical)\n                        Supports negation: -@compliance.evaluation:pass\n  - WHERE clause     : Standard SQL, operates on the aliases in your AS clause.\n                        No @ prefix: WHERE severity = 'critical'\n                        Simple conditions are pushed down automatically.\n  - columns => ARRAY : Fields to select. Use @ prefix. Order must match AS clause.\n\nCommon fields (use with @ prefix in columns/filter):\n\n  Filtering & Grouping\n    @severity              string   critical, high, medium, low, info, none, unknown\n    @status                string   open, muted, auto_closed\n    @finding_type          string   misconfiguration, host_and_container_vulnerability,\n                                    library_vulnerability, static_code_vulnerability,\n                                    secret, identity_risk, attack_path, ...\n    @resource_type         string   Type of affected resource\n    @rule.name             string   Name of the detection rule\n\n  Identification\n    @title                 string   Human-readable finding title\n    @resource_name         string   Name of the affected resource\n    @resource_id           string   Unique resource identifier\n\n  Risk Prioritization\n    @is_in_security_inbox                boolean  In the Security Inbox\n    @severity_details.adjusted.score     number   CVSS-scale adjusted score\n    @risk.is_publicly_accessible         boolean  Resource is internet-facing\n    @risk.is_production                  boolean  Resource is in production\n    @risk.has_exploit_available          boolean  Known exploits exist\n    @risk.has_high_exploitability_chance  boolean  EPSS score > 1%\n    @risk.is_exposed_to_attacks          boolean  Attacks already detected\n    @risk.has_sensitive_data             boolean  Resource has sensitive data\n\n  Compliance\n    @compliance.evaluation   string   pass or fail\n\n  Scoping\n    @cloud_resource.cloud_provider   string   aws, azure, gcp, oci\n    @cloud_resource.account          string   Cloud account/subscription/project\n    @cloud_resource.region           string   Cloud region\n    @service.name                    string   Service name\n    @host.name                       string   Host name\n\n  Time\n    @first_seen_at           integer  First detection (ms UTC)\n    @last_seen_at            integer  Most recent detection (ms UTC)\n\n  Run `pup security findings schema` for the full field reference.\n\nIMPORTANT notes:\n  - 'columns =>' ordering MUST match the AS clause column ordering\n  - If querying all findings or misconfigurations, use -@compliance.evaluation:pass\n    filter to exclude passing findings\n  - Prefer ordering by severity score (@severity_details.adjusted.score) when relevant\n  - Use LIMIT to reduce context\n\nExample queries:\n\n  # Open findings by severity\n  pup security findings analyze --query \"\n    SELECT severity, COUNT(*) as cnt\n    FROM dd.security_findings(\n      columns => ARRAY['@severity'],\n      filter => '@status:open'\n    ) AS (severity VARCHAR)\n    GROUP BY severity ORDER BY cnt DESC\"\n\n  # Top 10 critical rules\n  pup security findings analyze --query \"\n    SELECT rule_name, COUNT(*) as cnt\n    FROM dd.security_findings(\n      columns => ARRAY['@rule.name'],\n      filter => '@status:open @severity:critical'\n    ) AS (rule_name VARCHAR)\n    GROUP BY rule_name ORDER BY cnt DESC LIMIT 10\"\n\n  # Critical findings in production with known exploits\n  pup security findings analyze --query \"\n    SELECT title, resource_name, score\n    FROM dd.security_findings(\n      columns => ARRAY['@title', '@resource_name', '@severity_details.adjusted.score'],\n      filter => '@status:open @severity:critical @risk.is_production:true @risk.has_exploit_available:true'\n    ) AS (title VARCHAR, resource_name VARCHAR, score DECIMAL)\n    ORDER BY score DESC LIMIT 20\"\n\n  # Findings by cloud account and region\n  pup security findings analyze --query \"\n    SELECT account, region, COUNT(*) as cnt\n    FROM dd.security_findings(\n      columns => ARRAY['@cloud_resource.account', '@cloud_resource.region'],\n      filter => '@status:open @severity:(high OR critical)'\n    ) AS (account VARCHAR, region VARCHAR)\n    GROUP BY account, region ORDER BY cnt DESC LIMIT 20\"\n\n  # Vulnerabilities only (exclude misconfigs, secrets, etc.)\n  pup security findings analyze --query \"\n    SELECT severity, COUNT(*) as cnt\n    FROM dd.security_findings(\n      columns => ARRAY['@severity'],\n      filter => '@status:open',\n      finding_types => ARRAY['host_and_container_vulnerability', 'library_vulnerability']\n    ) AS (severity VARCHAR)\n    GROUP BY severity ORDER BY cnt DESC\""
+        long_about = "Analyze security findings using DDSQL with dd.security_findings().\n\nWorkflow: 1) Call `pup security findings schema` first to get available fields\n         2) Use this command to query with SQL\n\nQueries the current state of all security findings using flexible SQL aggregations,\nfiltering, and grouping.\n\nFunction signature:\n  dd.security_findings(\n    columns => ARRAY['@field1', '@field2', ...],\n    filter  => '@field:value',\n    finding_types => ARRAY['library_vulnerability', ...]\n  )\n\nThe AS clause must declare column names and DDSQL types:\n  AS (col1 VARCHAR, col2 BIGINT, ...)\n\nAvailable types: VARCHAR, BIGINT, DECIMAL, BOOLEAN, TIMESTAMP\n\nQuery structure (filter vs WHERE):\n  - filter => '...'  : Datadog query syntax, pushed down to the backing store.\n                        Use @ prefix: @status:open @severity:(high OR critical)\n                        Supports negation: -@compliance.evaluation:pass\n  - WHERE clause     : Standard SQL, operates on the aliases in your AS clause.\n                        No @ prefix: WHERE severity = 'critical'\n                        Simple conditions are pushed down automatically.\n  - columns => ARRAY : Fields to select. Use @ prefix. Order must match AS clause.\n\nCommon fields (use with @ prefix in columns/filter):\n\n  Filtering & Grouping\n    @severity              string   critical, high, medium, low, info, none, unknown\n    @status                string   open, muted, auto_closed\n    @finding_type          string   misconfiguration, host_and_container_vulnerability,\n                                    library_vulnerability, static_code_vulnerability,\n                                    secret, identity_risk, attack_path, ...\n    @resource_type         string   Type of affected resource\n    @rule.name             string   Name of the detection rule\n\n  Identification\n    @title                 string   Human-readable finding title\n    @resource_name         string   Name of the affected resource\n    @resource_id           string   Unique resource identifier\n\n  Risk Prioritization\n    @is_in_security_inbox                boolean  In the Security Inbox\n    @severity_details.adjusted.score     number   CVSS-scale adjusted score\n    @risk.is_publicly_accessible         boolean  Resource is internet-facing\n    @risk.is_production                  boolean  Resource is in production\n    @risk.has_exploit_available          boolean  Known exploits exist\n    @risk.has_high_exploitability_chance  boolean  EPSS score > 1%\n    @risk.is_exposed_to_attacks          boolean  Attacks already detected\n    @risk.has_sensitive_data             boolean  Resource has sensitive data\n\n  Compliance\n    @compliance.evaluation   string   pass or fail\n\n  Scoping\n    @cloud_resource.cloud_provider   string   aws, azure, gcp, oci\n    @cloud_resource.account          string   Cloud account/subscription/project\n    @cloud_resource.region           string   Cloud region\n    @service.name                    string   Service name\n    @host.name                       string   Host name\n\n  Time\n    @first_seen_at           integer  First detection (ms UTC)\n    @last_seen_at            integer  Most recent detection (ms UTC)\n\n  Run `pup security findings schema` for the full field reference, or add\n  --search <term> / --section <name> to get only the matching fields.\n\nIMPORTANT notes:\n  - 'columns =>' ordering MUST match the AS clause column ordering\n  - If querying all findings or misconfigurations, use -@compliance.evaluation:pass\n    filter to exclude passing findings\n  - Prefer ordering by severity score (@severity_details.adjusted.score) when relevant\n  - Use LIMIT to reduce context\n\nExample queries:\n\n  # Open findings by severity\n  pup security findings analyze --query \"\n    SELECT severity, COUNT(*) as cnt\n    FROM dd.security_findings(\n      columns => ARRAY['@severity'],\n      filter => '@status:open'\n    ) AS (severity VARCHAR)\n    GROUP BY severity ORDER BY cnt DESC\"\n\n  # Top 10 critical rules\n  pup security findings analyze --query \"\n    SELECT rule_name, COUNT(*) as cnt\n    FROM dd.security_findings(\n      columns => ARRAY['@rule.name'],\n      filter => '@status:open @severity:critical'\n    ) AS (rule_name VARCHAR)\n    GROUP BY rule_name ORDER BY cnt DESC LIMIT 10\"\n\n  # Critical findings in production with known exploits\n  pup security findings analyze --query \"\n    SELECT title, resource_name, score\n    FROM dd.security_findings(\n      columns => ARRAY['@title', '@resource_name', '@severity_details.adjusted.score'],\n      filter => '@status:open @severity:critical @risk.is_production:true @risk.has_exploit_available:true'\n    ) AS (title VARCHAR, resource_name VARCHAR, score DECIMAL)\n    ORDER BY score DESC LIMIT 20\"\n\n  # Findings by cloud account and region\n  pup security findings analyze --query \"\n    SELECT account, region, COUNT(*) as cnt\n    FROM dd.security_findings(\n      columns => ARRAY['@cloud_resource.account', '@cloud_resource.region'],\n      filter => '@status:open @severity:(high OR critical)'\n    ) AS (account VARCHAR, region VARCHAR)\n    GROUP BY account, region ORDER BY cnt DESC LIMIT 20\"\n\n  # Vulnerabilities only (exclude misconfigs, secrets, etc.)\n  pup security findings analyze --query \"\n    SELECT severity, COUNT(*) as cnt\n    FROM dd.security_findings(\n      columns => ARRAY['@severity'],\n      filter => '@status:open',\n      finding_types => ARRAY['host_and_container_vulnerability', 'library_vulnerability']\n    ) AS (severity VARCHAR)\n    GROUP BY severity ORDER BY cnt DESC\""
     )]
     Analyze {
         /// SQL query using dd.security_findings(columns => ARRAY['@field', ...], filter => '@field:value', finding_types => ARRAY['type', ...]) AS (col TYPE, ...). 'columns' ordering MUST match the AS clause. Run `pup security findings schema` to see fields. Types: VARCHAR, BIGINT, DECIMAL, BOOLEAN, TIMESTAMP
@@ -11516,12 +11533,18 @@ enum AcpActions {
 enum AgentActions {
     /// Output command schema as JSON
     Schema {
+        /// Command path to describe, e.g. `logs aggregate`, `logs.aggregate`, or `logs`.
+        /// Adds a `returns` response contract to each command. Omit for the full schema.
+        path: Vec<String>,
         #[arg(
             long,
             default_value_t = false,
             help = "Output minimal schema (names + flags only)"
         )]
         compact: bool,
+        /// List leaf commands whose path or description contains TERM (case-insensitive)
+        #[arg(long, value_name = "TERM")]
+        search: Option<String>,
     },
     /// Output the stable CLI surface as JSON
     Surface,
@@ -12073,59 +12096,104 @@ enum AuthActions {
 /// value-taking global flag — so `--org myorg logs` yields `logs`, not `myorg`.
 /// The `--flag=value` form is a single `-`-prefixed token and needs no lookahead.
 fn top_level_subcommand(args: &[String]) -> Option<&str> {
+    positional_tokens(args).next()
+}
+
+/// Non-flag tokens from raw CLI args, skipping the binary name and the values
+/// of value-taking global flags. See `top_level_subcommand`.
+fn positional_tokens(args: &[String]) -> impl Iterator<Item = &str> {
     // Global flags that consume the following token as their value.
     const VALUE_GLOBALS: &[&str] = &["-o", "--output", "--org", "--jq"];
     let mut prev_consumes_value = false;
-    for arg in args.iter().skip(1) {
+    args.iter().skip(1).filter_map(move |arg| {
         if prev_consumes_value {
             prev_consumes_value = false;
-            continue;
+            return None;
         }
         if arg.starts_with('-') {
             prev_consumes_value = VALUE_GLOBALS.contains(&arg.as_str());
-            continue;
+            return None;
         }
-        return Some(arg.as_str());
-    }
-    None
+        Some(arg.as_str())
+    })
 }
 
-/// Walk the clap command tree to find the subcommand matching the given path.
-fn find_subcommand<'a>(cmd: &'a clap::Command, path: &[&str]) -> Option<&'a clap::Command> {
-    let mut current = cmd;
-    for name in path {
-        // Match canonical names and aliases so `audit` resolves the same way
-        // clap would resolve it to `audit-logs`.
-        current = current
-            .get_subcommands()
-            .find(|s| s.get_name() == *name || s.get_all_aliases().any(|a| a == *name))?;
+/// True when `flag` (e.g. `--header`, `-o`) is a value-taking option of `cmd`,
+/// or a global option of `root`, written without an inline value
+/// (`--header=x`, `-ojson`), so the next raw token is its value.
+fn flag_consumes_next(root: &clap::Command, cmd: &clap::Command, flag: &str) -> bool {
+    if flag.contains('=') {
+        return false;
     }
-    if path.is_empty() {
-        None
-    } else {
-        Some(current)
+    let is_match = |arg: &clap::Arg| match flag.strip_prefix("--") {
+        Some(long) => {
+            arg.get_long() == Some(long)
+                || arg
+                    .get_all_aliases()
+                    .is_some_and(|aliases| aliases.contains(&long))
+        }
+        None => {
+            let mut chars = flag.chars().skip(1);
+            matches!((chars.next(), chars.next()), (Some(c), None) if arg.get_short() == Some(c))
+        }
+    };
+    cmd.get_arguments()
+        .chain(root.get_arguments().filter(|a| a.is_global_set()))
+        .find(|arg| is_match(arg))
+        .is_some_and(|arg| arg.get_action().takes_values())
+}
+
+/// Resolve the deepest command named by raw CLI args, e.g. `pup logs aggregate
+/// --help` -> `["logs", "aggregate"]`. Skips the values of value-taking
+/// options at each level (global or command-local, like `profiling --header`),
+/// stops at the first token that is not a subcommand (a positional value), and
+/// never descends into commands hidden from agent schemas. Returns canonical
+/// names, resolving aliases.
+fn help_command_path<'a>(
+    root: &'a clap::Command,
+    args: &[String],
+) -> (Vec<&'a str>, &'a clap::Command) {
+    let mut current = root;
+    let mut names: Vec<&str> = Vec::new();
+    let mut skip_value = false;
+    for token in args.iter().skip(1) {
+        if skip_value {
+            skip_value = false;
+            continue;
+        }
+        if token.starts_with('-') {
+            skip_value = flag_consumes_next(root, current, token);
+            continue;
+        }
+        let parent = names.join(" ");
+        let Some(next) = current.get_subcommands().find(|s| {
+            s.get_name() != "help"
+                && is_visible_in_agent_schema(&parent, s.get_name())
+                && (s.get_name() == token || s.get_all_aliases().any(|a| a == token))
+        }) else {
+            break;
+        };
+        names.push(next.get_name());
+        current = next;
     }
+    (names, current)
 }
 
 /// Return the agent-help schema for a valid command, or `None` when clap should
 /// handle an unknown command or invalid nested subcommand normally.
 fn agent_help_schema(cmd: &clap::Command, args: &[String]) -> Option<serde_json::Value> {
-    let top_level: Vec<&str> = top_level_subcommand(args).into_iter().collect();
-    let target_cmd = find_subcommand(cmd, &top_level);
-    let has_invalid_subcommand = target_cmd.is_some()
-        && cmd
-            .clone()
-            .try_get_matches_from(args)
-            .is_err_and(|error| error.kind() == clap::error::ErrorKind::InvalidSubcommand);
-
-    match target_cmd {
-        Some(target) if !has_invalid_subcommand => {
-            Some(build_agent_schema_scoped(cmd, target, &top_level))
-        }
-        Some(_) => None,
-        None if top_level.is_empty() => Some(build_agent_schema(cmd)),
-        None => None,
+    let (path, target) = help_command_path(cmd, args);
+    if path.is_empty() {
+        // Unknown top-level commands fall through to clap's normal error.
+        return top_level_subcommand(args)
+            .is_none()
+            .then(|| build_agent_schema(cmd));
     }
+    let has_invalid_subcommand = cmd
+        .clone()
+        .try_get_matches_from(args)
+        .is_err_and(|error| error.kind() == clap::error::ErrorKind::InvalidSubcommand);
+    (!has_invalid_subcommand).then(|| build_agent_schema_scoped(cmd, target, &path))
 }
 
 /// Guidance returned in the agent schema for LLMs that author shell scripts
@@ -12148,7 +12216,22 @@ fn build_script_authoring_guidance() -> serde_json::Value {
     })
 }
 
-/// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`).
+/// Query syntax hints per domain, shared by the full and scoped agent schemas.
+fn agent_query_syntax() -> serde_json::Value {
+    serde_json::json!({
+        "apm": "service:<name> resource_name:<path> @duration:>5000000000 (nanoseconds!) status:error operation_name:<op>. Duration is always in nanoseconds",
+        "events": "sources:nagios,pagerduty status:error priority:normal tags:env:prod",
+        "logs": "status:error, service:web-app, @attr:val, host:i-*, \"exact phrase\", AND/OR/NOT operators, -status:info (negation), wildcards with *",
+        "metrics": "<aggregation>:<metric_name>{<filter>} by {<group>}. Example: avg:system.cpu.user{env:prod} by {host}. Aggregations: avg, sum, min, max, count",
+        "monitors": "Use --name for substring search, --tags for tag filtering (comma-separated). Search via --query for full-text search",
+        "rum": "@type:error @session.type:user @view.url_path:/checkout @action.type:click service:<app-name>",
+        "security": "@workflow.rule.type:log_detection source:cloudtrail @network.client.ip:10.0.0.0/8 status:critical",
+        "traces": "service:<name> resource_name:<path> @duration:>5s (shorthand) env:production"
+    })
+}
+
+/// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`
+/// or `pup logs aggregate --help`). `sub_path` is the target's canonical path.
 fn build_agent_schema_scoped(
     _root_cmd: &clap::Command,
     target: &clap::Command,
@@ -12156,6 +12239,7 @@ fn build_agent_schema_scoped(
 ) -> serde_json::Value {
     let mut root = serde_json::Map::new();
     root.insert("version".into(), serde_json::json!(version::VERSION));
+    root.insert("command".into(), serde_json::json!(sub_path.join(" ")));
 
     // Use the subcommand's description
     let desc = target
@@ -12209,22 +12293,17 @@ fn build_agent_schema_scoped(
         ]),
     );
 
-    // Build scoped command tree — only the target command
-    let cmd_schema = build_command_schema(target, "");
+    // Build scoped command tree — only the target command, with response
+    // contracts on its leaves (examples only for a single-command lookup)
+    let parent_path = sub_path[..sub_path.len() - 1].join(" ");
+    let mut cmd_schema = build_command_schema(target, &parent_path);
+    attach_returns(&mut cmd_schema, !target.has_subcommands());
+    root.insert("envelope".into(), commands::agent::envelope_contract());
     root.insert("commands".into(), serde_json::json!([cmd_schema]));
 
     // Include query_syntax: scoped to the matching command if it has one, full map otherwise
     let top_name = sub_path[0];
-    let all_syntax = serde_json::json!({
-        "apm": "service:<name> resource_name:<path> @duration:>5000000000 (nanoseconds!) status:error operation_name:<op>. Duration is always in nanoseconds",
-        "events": "sources:nagios,pagerduty status:error priority:normal tags:env:prod",
-        "logs": "status:error, service:web-app, @attr:val, host:i-*, \"exact phrase\", AND/OR/NOT operators, -status:info (negation), wildcards with *",
-        "metrics": "<aggregation>:<metric_name>{<filter>} by {<group>}. Example: avg:system.cpu.user{env:prod} by {host}. Aggregations: avg, sum, min, max, count",
-        "monitors": "Use --name for substring search, --tags for tag filtering (comma-separated). Search via --query for full-text search",
-        "rum": "@type:error @session.type:user @view.url_path:/checkout @action.type:click service:<app-name>",
-        "security": "@workflow.rule.type:log_detection source:cloudtrail @network.client.ip:10.0.0.0/8 status:critical",
-        "traces": "service:<name> resource_name:<path> @duration:>5s (shorthand) env:production"
-    });
+    let all_syntax = agent_query_syntax();
     if let Some(syntax) = all_syntax.get(top_name) {
         // Scope to just this command's entry
         let mut scoped = serde_json::Map::new();
@@ -12367,16 +12446,7 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
         "Use 'pup monitors search' for full-text search, 'pup monitors list' for tag/name filtering"
     ]));
 
-    root.insert("query_syntax".into(), serde_json::json!({
-        "apm": "service:<name> resource_name:<path> @duration:>5000000000 (nanoseconds!) status:error operation_name:<op>. Duration is always in nanoseconds",
-        "events": "sources:nagios,pagerduty status:error priority:normal tags:env:prod",
-        "logs": "status:error, service:web-app, @attr:val, host:i-*, \"exact phrase\", AND/OR/NOT operators, -status:info (negation), wildcards with *",
-        "metrics": "<aggregation>:<metric_name>{<filter>} by {<group>}. Example: avg:system.cpu.user{env:prod} by {host}. Aggregations: avg, sum, min, max, count",
-        "monitors": "Use --name for substring search, --tags for tag filtering (comma-separated). Search via --query for full-text search",
-        "rum": "@type:error @session.type:user @view.url_path:/checkout @action.type:click service:<app-name>",
-        "security": "@workflow.rule.type:log_detection source:cloudtrail @network.client.ip:10.0.0.0/8 status:critical",
-        "traces": "service:<name> resource_name:<path> @duration:>5s (shorthand) env:production"
-    }));
+    root.insert("query_syntax".into(), agent_query_syntax());
 
     root.insert("time_formats".into(), serde_json::json!({
         "relative": ["5s", "30m", "1h", "4h", "1d", "7d", "1w", "30d", "5min", "2hours", "3days"],
@@ -12449,67 +12519,65 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
     serde_json::Value::Object(root)
 }
 
-fn build_compact_agent_schema(cmd: &clap::Command) -> serde_json::Value {
-    fn compact_cmd(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
-        let name = cmd.get_name().to_string();
-        let full_path = if parent_path.is_empty() {
-            name.clone()
-        } else {
-            format!("{parent_path} {name}")
-        };
-        let mut obj = serde_json::Map::new();
-        obj.insert("name".into(), serde_json::json!(name));
-        obj.insert("full_path".into(), serde_json::json!(full_path));
+fn build_compact_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
+    let name = cmd.get_name().to_string();
+    let full_path = if parent_path.is_empty() {
+        name.clone()
+    } else {
+        format!("{parent_path} {name}")
+    };
+    let mut obj = serde_json::Map::new();
+    obj.insert("name".into(), serde_json::json!(name));
+    obj.insert("full_path".into(), serde_json::json!(full_path));
 
-        let mut aliases: Vec<&str> = cmd
-            .get_all_aliases()
-            .filter(|alias| *alias != name)
-            .collect();
-        aliases.sort_unstable();
-        if !aliases.is_empty() {
-            obj.insert("aliases".into(), serde_json::json!(aliases));
-        }
-
-        let mut flags: Vec<String> = cmd
-            .get_arguments()
-            .filter(|a| {
-                let id = a.get_id().as_str();
-                id != "help" && id != "version" && !a.is_global_set() && a.get_long().is_some()
-            })
-            .map(|a| format!("--{}", a.get_long().unwrap()))
-            .collect();
-        flags.sort();
-        if !flags.is_empty() {
-            obj.insert("flags".into(), serde_json::json!(flags));
-        }
-
-        let mut subs: Vec<serde_json::Value> = cmd
-            .get_subcommands()
-            .filter(|s| {
-                s.get_name() != "help" && is_visible_in_agent_schema(&full_path, s.get_name())
-            })
-            .map(|s| compact_cmd(s, &full_path))
-            .collect();
-        subs.sort_by(|a, b| {
-            a.get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
-        });
-        if !subs.is_empty() {
-            obj.insert("subcommands".into(), serde_json::Value::Array(subs));
-        }
-
-        serde_json::Value::Object(obj)
+    let mut aliases: Vec<&str> = cmd
+        .get_all_aliases()
+        .filter(|alias| *alias != name)
+        .collect();
+    aliases.sort_unstable();
+    if !aliases.is_empty() {
+        obj.insert("aliases".into(), serde_json::json!(aliases));
     }
 
+    let mut flags: Vec<String> = cmd
+        .get_arguments()
+        .filter(|a| {
+            let id = a.get_id().as_str();
+            id != "help" && id != "version" && !a.is_global_set() && a.get_long().is_some()
+        })
+        .map(|a| format!("--{}", a.get_long().unwrap()))
+        .collect();
+    flags.sort();
+    if !flags.is_empty() {
+        obj.insert("flags".into(), serde_json::json!(flags));
+    }
+
+    let mut subs: Vec<serde_json::Value> = cmd
+        .get_subcommands()
+        .filter(|s| s.get_name() != "help" && is_visible_in_agent_schema(&full_path, s.get_name()))
+        .map(|s| build_compact_command_schema(s, &full_path))
+        .collect();
+    subs.sort_by(|a, b| {
+        a.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+    });
+    if !subs.is_empty() {
+        obj.insert("subcommands".into(), serde_json::Value::Array(subs));
+    }
+
+    serde_json::Value::Object(obj)
+}
+
+fn build_compact_agent_schema(cmd: &clap::Command) -> serde_json::Value {
     let mut root = serde_json::Map::new();
     root.insert("version".into(), serde_json::json!(version::VERSION));
 
     let mut commands: Vec<serde_json::Value> = cmd
         .get_subcommands()
         .filter(|s| s.get_name() != "help")
-        .map(|s| compact_cmd(s, ""))
+        .map(|s| build_compact_command_schema(s, ""))
         .collect();
     commands.sort_by(|a, b| {
         a.get("name")
@@ -12520,6 +12588,176 @@ fn build_compact_agent_schema(cmd: &clap::Command) -> serde_json::Value {
     root.insert("commands".into(), serde_json::Value::Array(commands));
 
     serde_json::Value::Object(root)
+}
+
+/// Resolve a `pup agent schema` path (`logs aggregate`, `'logs aggregate'`, or
+/// `logs.aggregate`) to
+/// its command and canonical full path. Aliases resolve the way clap does;
+/// commands hidden from agent schemas never resolve.
+fn resolve_schema_path<'a>(
+    root: &'a clap::Command,
+    path: &[String],
+) -> anyhow::Result<(&'a clap::Command, String)> {
+    let mut current = root;
+    let mut full_path = String::new();
+    let segments = path
+        .iter()
+        .flat_map(|p| p.split(|c: char| c == '.' || c.is_whitespace()))
+        .filter(|s| !s.is_empty());
+    for segment in segments {
+        let visible: Vec<&clap::Command> = current
+            .get_subcommands()
+            .filter(|s| {
+                s.get_name() != "help" && is_visible_in_agent_schema(&full_path, s.get_name())
+            })
+            .collect();
+        let Some(next) = visible
+            .iter()
+            .copied()
+            .find(|s| s.get_name() == segment || s.get_all_aliases().any(|a| a == segment))
+        else {
+            let mut valid: Vec<&str> = visible.iter().map(|s| s.get_name()).collect();
+            valid.sort_unstable();
+            let scope = if full_path.is_empty() {
+                "pup"
+            } else {
+                full_path.as_str()
+            };
+            anyhow::bail!(
+                "unknown command '{segment}' under '{scope}'; valid subcommands: {}",
+                valid.join(", ")
+            );
+        };
+        full_path = if full_path.is_empty() {
+            next.get_name().to_string()
+        } else {
+            format!("{full_path} {}", next.get_name())
+        };
+        current = next;
+    }
+    Ok((current, full_path))
+}
+
+/// Add a `returns` contract to every leaf command entry in a schema tree.
+/// Worked examples are kept only when `with_example` is set (single-command
+/// lookups) so domain-wide output stays small.
+fn attach_returns(entry: &mut serde_json::Value, with_example: bool) {
+    let Some(obj) = entry.as_object_mut() else {
+        return;
+    };
+    if let Some(serde_json::Value::Array(subs)) = obj.get_mut("subcommands") {
+        subs.iter_mut()
+            .for_each(|sub| attach_returns(sub, with_example));
+        return;
+    }
+    let mut returns = commands::agent::returns_for(
+        obj.get("full_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default(),
+    );
+    if !with_example {
+        if let Some(r) = returns.as_object_mut() {
+            r.remove("example");
+        }
+    }
+    obj.insert("returns".into(), returns);
+}
+
+/// Collect leaf commands under `cmd` whose path or short description contains
+/// `term` (already lowercased).
+fn collect_schema_matches(
+    cmd: &clap::Command,
+    parent_path: &str,
+    term: &str,
+    out: &mut Vec<serde_json::Value>,
+) {
+    for sub in cmd
+        .get_subcommands()
+        .filter(|s| s.get_name() != "help" && is_visible_in_agent_schema(parent_path, s.get_name()))
+    {
+        let name = sub.get_name();
+        let full_path = if parent_path.is_empty() {
+            name.to_string()
+        } else {
+            format!("{parent_path} {name}")
+        };
+        if sub.has_subcommands() {
+            collect_schema_matches(sub, &full_path, term, out);
+            continue;
+        }
+        let about = sub.get_about().map(|a| a.to_string()).unwrap_or_default();
+        if full_path.to_lowercase().contains(term) || about.to_lowercase().contains(term) {
+            out.push(serde_json::json!({
+                "full_path": full_path,
+                "description": about,
+                "read_only": !is_write_command(&full_path, name),
+            }));
+        }
+    }
+}
+
+/// Build the schema for `pup agent schema <path>` and/or `--search <term>`.
+/// A path yields that command (or domain) with a `returns` contract on each
+/// leaf; `--search` yields a flat list of matching leaf commands.
+fn build_filtered_agent_schema(
+    root_cmd: &clap::Command,
+    path: &[String],
+    search: Option<&str>,
+    compact: bool,
+) -> anyhow::Result<serde_json::Value> {
+    let (target, full_path) = resolve_schema_path(root_cmd, path)?;
+    let mut root = serde_json::Map::new();
+    root.insert("version".into(), serde_json::json!(version::VERSION));
+
+    if let Some(term) = search {
+        let term = term.trim().to_lowercase();
+        if term.is_empty() {
+            anyhow::bail!("--search term must not be empty");
+        }
+        let mut matches = Vec::new();
+        collect_schema_matches(target, &full_path, &term, &mut matches);
+        matches.sort_by(|a, b| a["full_path"].as_str().cmp(&b["full_path"].as_str()));
+        root.insert("search".into(), serde_json::json!(term));
+        if !full_path.is_empty() {
+            root.insert("scope".into(), serde_json::json!(full_path));
+        }
+        root.insert(
+            "hint".into(),
+            serde_json::json!("Run `pup agent schema <full_path>` for flags and response shape"),
+        );
+        root.insert("commands".into(), serde_json::Value::Array(matches));
+        return Ok(serde_json::Value::Object(root));
+    }
+
+    if full_path.is_empty() {
+        anyhow::bail!("empty command path; run `pup agent schema` for the full schema");
+    }
+    let parent_path = full_path.rsplit_once(' ').map_or("", |(parent, _)| parent);
+    let mut entry = if compact {
+        build_compact_command_schema(target, parent_path)
+    } else {
+        build_command_schema(target, parent_path)
+    };
+    // A domain lookup lists many leaves: use the group's short summary instead
+    // of its long help, and omit per-leaf examples.
+    let is_group = target.has_subcommands();
+    if is_group && !compact {
+        let about = target
+            .get_about()
+            .map(|a| a.to_string())
+            .unwrap_or_default();
+        entry["description"] = serde_json::json!(about);
+    }
+    attach_returns(&mut entry, !is_group);
+
+    root.insert("command".into(), serde_json::json!(full_path));
+    root.insert("envelope".into(), commands::agent::envelope_contract());
+    let domain = full_path.split(' ').next().unwrap_or_default();
+    if let Some(syntax) = agent_query_syntax().get(domain) {
+        root.insert("query_syntax".into(), serde_json::json!({ domain: syntax }));
+    }
+    root.insert("commands".into(), serde_json::json!([entry]));
+    Ok(serde_json::Value::Object(root))
 }
 
 /// Keep commands that disclose credentials out of schemas presented to AI agents.
@@ -13447,6 +13685,405 @@ mod test_agent_schema {
                 .is_some_and(|s| s.contains("see script_authoring"))),
             "scoped anti_patterns must reference script_authoring"
         );
+    }
+
+    fn filtered(path: &[&str]) -> anyhow::Result<serde_json::Value> {
+        let path: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+        build_filtered_agent_schema(&Cli::command(), &path, None, false)
+    }
+
+    fn leaf_entries(entry: &serde_json::Value, out: &mut Vec<serde_json::Value>) {
+        match entry.get("subcommands").and_then(|v| v.as_array()) {
+            Some(subs) => subs.iter().for_each(|s| leaf_entries(s, out)),
+            None => out.push(entry.clone()),
+        }
+    }
+
+    /// Minimal JSON Schema check covering the keywords used by
+    /// `commands::agent::returns_for`: type, const, required, properties, items.
+    fn assert_conforms(value: &serde_json::Value, schema: &serde_json::Value, at: &str) {
+        if let Some(expected) = schema.get("const") {
+            assert_eq!(value, expected, "{at}: const mismatch");
+        }
+        match schema.get("type").and_then(|t| t.as_str()) {
+            Some("object") => assert!(value.is_object(), "{at}: expected object, got {value}"),
+            Some("array") => assert!(value.is_array(), "{at}: expected array, got {value}"),
+            Some("string") => assert!(value.is_string(), "{at}: expected string, got {value}"),
+            Some("integer") => assert!(value.is_i64() || value.is_u64(), "{at}: expected integer"),
+            Some("boolean") => assert!(value.is_boolean(), "{at}: expected boolean"),
+            _ => {}
+        }
+        for key in schema["required"].as_array().into_iter().flatten() {
+            let key = key.as_str().unwrap();
+            assert!(value.get(key).is_some(), "{at}: missing required key {key}");
+        }
+        if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+            for (key, sub) in props {
+                if let Some(v) = value.get(key) {
+                    assert_conforms(v, sub, &format!("{at}.{key}"));
+                }
+            }
+        }
+        if let (Some(items), Some(arr)) = (schema.get("items"), value.as_array()) {
+            for (i, v) in arr.iter().enumerate() {
+                assert_conforms(v, items, &format!("{at}[{i}]"));
+            }
+        }
+    }
+
+    #[test]
+    fn schema_subcommand_accepts_path_and_search() {
+        assert!(Cli::try_parse_from(["pup", "agent", "schema", "logs", "aggregate"]).is_ok());
+        assert!(
+            Cli::try_parse_from(["pup", "agent", "schema", "logs.aggregate", "--compact"]).is_ok()
+        );
+        assert!(Cli::try_parse_from(["pup", "agent", "schema", "--search", "cache"]).is_ok());
+    }
+
+    #[test]
+    fn filtered_schema_dot_and_space_paths_match() {
+        let dotted = filtered(&["logs.aggregate"]).unwrap();
+        let spaced = filtered(&["logs", "aggregate"]).unwrap();
+        let quoted = filtered(&["logs aggregate"]).unwrap();
+        assert_eq!(dotted, spaced);
+        assert_eq!(quoted, spaced);
+        assert_eq!(dotted["command"], "logs aggregate");
+    }
+
+    #[test]
+    fn filtered_schema_leaf_has_correct_path_and_returns() {
+        let schema = filtered(&["logs", "aggregate"]).unwrap();
+        let entry = &schema["commands"][0];
+        assert_eq!(entry["full_path"], "logs aggregate");
+        assert_eq!(entry["read_only"], true);
+        assert_eq!(entry["returns"]["documented"], true);
+        assert_eq!(entry["returns"]["jq_root"], ".data.buckets[]");
+        assert!(entry["returns"]["example"]["invocation"].is_string());
+        assert!(schema["envelope"]["agent_mode"].is_object());
+        assert!(schema["query_syntax"]["logs"].is_string());
+    }
+
+    #[test]
+    fn filtered_schema_write_command_is_not_read_only() {
+        let schema = filtered(&["monitors", "delete"]).unwrap();
+        assert_eq!(schema["commands"][0]["read_only"], false);
+        assert_eq!(schema["commands"][0]["returns"]["documented"], false);
+    }
+
+    #[test]
+    fn filtered_schema_resolves_aliases_to_canonical_path() {
+        let schema = filtered(&["audit", "search"]).unwrap();
+        assert_eq!(schema["command"], "audit-logs search");
+    }
+
+    #[test]
+    fn filtered_schema_domain_has_returns_on_every_leaf() {
+        let schema = filtered(&["logs"]).unwrap();
+        let mut leaves = Vec::new();
+        leaf_entries(&schema["commands"][0], &mut leaves);
+        assert!(leaves.len() > 5);
+        for leaf in &leaves {
+            assert!(
+                leaf["returns"].is_object(),
+                "missing returns on {}",
+                leaf["full_path"]
+            );
+        }
+    }
+
+    #[test]
+    fn filtered_schema_compact_keeps_returns() {
+        let path = vec!["logs".to_string(), "aggregate".to_string()];
+        let schema = build_filtered_agent_schema(&Cli::command(), &path, None, true).unwrap();
+        let entry = &schema["commands"][0];
+        assert_eq!(entry["full_path"], "logs aggregate");
+        assert!(
+            entry.get("description").is_none(),
+            "compact omits descriptions"
+        );
+        assert_eq!(entry["returns"]["documented"], true);
+    }
+
+    #[test]
+    fn filtered_schema_stays_within_size_budgets() {
+        // Measured minified, matching what `pup agent schema <path>` prints.
+        let leaf = serde_json::to_string(&filtered(&["logs", "aggregate"]).unwrap()).unwrap();
+        assert!(
+            leaf.len() <= 5 * 1024,
+            "logs aggregate schema is {} bytes",
+            leaf.len()
+        );
+        let domain = serde_json::to_string(&filtered(&["logs"]).unwrap()).unwrap();
+        assert!(
+            domain.len() <= 20 * 1024,
+            "logs domain schema is {} bytes",
+            domain.len()
+        );
+    }
+
+    #[test]
+    fn filtered_schema_rejects_unknown_command() {
+        let err = filtered(&["logs", "bogus"]).unwrap_err().to_string();
+        assert!(
+            err.contains("unknown command 'bogus' under 'logs'"),
+            "{err}"
+        );
+        assert!(
+            err.contains("aggregate"),
+            "error should list valid subcommands: {err}"
+        );
+        let err = filtered(&["nope"]).unwrap_err().to_string();
+        assert!(err.contains("under 'pup'"), "{err}");
+    }
+
+    #[test]
+    fn filtered_schema_rejects_empty_path() {
+        let err = filtered(&["."]).unwrap_err().to_string();
+        assert!(err.contains("empty command path"), "{err}");
+    }
+
+    #[test]
+    fn filtered_schema_never_exposes_auth_token() {
+        let err = filtered(&["auth", "token"]).unwrap_err().to_string();
+        assert!(err.contains("unknown command 'token'"), "{err}");
+        assert!(!err.contains("token,") && !err.ends_with("token"), "{err}");
+
+        let auth = filtered(&["auth"]).unwrap();
+        assert!(!serde_json::to_string(&auth)
+            .unwrap()
+            .contains("\"auth token\""));
+
+        let found =
+            build_filtered_agent_schema(&Cli::command(), &[], Some("token"), false).unwrap();
+        assert!(found["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c["full_path"] != "auth token"));
+    }
+
+    #[test]
+    fn search_lists_matching_leaf_commands() {
+        let found =
+            build_filtered_agent_schema(&Cli::command(), &[], Some("AGGREGATE"), false).unwrap();
+        assert_eq!(found["search"], "aggregate");
+        let paths: Vec<&str> = found["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["full_path"].as_str().unwrap())
+            .collect();
+        assert!(paths.contains(&"logs aggregate"));
+        assert!(paths.contains(&"traces aggregate"));
+        let mut sorted = paths.clone();
+        sorted.sort_unstable();
+        assert_eq!(paths, sorted, "results must be sorted");
+    }
+
+    #[test]
+    fn search_can_be_scoped_to_a_path() {
+        let path = vec!["logs".to_string()];
+        let found =
+            build_filtered_agent_schema(&Cli::command(), &path, Some("aggregate"), false).unwrap();
+        assert_eq!(found["scope"], "logs");
+        assert!(found["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c["full_path"].as_str().unwrap().starts_with("logs ")));
+    }
+
+    #[test]
+    fn search_with_no_matches_returns_empty_list() {
+        let found =
+            build_filtered_agent_schema(&Cli::command(), &[], Some("zzz-no-such-cmd"), false)
+                .unwrap();
+        assert_eq!(found["commands"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn search_rejects_blank_term() {
+        let err = build_filtered_agent_schema(&Cli::command(), &[], Some("  "), false).unwrap_err();
+        assert!(err.to_string().contains("must not be empty"));
+    }
+
+    #[test]
+    fn unfiltered_schemas_keep_their_structure() {
+        let full = build_agent_schema(&Cli::command());
+        let mut keys: Vec<&String> = full.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            [
+                "anti_patterns",
+                "auth",
+                "best_practices",
+                "commands",
+                "description",
+                "global_flags",
+                "query_syntax",
+                "script_authoring",
+                "time_formats",
+                "version",
+                "workflows"
+            ]
+        );
+        assert!(!serde_json::to_string(&full)
+            .unwrap()
+            .contains("\"returns\":"));
+
+        let compact = build_compact_agent_schema(&Cli::command());
+        let mut keys: Vec<&String> = compact.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["commands", "version"]);
+        assert!(!serde_json::to_string(&compact)
+            .unwrap()
+            .contains("\"returns\":"));
+    }
+
+    /// Feed recorded raw API bodies through the real agent envelope and check
+    /// the result against the published `returns` contract, so the contract
+    /// cannot drift from the hoisting logic in `output::build_agent_envelope`.
+    #[test]
+    fn documented_returns_match_agent_envelope_output() {
+        let fixtures = [
+            (
+                "logs aggregate",
+                serde_json::json!({
+                    "data": {"buckets": [{"by": {"status": "error"}, "computes": {"c0": 42}}]},
+                    "meta": {"status": "done"}
+                }),
+                None,
+            ),
+            (
+                "logs search",
+                serde_json::json!({
+                    "data": [{"id": "AQ", "type": "log", "attributes": {
+                        "timestamp": "2026-01-01T00:00:00Z", "message": "boom", "service": "web",
+                        "status": "error", "tags": ["env:prod"], "attributes": {"http": {"status_code": 504}}
+                    }}],
+                    "links": {"next": "x"}
+                }),
+                Some(output::Metadata {
+                    count: Some(1),
+                    truncated: true,
+                    command: Some("logs search".into()),
+                    next_action: Some("page".into()),
+                }),
+            ),
+            (
+                "traces aggregate",
+                serde_json::json!({
+                    "data": [{"id": "f8", "type": "bucket", "attributes": {"by": {"service": "web"}, "compute": {"c0": 7}}}],
+                    "meta": {"status": "done"}
+                }),
+                Some(output::Metadata {
+                    count: None,
+                    truncated: false,
+                    command: Some("traces aggregate".into()),
+                    next_action: None,
+                }),
+            ),
+            (
+                "traces search",
+                serde_json::json!({
+                    "data": [{"id": "s1", "type": "spans", "attributes": {
+                        "service": "web", "resource_name": "GET /", "trace_id": "1", "span_id": "2",
+                        "start_timestamp": "2026-01-01T00:00:00Z", "end_timestamp": "2026-01-01T00:00:01Z",
+                        "tags": [], "custom": {"duration": 1000}
+                    }}]
+                }),
+                Some(output::Metadata {
+                    count: Some(1),
+                    truncated: false,
+                    command: Some("traces search".into()),
+                    next_action: None,
+                }),
+            ),
+            (
+                "metrics query",
+                serde_json::json!({
+                    "status": "ok", "query": "avg:cpu{*}", "from_date": 1, "to_date": 2,
+                    "series": [{"metric": "cpu", "scope": "*", "tag_set": [], "pointlist": [[1.0, 2.0]]}]
+                }),
+                None,
+            ),
+        ];
+        let fixtures = fixtures.into_iter().chain([(
+            "security findings schema",
+            serde_json::json!([{
+                "path": "@advisory.cve", "type": "string",
+                "section": "Advisory", "description": "Primary CVE identifier."
+            }]),
+            None,
+        )]);
+        for (path, body, meta) in fixtures {
+            let returns = commands::agent::returns_for(path);
+            assert_eq!(returns["documented"], true, "{path} must be documented");
+            // `--jq` runs on the raw body before hoisting (see output.rs), so the
+            // published jq_root must select something from the raw body.
+            let jq_root = returns["jq_root"]
+                .as_str()
+                .expect("documented returns need jq_root");
+            let selected = filter::apply_jq(body.clone(), jq_root).unwrap();
+            assert!(
+                !selected.is_null() && selected != serde_json::json!([]),
+                "{path}: jq_root {jq_root} selected nothing"
+            );
+            let envelope = output::build_agent_envelope(&body, meta.as_ref()).unwrap();
+            assert_conforms(
+                &envelope,
+                &commands::agent::envelope_contract()["agent_mode"],
+                path,
+            );
+            assert_conforms(&envelope["data"], &returns["data"], path);
+            for key in envelope["metadata"].as_object().unwrap().keys() {
+                assert!(
+                    returns["metadata"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|k| k == key),
+                    "{path}: metadata.{key} is not listed in returns.metadata"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn conformance_check_rejects_wrong_shape() {
+        // traces aggregate output must not satisfy the logs aggregate contract.
+        let body = serde_json::json!({"data": [{"attributes": {"by": {}, "compute": {}}}]});
+        let envelope = output::build_agent_envelope(&body, None).unwrap();
+        let returns = commands::agent::returns_for("logs aggregate");
+        let result =
+            std::panic::catch_unwind(|| assert_conforms(&envelope["data"], &returns["data"], "x"));
+        assert!(result.is_err());
+    }
+
+    /// `pup agent schema` splits paths on `.` and whitespace, so no command
+    /// name or alias may contain either.
+    #[test]
+    fn command_names_are_safe_to_split_on_dots_and_spaces() {
+        fn walk(cmd: &clap::Command) {
+            for sub in cmd.get_subcommands() {
+                for name in std::iter::once(sub.get_name()).chain(sub.get_all_aliases()) {
+                    assert!(
+                        !name.contains('.') && !name.contains(char::is_whitespace),
+                        "command name {name:?} breaks schema path splitting"
+                    );
+                }
+                walk(sub);
+            }
+        }
+        walk(&Cli::command());
+    }
+
+    #[test]
+    fn undocumented_commands_get_generic_returns() {
+        let returns = commands::agent::returns_for("monitors list");
+        assert_eq!(returns["documented"], false);
+        assert!(returns.get("jq_root").is_none());
     }
 }
 
@@ -15501,8 +16138,8 @@ async fn main_inner() -> anyhow::Result<()> {
                     SecurityFindingActions::Search { query, limit } => {
                         commands::security::findings_search(&cfg, query, limit).await?;
                     }
-                    SecurityFindingActions::Schema => {
-                        commands::security::findings_schema(&cfg).await?;
+                    SecurityFindingActions::Schema { search, section } => {
+                        commands::security::findings_schema(&cfg, search, section).await?;
                     }
                     SecurityFindingActions::Analyze {
                         query,
@@ -18487,14 +19124,26 @@ async fn main_inner() -> anyhow::Result<()> {
         },
         // --- Agent ---
         Commands::Agent { action } => match action {
-            AgentActions::Schema { compact } => {
+            AgentActions::Schema {
+                path,
+                compact,
+                search,
+            } => {
                 let cmd = Cli::command();
-                let schema = if compact {
-                    build_compact_agent_schema(&cmd)
+                if !path.is_empty() || search.is_some() {
+                    // Targeted lookups are for agents with tight context budgets:
+                    // print minified JSON.
+                    let schema =
+                        build_filtered_agent_schema(&cmd, &path, search.as_deref(), compact)?;
+                    println!("{}", serde_json::to_string(&schema)?);
                 } else {
-                    build_agent_schema(&cmd)
-                };
-                println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+                    let schema = if compact {
+                        build_compact_agent_schema(&cmd)
+                    } else {
+                        build_agent_schema(&cmd)
+                    };
+                    println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+                }
             }
             AgentActions::Surface => {
                 let surface = build_cli_surface(&Cli::command());

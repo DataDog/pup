@@ -2029,6 +2029,61 @@ fn test_help_command_path_empty_for_typo_or_no_command() {
 }
 
 #[test]
+fn test_help_command_path_skips_command_local_option_values() {
+    let cmd = crate::Cli::command();
+    // `--header` belongs to `profiling`, not the global flags; its value must
+    // not be mistaken for a subcommand.
+    let args = owned(&[
+        "pup",
+        "profiling",
+        "--header",
+        "test-drive-hummer-aurora: 1",
+        "services",
+        "list",
+        "--help",
+    ]);
+    let (path, _) = crate::help_command_path(&cmd, &args);
+    assert_eq!(path, ["profiling", "services", "list"]);
+}
+
+#[test]
+fn test_help_command_path_handles_inline_and_short_option_values() {
+    let cmd = crate::Cli::command();
+    let inline = owned(&[
+        "pup",
+        "profiling",
+        "--header=x: 1",
+        "services",
+        "list",
+        "--help",
+    ]);
+    assert_eq!(
+        crate::help_command_path(&cmd, &inline).0,
+        ["profiling", "services", "list"]
+    );
+    let short = owned(&["pup", "-o", "json", "logs", "aggregate", "--help"]);
+    assert_eq!(
+        crate::help_command_path(&cmd, &short).0,
+        ["logs", "aggregate"]
+    );
+    let short_inline = owned(&["pup", "-ojson", "logs", "aggregate", "--help"]);
+    assert_eq!(
+        crate::help_command_path(&cmd, &short_inline).0,
+        ["logs", "aggregate"]
+    );
+}
+
+#[test]
+fn test_help_command_path_bool_flags_do_not_consume_next_token() {
+    let cmd = crate::Cli::command();
+    let args = owned(&["pup", "--agent", "logs", "aggregate", "--help"]);
+    assert_eq!(
+        crate::help_command_path(&cmd, &args).0,
+        ["logs", "aggregate"]
+    );
+}
+
+#[test]
 fn test_help_command_path_never_descends_into_hidden_commands() {
     let cmd = crate::Cli::command();
     let args = owned(&["pup", "auth", "token", "--help"]);

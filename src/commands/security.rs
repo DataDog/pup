@@ -966,6 +966,15 @@ mod tests {
     }
 
     #[test]
+    fn test_filter_schema_fields_rejects_blank_section() {
+        for blank in ["", "   "] {
+            let fields = parse_schema_fields(SCHEMA_FIXTURE);
+            let err = filter_schema_fields(fields, None, Some(blank)).unwrap_err();
+            assert!(err.to_string().contains("--section term must not be empty"));
+        }
+    }
+
+    #[test]
     fn test_filter_schema_fields_rejects_blank_search() {
         let fields = parse_schema_fields(SCHEMA_FIXTURE);
         assert!(filter_schema_fields(fields, Some(" "), None).is_err());

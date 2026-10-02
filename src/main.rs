@@ -11964,17 +11964,53 @@ fn positional_tokens(args: &[String]) -> impl Iterator<Item = &str> {
     })
 }
 
+/// True when `flag` (e.g. `--header`, `-o`) is a value-taking option of `cmd`,
+/// or a global option of `root`, written without an inline value
+/// (`--header=x`, `-ojson`), so the next raw token is its value.
+fn flag_consumes_next(root: &clap::Command, cmd: &clap::Command, flag: &str) -> bool {
+    if flag.contains('=') {
+        return false;
+    }
+    let is_match = |arg: &clap::Arg| match flag.strip_prefix("--") {
+        Some(long) => {
+            arg.get_long() == Some(long)
+                || arg
+                    .get_all_aliases()
+                    .is_some_and(|aliases| aliases.contains(&long))
+        }
+        None => {
+            let mut chars = flag.chars().skip(1);
+            matches!((chars.next(), chars.next()), (Some(c), None) if arg.get_short() == Some(c))
+        }
+    };
+    cmd.get_arguments()
+        .chain(root.get_arguments().filter(|a| a.is_global_set()))
+        .find(|arg| is_match(arg))
+        .is_some_and(|arg| arg.get_action().takes_values())
+}
+
 /// Resolve the deepest command named by raw CLI args, e.g. `pup logs aggregate
-/// --help` -> `["logs", "aggregate"]`. Stops at the first token that is not a
-/// subcommand (a positional value) and never descends into commands hidden
-/// from agent schemas. Returns canonical names, resolving aliases.
+/// --help` -> `["logs", "aggregate"]`. Skips the values of value-taking
+/// options at each level (global or command-local, like `profiling --header`),
+/// stops at the first token that is not a subcommand (a positional value), and
+/// never descends into commands hidden from agent schemas. Returns canonical
+/// names, resolving aliases.
 fn help_command_path<'a>(
     root: &'a clap::Command,
     args: &[String],
 ) -> (Vec<&'a str>, &'a clap::Command) {
     let mut current = root;
     let mut names: Vec<&str> = Vec::new();
-    for token in positional_tokens(args) {
+    let mut skip_value = false;
+    for token in args.iter().skip(1) {
+        if skip_value {
+            skip_value = false;
+            continue;
+        }
+        if token.starts_with('-') {
+            skip_value = flag_consumes_next(root, current, token);
+            continue;
+        }
         let parent = names.join(" ");
         let Some(next) = current.get_subcommands().find(|s| {
             s.get_name() != "help"

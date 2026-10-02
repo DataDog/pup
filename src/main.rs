@@ -2628,6 +2628,22 @@ enum Commands {
         #[command(subcommand)]
         action: ServiceCatalogActions,
     },
+    /// Verify a Datadog product setup
+    ///
+    /// CAPABILITIES:
+    ///   • Confirm that APM, Logs, or RUM data for a service is arriving
+    ///
+    /// EXAMPLES:
+    ///   pup setup verify --product apm --service web --env prod
+    ///   pup setup verify --product logs --service web --wait 5m
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication or API keys.
+    #[command(verbatim_doc_comment)]
+    Setup {
+        #[command(subcommand)]
+        action: SetupActions,
+    },
     /// Manage agent skills, subagents, and extensions for AI coding assistants
     ///
     /// Install structured workflow guides, domain references, specialized
@@ -11667,6 +11683,32 @@ async fn run_tag_rules(cfg: &config::Config, action: TagRulesActions) -> anyhow:
     }
 }
 
+// ---- Setup ----
+#[derive(Subcommand)]
+enum SetupActions {
+    /// Check whether telemetry for a service is arriving
+    ///
+    /// Counts matching events in the lookback window, polling every 10s until
+    /// data appears or --wait elapses. Exits non-zero when nothing is found.
+    #[command(verbatim_doc_comment)]
+    Verify {
+        #[arg(long, value_enum, help = "Product to verify")]
+        product: commands::setup::Product,
+        #[arg(long, help = "Service name")]
+        service: String,
+        #[arg(long, help = "Environment (env tag)")]
+        env: Option<String>,
+        #[arg(long, default_value = "15m", help = "Lookback window (e.g. 15m, 1h)")]
+        from: String,
+        #[arg(
+            long,
+            default_value = "0s",
+            help = "How long to keep polling (e.g. 5m)"
+        )]
+        wait: String,
+    },
+}
+
 // ---- Skills ----
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Subcommand)]
@@ -18552,6 +18594,31 @@ async fn main_inner() -> anyhow::Result<()> {
                     columns: &columns,
                 },
             )?;
+        }
+        // --- Setup ---
+        Commands::Setup { action } => {
+            cfg.validate_auth()?;
+            match action {
+                SetupActions::Verify {
+                    product,
+                    service,
+                    env,
+                    from,
+                    wait,
+                } => {
+                    commands::setup::verify(
+                        &cfg,
+                        commands::setup::VerifyArgs {
+                            product,
+                            service,
+                            env,
+                            from,
+                            wait,
+                        },
+                    )
+                    .await?;
+                }
+            }
         }
         // --- Skills ---
         #[cfg(not(target_arch = "wasm32"))]

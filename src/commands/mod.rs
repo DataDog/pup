@@ -84,6 +84,8 @@ pub mod seats;
 pub mod security;
 pub mod service_catalog;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod setup;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod skills;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod skills_remote;

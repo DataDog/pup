@@ -1,6 +1,5 @@
 pub mod discovery;
 pub mod exec;
-pub(crate) mod first_party;
 pub mod install;
 pub mod manifest;
 

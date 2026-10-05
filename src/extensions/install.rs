@@ -2247,9 +2247,8 @@ pub fn validate_extension_name(name: &str) -> Result<()> {
         }
     }
 
-    // Built-in commands that are thin launchers for a first-party extension
-    // (such as `setup`) must stay installable under their own name.
-    if super::is_builtin_command(name) && super::first_party::first_party_source(name).is_none() {
+    // Reject names that collide with built-in commands.
+    if super::is_builtin_command(name) {
         bail!(
             "'{name}' conflicts with a built-in pup command and cannot be used as an extension name"
         );
@@ -2449,11 +2448,6 @@ mod tests {
         assert!(validate_extension_name("extension").is_err());
         assert!(validate_extension_name("help").is_err());
         assert!(validate_extension_name("version").is_err());
-    }
-
-    #[test]
-    fn test_validate_name_allows_first_party_builtin_launcher() {
-        assert!(validate_extension_name("setup").is_ok());
     }
 
     #[test]

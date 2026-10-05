@@ -372,19 +372,6 @@ Only GitHub-sourced extensions can be upgraded automatically. Extensions install
 pup extension install --local /path/to/updated-binary --force
 ```
 
-## First-Party Extensions
-
-`pup setup` is a built-in command backed by the Datadog-maintained `setup` extension. Because it is built in, it appears in `pup --help` and `pup agent schema` even before the extension is installed. Every argument after `setup`, including `--help`, is passed through to the extension.
-
-When the extension is not installed yet, `pup setup` handles it as follows:
-
-| Mode | Behavior |
-|---|---|
-| Interactive terminal | Prompts `Install it now? [y/N]`; declining exits with the install command to run |
-| `--yes` or agent mode | Prints a one-line notice on stderr, installs, then runs the extension |
-| Non-interactive without `--yes` | Exits with the `pup extension install` command to run |
-| `--read-only` | Refused, because `setup` is classified as a write command |
-
 ## Extension Directory
 
 Extensions are stored in pup's config directory:

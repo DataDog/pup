@@ -1386,10 +1386,10 @@ enum Commands {
         #[command(subcommand)]
         action: ExtensionActions,
     },
-    /// Set up Datadog products in your project
+    /// Set up Datadog products in your project. Run `pup setup --help` to list products and their flags.
     ///
-    /// Runs the first-party setup extension, installing it on first use.
-    /// Every argument after `setup` is passed through to the extension,
+    /// Runs Datadog's AI Setup CLI from npm with npx, so it needs Node.js 22
+    /// or newer. Every argument after `setup` is passed through to AI Setup,
     /// including --help.
     ///
     /// EXAMPLES:
@@ -1398,7 +1398,7 @@ enum Commands {
     #[cfg(not(target_arch = "wasm32"))]
     #[command(verbatim_doc_comment, disable_help_flag = true)]
     Setup {
-        /// Arguments passed through to the setup extension
+        /// Arguments passed through to AI Setup
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -12195,6 +12195,12 @@ fn help_command_path<'a>(
     (names, current)
 }
 
+/// `pup setup` wraps AI Setup, whose own help lists the products and their
+/// flags, so agents must see that rather than pup's one-line schema entry.
+fn help_belongs_to_wrapped_cli(args: &[String]) -> bool {
+    top_level_subcommand(args) == Some("setup")
+}
+
 /// Return the agent-help schema for a valid command, or `None` when clap should
 /// handle an unknown command or invalid nested subcommand normally.
 fn agent_help_schema(cmd: &clap::Command, args: &[String]) -> Option<serde_json::Value> {
@@ -13124,6 +13130,33 @@ mod test_agent_schema {
             Commands::Setup { args } => assert_eq!(args, ["--product", "apm", "--help", "-x"]),
             _ => panic!("expected the setup command"),
         }
+    }
+
+    #[test]
+    fn setup_description_points_to_its_help() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let setup = find_command(commands, &["setup"]).unwrap();
+        let description = setup["description"].as_str().unwrap_or_default();
+        assert!(
+            description.contains("Run `pup setup --help` to list products and their flags"),
+            "got: {description}"
+        );
+    }
+
+    #[test]
+    fn agent_help_passes_through_for_setup_only() {
+        let argv = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(help_belongs_to_wrapped_cli(&argv(&[
+            "pup", "--agent", "setup", "--help"
+        ])));
+        assert!(help_belongs_to_wrapped_cli(&argv(&[
+            "pup", "-o", "json", "setup", "-h"
+        ])));
+        assert!(!help_belongs_to_wrapped_cli(&argv(&[
+            "pup", "--agent", "logs", "--help"
+        ])));
+        assert!(!help_belongs_to_wrapped_cli(&argv(&["pup", "--help"])));
     }
 
     #[test]
@@ -14818,7 +14851,11 @@ async fn main_inner() -> anyhow::Result<()> {
     let has_help = args.iter().any(|a| a == "--help" || a == "-h");
     let has_agent_flag = args.iter().any(|a| a == "--agent");
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
-    if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
+    if has_help
+        && !has_no_agent_flag
+        && (useragent::is_agent_mode() || has_agent_flag)
+        && !help_belongs_to_wrapped_cli(&args)
+    {
         let cmd = cli_command();
         if let Some(schema) = agent_help_schema(&cmd, &args) {
             println!("{}", serde_json::to_string_pretty(&schema).unwrap());
@@ -20353,12 +20390,17 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
             }
         }
-        // --- Extensions ---
         #[cfg(not(target_arch = "wasm32"))]
         Commands::Setup { args } => {
-            let exit_code = extensions::first_party::run_setup(&cfg, &args, interactive)?;
+            let login = async |cfg: &config::Config| -> anyhow::Result<()> {
+                let scopes = resolve_login_scopes(None, None, cfg.org.as_deref(), cfg.read_only);
+                let port = resolve_callback_port(None)?;
+                commands::auth::login(cfg, scopes, port, None).await
+            };
+            let exit_code = commands::setup::run(&mut cfg, &args, login).await?;
             std::process::exit(exit_code);
         }
+        // --- Extensions ---
         #[cfg(not(target_arch = "wasm32"))]
         Commands::Extension { action } => match action {
             ExtensionActions::List => commands::extension::list(&cfg)?,

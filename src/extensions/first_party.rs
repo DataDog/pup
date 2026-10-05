@@ -7,6 +7,8 @@ use crate::config::Config;
 
 const FIRST_PARTY_EXTENSIONS: &[(&str, &str)] = &[("setup", "DataDog/pup-setup")];
 
+const SETUP_EXTENSION: &str = "setup";
+
 /// Debug builds only: install first-party extensions from this local file
 /// instead of their GitHub release, so the flow can be exercised before a
 /// release exists.
@@ -96,6 +98,23 @@ pub(crate) fn offer_install(
     }
 }
 
+/// Backs the built-in `pup setup` command: runs the setup extension with
+/// `args`, offering to install it first when it is missing.
+pub(crate) fn run_setup(cfg: &Config, args: &[String], interactive: bool) -> Result<i32> {
+    let path = match discovery::extension_path(SETUP_EXTENSION) {
+        Some(path) => path,
+        None => match offer_install(SETUP_EXTENSION, cfg, interactive)? {
+            Some(path) => path,
+            None => bail!(
+                "`pup setup` needs the first-party setup extension. Install it with \
+                 `pup extension install {}`.",
+                first_party_source(SETUP_EXTENSION).unwrap_or_default()
+            ),
+        },
+    };
+    super::exec_extension(&path, args, cfg)
+}
+
 fn dev_local_source() -> Option<PathBuf> {
     if !cfg!(debug_assertions) {
         return None;
@@ -112,6 +131,11 @@ mod tests {
     #[test]
     fn test_first_party_source_known() {
         assert_eq!(first_party_source("setup"), Some("DataDog/pup-setup"));
+    }
+
+    #[test]
+    fn test_setup_extension_is_first_party() {
+        assert!(first_party_source(SETUP_EXTENSION).is_some());
     }
 
     #[test]

@@ -374,14 +374,16 @@ pup extension install --local /path/to/updated-binary --force
 
 ## First-Party Extensions
 
-A small allowlist of Datadog-maintained extensions can be installed on first use. Running `pup setup` when `setup` is not installed:
+`pup setup` is a built-in command backed by the Datadog-maintained `setup` extension. Because it is built in, it appears in `pup --help` and `pup agent schema` even before the extension is installed. Every argument after `setup`, including `--help`, is passed through to the extension.
+
+When the extension is not installed yet, `pup setup` handles it as follows:
 
 | Mode | Behavior |
 |---|---|
-| Interactive terminal | Prompts `Install it now? [y/N]`; declining falls through to the normal unknown-command error |
+| Interactive terminal | Prompts `Install it now? [y/N]`; declining exits with the install command to run |
 | `--yes` or agent mode | Prints a one-line notice on stderr, installs, then runs the extension |
 | Non-interactive without `--yes` | Exits with the `pup extension install` command to run |
-| `--read-only` | Refuses to install |
+| `--read-only` | Refused, because `setup` is classified as a write command |
 
 ## Extension Directory
 

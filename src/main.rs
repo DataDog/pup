@@ -1386,6 +1386,22 @@ enum Commands {
         #[command(subcommand)]
         action: ExtensionActions,
     },
+    /// Set up Datadog products in your project
+    ///
+    /// Runs the first-party setup extension, installing it on first use.
+    /// Every argument after `setup` is passed through to the extension,
+    /// including --help.
+    ///
+    /// EXAMPLES:
+    ///   pup setup --product apm
+    ///   pup setup --help
+    #[cfg(not(target_arch = "wasm32"))]
+    #[command(verbatim_doc_comment, disable_help_flag = true)]
+    Setup {
+        /// Arguments passed through to the setup extension
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Manage feature flags
     ///
     /// Manage Datadog feature flags and their environments.
@@ -12817,6 +12833,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "pause"
         || name == "resume"
         || name == "generate"
+        || name == "setup"
 }
 
 fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
@@ -13087,6 +13104,42 @@ mod test_agent_schema {
             let subs = cmd.get("subcommands")?.as_array()?;
             find_command(subs, &path[1..])
         }
+    }
+
+    #[test]
+    fn setup_is_listed_in_agent_schema_as_a_write_command() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let setup = find_command(commands, &["setup"]).expect("setup must be in the schema");
+        assert_eq!(setup["read_only"], serde_json::json!(false));
+        let description = setup["description"].as_str().unwrap_or_default();
+        assert!(description.contains("Set up Datadog products"));
+    }
+
+    #[test]
+    fn setup_passes_all_arguments_through() {
+        let cli =
+            Cli::try_parse_from(["pup", "setup", "--product", "apm", "--help", "-x"]).unwrap();
+        match cli.command {
+            Commands::Setup { args } => assert_eq!(args, ["--product", "apm", "--help", "-x"]),
+            _ => panic!("expected the setup command"),
+        }
+    }
+
+    #[test]
+    fn setup_accepts_no_arguments() {
+        let cli = Cli::try_parse_from(["pup", "setup"]).unwrap();
+        match cli.command {
+            Commands::Setup { args } => assert!(args.is_empty()),
+            _ => panic!("expected the setup command"),
+        }
+    }
+
+    #[test]
+    fn setup_is_a_write_command_but_similar_names_are_not() {
+        assert!(is_write_command_name("setup"));
+        assert!(!is_write_command_name("setups"));
+        assert!(!is_write_command_name("list"));
     }
 
     #[test]
@@ -14776,38 +14829,26 @@ async fn main_inner() -> anyhow::Result<()> {
     // --- Extension interception (before clap parsing) ---
     // If the first positional arg is not a built-in command but matches an
     // installed extension, dispatch to it directly and bypass clap entirely.
-    // A first-party extension that is not installed yet is offered for install.
     #[cfg(not(target_arch = "wasm32"))]
     {
         let parsed = extensions::parse_extension_args(&args);
         if let Some(ref candidate) = parsed.candidate {
             if !extensions::is_builtin_command(candidate) {
-                let installed = extensions::extension_path(candidate);
-                let first_party = extensions::first_party::first_party_source(candidate).is_some();
-                if installed.is_some() || first_party {
+                if let Some(ext_path) = extensions::extension_path(candidate) {
                     let mut cfg = config::Config::from_env()?;
                     parsed.globals.apply_to(&mut cfg)?;
-                    let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
-                    let ext_path = match installed {
-                        Some(path) => Some(path),
-                        None => {
-                            extensions::first_party::offer_install(candidate, &cfg, interactive)?
-                        }
-                    };
-                    if let Some(ext_path) = ext_path {
-                        #[cfg(not(feature = "browser"))]
-                        {
-                            let trusted_sites = config::configured_trusted_sites();
-                            cfg.ensure_site_trusted(
-                                parsed.globals.trust_site,
-                                interactive,
-                                &trusted_sites,
-                            )?;
-                        }
-                        let exit_code =
-                            extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
-                        std::process::exit(exit_code);
+                    #[cfg(not(feature = "browser"))]
+                    {
+                        let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+                        let trusted_sites = config::configured_trusted_sites();
+                        cfg.ensure_site_trusted(
+                            parsed.globals.trust_site,
+                            interactive,
+                            &trusted_sites,
+                        )?;
                     }
+                    let exit_code = extensions::exec_extension(&ext_path, &parsed.ext_args, &cfg)?;
+                    std::process::exit(exit_code);
                 }
             }
         }
@@ -20313,6 +20354,11 @@ async fn main_inner() -> anyhow::Result<()> {
             }
         }
         // --- Extensions ---
+        #[cfg(not(target_arch = "wasm32"))]
+        Commands::Setup { args } => {
+            let exit_code = extensions::first_party::run_setup(&cfg, &args, interactive)?;
+            std::process::exit(exit_code);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         Commands::Extension { action } => match action {
             ExtensionActions::List => commands::extension::list(&cfg)?,

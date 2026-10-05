@@ -297,6 +297,12 @@ mod tests {
     }
 
     #[test]
+    fn test_is_builtin_setup() {
+        assert!(is_builtin_command("setup"));
+        assert!(!is_builtin_command("setupx"));
+    }
+
+    #[test]
     fn test_is_builtin_extension() {
         assert!(is_builtin_command("extension"));
     }

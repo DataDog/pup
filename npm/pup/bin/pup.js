@@ -16,7 +16,6 @@ try {
 
 const child = spawn(binary, process.argv.slice(2), {stdio: 'inherit'});
 
-// A supervisor may signal only this launcher, not the whole process group.
 for (const signal of FORWARDED_SIGNALS) {
 	process.on(signal, () => child.kill(signal));
 }

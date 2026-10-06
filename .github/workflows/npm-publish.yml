@@ -77,7 +77,6 @@ jobs:
         env:
           TAG: ${{ inputs.tag }}
 
-      # Platform packages first so the root package never points at missing versions.
       - name: Publish
         run: |
           FLAGS="--access public --provenance"

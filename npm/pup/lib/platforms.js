@@ -1,7 +1,5 @@
 'use strict';
 
-// Keyed by `${process.platform}-${process.arch}`. Linux release binaries are
-// statically linked against musl, so one package serves glibc and musl hosts.
 const PLATFORMS = {
 	'darwin-arm64': {os: 'darwin', cpu: 'arm64', asset: 'Darwin_arm64.tar.gz', binary: 'pup'},
 	'darwin-x64': {os: 'darwin', cpu: 'x64', asset: 'Darwin_x86_64.tar.gz', binary: 'pup'},

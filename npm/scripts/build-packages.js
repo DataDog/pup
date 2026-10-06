@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// Usage: node npm/scripts/build-packages.js --version <x.y.z> --assets <dir> --out <dir> [--platform <key>]...
-// <dir> for --assets holds the GitHub release archives (pup_<version>_<Os>_<arch>.tar.gz / .zip).
-
 const {execFileSync} = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');

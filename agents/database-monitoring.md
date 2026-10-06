@@ -85,7 +85,7 @@ pup monitors search "database"
 
 View infrastructure hosts running databases:
 ```bash
-pup infrastructure hosts --filter="dbm:true"
+pup infrastructure hosts list --filter="dbm:true"
 ```
 
 ## Common Database Metrics by Technology
@@ -208,7 +208,7 @@ pup monitors search "database"
 
 ### "Show hosts with DBM enabled"
 ```bash
-pup infrastructure hosts --filter="dbm:true"
+pup infrastructure hosts list --filter="dbm:true"
 ```
 
 ## Database Monitoring Setup

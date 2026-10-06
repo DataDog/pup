@@ -12,7 +12,7 @@ metadata:
 
 # Datadog Logs
 
-Search, process, and archive logs with cost awareness. Use this skill for broader log-management and configuration workflows; select the `logs` agent for focused log searches and result analysis.
+Search, process, and archive logs with cost awareness. Use this skill for broader log-management, archive, pipeline, and cost workflows; use the `logs` agent for focused log search and result analysis.
 
 ## Prerequisites
 

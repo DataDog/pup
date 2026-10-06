@@ -12,7 +12,7 @@ metadata:
 
 # Datadog Monitors
 
-Create, manage, and maintain monitors for alerting. Use this skill for routine monitor operations and design best practices; select the `monitoring-alerting` agent for downtime workflows.
+Create, manage, and maintain monitors for alerting. Use this skill for routine monitor CRUD and design best practices; use the `monitoring-alerting` agent for downtime workflows.
 
 
 ## Prerequisites
@@ -128,7 +128,7 @@ Threshold: {{threshold}}
 
 ## Delete Monitors Safely
 
-Monitor deletion is supported, but destructive. Delete only when the user explicitly requests it and confirms the target monitor. Pup prompts for confirmation by default. Do not use `--yes` unless the user explicitly authorizes automated deletion.
+Monitor deletion is supported, but destructive. Delete only when the user explicitly requests it and confirms the target monitor. Pup prompts for confirmation by default; do not use `--yes` unless the user explicitly authorizes automated deletion. Do not rename a monitor as a substitute for the requested deletion.
 
 ```bash
 pup monitors delete 12345

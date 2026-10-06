@@ -121,13 +121,13 @@ pup monitors get <monitor-id>
 
 View infrastructure running containers:
 ```bash
-pup infrastructure hosts --filter="container_runtime:docker"
-pup infrastructure hosts --filter="container_runtime:containerd"
+pup infrastructure hosts list --filter="container_runtime:docker"
+pup infrastructure hosts list --filter="container_runtime:containerd"
 ```
 
 View Kubernetes nodes:
 ```bash
-pup infrastructure hosts --filter="kube_cluster:*"
+pup infrastructure hosts list --filter="kube_cluster:*"
 ```
 
 ## Key Container Metrics
@@ -269,7 +269,7 @@ pup metrics query \
 
 ### "List my Kubernetes nodes"
 ```bash
-pup infrastructure hosts --filter="kube_cluster:*"
+pup infrastructure hosts list --filter="kube_cluster:*"
 ```
 
 ### "Show container network traffic"

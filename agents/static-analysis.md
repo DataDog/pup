@@ -36,7 +36,7 @@ You are a specialized agent for interacting with Datadog's Code Security feature
 
 Search for code security vulnerabilities:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security" \
   --from="24h" \
   --to="now"
@@ -44,28 +44,28 @@ pup security signals \
 
 Search for SAST findings:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.type:sast" \
   --from="24h"
 ```
 
 Search for SCA vulnerabilities:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.type:sca" \
   --from="24h"
 ```
 
 Search by severity:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND status:critical" \
   --from="7d"
 ```
 
 Search by repository:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @git.repository:myorg/myrepo" \
   --from="7d"
 ```
@@ -226,7 +226,7 @@ Present code security data in clear, user-friendly formats:
 
 ### "Show me code security vulnerabilities"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security" \
   --from="7d" \
   --to="now"
@@ -234,42 +234,42 @@ pup security signals \
 
 ### "What are my critical security issues?"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND status:critical" \
   --from="7d"
 ```
 
 ### "Show SAST findings in my code"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.type:sast" \
   --from="7d"
 ```
 
 ### "What dependencies have vulnerabilities?"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.type:sca" \
   --from="7d"
 ```
 
 ### "Show vulnerabilities in production services"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND env:production" \
   --from="7d"
 ```
 
 ### "Find SQL injection vulnerabilities"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.rule_name:*sql*injection*" \
   --from="7d"
 ```
 
 ### "Show vulnerabilities in specific repository"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @git.repository:myorg/api-service" \
   --from="7d"
 ```

@@ -1255,7 +1255,7 @@ mod tests {
         }
     }
 
-    fn cli_command_path_error(invocation: &str) -> Option<String> {
+    fn cli_command_path_error(invocation: &str, require_leaf: bool) -> Option<String> {
         let command_text = invocation.split_once("pup ")?.1;
         if command_text.trim_start().starts_with('<') {
             return None;
@@ -1298,10 +1298,14 @@ mod tests {
             }
         }
 
+        if require_leaf && path.len() > 1 && command.get_subcommands().next().is_some() {
+            return Some(format!("incomplete command path `{}`", path.join(" ")));
+        }
+
         None
     }
 
-    fn documented_commands(content: &str) -> Vec<String> {
+    fn documented_commands(content: &str) -> Vec<(String, bool)> {
         let mut commands = Vec::new();
         let mut in_code_block = false;
         for line in content.lines() {
@@ -1312,19 +1316,19 @@ mod tests {
 
             let mut segments = Vec::new();
             if in_code_block {
-                segments.push(line);
+                segments.push((line, true));
             } else {
                 let mut remaining = line;
                 while let Some((_, after_open)) = remaining.split_once('`') {
                     let Some((segment, after_close)) = after_open.split_once('`') else {
                         break;
                     };
-                    segments.push(segment);
+                    segments.push((segment, false));
                     remaining = after_close;
                 }
             }
 
-            for segment in segments {
+            for (segment, is_code_line) in segments {
                 let trimmed = segment.trim_start();
                 if trimmed.starts_with('#') {
                     continue;
@@ -1332,7 +1336,7 @@ mod tests {
                 if let Some((prefix, _)) = segment.split_once("pup ") {
                     let prefix = prefix.trim_end();
                     if prefix.is_empty() || prefix.ends_with('|') || prefix.ends_with("$(") {
-                        commands.push(segment.to_string());
+                        commands.push((segment.to_string(), is_code_line));
                     }
                 }
             }
@@ -1350,8 +1354,8 @@ mod tests {
             let mut contents = vec![entry.content];
             contents.extend(entry.files.iter().map(|(_, content)| *content));
             for content in contents {
-                for invocation in documented_commands(content) {
-                    if let Some(error) = cli_command_path_error(&invocation) {
+                for (invocation, is_code_line) in documented_commands(content) {
+                    if let Some(error) = cli_command_path_error(&invocation, is_code_line) {
                         errors.push(format!("{}: `{invocation}`: {error}", entry.name));
                     }
                 }
@@ -1366,10 +1370,12 @@ mod tests {
 
     #[test]
     fn test_cli_command_path_validation_accepts_and_rejects_paths() {
-        assert!(cli_command_path_error("pup cloud aws list").is_none());
-        assert!(cli_command_path_error("pup workflows run workflow-id").is_none());
-        assert!(cli_command_path_error("pup not-a-command list").is_some());
-        assert!(cli_command_path_error("pup workflows list").is_some());
+        assert!(cli_command_path_error("pup cloud aws list", true).is_none());
+        assert!(cli_command_path_error("pup workflows run workflow-id", true).is_none());
+        assert!(cli_command_path_error("pup not-a-command list", true).is_some());
+        assert!(cli_command_path_error("pup workflows list", true).is_some());
+        assert!(cli_command_path_error("pup infrastructure hosts", true).is_some());
+        assert!(cli_command_path_error("pup infrastructure hosts", false).is_none());
     }
 
     #[test]

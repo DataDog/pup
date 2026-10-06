@@ -41,7 +41,7 @@ You are a specialized agent for interacting with Datadog's Application Security 
 
 Search for application security threats:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm" \
   --from="1h" \
   --to="now"
@@ -50,24 +50,24 @@ pup security signals \
 Search for specific attack types:
 ```bash
 # SQL injection attempts
-pup security signals \
+pup security signals list \
   --query="source:asm AND rule.name:*sql*injection*" \
   --from="24h"
 
 # XSS attacks
-pup security signals \
+pup security signals list \
   --query="source:asm AND rule.name:*xss*" \
   --from="24h"
 
 # SSRF attempts
-pup security signals \
+pup security signals list \
   --query="source:asm AND rule.name:*ssrf*" \
   --from="24h"
 ```
 
 Search by severity:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND status:high" \
   --from="1h"
 ```
@@ -270,7 +270,7 @@ Present ASM data in clear, user-friendly formats:
 
 ### "Show me application security threats"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm" \
   --from="24h" \
   --to="now"
@@ -278,49 +278,49 @@ pup security signals \
 
 ### "Are there any SQL injection attempts?"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND rule.name:*sql*injection*" \
   --from="24h"
 ```
 
 ### "Show XSS attacks"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND @attack.technique:cross-site-scripting" \
   --from="24h"
 ```
 
 ### "Find high-severity application threats"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND status:high" \
   --from="1h"
 ```
 
 ### "Show blocked attacks"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND @appsec.blocked:true" \
   --from="24h"
 ```
 
 ### "Search for SSRF attempts"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND @attack.technique:ssrf" \
   --from="24h"
 ```
 
 ### "Find attacks targeting specific service"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND service:api-gateway" \
   --from="24h"
 ```
 
 ### "Show credential stuffing attempts"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND @attack.technique:credential-stuffing" \
   --from="24h"
 ```

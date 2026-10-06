@@ -69,14 +69,18 @@ pub async fn run(
         std::io::stdin().is_terminal(),
         std::io::stdout().is_terminal(),
     );
+    let had_session = cfg.access_token.is_some();
+    let mut login = Some(login);
     // A person at a terminal without a session gets AI Setup's own sign-in
     // flow, exactly as when running it standalone.
-    if should_log_in(headless, cfg.access_token.is_some(), args) {
+    if should_log_in(headless, had_session, args) {
         let granted_scopes = stored_token_scopes(cfg);
-        ensure_session(cfg, granted_scopes.as_deref(), login, |cfg| {
-            crate::config::load_token_from_storage(&cfg.site, cfg.org.as_deref())
-        })
-        .await?;
+        if let Some(login) = login.take() {
+            ensure_session(cfg, granted_scopes.as_deref(), login, |cfg| {
+                crate::config::load_token_from_storage(&cfg.site, cfg.org.as_deref())
+            })
+            .await?;
+        }
     }
     let launch = Launch {
         package: package_spec(std::env::var(AI_SETUP_PACKAGE_ENV).ok().as_deref())?,
@@ -84,7 +88,51 @@ pub async fn run(
         json_help: wants_json_help(cfg.agent_mode, std::env::var("PUP_OUTPUT").ok().as_deref()),
     };
     let cmd = build_command(&npx, &build_args(args, &cfg.site, &launch), cfg);
-    exec::run_inherited(cmd, "npx")
+    let exit_code = exec::run_inherited(cmd, "npx")?;
+    // AI Setup's own sign-in or sign-up session isn't shared with pup.
+    if should_offer_pup_login(headless, had_session, args, exit_code) {
+        if let Some(login) = login.take() {
+            offer_pup_login(cfg, login).await;
+        }
+    }
+    Ok(exit_code)
+}
+
+fn should_offer_pup_login(
+    headless: bool,
+    had_session: bool,
+    args: &[String],
+    exit_code: i32,
+) -> bool {
+    !headless && !had_session && exit_code == 0 && !asks_for_help(args)
+}
+
+async fn offer_pup_login(cfg: &Config, login: impl AsyncFnOnce(&Config) -> Result<()>) {
+    eprint!(
+        "\nLog in to pup on {} too, so you can use its other commands? [Y/n] ",
+        cfg.site
+    );
+    std::io::Write::flush(&mut std::io::stderr()).ok();
+    let mut answer = String::new();
+    if std::io::stdin().read_line(&mut answer).is_err() || !accepts_default_yes(&answer) {
+        eprintln!("You can run `pup auth login` any time.");
+        return;
+    }
+    if let Err(err) = login(cfg).await {
+        eprintln!("pup login failed ({err}). You can run `pup auth login` any time.");
+    }
+}
+
+fn accepts_default_yes(answer: &str) -> bool {
+    matches!(answer.trim().to_lowercase().as_str(), "" | "y" | "yes")
+}
+
+fn signup_hint(site: &str) -> String {
+    format!(
+        "pup setup needs a Datadog login. No account yet? Sign up at https://{}/signup, \
+         then rerun `pup setup`.",
+        crate::config::auth_host_for(site)
+    )
 }
 
 #[derive(Debug)]
@@ -110,6 +158,9 @@ async fn ensure_session(
 ) -> Result<()> {
     if !needs_login(cfg, granted_scopes) {
         return Ok(());
+    }
+    if cfg.access_token.is_none() {
+        eprintln!("{}", signup_hint(&cfg.site));
     }
     login(cfg).await?;
     cfg.access_token = stored_token(cfg);
@@ -628,6 +679,32 @@ mod tests {
         let result = ensure_session(&mut cfg, None, async |_: &Config| Ok(()), |_| None).await;
         assert!(result.unwrap_err().to_string().contains("no pup session"));
         cleanup_env();
+    }
+
+    #[test]
+    fn offers_pup_login_only_after_successful_terminal_runs_without_a_session() {
+        let setup = args(&["--product", "apm"]);
+        assert!(should_offer_pup_login(false, false, &setup, 0));
+        assert!(!should_offer_pup_login(true, false, &setup, 0));
+        assert!(!should_offer_pup_login(false, true, &setup, 0));
+        assert!(!should_offer_pup_login(false, false, &setup, 1));
+        assert!(!should_offer_pup_login(false, false, &args(&["--help"]), 0));
+    }
+
+    #[test]
+    fn pup_login_offer_defaults_to_yes() {
+        for answer in ["", "\n", "y\n", "YES\n"] {
+            assert!(accepts_default_yes(answer), "{answer:?}");
+        }
+        for answer in ["n\n", "no\n", "later\n"] {
+            assert!(!accepts_default_yes(answer), "{answer:?}");
+        }
+    }
+
+    #[test]
+    fn signup_hint_points_at_the_site_ui_host() {
+        assert!(signup_hint("datadoghq.com").contains("https://app.datadoghq.com/signup"));
+        assert!(signup_hint("us5.datadoghq.com").contains("https://us5.datadoghq.com/signup"));
     }
 
     #[test]

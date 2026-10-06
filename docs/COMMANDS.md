@@ -329,8 +329,10 @@ pup setup --help
   terminal, pup adds `--headless`. A person at a terminal gets AI Setup's
   interactive flow.
 - **No session yet.** For headless runs, pup runs its OAuth login first (the same
-  flow as `pup auth login`) and then continues. At a terminal, AI Setup's own
-  sign-in runs instead.
+  flow as `pup auth login`) and then continues, first pointing people without
+  a Datadog account to the sign-up page. At a terminal, AI Setup's own sign-in
+  or sign-up runs instead, and after a successful run pup offers to log in too,
+  since AI Setup's session isn't shared with pup.
 - **API key scope.** AI Setup writes the org's API key into the project so the
   Agent and tracers can send data, which needs `api_keys_read`. pup's login for
   setup requests it on top of the usual scopes. If the saved session doesn't

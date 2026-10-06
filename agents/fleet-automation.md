@@ -56,26 +56,20 @@ List with default pagination:
 pup fleet agents list
 ```
 
-Filter by tags:
+Filter by host attributes:
 ```bash
-pup fleet agents list \
-  --tags="env:prod,service:web"
+pup fleet agents list --filter="env:prod AND service:web"
 ```
 
-Filter with query and pagination:
+Filter with a query and set the supported page size:
 ```bash
 pup fleet agents list \
   --filter="hostname:my-hostname OR env:dev" \
-  --page-number=1 \
   --page-size=50
 ```
+Pup does not expose a page-number option for fleet agents.
 
-Sort agents:
-```bash
-pup fleet agents list \
-  --sort-attribute="agent_version" \
-  --sort-descending
-```
+Agent listing does not expose sort options in the typed CLI; sort the returned results locally if needed.
 
 #### Get Agent Details
 
@@ -91,11 +85,9 @@ pup fleet agents get <agent-key>
 pup fleet deployments list
 ```
 
-With pagination:
+Set the supported page size (the typed command does not expose an offset):
 ```bash
-pup fleet deployments list \
-  --page-size=20 \
-  --page-offset=0
+pup fleet deployments list --page-size=20
 ```
 
 #### Get Deployment Details
@@ -104,39 +96,40 @@ pup fleet deployments list \
 pup fleet deployments get <deployment-id>
 ```
 
-With host pagination:
+Deployment details are retrieved by ID; the typed get command does not have pagination options:
 ```bash
-pup fleet deployments get <deployment-id> \
-  --limit=100 \
-  --page=0
+pup fleet deployments get <deployment-id>
 ```
 
 #### Create Configuration Deployment
 
 Simple log level change:
 ```bash
-pup fleet deployments configure \
-  --filter-query="env:prod" \
-  --file-path="/datadog.yaml" \
-  --file-op="merge-patch" \
-  --patch='{"log_level":"info"}'
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet deployments configure --file=configure-request.json
+# --filter-query="env:prod" \
+# --file-path="/datadog.yaml" \
+# --file-op="merge-patch" \
+# --patch='{"log_level":"info"}'
 ```
 
 Enable multiple features:
 ```bash
-pup fleet deployments configure \
-  --filter-query="env:prod AND service:web" \
-  --file-path="/datadog.yaml" \
-  --file-op="merge-patch" \
-  --patch='{"log_level":"info","logs_enabled":true,"apm_config":{"enabled":true}}'
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet deployments configure --file=configure-request.json
+# --filter-query="env:prod AND service:web" \
+# --file-path="/datadog.yaml" \
+# --file-op="merge-patch" \
+# --patch='{"log_level":"info","logs_enabled":true,"apm_config":{"enabled":true}}'
 ```
 
 Delete a configuration file:
 ```bash
-pup fleet deployments configure \
-  --filter-query="env:dev" \
-  --file-path="/conf.d/old-integration.yaml" \
-  --file-op="delete"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet deployments configure --file=configure-request.json
+# --filter-query="env:dev" \
+# --file-path="/conf.d/old-integration.yaml" \
+# --file-op="delete"
 ```
 
 Multiple operations (requires JSON file):
@@ -151,25 +144,28 @@ Multiple operations (requires JSON file):
 #   ]
 # }
 
-pup fleet deployments configure \
-  --config-file=operations.json
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet deployments configure --file=configure-request.json
+# --config-file=operations.json
 ```
 
 #### Create Package Upgrade Deployment
 
 Upgrade to specific version:
 ```bash
-pup fleet deployments upgrade \
-  --filter-query="env:prod AND service:web" \
-  --package-name="datadog-agent" \
-  --package-version="7.52.0"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet deployments upgrade --file=upgrade-request.json
+# --filter-query="env:prod AND service:web" \
+# --package-name="datadog-agent" \
+# --package-version="7.52.0"
 ```
 
 Upgrade multiple packages:
 ```bash
-pup fleet deployments upgrade \
-  --filter-query="env:staging" \
-  --packages='[{"name":"datadog-agent","version":"7.52.0"},{"name":"datadog-apm-inject","version":"0.10.0"}]'
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet deployments upgrade --file=upgrade-request.json
+# --filter-query="env:staging" \
+# --packages='[{"name":"datadog-agent","version":"7.52.0"},{"name":"datadog-apm-inject","version":"0.10.0"}]'
 ```
 
 #### Cancel a Deployment
@@ -196,50 +192,55 @@ pup fleet schedules get <schedule-id>
 
 Weekly updates on specific days:
 ```bash
-pup fleet schedules create \
-  --name="Weekly Production Updates" \
-  --query="env:prod" \
-  --status="active" \
-  --version-to-latest=0 \
-  --days-of-week="Mon,Wed" \
-  --start-time="02:00" \
-  --duration=180 \
-  --timezone="America/New_York"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet schedules create --file=create-request.json
+# --name="Weekly Production Updates" \
+# --query="env:prod" \
+# --status="active" \
+# --version-to-latest=0 \
+# --days-of-week="Mon,Wed" \
+# --start-time="02:00" \
+# --duration=180 \
+# --timezone="America/New_York"
 ```
 
 Conservative staging updates (N-1 version):
 ```bash
-pup fleet schedules create \
-  --name="Staging - Conservative Updates" \
-  --query="env:staging" \
-  --status="active" \
-  --version-to-latest=1 \
-  --days-of-week="Fri" \
-  --start-time="22:00" \
-  --duration=240 \
-  --timezone="UTC"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet schedules create --file=create-request.json
+# --name="Staging - Conservative Updates" \
+# --query="env:staging" \
+# --status="active" \
+# --version-to-latest=1 \
+# --days-of-week="Fri" \
+# --start-time="22:00" \
+# --duration=240 \
+# --timezone="UTC"
 ```
 
 #### Update a Schedule
 
 Pause a schedule:
 ```bash
-pup fleet schedules update <schedule-id> \
-  --status="inactive"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet schedules update <schedule-id> --file=update-request.json
+# --status="inactive"
 ```
 
 Change maintenance window:
 ```bash
-pup fleet schedules update <schedule-id> \
-  --days-of-week="Mon,Wed,Fri" \
-  --start-time="03:00" \
-  --duration=240
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet schedules update <schedule-id> --file=update-request.json
+# --days-of-week="Mon,Wed,Fri" \
+# --start-time="03:00" \
+# --duration=240
 ```
 
 Update target query:
 ```bash
-pup fleet schedules update <schedule-id> \
-  --query="env:prod AND service:api"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet schedules update <schedule-id> --file=update-request.json
+# --query="env:prod AND service:api"
 ```
 
 #### Delete a Schedule
@@ -369,32 +370,35 @@ pup fleet agents list \
 
 ### "Upgrade all production web servers to Agent 7.52.0"
 ```bash
-pup fleet deployments upgrade \
-  --filter-query="env:prod AND service:web" \
-  --package-name="datadog-agent" \
-  --package-version="7.52.0"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet deployments upgrade --file=upgrade-request.json
+# --filter-query="env:prod AND service:web" \
+# --package-name="datadog-agent" \
+# --package-version="7.52.0"
 ```
 
 ### "Enable APM and logs on all staging hosts"
 ```bash
-pup fleet deployments configure \
-  --filter-query="env:staging" \
-  --file-path="/datadog.yaml" \
-  --file-op="merge-patch" \
-  --patch='{"logs_enabled":true,"apm_config":{"enabled":true}}'
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet deployments configure --file=configure-request.json
+# --filter-query="env:staging" \
+# --file-path="/datadog.yaml" \
+# --file-op="merge-patch" \
+# --patch='{"logs_enabled":true,"apm_config":{"enabled":true}}'
 ```
 
 ### "Set up weekly automated updates for production"
 ```bash
-pup fleet schedules create \
-  --name="Weekly Production Agent Updates" \
-  --query="env:prod" \
-  --status="active" \
-  --version-to-latest=0 \
-  --days-of-week="Mon,Wed" \
-  --start-time="02:00" \
-  --duration=180 \
-  --timezone="America/New_York"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup fleet schedules create --file=create-request.json
+# --name="Weekly Production Agent Updates" \
+# --query="env:prod" \
+# --status="active" \
+# --version-to-latest=0 \
+# --days-of-week="Mon,Wed" \
+# --start-time="02:00" \
+# --duration=180 \
+# --timezone="America/New_York"
 ```
 
 ### "Check the status of a deployment"

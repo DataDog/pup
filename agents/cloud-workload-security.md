@@ -57,46 +57,47 @@ pup csm-threats agent-rules list \
 ### Get Specific Agent Rule
 
 ```bash
-pup csm-threats agent-rules get \
-  --rule-id="3dd-0uc-h1s"
+pup csm-threats agent-rules get 3dd-0uc-h1s
 ```
 
 ### Create Agent Rule
 
 Create a new Workload Protection detection rule:
 ```bash
-pup csm-threats agent-rules create \
-  --name="Detect Shell Execution" \
-  --description="Alert on shell execution" \
-  --expression='exec.file.name == "sh"' \
-  --enabled=true
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup csm-threats agent-rules create --file=create-request.json
+# --name="Detect Shell Execution" \
+# --description="Alert on shell execution" \
+# --expression='exec.file.name == "sh"' \
+# --enabled=true
 ```
 
 With advanced options:
 ```bash
-pup csm-threats agent-rules create \
-  --name="Detect Sensitive File Access" \
-  --description="Monitor access to sensitive files" \
-  --expression='open.file.path == "/etc/shadow"' \
-  --enabled=true \
-  --policy-id="6517fcc1-cec7-4394-a655-8d6e9d085255" \
-  --product-tags='["security:attack", "technique:T1003"]'
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup csm-threats agent-rules create --file=create-request.json
+# --name="Detect Sensitive File Access" \
+# --description="Monitor access to sensitive files" \
+# --expression='open.file.path == "/etc/shadow"' \
+# --enabled=true \
+# --policy-id="6517fcc1-cec7-4394-a655-8d6e9d085255" \
+# --product-tags='["security:attack", "technique:T1003"]'
 ```
 
 ### Update Agent Rule
 
 ```bash
-pup csm-threats agent-rules update \
-  --rule-id="3dd-0uc-h1s" \
-  --enabled=false \
-  --description="Updated description"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup csm-threats agent-rules update --file=update-request.json
+# --rule-id="3dd-0uc-h1s" \
+# --enabled=false \
+# --description="Updated description"
 ```
 
 ### Delete Agent Rule
 
 ```bash
-pup csm-threats agent-rules delete \
-  --rule-id="3dd-0uc-h1s"
+pup csm-threats agent-rules delete 3dd-0uc-h1s
 ```
 
 ### List Workload Protection Policies
@@ -109,43 +110,44 @@ pup csm-threats agent-policies list
 ### Get Specific Policy
 
 ```bash
-pup csm-threats agent-policies get \
-  --policy-id="6517fcc1-cec7-4394-a655-8d6e9d085255"
+pup csm-threats agent-policies get 6517fcc1-cec7-4394-a655-8d6e9d085255
 ```
 
 ### Create Policy
 
 Create a new agent policy:
 ```bash
-pup csm-threats agent-policies create \
-  --name="Production Policy" \
-  --description="Workload protection for production hosts" \
-  --host-tags='["env:production"]' \
-  --enabled=true
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup csm-threats agent-policies create --file=create-request.json
+# --name="Production Policy" \
+# --description="Workload protection for production hosts" \
+# --host-tags='["env:production"]' \
+# --enabled=true
 ```
 
 With AND/OR host tag logic:
 ```bash
-pup csm-threats agent-policies create \
-  --name="Kubernetes Production Policy" \
-  --description="K8s production workload protection" \
-  --host-tags-lists='[["env:production", "platform:kubernetes"], ["env:prod", "platform:k8s"]]' \
-  --enabled=true
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup csm-threats agent-policies create --file=create-request.json
+# --name="Kubernetes Production Policy" \
+# --description="K8s production workload protection" \
+# --host-tags-lists='[["env:production", "platform:kubernetes"], ["env:prod", "platform:k8s"]]' \
+# --enabled=true
 ```
 
 ### Update Policy
 
 ```bash
-pup csm-threats agent-policies update \
-  --policy-id="6517fcc1-cec7-4394-a655-8d6e9d085255" \
-  --enabled=false
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup csm-threats agent-policies update --file=update-request.json
+# --policy-id="6517fcc1-cec7-4394-a655-8d6e9d085255" \
+# --enabled=false
 ```
 
 ### Delete Policy
 
 ```bash
-pup csm-threats agent-policies delete \
-  --policy-id="6517fcc1-cec7-4394-a655-8d6e9d085255"
+pup csm-threats agent-policies delete 6517fcc1-cec7-4394-a655-8d6e9d085255
 ```
 
 ### Download Workload Protection Policy
@@ -460,11 +462,12 @@ pup csm-threats agent-rules list
 
 ### "Create a rule to detect privilege escalation"
 ```bash
-pup csm-threats agent-rules create \
-  --name="Detect Privilege Escalation" \
-  --description="Alert on suspicious privilege escalation attempts" \
-  --expression='exec.file.name in ["sudo", "su"] && process.parent.file.name not in ["sshd", "systemd", "login"]' \
-  --enabled=true
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup csm-threats agent-rules create --file=create-request.json
+# --name="Detect Privilege Escalation" \
+# --description="Alert on suspicious privilege escalation attempts" \
+# --expression='exec.file.name in ["sudo", "su"] && process.parent.file.name not in ["sshd", "systemd", "login"]' \
+# --enabled=true
 ```
 
 ### "List all policies deployed to production"
@@ -481,11 +484,12 @@ pup csm-threats agent-policies list
 
 ### "Create a policy for Kubernetes production hosts"
 ```bash
-pup csm-threats agent-policies create \
-  --name="K8s Production Policy" \
-  --description="Workload protection for Kubernetes production clusters" \
-  --host-tags-lists='[["env:production", "platform:kubernetes"]]' \
-  --enabled=true
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup csm-threats agent-policies create --file=create-request.json
+# --name="K8s Production Policy" \
+# --description="Workload protection for Kubernetes production clusters" \
+# --host-tags-lists='[["env:production", "platform:kubernetes"]]' \
+# --enabled=true
 ```
 
 ### "Show me agents that don't have CWS enabled"
@@ -497,11 +501,12 @@ pup csm-threats agent-policies create \
 
 ### "Create a rule to detect container escape"
 ```bash
-pup csm-threats agent-rules create \
-  --name="Container Escape Detection" \
-  --description="Detect container escape attempts via proc filesystem" \
-  --expression='exec.file.path =~ "/proc/*/root/*" && container.id != ""' \
-  --enabled=true
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup csm-threats agent-rules create --file=create-request.json
+# --name="Container Escape Detection" \
+# --description="Detect container escape attempts via proc filesystem" \
+# --expression='exec.file.path =~ "/proc/*/root/*" && container.id != ""' \
+# --enabled=true
 ```
 
 ### "Download the current Workload Protection policy"

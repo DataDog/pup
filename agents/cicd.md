@@ -233,16 +233,18 @@ pup deployment-gates gates get <gate-id>
 
 #### Create Deployment Gate
 ```bash
-pup deployment-gates gates create \
-  --name="Production Deployment Gate" \
-  --service="my-service" \
-  --env="production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup deployment-gates gates create --file=create-request.json
+# --name="Production Deployment Gate" \
+# --service="my-service" \
+# --env="production"
 ```
 
 #### Update Deployment Gate
 ```bash
-pup deployment-gates gates update <gate-id> \
-  --dry-run=false
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup deployment-gates gates update <gate-id> --file=update-request.json
+# --dry-run=false
 ```
 
 #### Delete Deployment Gate
@@ -251,41 +253,25 @@ pup deployment-gates gates delete <gate-id>
 ```
 
 #### List Deployment Rules
+Rules have their own command group under deployment gates:
 ```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup deployment-gates gates rules list <gate-id>
+pup deployment-gates rules list <gate-id>
 ```
 
 #### Create Deployment Rule
+Create a rule from a JSON request file. Rule settings belong in the file, not in individual CLI flags.
 ```bash
-# Monitor-based rule
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup deployment-gates gates rules create <gate-id> \
-# --name="Check error rate" \
-# --type="monitor" \
-# --monitor-query="service:my-service env:prod" \
-# --duration=3600
-
-# Faulty deployment detection rule
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup deployment-gates gates rules create <gate-id> \
-# --name="Detect faulty deployment" \
-# --type="faulty_deployment_detection" \
-# --duration=1800
+pup deployment-gates rules create <gate-id> --file=rule.json
 ```
 
 #### Update Deployment Rule
 ```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup deployment-gates gates rules update <gate-id> <rule-id> \
-# --dry-run=false \
-# --name="Updated rule name"
+pup deployment-gates rules update <gate-id> <rule-id> --file=rule.json
 ```
 
 #### Delete Deployment Rule
 ```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup deployment-gates gates rules delete <gate-id> <rule-id>
+pup deployment-gates rules delete <gate-id> <rule-id>
 ```
 
 ## Query Syntax
@@ -385,10 +371,11 @@ pup deployment-gates gates list
 
 ### "Create a deployment gate for production"
 ```bash
-pup deployment-gates gates create \
-  --name="Production Deployment Gate" \
-  --service="api" \
-  --env="production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup deployment-gates gates create --file=create-request.json
+# --name="Production Deployment Gate" \
+# --service="api" \
+# --env="production"
 ```
 
 ## Error Handling

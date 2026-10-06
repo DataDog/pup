@@ -83,10 +83,10 @@ You are a specialized agent for managing Datadog's AWS integration. Your role is
 pup cloud aws list
 ```
 
-Filter by AWS Account ID:
+The typed command lists all AWS integrations and does not accept an account-ID filter. Filter the returned list locally if needed:
+
 ```bash
-pup cloud aws list \
-  --aws-account-id="123456789012"
+pup cloud aws list
 ```
 
 #### Get AWS Integration by Config ID

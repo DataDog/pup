@@ -116,10 +116,11 @@ standalone case work, route the user to `case-management` directly.
 
 #### Create Schedule
 ```bash
-pup on-call schedules create \
-  --name="Primary On-Call Rotation" \
-  --timezone="America/New_York" \
-  --schedule='{"rotations": [...]}'
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call schedules create --file=create-request.json
+# --name="Primary On-Call Rotation" \
+# --timezone="America/New_York" \
+# --schedule='{"rotations": [...]}'
 ```
 
 #### Get Schedule
@@ -129,9 +130,10 @@ pup on-call schedules get <schedule-id>
 
 #### Update Schedule
 ```bash
-pup on-call schedules update <schedule-id> \
-  --name="Updated Rotation" \
-  --schedule='{"rotations": [...]}'
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call schedules update <schedule-id> --file=update-request.json
+# --name="Updated Rotation" \
+# --schedule='{"rotations": [...]}'
 ```
 
 #### Delete Schedule
@@ -149,9 +151,10 @@ pup on-call schedules delete <schedule-id>
 
 #### Create Escalation Policy
 ```bash
-pup on-call escalation-policies create \
-  --name="Platform Team Escalation" \
-  --steps='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call escalation-policies create --file=escalation-policy.json
+# --name="Platform Team Escalation" \
+# --steps='[
     {
       "delay_minutes": 0,
       "targets": [{"type": "schedule", "id": "schedule-123"}]
@@ -170,9 +173,10 @@ pup on-call escalation-policies get <policy-id>
 
 #### Update Escalation Policy
 ```bash
-pup on-call escalation-policies update <policy-id> \
-  --name="Updated Escalation" \
-  --steps='[...]'
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call escalation-policies update <policy-id> --file=update-request.json
+# --name="Updated Escalation" \
+# --steps='[...]'
 ```
 
 #### Delete Escalation Policy
@@ -200,33 +204,36 @@ pup on-call escalation-policies delete <policy-id>
 
 #### Create Page (High Urgency)
 ```bash
-pup on-call pages create \
-  --title="Production Database Down" \
-  --description="RDS primary instance unresponsive" \
-  --target-type="team_id" \
-  --target-id="team-123" \
-  --urgency="high" \
-  --tags="env:production,service:database"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call pages create --file=create-request.json
+# --title="Production Database Down" \
+# --description="RDS primary instance unresponsive" \
+# --target-type="team_id" \
+# --target-id="team-123" \
+# --urgency="high" \
+# --tags="env:production,service:database"
 ```
 
 #### Create Page (Low Urgency)
 ```bash
-pup on-call pages create \
-  --title="Certificate Expiring Soon" \
-  --description="SSL cert expires in 7 days" \
-  --target-type="user_id" \
-  --target-id="user-456" \
-  --urgency="low"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call pages create --file=create-request.json
+# --title="Certificate Expiring Soon" \
+# --description="SSL cert expires in 7 days" \
+# --target-type="user_id" \
+# --target-id="user-456" \
+# --urgency="low"
 ```
 
 #### Page by Team Handle
 ```bash
-pup on-call pages create \
-  --title="API Latency High" \
-  --description="P95 latency > 500ms" \
-  --target-type="team_handle" \
-  --target-id="platform-team" \
-  --urgency="high"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call pages create --file=create-request.json
+# --title="API Latency High" \
+# --description="P95 latency > 500ms" \
+# --target-type="team_handle" \
+# --target-id="platform-team" \
+# --urgency="high"
 ```
 
 #### Acknowledge Page
@@ -260,28 +267,32 @@ pup on-call pages create \
 #### Create Notification Channel
 ```bash
 # SMS
-pup on-call notification-channels create \
-  --type="sms" \
-  --value="+15551234567" \
-  --enabled
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-channels create <user-id> --file=create-request.json
+# --type="sms" \
+# --value="+15551234567" \
+# --enabled
 
 # Email
-pup on-call notification-channels create \
-  --type="email" \
-  --value="oncall@example.com" \
-  --enabled
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-channels create <user-id> --file=create-request.json
+# --type="email" \
+# --value="oncall@example.com" \
+# --enabled
 
 # Phone
-pup on-call notification-channels create \
-  --type="phone" \
-  --value="+15551234567" \
-  --enabled
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-channels create <user-id> --file=create-request.json
+# --type="phone" \
+# --value="+15551234567" \
+# --enabled
 
 # Slack
-pup on-call notification-channels create \
-  --type="slack" \
-  --value="@username" \
-  --enabled
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-channels create <user-id> --file=create-request.json
+# --type="slack" \
+# --value="@username" \
+# --enabled
 ```
 
 #### List Notification Channels
@@ -302,16 +313,18 @@ pup on-call notification-channels delete <channel-id>
 #### Create Notification Rule
 ```bash
 # Immediate high urgency notification
-pup on-call notification-rules create \
-  --channel-id="channel-123" \
-  --urgency="high" \
-  --delay-minutes=0
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-rules create <user-id> --file=create-request.json
+# --channel-id="channel-123" \
+# --urgency="high" \
+# --delay-minutes=0
 
 # Delayed notification
-pup on-call notification-rules create \
-  --channel-id="channel-456" \
-  --urgency="high" \
-  --delay-minutes=15
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-rules create <user-id> --file=create-request.json
+# --channel-id="channel-456" \
+# --urgency="high" \
+# --delay-minutes=15
 ```
 
 #### List Notification Rules
@@ -326,8 +339,9 @@ pup on-call notification-rules get <rule-id>
 
 #### Update Notification Rule
 ```bash
-pup on-call notification-rules update <rule-id> \
-  --delay-minutes=5
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-rules update <rule-id> --file=update-request.json
+# --delay-minutes=5
 ```
 
 #### Delete Notification Rule
@@ -339,22 +353,18 @@ pup on-call notification-rules delete <rule-id>
 
 #### List All Incidents
 ```bash
-# List all incidents
-pup incidents list
+# List incidents across states
+pup incidents list --query="state:(active OR stable OR resolved OR completed)"
 
-# Filter by state (active, stable, resolved, completed)
-pup incidents list --state=active
-pup incidents list --state=resolved
-
-# Filter by custom query
+# Filter by state or custom criteria
+pup incidents list --query="state:active"
+pup incidents list --query="state:resolved"
 pup incidents list --query="severity:SEV-1"
 pup incidents list --query="customer_impacted:true"
+pup incidents list --query="state:active AND severity:SEV-1"
 
-# Combine filters
-pup incidents list --state=active --query="severity:SEV-1"
-
-# Pagination
-pup incidents list --page-size=50 --page-offset=0
+# Bound the result count (the typed command does not expose page offsets)
+pup incidents list --limit=50
 ```
 
 #### Get Incident Details
@@ -499,13 +509,14 @@ These operations will display what will be changed and require user awareness.
 
 ```bash
 # 1. DETECTION: Page triggers on-call
-pup on-call pages create \
-  --title="Production API Error Rate Spike" \
-  --description="Error rate > 10% for /api/users endpoint" \
-  --target-type="team_handle" \
-  --target-id="platform-team" \
-  --urgency="high" \
-  --tags="severity:critical,env:production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call pages create --file=create-request.json
+# --title="Production API Error Rate Spike" \
+# --description="Error rate > 10% for /api/users endpoint" \
+# --target-type="team_handle" \
+# --target-id="platform-team" \
+# --urgency="high" \
+# --tags="severity:critical,env:production"
 
 # 2. RESPONSE: On-call engineer acknowledges
 # UNSUPPORTED: pup has no typed command for this operation.
@@ -549,10 +560,11 @@ pup cases archive CASE-XXX
 
 ```bash
 # 1. Create on-call schedule
-pup on-call schedules create \
-  --name="Platform Team Weekly Rotation" \
-  --timezone="America/New_York" \
-  --schedule='{
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call schedules create --file=schedule.json
+# --name="Platform Team Weekly Rotation" \
+# --timezone="America/New_York" \
+# --schedule='{
     "rotations": [{
       "type": "weekly",
       "start": "2024-01-01T00:00:00Z",
@@ -561,9 +573,10 @@ pup on-call schedules create \
   }'
 
 # 2. Create escalation policy
-pup on-call escalation-policies create \
-  --name="Critical Production Escalation" \
-  --steps='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call escalation-policies create --file=escalation-policy.json
+# --name="Critical Production Escalation" \
+# --steps='[
     {"delay_minutes": 0, "targets": [{"type": "schedule", "id": "<schedule-id>"}]},
     {"delay_minutes": 15, "targets": [{"type": "user", "id": "<manager-id>"}]}
   ]'
@@ -575,12 +588,16 @@ pup on-call escalation-policies create \
 # --schedule-id="<schedule-id>"
 
 # 4. Set up notification channels
-pup on-call notification-channels create --type="sms" --value="+15551234567" --enabled
-pup on-call notification-channels create --type="email" --value="me@example.com" --enabled
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-channels create <user-id> --file=create-request.json
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-channels create <user-id> --file=create-request.json
 
 # 5. Create notification rules
-pup on-call notification-rules create --channel-id="<sms-channel-id>" --urgency="high" --delay-minutes=0
-pup on-call notification-rules create --channel-id="<email-channel-id>" --urgency="high" --delay-minutes=5
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-rules create <user-id> --file=create-request.json
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call notification-rules create <user-id> --file=create-request.json
 
 # 6. Create case management project (both --name and --key required)
 pup cases projects create --name "Production Incidents Q1 2025" --key "PROD-INC"
@@ -624,16 +641,17 @@ Present incident response data in clear, user-friendly formats:
 
 ### "Page the on-call engineer about a production issue"
 ```bash
-pup on-call pages create \
-  --title="Production Database Down" \
-  --target-type="team_handle" \
-  --target-id="platform-team" \
-  --urgency="high"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup on-call pages create --file=create-request.json
+# --title="Production Database Down" \
+# --target-type="team_handle" \
+# --target-id="platform-team" \
+# --urgency="high"
 ```
 
 ### "Show me all active incidents"
 ```bash
-pup incidents list --state=active
+pup incidents list --query="state:active"
 ```
 
 ### "What's the status of incident XYZ?"

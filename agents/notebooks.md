@@ -48,25 +48,12 @@ pup notebooks search
 ```
 
 #### Filter by Author
+Use the supported field filter to find notebooks by author:
 ```bash
-# Get notebooks by specific author
-pup notebooks search \
-  --author="user@example.com"
+pup notebooks search --filter="author:user@example.com"
 ```
 
-Exclude author:
-```bash
-pup notebooks search \
-  --exclude-author="user@example.com"
-```
-
-#### Pagination
-```bash
-# Get notebooks with pagination
-pup notebooks search \
-  --start=0 \
-  --count=50
-```
+The typed search command does not expose a direct exclude-author filter or offset pagination. Filter or paginate results after retrieval if needed.
 
 ### Get Notebook
 
@@ -84,9 +71,10 @@ pup notebooks get 123456
 
 #### Simple Markdown Notebook
 ```bash
-pup notebooks create \
-  --name="Investigation: API Latency" \
-  --cells='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup notebooks create --file=notebook.json
+# --name="Investigation: API Latency" \
+# --cells='[
     {
       "type": "notebook_cells",
       "attributes": {
@@ -101,10 +89,11 @@ pup notebooks create \
 
 #### Notebook with Timeseries
 ```bash
-pup notebooks create \
-  --name="Production Metrics Dashboard" \
-  --time='{"live_span": "1h"}' \
-  --cells='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup notebooks create --file=notebook.json
+# --name="Production Metrics Dashboard" \
+# --time='{"live_span": "1h"}' \
+# --cells='[
     {
       "type": "notebook_cells",
       "attributes": {
@@ -136,10 +125,11 @@ pup notebooks create \
 
 #### Notebook with Multiple Cell Types
 ```bash
-pup notebooks create \
-  --name="Weekly Incident Report" \
-  --time='{"live_span": "1w"}' \
-  --cells='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup notebooks create --file=notebook.json
+# --name="Weekly Incident Report" \
+# --time='{"live_span": "1w"}' \
+# --cells='[
     {
       "type": "notebook_cells",
       "attributes": {
@@ -186,9 +176,10 @@ pup notebooks create \
 
 ```bash
 # Update notebook name and cells
-pup notebooks update <notebook-id> \
-  --name="Updated Notebook Name" \
-  --cells='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup notebooks update <notebook-id> --file=notebook.json
+# --name="Updated Notebook Name" \
+# --cells='[
     {
       "type": "notebook_cells",
       "attributes": {
@@ -203,10 +194,11 @@ pup notebooks update <notebook-id> \
 
 Update with new time range:
 ```bash
-pup notebooks update <notebook-id> \
-  --name="Production Dashboard" \
-  --time='{"live_span": "4h"}' \
-  --cells='[...]'
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup notebooks update <notebook-id> --file=update-request.json
+# --name="Production Dashboard" \
+# --time='{"live_span": "4h"}' \
+# --cells='[...]'
 ```
 
 ### Delete Notebook
@@ -467,10 +459,11 @@ Present notebook data in clear, user-friendly formats:
 
 ### "Create a notebook for investigating an incident"
 ```bash
-pup notebooks create \
-  --name="Incident Investigation: API Timeout" \
-  --time='{"live_span": "4h"}' \
-  --cells='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup notebooks create --file=notebook.json
+# --name="Incident Investigation: API Timeout" \
+# --time='{"live_span": "4h"}' \
+# --cells='[
     {
       "type": "notebook_cells",
       "attributes": {
@@ -505,8 +498,7 @@ pup notebooks create \
 
 ### "List my notebooks"
 ```bash
-pup notebooks search \
-  --author="user@example.com"
+pup notebooks search --filter="author:user@example.com"
 ```
 
 ### "Show notebook details"
@@ -516,10 +508,11 @@ pup notebooks get <notebook-id>
 
 ### "Create a weekly report notebook"
 ```bash
-pup notebooks create \
-  --name="Weekly Performance Report" \
-  --time='{"live_span": "1w"}' \
-  --cells='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup notebooks create --file=notebook.json
+# --name="Weekly Performance Report" \
+# --time='{"live_span": "1w"}' \
+# --cells='[
     {
       "type": "notebook_cells",
       "attributes": {
@@ -558,9 +551,10 @@ pup notebooks create \
 
 ### "Update notebook content"
 ```bash
-pup notebooks update <notebook-id> \
-  --name="Updated: API Investigation" \
-  --cells='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup notebooks update <notebook-id> --file=notebook.json
+# --name="Updated: API Investigation" \
+# --cells='[
     {
       "type": "notebook_cells",
       "attributes": {

@@ -7,6 +7,8 @@ description: Manage Cloud Security Posture Management (CSPM), vulnerability mana
 Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations.
 
 
+The typed `security findings search` query is tag-oriented; arbitrary field predicates shown below are UI/API guidance or must be applied to results locally, not passed as unsupported CLI flags.
+
 You are a specialized agent for interacting with Datadog's Cloud Security Posture Management (CSPM), Vulnerability Management, and Security Findings APIs. Your role is to help users assess their security posture, identify vulnerabilities, manage security findings, analyze software dependencies, and monitor CSM coverage across their cloud infrastructure.
 
 ## Your Capabilities
@@ -42,81 +44,95 @@ You are a specialized agent for interacting with Datadog's Cloud Security Postur
 
 List all vulnerabilities (with pagination):
 ```bash
-pup security findings search
+pup security findings search --query="*"
 ```
 
 Filter by severity:
 ```bash
 # Critical vulnerabilities only
-pup security findings search \
-  --filter="cvss.datadog.severity=Critical"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="cvss.datadog.severity=Critical"
 
 # High or Critical
-pup security findings search \
-  --filter="cvss.datadog.severity=High,Critical"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="cvss.datadog.severity=High,Critical"
 ```
 
 Filter by vulnerability type:
 ```bash
-pup security findings search \
-  --filter="type=SqlInjection,Xss,CommandInjection"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="type=SqlInjection,Xss,CommandInjection"
 ```
 
 Filter by detection tool:
 ```bash
 # IAST (Interactive Application Security Testing)
-pup security findings search \
-  --filter="tool=IAST"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tool=IAST"
 
 # SCA (Software Composition Analysis)
-pup security findings search \
-  --filter="tool=SCA"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tool=SCA"
 
 # Infrastructure vulnerabilities
-pup security findings search \
-  --filter="tool=Infra"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tool=Infra"
 
 # SAST (Static Application Security Testing)
-pup security findings search \
-  --filter="tool=SAST"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tool=SAST"
 ```
 
 Filter by status:
 ```bash
-pup security findings search \
-  --filter="status=Open"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="status=Open"
 ```
 
 Filter by exploitability:
 ```bash
 # Has public exploit available
-pup security findings search \
-  --filter="risks.exploit_available=true"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="risks.exploit_available=true"
 
 # POC exploit available
-pup security findings search \
-  --filter="risks.poc_exploit_available=true"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="risks.poc_exploit_available=true"
 ```
 
 Filter by asset characteristics:
 ```bash
 # Production assets only
-pup security findings search \
-  --filter="asset.risks.in_production=true"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="asset.risks.in_production=true"
 
 # Assets under attack
-pup security findings search \
-  --filter="asset.risks.under_attack=true"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="asset.risks.under_attack=true"
 
 # Publicly accessible assets
-pup security findings search \
-  --filter="asset.risks.is_publicly_accessible=true"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="asset.risks.is_publicly_accessible=true"
 ```
 
 Filter by CVE:
 ```bash
-pup security findings search \
-  --filter="advisory.id=CVE-2023-0615"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="advisory.id=CVE-2023-0615"
 ```
 
 #### List Vulnerable Assets
@@ -219,74 +235,86 @@ Filter by license:
 
 List all findings (misconfigurations and identity risks):
 ```bash
-pup security findings search
+pup security findings search --query="*"
 ```
 
 List only identity risks:
 ```bash
-pup security findings search \
-  --filter="tags=dd_rule_type:ciem"
+pup security findings search --query="dd_rule_type:ciem"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tags=dd_rule_type:ciem"
 ```
 
 Filter by status/severity:
 ```bash
 # Critical findings only
-pup security findings search \
-  --filter="status=critical"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="status=critical"
 
 # High and critical
-pup security findings search \
-  --filter="status=critical,high"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="status=critical,high"
 ```
 
 Filter by evaluation:
 ```bash
 # Failed findings only
-pup security findings search \
-  --filter="evaluation=fail"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="evaluation=fail"
 ```
 
 Filter by vulnerability type:
 ```bash
-pup security findings search \
-  --filter="vulnerability_type=misconfiguration,attack_path"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="vulnerability_type=misconfiguration,attack_path"
 ```
 
 Filter by mute status:
 ```bash
 # Show only muted findings
-pup security findings search \
-  --filter="muted=true"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="muted=true"
 
 # Show only unmuted findings
-pup security findings search \
-  --filter="muted=false"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="muted=false"
 ```
 
 Filter by resource type:
 ```bash
-pup security findings search \
-  --filter="resource_type=aws_s3_bucket"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="resource_type=aws_s3_bucket"
 ```
 
 Filter by cloud provider tags:
 ```bash
-pup security findings search \
-  --filter="tags=cloud_provider:aws" \
-  --filter="tags=aws_account:999999999999"
+pup security findings search --query="cloud_provider:aws AND aws_account:999999999999"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tags=cloud_provider:aws" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tags=aws_account:999999999999"
 ```
 
 Filter by evaluation change date:
 ```bash
 # Findings that changed in the last 7 days
-pup security findings search \
-  --filter="evaluation_changed_at=>=$(date -v-7d +%s)000"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="evaluation_changed_at=>=$(date -v-7d +%s)000"
 ```
 
 Get detailed findings with additional fields:
 ```bash
-pup security findings search \
-  --detailed=true
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --detailed=true
 ```
 
 #### Get Specific Finding
@@ -525,44 +553,56 @@ Present security posture data in clear, user-friendly formats:
 
 ### "Show me all critical vulnerabilities in production"
 ```bash
-pup security findings search \
-  --filter="cvss.datadog.severity=Critical" \
-  --filter="asset.risks.in_production=true"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="cvss.datadog.severity=Critical" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="asset.risks.in_production=true"
 ```
 
 ### "What vulnerabilities have public exploits available?"
 ```bash
-pup security findings search \
-  --filter="risks.exploit_available=true" \
-  --filter="status=Open"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="risks.exploit_available=true" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="status=Open"
 ```
 
 ### "List all SQL injection vulnerabilities found by IAST"
 ```bash
-pup security findings search \
-  --filter="type=SqlInjection" \
-  --filter="tool=IAST"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="type=SqlInjection" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tool=IAST"
 ```
 
 ### "Show dependency vulnerabilities in my repositories"
 ```bash
-pup security findings search \
-  --filter="tool=SCA" \
-  --filter="asset.type=Repository"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tool=SCA" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="asset.type=Repository"
 ```
 
 ### "What are my critical security findings?"
 ```bash
-pup security findings search \
-  --filter="status=critical" \
-  --filter="evaluation=fail"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="status=critical" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="evaluation=fail"
 ```
 
 ### "Show me identity risks"
 ```bash
-pup security findings search \
-  --filter="tags=dd_rule_type:ciem" \
-  --filter="evaluation=fail"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tags=dd_rule_type:ciem" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="evaluation=fail"
 ```
 
 ### "What's my CSM coverage across cloud accounts?"
@@ -588,11 +628,15 @@ pup security findings search \
 
 ### "Show unmuted AWS misconfigurations"
 ```bash
-pup security findings search \
-  --filter="tags=cloud_provider:aws" \
-  --filter="vulnerability_type=misconfiguration" \
-  --filter="muted=false" \
-  --filter="evaluation=fail"
+pup security findings search --query="*"
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="tags=cloud_provider:aws" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="vulnerability_type=misconfiguration" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="muted=false" \
+# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
+# --filter="evaluation=fail"
 ```
 
 ## Error Handling

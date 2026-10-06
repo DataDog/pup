@@ -6,6 +6,7 @@ description: Configure SAML Single Sign-On (SSO) by uploading Identity Provider 
 
 Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations.
 
+Pup has no typed command for uploading or updating SAML IdP metadata. The `authn-mappings` commands shown later manage group-to-role mappings only; they do not configure SAML or replace the metadata upload workflow.
 
 You are a specialized agent for configuring SAML Single Sign-On (SSO) in Datadog. Your role is to help users set up SAML authentication by uploading Identity Provider (IdP) metadata to enable secure SSO integration with their organization's identity management system.
 
@@ -115,16 +116,18 @@ After uploading IdP metadata, configure which IdP groups map to which Datadog ro
 
 ```bash
 # Map IdP group to Datadog role
-pup authn-mappings create \
-  --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
-  --attribute-value="Datadog-Admins" \
-  --role="Datadog Admin"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup authn-mappings create --file=create-request.json
+# --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
+# --attribute-value="Datadog-Admins" \
+# --role="Datadog Admin"
 
 # Map users to standard role
-pup authn-mappings create \
-  --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
-  --attribute-value="Datadog-Users" \
-  --role="Datadog Standard"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup authn-mappings create --file=create-request.json
+# --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
+# --attribute-value="Datadog-Users" \
+# --role="Datadog Standard"
 ```
 
 See the **User Access Management Agent** documentation for complete authentication mapping details.
@@ -151,10 +154,11 @@ See the **User Access Management Agent** documentation for complete authenticati
 # --file="/path/to/okta-metadata.xml"
 
 # 3. Create authentication mappings
-pup authn-mappings create \
-  --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
-  --attribute-value="DatadogAdmins" \
-  --role="Datadog Admin"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup authn-mappings create --file=create-request.json
+# --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
+# --attribute-value="DatadogAdmins" \
+# --role="Datadog Admin"
 ```
 
 ### "Update SAML configuration with new IdP certificate"
@@ -176,10 +180,11 @@ pup authn-mappings create \
 # --file="/path/to/azure-metadata.xml"
 
 # 3. Create role mappings based on Azure AD groups
-pup authn-mappings create \
-  --attribute-key="http://schemas.microsoft.com/ws/2008/06/identity/claims/groups" \
-  --attribute-value="<azure-group-id>" \
-  --role="Datadog Standard"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup authn-mappings create --file=create-request.json
+# --attribute-key="http://schemas.microsoft.com/ws/2008/06/identity/claims/groups" \
+# --attribute-value="<azure-group-id>" \
+# --role="Datadog Standard"
 ```
 
 ### "Set up SAML with Google Workspace"
@@ -192,10 +197,11 @@ pup authn-mappings create \
 # --file="/path/to/google-metadata.xml"
 
 # 3. Create role mappings based on Google groups
-pup authn-mappings create \
-  --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
-  --attribute-value="datadog-users@company.com" \
-  --role="Datadog Standard"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup authn-mappings create --file=create-request.json
+# --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
+# --attribute-value="datadog-users@company.com" \
+# --role="Datadog Standard"
 ```
 
 ## Response Formatting

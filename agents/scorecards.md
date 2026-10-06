@@ -50,59 +50,47 @@ View all scorecard rules (both built-in and custom):
 pup scorecards rules list
 ```
 
-Filter by enabled status:
-```bash
-pup scorecards rules list \
-  --enabled=true
-```
-
-Filter custom rules only:
-```bash
-pup scorecards rules list \
-  --custom=true
-```
-
-Filter by name pattern:
-```bash
-pup scorecards rules list \
-  --name="production*"
-```
+The typed `rules list` command has no enabled, custom, or name-filter flags. Retrieve the list and filter the returned rules locally if needed.
 
 #### Create Rule
 
 Create a new custom scorecard rule:
 ```bash
-pup scorecards rules create \
-  --name="Has Deployment Automation" \
-  --description="Service must have automated deployment pipeline" \
-  --scorecard="Production Readiness" \
-  --enabled=true
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup scorecards rules create --file=create-request.json
+# --name="Has Deployment Automation" \
+# --description="Service must have automated deployment pipeline" \
+# --scorecard="Production Readiness" \
+# --enabled=true
 ```
 
 Create rule with detailed configuration:
 ```bash
-pup scorecards rules create \
-  --name="Security Compliance Check" \
-  --description="Service meets security scanning requirements" \
-  --scorecard="Security Standards" \
-  --enabled=true \
-  --definition=@rule-definition.json
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup scorecards rules create --file=create-request.json
+# --name="Security Compliance Check" \
+# --description="Service meets security scanning requirements" \
+# --scorecard="Security Standards" \
+# --enabled=true \
+# --definition=@rule-definition.json
 ```
 
 #### Update Rule
 
 Update an existing rule:
 ```bash
-pup scorecards rules update <rule-id> \
-  --name="Updated Rule Name" \
-  --description="Updated description" \
-  --enabled=false
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup scorecards rules update <rule-id> --file=update-request.json
+# --name="Updated Rule Name" \
+# --description="Updated description" \
+# --enabled=false
 ```
 
 Example:
 ```bash
-pup scorecards rules update abc-123-def \
-  --enabled=true
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup scorecards rules update abc-123-def --file=update-request.json
+# --enabled=true
 ```
 
 #### Delete Rule
@@ -123,36 +111,14 @@ View all service scorecard outcomes:
 pup scorecards outcomes list
 ```
 
-Filter by service name:
-```bash
-pup scorecards outcomes list \
-  --service-name="api-gateway"
-```
-
-Filter by outcome state:
-```bash
-pup scorecards outcomes list \
-  --state="fail"
-```
-
-Filter by rule:
-```bash
-pup scorecards outcomes list \
-  --rule-id="abc-123-def"
-```
-
-Include rule details:
-```bash
-pup scorecards outcomes list \
-  --include-rule
-```
+The typed `outcomes list` command does not expose service, state, rule, or include-rule filters. Retrieve outcomes and filter the returned records locally.
 
 #### Create Outcomes (Batch)
 
 Set multiple service outcomes synchronously:
 ```bash
-pup scorecards outcomes batch-create \
-  --outcomes=@outcomes.json
+# Pup accepts outcome records from a JSON file.
+pup scorecards outcomes batch-create --file=outcomes.json
 ```
 
 **outcomes.json** example:
@@ -245,29 +211,25 @@ pup scorecards rules list
 
 ### "Which services are failing Production Readiness checks?"
 ```bash
-# First, list Production Readiness rules
-pup scorecards rules list \
-  --scorecard="Production Readiness"
-
-# Then list failing outcomes
-pup scorecards outcomes list \
-  --state="fail"
+# List rules and outcomes; filter the returned records locally because the typed lists have no filters.
+pup scorecards rules list
+pup scorecards outcomes list
 ```
 
 ### "Create a custom rule for deployment automation"
 ```bash
-pup scorecards rules create \
-  --name="Has Automated Deployments" \
-  --description="Service must use automated deployment pipeline" \
-  --scorecard="Production Readiness" \
-  --enabled=true
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup scorecards rules create --file=create-request.json
+# --name="Has Automated Deployments" \
+# --description="Service must use automated deployment pipeline" \
+# --scorecard="Production Readiness" \
+# --enabled=true
 ```
 
 ### "Show the scorecard status for our API gateway service"
+The typed outcomes-list command has no service-name or include-rule filter; retrieve outcomes and filter the returned records locally.
 ```bash
-pup scorecards outcomes list \
-  --service-name="api-gateway" \
-  --include-rule
+pup scorecards outcomes list
 ```
 
 ### "Update outcome for a service passing our security check"
@@ -285,14 +247,15 @@ cat > outcome.json << EOF
 EOF
 
 # Submit outcomes
-pup scorecards outcomes batch-create \
-  --outcomes=@outcome.json
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup scorecards outcomes batch-create --file=outcomes.json
 ```
 
 ### "Disable a rule temporarily"
 ```bash
-pup scorecards rules update <rule-id> \
-  --enabled=false
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup scorecards rules update <rule-id> --file=update-request.json
+# --enabled=false
 ```
 
 ## Understanding Scorecards
@@ -406,17 +369,10 @@ Service Scorecards integrate deeply with Datadog's Software Catalog:
 
 ## Code Generation Support
 
-Generate TypeScript or Python code for scorecard operations:
+Pup does not generate TypeScript or Python clients from scorecard commands. Use `rules list` to inspect scorecard rules; use the SDK or API documentation when client code generation is needed.
 
 ```bash
-# Generate TypeScript code to list rules
-pup scorecards rules list \
-  --generate > list_rules.ts
-
-# Generate Python code to create outcomes
-pup scorecards outcomes batch-create \
-  --outcomes=@outcomes.json \
-  --generate=python > create_outcomes.py
+pup scorecards rules list
 ```
 
 ## API Rate Limits

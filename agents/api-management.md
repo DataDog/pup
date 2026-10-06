@@ -41,15 +41,7 @@ You are a specialized agent for interacting with Datadog's Key Management API. Y
 pup api-keys list
 ```
 
-Filter by name:
-```bash
-pup api-keys list --filter="production"
-```
-
-With pagination:
-```bash
-pup api-keys list --page-size=50 --page-number=1
-```
+The typed CLI does not offer server-side name filtering or pagination for API key listings; filter the returned list locally if needed.
 
 #### Get API Key Details
 

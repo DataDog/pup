@@ -69,8 +69,7 @@ pup logs archives list
 
 #### Get Specific Archive
 ```bash
-pup logs archives get \
-  --archive-id="a2zcMylnM4OCHpYusxIi3g"
+pup logs archives get a2zcMylnM4OCHpYusxIi3g
 ```
 
 #### Create S3 Archive
@@ -162,8 +161,7 @@ Update rehydration configuration:
 
 #### Delete Archive
 ```bash
-pup logs archives delete \
-  --archive-id="a2zcMylnM4OCHpYusxIi3g"
+pup logs archives delete a2zcMylnM4OCHpYusxIi3g
 ```
 
 #### Get Archive Order
@@ -188,16 +186,16 @@ pup obs-pipelines list
 
 #### Get Specific Pipeline
 ```bash
-pup obs-pipelines get \
-  --pipeline-id="pipeline-123"
+pup obs-pipelines get pipeline-123
 ```
 
 #### Create Pipeline with Grok Parser
 ```bash
-pup obs-pipelines create \
-  --name="Nginx Pipeline" \
-  --filter-query="source:nginx" \
-  --processors='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup obs-pipelines create --file=pipeline.json
+# --name="Nginx Pipeline" \
+# --filter-query="source:nginx" \
+# --processors='[
     {
       "type": "grok-parser",
       "name": "Parse Nginx logs",
@@ -212,10 +210,11 @@ pup obs-pipelines create \
 
 #### Create Pipeline with Multiple Processors
 ```bash
-pup obs-pipelines create \
-  --name="API Pipeline" \
-  --filter-query="service:api" \
-  --processors='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup obs-pipelines create --file=pipeline.json
+# --name="API Pipeline" \
+# --filter-query="service:api" \
+# --processors='[
     {
       "type": "grok-parser",
       "name": "Parse API logs",
@@ -248,16 +247,16 @@ pup obs-pipelines create \
 
 #### Update Pipeline
 ```bash
-pup obs-pipelines update \
-  --pipeline-id="pipeline-123" \
-  --name="Updated Pipeline Name" \
-  --filter-query="source:nginx AND env:production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup obs-pipelines update --file=update-request.json
+# --pipeline-id="pipeline-123" \
+# --name="Updated Pipeline Name" \
+# --filter-query="source:nginx AND env:production"
 ```
 
 #### Delete Pipeline
 ```bash
-pup obs-pipelines delete \
-  --pipeline-id="pipeline-123"
+pup obs-pipelines delete pipeline-123
 ```
 
 #### Get Pipeline Order
@@ -372,8 +371,7 @@ pup logs custom-destinations list
 
 #### Get Specific Custom Destination
 ```bash
-pup logs custom-destinations get \
-  --destination-id="destination-abc123"
+pup logs custom-destinations get destination-abc123
 ```
 
 #### Create HTTP Destination (Basic Auth)
@@ -1065,49 +1063,51 @@ pup logs-restriction list
 
 With pagination:
 ```bash
-pup logs-restriction list \
-  --page-size=50 \
-  --page-number=2
+pup logs-restriction list
 ```
 
 #### Create Restriction Query
 Create query to restrict logs by environment:
 ```bash
-pup logs-restriction create \
-  --query="env:production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction create --file=create-request.json
+# --query="env:production"
 ```
 
 Restrict by service:
 ```bash
-pup logs-restriction create \
-  --query="service:api OR service:web"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction create --file=create-request.json
+# --query="service:api OR service:web"
 ```
 
 Restrict by team tag:
 ```bash
-pup logs-restriction create \
-  --query="team:platform"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction create --file=create-request.json
+# --query="team:platform"
 ```
 
 Complex restriction:
 ```bash
-pup logs-restriction create \
-  --query="env:production AND (team:platform OR team:sre)"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction create --file=create-request.json
+# --query="env:production AND (team:platform OR team:sre)"
 ```
 
 #### Get Restriction Query
 Get specific restriction query with relationships:
 ```bash
-pup logs-restriction get \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5"
+pup logs-restriction get 79a0e60a-644a-11ea-ad29-43329f7f58b5
 ```
 
 #### Update Restriction Query
 Update existing restriction query:
 ```bash
-pup logs-restriction update \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
-  --query="env:production AND team:platform"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction update --file=update-request.json
+# --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
+# --query="env:production AND team:platform"
 ```
 
 #### Replace Restriction Query
@@ -1122,8 +1122,7 @@ Replace entire restriction query (PUT):
 #### Delete Restriction Query
 Delete restriction query:
 ```bash
-pup logs-restriction delete \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5"
+pup logs-restriction delete 79a0e60a-644a-11ea-ad29-43329f7f58b5
 ```
 
 #### Grant Role to Restriction Query
@@ -1312,10 +1311,11 @@ pup logs archives list
 
 ### "Create a pipeline to parse Nginx logs"
 ```bash
-pup obs-pipelines create \
-  --name="Nginx Pipeline" \
-  --filter-query="source:nginx" \
-  --processors='[
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup obs-pipelines create --file=pipeline.json
+# --name="Nginx Pipeline" \
+# --filter-query="source:nginx" \
+# --processors='[
     {
       "type": "grok-parser",
       "name": "Parse Nginx format",

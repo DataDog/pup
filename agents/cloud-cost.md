@@ -54,21 +54,23 @@ pup costs datadog aws-config list
 
 #### Create AWS CUR Config
 ```bash
-pup costs datadog aws-config create \
-  --account-id="123456789012" \
-  --bucket="my-cur-bucket" \
-  --report-name="my-cur-report" \
-  --region="us-east-1"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog aws-config create --file=create-request.json
+# --account-id="123456789012" \
+# --bucket="my-cur-bucket" \
+# --report-name="my-cur-report" \
+# --region="us-east-1"
 ```
 
 With account filtering:
 ```bash
-pup costs datadog aws-config create \
-  --account-id="123456789012" \
-  --bucket="my-cur-bucket" \
-  --report-name="my-cur-report" \
-  --region="us-east-1" \
-  --include-accounts="111111111111,222222222222"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog aws-config create --file=create-request.json
+# --account-id="123456789012" \
+# --bucket="my-cur-bucket" \
+# --report-name="my-cur-report" \
+# --region="us-east-1" \
+# --include-accounts="111111111111,222222222222"
 ```
 
 #### Get AWS CUR Config
@@ -105,10 +107,11 @@ pup costs datadog azure-config list
 
 #### Create Azure UC Config
 ```bash
-pup costs datadog azure-config create \
-  --tenant-id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" \
-  --client-id="ffffffff-gggg-hhhh-iiii-jjjjjjjjjjjj" \
-  --scope="/subscriptions/12345678-1234-1234-1234-123456789012"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog azure-config create --file=create-request.json
+# --tenant-id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" \
+# --client-id="ffffffff-gggg-hhhh-iiii-jjjjjjjjjjjj" \
+# --scope="/subscriptions/12345678-1234-1234-1234-123456789012"
 ```
 
 #### Get Azure UC Config
@@ -137,10 +140,11 @@ pup costs datadog gcp-config list
 
 #### Create GCP UC Config
 ```bash
-pup costs datadog gcp-config create \
-  --project-id="my-gcp-project" \
-  --dataset-id="billing_export" \
-  --table-id="gcp_billing_export_v1"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog gcp-config create --file=create-request.json
+# --project-id="my-gcp-project" \
+# --dataset-id="billing_export" \
+# --table-id="gcp_billing_export_v1"
 ```
 
 #### Get GCP UC Config
@@ -270,9 +274,10 @@ pup costs ccm tags list
 #### Upload Custom Cost File
 ```bash
 # Upload CSV with custom cost data
-pup costs ccm custom-costs upload \
-  --file="custom-costs.csv" \
-  --provider="third-party-vendor"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs ccm custom-costs upload --file=upload-request.json
+# --file="custom-costs.csv" \
+# --provider="third-party-vendor"
 ```
 
 CSV format:
@@ -307,22 +312,24 @@ pup costs ccm budgets list
 #### Create or Update Budget
 ```bash
 # Create monthly budget
-pup costs ccm budgets upsert \
-  --name="Production AWS Budget" \
-  --amount=10000 \
-  --period="monthly" \
-  --query="cloud_provider:aws AND env:production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs ccm budgets upsert --file=upsert-request.json
+# --name="Production AWS Budget" \
+# --amount=10000 \
+# --period="monthly" \
+# --query="cloud_provider:aws AND env:production"
 ```
 
 With thresholds and alerts:
 ```bash
-pup costs ccm budgets upsert \
-  --name="Production AWS Budget" \
-  --amount=10000 \
-  --period="monthly" \
-  --query="cloud_provider:aws AND env:production" \
-  --thresholds="80,90,100" \
-  --notify="team@example.com"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs ccm budgets upsert --file=upsert-request.json
+# --name="Production AWS Budget" \
+# --amount=10000 \
+# --period="monthly" \
+# --query="cloud_provider:aws AND env:production" \
+# --thresholds="80,90,100" \
+# --notify="team@example.com"
 ```
 
 #### Get Budget
@@ -446,11 +453,12 @@ Present cloud cost data in clear, user-friendly formats:
 
 ### "Set up AWS cost tracking"
 ```bash
-pup costs datadog aws-config create \
-  --account-id="123456789012" \
-  --bucket="my-cur-bucket" \
-  --report-name="my-cur-report" \
-  --region="us-east-1"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog aws-config create --file=create-request.json
+# --account-id="123456789012" \
+# --bucket="my-cur-bucket" \
+# --report-name="my-cur-report" \
+# --region="us-east-1"
 ```
 
 ### "Show all cloud cost configurations"
@@ -476,20 +484,22 @@ pup costs datadog gcp-config list
 
 ### "Set up monthly budget"
 ```bash
-pup costs ccm budgets upsert \
-  --name="Engineering Team Budget" \
-  --amount=25000 \
-  --period="monthly" \
-  --query="tag:team:engineering" \
-  --thresholds="75,90,100" \
-  --notify="eng-leads@example.com"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs ccm budgets upsert --file=upsert-request.json
+# --name="Engineering Team Budget" \
+# --amount=25000 \
+# --period="monthly" \
+# --query="tag:team:engineering" \
+# --thresholds="75,90,100" \
+# --notify="eng-leads@example.com"
 ```
 
 ### "Upload SaaS tool costs"
 ```bash
-pup costs ccm custom-costs upload \
-  --file="saas-costs.csv" \
-  --provider="software-licenses"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs ccm custom-costs upload --file=upload-request.json
+# --file="saas-costs.csv" \
+# --provider="software-licenses"
 ```
 
 ### "Validate cost allocation query"

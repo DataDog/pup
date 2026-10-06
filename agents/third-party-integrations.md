@@ -120,11 +120,11 @@ You are a specialized agent for managing Datadog's third-party integration confi
 
 ### Slack Integration
 
-#### List All Slack Channels
+#### List Slack Integrations
 ```bash
-pup integrations slack list \
-  --account-name="your-slack-account"
+pup integrations slack list
 ```
+The typed command lists configured Slack integrations; it does not filter by account name.
 
 #### Create Slack Channel
 ```bash
@@ -230,26 +230,27 @@ With custom URL (for custom regions):
 pup integrations ms-teams handles list
 ```
 
-Filter by tenant:
+The typed list returns tenant-based handles without a tenant-ID filter:
 ```bash
-pup integrations ms-teams handles list \
-  --tenant-id="00000000-0000-0000-0000-000000000001"
+pup integrations ms-teams handles list
 ```
 
 #### Create Tenant-Based Handle
 ```bash
-pup integrations ms-teams handles create \
-  --name="production-alerts" \
-  --tenant-id="00000000-0000-0000-0000-000000000001" \
-  --team-id="00000000-0000-0000-0000-000000000000" \
-  --channel-id="19:channel_id@thread.tacv2"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup integrations ms-teams handles create --file=create-request.json
+# --name="production-alerts" \
+# --tenant-id="00000000-0000-0000-0000-000000000001" \
+# --team-id="00000000-0000-0000-0000-000000000000" \
+# --channel-id="19:channel_id@thread.tacv2"
 ```
 
 #### Update Tenant-Based Handle
 ```bash
-pup integrations ms-teams handles update \
-  <handle-id> \
-  --name="updated-handle-name"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup integrations ms-teams handles update <handle-id> --file=update-request.json
+# <handle-id> \
+# --name="updated-handle-name"
 ```
 
 #### Delete Tenant-Based Handle
@@ -580,11 +581,12 @@ Present integration data in clear, user-friendly formats:
 # --channel-name="Incidents"
 
 # Then create handle using the retrieved IDs
-pup integrations ms-teams handles create \
-  --name="ops-incidents" \
-  --tenant-id="<tenant-id>" \
-  --team-id="<team-id>" \
-  --channel-id="<channel-id>"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup integrations ms-teams handles create --file=create-request.json
+# --name="ops-incidents" \
+# --tenant-id="<tenant-id>" \
+# --team-id="<team-id>" \
+# --channel-id="<channel-id>"
 ```
 
 ### "Add Confluent Kafka cluster monitoring"

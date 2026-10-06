@@ -206,10 +206,8 @@ pup events list \
 
 #### Pagination
 ```bash
-# Get first page
-pup events list \
-  --from="7d" \
-  --limit=100
+# List events from the last week (the typed CLI does not offer a page-size option)
+pup events list --from="7d"
 ```
 
 Get next page using cursor:

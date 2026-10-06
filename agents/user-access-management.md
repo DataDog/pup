@@ -106,11 +106,7 @@ pup users list \
   --page-number=1
 ```
 
-Filter by status:
-```bash
-pup users list \
-  --filter-status="Active"
-```
+The typed user-list command has no status filter; filter the returned users locally if needed.
 
 #### Get User Details
 ```bash
@@ -213,17 +209,19 @@ With filtering:
 
 #### Create Service Account
 ```bash
-pup users service-accounts create \
-  --name="CI/CD Service Account" \
-  --email="cicd@example.com"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup users service-accounts create --file=create-request.json
+# --name="CI/CD Service Account" \
+# --email="cicd@example.com"
 ```
 
 Create with specific roles:
 ```bash
-pup users service-accounts create \
-  --name="Monitoring Service" \
-  --email="monitoring@example.com" \
-  --roles="Datadog Read Only,Logs Read Index Data"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup users service-accounts create --file=create-request.json
+# --name="Monitoring Service" \
+# --email="monitoring@example.com" \
+# --roles="Datadog Read Only,Logs Read Index Data"
 ```
 
 #### List Service Account Application Keys
@@ -233,15 +231,17 @@ pup users service-accounts app-keys list <service-account-id>
 
 #### Create Service Account Application Key
 ```bash
-pup users service-accounts app-keys create <service-account-id> \
-  --name="Production CI Key"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup users service-accounts app-keys create <service-account-id> --file=create-request.json
+# --name="Production CI Key"
 ```
 
 Create with scopes:
 ```bash
-pup users service-accounts app-keys create <service-account-id> \
-  --name="Limited Access Key" \
-  --scopes="dashboards_read,monitors_read"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup users service-accounts app-keys create <service-account-id> --file=create-request.json
+# --name="Limited Access Key" \
+# --scopes="dashboards_read,monitors_read"
 ```
 
 #### Get Service Account Application Key
@@ -251,8 +251,9 @@ pup users service-accounts app-keys get <service-account-id> <app-key-id>
 
 #### Update Service Account Application Key
 ```bash
-pup users service-accounts app-keys update <service-account-id> <app-key-id> \
-  --name="Updated Key Name"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup users service-accounts app-keys update <service-account-id> <app-key-id> --file=update-request.json
+# --name="Updated Key Name"
 ```
 
 #### Delete Service Account Application Key
@@ -647,12 +648,7 @@ With filtering:
 pup authn-mappings list
 ```
 
-With pagination:
-```bash
-pup authn-mappings list \
-  --page-size=50 \
-  --page-number=1
-```
+The typed authentication-mapping list does not expose pagination options.
 
 #### Get Authentication Mapping
 ```bash
@@ -661,25 +657,28 @@ pup authn-mappings get <mapping-id>
 
 #### Create Authentication Mapping
 ```bash
-pup authn-mappings create \
-  --attribute-key="member-of" \
-  --attribute-value="Engineering" \
-  --role="Datadog Standard"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup authn-mappings create --file=create-request.json
+# --attribute-key="member-of" \
+# --attribute-value="Engineering" \
+# --role="Datadog Standard"
 ```
 
 Create SAML mapping:
 ```bash
-pup authn-mappings create \
-  --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
-  --attribute-value="Datadog-Admins" \
-  --role="Datadog Admin"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup authn-mappings create --file=create-request.json
+# --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
+# --attribute-value="Datadog-Admins" \
+# --role="Datadog Admin"
 ```
 
 #### Update Authentication Mapping
 ```bash
-pup authn-mappings update <mapping-id> \
-  --attribute-value="Updated-Group-Name" \
-  --role="Datadog Read Only"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup authn-mappings update <mapping-id> --file=update-request.json
+# --attribute-value="Updated-Group-Name" \
+# --role="Datadog Read Only"
 ```
 
 #### Delete Authentication Mapping
@@ -835,13 +834,15 @@ pup users list
 
 ### "Create a service account for CI/CD"
 ```bash
-pup users service-accounts create \
-  --name="CI/CD Pipeline" \
-  --email="cicd@example.com"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup users service-accounts create --file=create-request.json
+# --name="CI/CD Pipeline" \
+# --email="cicd@example.com"
 
 # Create an application key for the service account
-pup users service-accounts app-keys create <service-account-id> \
-  --name="Production Deployment Key"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup users service-accounts app-keys create <service-account-id> --file=create-request.json
+# --name="Production Deployment Key"
 ```
 
 ### "Show me all teams"
@@ -922,10 +923,11 @@ pup users service-accounts app-keys create <service-account-id> \
 
 ### "Create authentication mapping for SAML"
 ```bash
-pup authn-mappings create \
-  --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
-  --attribute-value="Datadog-Users" \
-  --role="Datadog Standard"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup authn-mappings create --file=create-request.json
+# --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
+# --attribute-value="Datadog-Users" \
+# --role="Datadog Standard"
 ```
 
 ### "Sync teams from GitHub"

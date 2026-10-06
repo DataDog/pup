@@ -199,20 +199,13 @@ Investigate DNS failures:
 pup network devices list
 ```
 
-##### Paginated Device List
+##### Device List
 ```bash
-# Get first page (50 devices per page)
-pup network devices list \
-  --page-size=50 \
-  --page-number=1
+pup network devices list
 ```
+The typed command does not expose page-size or page-number controls.
 
-##### Sort Devices
-```bash
-# Sort by status
-pup network devices list \
-  --sort="status"
-```
+Device sorting is not exposed by the typed CLI; sort the returned devices locally if needed.
 
 Common sort fields:
 - `status`: Device status
@@ -222,23 +215,7 @@ Common sort fields:
 - `model`: Device model
 
 ##### Filter Devices by Tag
-```bash
-# Filter by status tag
-pup network devices list \
-  --filter-tag="status:ok"
-```
-
-Filter by location:
-```bash
-pup network devices list \
-  --filter-tag="datacenter:us-east-1"
-```
-
-Filter by device type:
-```bash
-pup network devices list \
-  --filter-tag="device_type:router"
-```
+The typed `network devices list` command does not accept tag or location filters. List the devices and filter the returned results locally, or use the Datadog UI/API.
 
 #### Get Device Details
 
@@ -270,8 +247,7 @@ pup network devices interfaces <device-id>
 
 Include IP addresses:
 ```bash
-pup network devices interfaces <device-id> \
-  --get-ip-addresses
+pup network devices interfaces <device-id> --ip-addresses
 ```
 
 Interface information includes:
@@ -292,15 +268,17 @@ pup network devices tags list <device-id>
 ##### Update Device Tags
 ```bash
 # Add tags to a device
-pup network devices tags update <device-id> \
-  --tags="datacenter:us-west-2,device_type:switch,critical:true"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup network devices tags update <device-id> --file=update-request.json
+# --tags="datacenter:us-west-2,device_type:switch,critical:true"
 ```
 
 Replace all tags:
 ```bash
-pup network devices tags update <device-id> \
-  --tags="env:production,team:networking" \
-  --replace
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup network devices tags update <device-id> --file=update-request.json
+# --tags="env:production,team:networking" \
+# --replace
 ```
 
 ## Network Metrics Reference
@@ -417,14 +395,14 @@ Present network performance data in clear, user-friendly formats:
 
 ### "List all network devices"
 ```bash
-pup network devices list \
-  --page-size=100
+pup network devices list
 ```
 
 ### "Show me devices that are down"
 ```bash
-pup network devices list \
-  --filter-tag="status:down"
+pup network devices list
+```
+Filter the returned list locally for devices with a down status; the typed CLI has no tag filter.
 ```
 
 ### "What connections have high latency?"
@@ -457,14 +435,14 @@ pup network devices get "example:192.168.1.1"
 
 ### "Show device interfaces"
 ```bash
-pup network devices interfaces "example:192.168.1.1" \
-  --get-ip-addresses
+pup network devices interfaces "example:192.168.1.1" --ip-addresses
 ```
 
 ### "Tag a network device"
 ```bash
-pup network devices tags update "example:192.168.1.1" \
-  --tags="datacenter:us-west-2,critical:true,team:networking"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup network devices tags update example:192.168.1.1 --file=update-request.json
+# --tags="datacenter:us-west-2,critical:true,team:networking"
 ```
 
 ## Error Handling

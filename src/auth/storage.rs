@@ -88,7 +88,7 @@ impl FileStorage {
 
     fn remove_legacy_file(&self, filename: &str) -> Result<()> {
         if let Some(dir) = &self.legacy_dir {
-            remove_file_if_exists(&dir.join(filename))?;
+            remove_legacy_file_if_distinct(&self.base_dir.join(filename), &dir.join(filename))?;
         }
         Ok(())
     }
@@ -216,7 +216,51 @@ fn legacy_auth_config_dir_for(
         return None;
     }
     let legacy_dir = legacy_dir?;
-    (Some(legacy_dir.clone()) != current_dir).then_some(legacy_dir)
+    if current_dir.as_deref().is_some_and(|current_dir| {
+        directories_resolve_to_same_location(&legacy_dir, current_dir) == Some(true)
+    }) {
+        return None;
+    }
+    Some(legacy_dir)
+}
+
+fn directories_resolve_to_same_location(left: &Path, right: &Path) -> Option<bool> {
+    fn resolve(path: &Path) -> Option<PathBuf> {
+        let mut ancestor = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir().ok()?.join(path)
+        };
+        let mut missing_components = Vec::new();
+        loop {
+            match std::fs::canonicalize(&ancestor) {
+                Ok(mut resolved) => {
+                    for component in missing_components.iter().rev() {
+                        resolved.push(component);
+                    }
+                    return Some(resolved);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    missing_components.push(ancestor.file_name()?.to_os_string());
+                    ancestor = ancestor.parent()?.to_path_buf();
+                }
+                Err(_) => return None,
+            }
+        }
+    }
+
+    Some(resolve(left)? == resolve(right)?)
+}
+
+fn remove_legacy_file_if_distinct(primary_path: &Path, legacy_path: &Path) -> std::io::Result<()> {
+    let (Some(primary_dir), Some(legacy_dir)) = (primary_path.parent(), legacy_path.parent())
+    else {
+        return Ok(());
+    };
+    if directories_resolve_to_same_location(primary_dir, legacy_dir) == Some(false) {
+        remove_file_if_exists(legacy_path)?;
+    }
+    Ok(())
 }
 
 fn read_path_with_fallback(
@@ -1074,7 +1118,7 @@ fn write_sessions(sessions: &[SessionEntry]) -> Result<()> {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     }
     if let Some(legacy_path) = legacy_sessions_path() {
-        remove_file_if_exists(&legacy_path)?;
+        remove_legacy_file_if_distinct(&path, &legacy_path)?;
     }
     Ok(())
 }
@@ -1235,6 +1279,22 @@ mod tests {
 
     #[test]
     fn test_legacy_auth_config_dir_fallback_is_mac_only_and_skips_override() {
+        let tmp = TempDir::new("legacy_alias");
+        let target = tmp.path().join("target");
+        let alias = tmp.path().join("alias");
+        std::fs::create_dir_all(&target).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+        #[cfg(not(unix))]
+        let alias = target.clone();
+        let legacy_alias = alias.join("pup");
+        let current_alias = target.join("pup");
+        assert_eq!(
+            legacy_auth_config_dir_for(true, None, Some(legacy_alias), Some(current_alias),),
+            None,
+            "symlinked config directories are the same location"
+        );
+
         let legacy = PathBuf::from("/legacy/pup");
         let current = PathBuf::from("/xdg/pup");
         assert_eq!(
@@ -1260,6 +1320,33 @@ mod tests {
             legacy_auth_config_dir_for(true, None, Some(current.clone()), Some(current.clone())),
             None,
             "avoid checking the same directory twice"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_file_storage_save_does_not_remove_file_through_legacy_symlink() {
+        let tmp = TempDir::new("fs_legacy_symlink");
+        let target_dir = tmp.path().join("target");
+        let legacy_alias = tmp.path().join("legacy-alias");
+        std::fs::create_dir_all(target_dir.join("pup")).unwrap();
+        std::os::unix::fs::symlink(&target_dir, &legacy_alias).unwrap();
+        let store = FileStorage {
+            base_dir: target_dir.join("pup"),
+            legacy_dir: Some(legacy_alias.join("pup")),
+        };
+
+        store
+            .save_tokens("datadoghq.com", None, &make_token("saved_tok"))
+            .unwrap();
+
+        assert_eq!(
+            store
+                .load_tokens("datadoghq.com", None)
+                .unwrap()
+                .unwrap()
+                .access_token,
+            "saved_tok"
         );
     }
 

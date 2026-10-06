@@ -127,8 +127,6 @@ pub async fn sessions_create(
     formatter::output(cfg, &resp)
 }
 
-/// Record a session outcome without printing it, giving up after `timeout`.
-/// For callers that report telemetry on the side, such as `pup setup`.
 pub(crate) async fn record_session(
     cfg: &Config,
     session_id: &str,

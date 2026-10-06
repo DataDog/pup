@@ -15,8 +15,6 @@ const AI_SETUP_PACKAGE_ENV: &str = "PUP_SETUP_AI_SETUP_PACKAGE";
 const MIN_NODE_MAJOR: u32 = 22;
 const NODE_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 const SESSION_SKILL_ID: &str = "orchestrator";
-/// AI Setup writes the org's API key into the project so the Agent and tracers
-/// can send data, which needs this scope on top of pup's defaults.
 pub const LOGIN_EXTRA_SCOPES: &str = "api_keys_read";
 const TELEMETRY_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -53,8 +51,6 @@ impl NodeStatus {
     }
 }
 
-/// Backs the built-in `pup setup` command: runs AI Setup from npm with `args`.
-/// `login` runs pup's OAuth login for headless runs that have no session yet.
 pub async fn run(
     cfg: &mut Config,
     args: &[String],
@@ -71,8 +67,6 @@ pub async fn run(
     );
     let had_session = cfg.access_token.is_some();
     let mut login = Some(login);
-    // A person at a terminal without a session gets AI Setup's own sign-in
-    // flow, exactly as when running it standalone.
     if should_log_in(headless, had_session, args) {
         let granted_scopes = stored_token_scopes(cfg);
         if let Some(login) = login.take() {
@@ -89,7 +83,6 @@ pub async fn run(
     };
     let cmd = build_command(&npx, &build_args(args, &cfg.site, &launch), cfg);
     let exit_code = exec::run_inherited(cmd, "npx")?;
-    // AI Setup's own sign-in or sign-up session isn't shared with pup.
     if should_offer_pup_login(headless, had_session, args, exit_code) {
         if let Some(login) = login.take() {
             offer_pup_login(cfg, login).await;
@@ -148,8 +141,6 @@ async fn report_missing_node(cfg: &Config, status: &NodeStatus) -> i32 {
     1
 }
 
-/// Signs the user in when pup has no credentials, or when the saved session
-/// lacks the scopes setup needs, so `pup setup` stays a single command.
 async fn ensure_session(
     cfg: &mut Config,
     granted_scopes: Option<&str>,
@@ -174,8 +165,6 @@ fn has_credentials(cfg: &Config) -> bool {
     cfg.access_token.is_some() || (cfg.api_key.is_some() && cfg.app_key.is_some())
 }
 
-/// `granted_scopes` is `None` when pup can't see the token's scopes, such as a
-/// token passed in `DD_ACCESS_TOKEN`; that token is used as is.
 fn needs_login(cfg: &Config, granted_scopes: Option<&str>) -> bool {
     if cfg.access_token.is_none() {
         return !has_credentials(cfg);
@@ -211,7 +200,6 @@ fn asks_for_help(args: &[String]) -> bool {
     args.iter().any(|arg| arg == "--help" || arg == "-h")
 }
 
-/// Best effort: never fails, never blocks for long, and is skipped without credentials.
 async fn record_failure(cfg: &Config, summary: &str) {
     if !has_credentials(cfg) {
         return;
@@ -232,16 +220,10 @@ fn wants_headless(agent_mode: bool, stdin_tty: bool, stdout_tty: bool) -> bool {
     agent_mode || !stdin_tty || !stdout_tty
 }
 
-/// pup's own default output is JSON, so only agent mode or an explicit
-/// `PUP_OUTPUT=json` should switch AI Setup's help to JSON.
 fn wants_json_help(agent_mode: bool, pup_output_env: Option<&str>) -> bool {
     agent_mode || pup_output_env == Some("json")
 }
 
-/// Resolves which AI Setup package npx runs. The override accepts a version or
-/// dist-tag (`2.1.0`, `next`) or a full npm package spec (a local tarball path,
-/// a `file:` spec, or `@datadog/ai-setup-cli@<version>`), so an unpublished
-/// build can be tested end to end.
 fn package_spec(override_value: Option<&str>) -> Result<String> {
     let Some(value) = override_value.map(str::trim).filter(|v| !v.is_empty()) else {
         return Ok(format!("{AI_SETUP_PACKAGE}@{AI_SETUP_DEFAULT_VERSION}"));
@@ -290,8 +272,6 @@ fn build_command(npx: &Path, args: &[String], cfg: &Config) -> Command {
     let mut cmd = Command::new(npx);
     cmd.args(args);
     exec::inject_auth_env(&mut cmd, cfg);
-    // Keys from the shell can belong to a different org than the OAuth session,
-    // and a lone key is not a session, so only a complete key pair is forwarded.
     if cfg.access_token.is_some() || !has_credentials(cfg) {
         cmd.env_remove("DD_API_KEY");
         cmd.env_remove("DD_APP_KEY");

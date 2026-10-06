@@ -14,7 +14,6 @@ pub fn exec_extension(ext_path: &Path, args: &[String], cfg: &Config) -> Result<
     run_inherited(cmd, &format!("extension {}", ext_path.display()))
 }
 
-/// Run `cmd` with inherited stdio and return its exit code.
 pub(crate) fn run_inherited(mut cmd: std::process::Command, label: &str) -> Result<i32> {
     let status = cmd
         .stdin(std::process::Stdio::inherit())

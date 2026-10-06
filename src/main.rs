@@ -12195,8 +12195,6 @@ fn help_command_path<'a>(
     (names, current)
 }
 
-/// `pup setup` wraps AI Setup, whose own help lists the products and their
-/// flags, so agents must see that rather than pup's one-line schema entry.
 fn help_belongs_to_wrapped_cli(args: &[String]) -> bool {
     top_level_subcommand(args) == Some("setup")
 }

@@ -63,7 +63,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "dd-monitors",
-        description: "Monitor management - create, update, mute, and alerting best practices.",
+        description: "Concise guide to monitor CRUD and design best practices; use monitoring-alerting for downtime workflows.",
         entry_type: "skill",
         content: include_str!("../skills/dd-monitors/SKILL.md"),
         platform: "",
@@ -71,7 +71,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "dd-logs",
-        description: "Log management - search, pipelines, archives, and cost control.",
+        description: "Log-management playbook for pipelines, archives, and cost workflows; use logs for focused search and result analysis.",
         entry_type: "skill",
         content: include_str!("../skills/dd-logs/SKILL.md"),
         platform: "",
@@ -208,7 +208,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "aws-integration",
-        description: "Configure AWS integration for monitoring and log collection.",
+        description: "Inspect AWS integrations; the typed CLI currently supports listing only.",
         entry_type: "agent",
         content: include_str!("../agents/aws-integration.md"),
         platform: "",
@@ -344,7 +344,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "logs",
-        description: "Search and analyze log data with flexible queries.",
+        description: "Focused log search and result analysis; use dd-logs for broader pipeline, archive, and log-management workflows.",
         entry_type: "agent",
         content: include_str!("../agents/logs.md"),
         platform: "",
@@ -360,7 +360,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "monitoring-alerting",
-        description: "Full monitor management, downtimes, and templates.",
+        description: "Manage monitors and downtimes; templates and notification rules are unsupported by the typed CLI.",
         entry_type: "agent",
         content: include_str!("../agents/monitoring-alerting.md"),
         platform: "",
@@ -1253,6 +1253,119 @@ mod tests {
         for w in names.windows(2) {
             assert_ne!(w[0], w[1], "duplicate name: {}", w[0]);
         }
+    }
+
+    fn cli_command_path_error(invocation: &str) -> Option<String> {
+        let command_text = invocation.split_once("pup ")?.1;
+        let mut tokens = command_text.split_whitespace().peekable();
+        let mut command = crate::cli_command();
+        let mut path = vec!["pup".to_string()];
+
+        while let Some(raw_token) = tokens.next() {
+            let token = raw_token.trim_matches(|character: char| {
+                !character.is_ascii_alphanumeric() && character != '-' && character != '_'
+            });
+            if token.is_empty() {
+                continue;
+            }
+            if token.starts_with('-') {
+                if matches!(token, "--output" | "-o" | "--org" | "--jq") {
+                    tokens.next();
+                }
+                continue;
+            }
+
+            let child = command
+                .get_subcommands()
+                .find(|subcommand| subcommand.get_name() == token);
+            let Some(child) = child else {
+                if path.len() == 1 {
+                    return Some(format!("unknown pup command `{token}`"));
+                }
+                return Some(format!(
+                    "unknown subcommand `{token}` below `{}`",
+                    path.join(" ")
+                ));
+            };
+            path.push(token.to_string());
+            command = child.clone();
+            if command.get_subcommands().next().is_none() {
+                break;
+            }
+        }
+
+        None
+    }
+
+    fn documented_commands(content: &str) -> Vec<String> {
+        let mut commands = Vec::new();
+        let mut in_code_block = false;
+        for line in content.lines() {
+            if line.trim_start().starts_with("```") {
+                in_code_block = !in_code_block;
+                continue;
+            }
+
+            let mut segments = Vec::new();
+            if in_code_block {
+                segments.push(line);
+            } else {
+                let mut remaining = line;
+                while let Some((_, after_open)) = remaining.split_once('`') {
+                    let Some((segment, after_close)) = after_open.split_once('`') else {
+                        break;
+                    };
+                    segments.push(segment);
+                    remaining = after_close;
+                }
+            }
+
+            for segment in segments {
+                if segment.contains("pup ") {
+                    commands.push(segment.to_string());
+                }
+            }
+        }
+        commands
+    }
+
+    #[test]
+    fn test_edited_skill_commands_match_cli_tree() {
+        let mut errors = Vec::new();
+        let audited_entries = [
+            "aws-integration",
+            "dd-logs",
+            "dd-monitors",
+            "logs",
+            "monitoring-alerting",
+            "workflows",
+        ];
+        for entry in SKILLS.iter().filter(|entry| {
+            entry.entry_type != "extension" && audited_entries.contains(&entry.name)
+        }) {
+            let mut contents = vec![entry.content];
+            contents.extend(entry.files.iter().map(|(_, content)| *content));
+            for content in contents {
+                for invocation in documented_commands(content) {
+                    if let Some(error) = cli_command_path_error(&invocation) {
+                        errors.push(format!("{}: `{invocation}`: {error}", entry.name));
+                    }
+                }
+            }
+        }
+        assert!(
+            errors.is_empty(),
+            "invalid documented pup commands:\n{}",
+            errors.join("\n")
+        );
+    }
+
+    #[test]
+    fn test_cli_command_path_validation_accepts_and_rejects_paths() {
+        assert!(cli_command_path_error("pup cloud aws list").is_none());
+        assert!(cli_command_path_error("pup workflows run workflow-id").is_none());
+        assert!(cli_command_path_error("pup not-a-command list").is_some());
+        assert!(cli_command_path_error("pup workflows list").is_some());
     }
 
     #[test]

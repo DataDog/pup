@@ -1,6 +1,6 @@
 ---
 name: dd-logs
-description: Log management - search, pipelines, archives, and cost control.
+description: Log-management playbook for pipeline, archive, and cost workflows. Use the logs agent for focused log search and result analysis.
 metadata:
   version: "1.0.0"
   author: datadog-labs

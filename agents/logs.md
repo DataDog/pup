@@ -1,5 +1,5 @@
 ---
-description: Search and analyze Datadog logs with flexible queries and time ranges.
+description: Focused Datadog log search and result analysis. Use the dd-logs skill for broader pipeline, archive, and log-management workflows.
 ---
 
 # Logs Agent

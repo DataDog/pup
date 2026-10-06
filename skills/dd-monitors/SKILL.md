@@ -1,6 +1,6 @@
 ---
 name: dd-monitors
-description: Monitor management - create, update, mute, and alerting best practices.
+description: Concise guide to monitor CRUD and design best practices. Use monitoring-alerting for downtime workflows.
 metadata:
   version: "1.0.0"
   author: datadog-labs
@@ -126,24 +126,12 @@ Threshold: {{threshold}}
 """
 ```
 
-## ⚠️ NEVER Delete Monitors Directly
+## Delete Monitors Safely
 
-Use safe deletion workflow (same as dashboards):
+Monitor deletion is supported, but destructive. Delete only when the user explicitly requests it and confirms the target monitor. Pup prompts for confirmation by default. Do not use `--yes` unless the user explicitly authorizes automated deletion.
 
-```python
-def safe_mark_monitor_for_deletion(monitor_id: str, client) -> bool:
-    """Mark monitor instead of deleting."""
-    monitor = client.get_monitor(monitor_id)
-    name = monitor.get("name", "")
-    
-    if "[MARKED FOR DELETION]" in name:
-        print(f"Already marked: {name}")
-        return False
-    
-    new_name = f"[MARKED FOR DELETION] {name}"
-    client.update_monitor(monitor_id, {"name": new_name})
-    print(f"✓ Marked: {new_name}")
-    return True
+```bash
+pup monitors delete 12345
 ```
 
 ## Monitor Types

@@ -9,13 +9,13 @@ Help users understand and maintain Datadog's service and software catalog. Use t
 ## Route the request
 
 - Default to `pup idp kinds` and `pup idp entities query` when a read needs connected service context: ownership, on-call, systems, code, dependencies, health, work, operations, or security. UEG can return selected service and dependency context in one bounded request. Load the `dd-idp` skill for its schema-first workflow and DSL guidance when available.
-- Use `pup service-catalog list|get` for the legacy typed service registry.
+- Use `pup service-catalog list` and `pup service-catalog get <service-name>` for the legacy typed service registry.
 - Use `pup idp assist` for a fast curated single-service summary, metadata gaps, and suggested next actions; use `owner` for convenient owner/on-call resolution. These trade graph fidelity for a narrower opinionated result.
 - Treat `find` as a simple paginated literal service-name lookup. Explicit `kind:` and `ref:` queries remain compatibility paths; use `entities query` for non-service kinds, another lookback, broader relation families, selected fields, counts, pagination, and traversal. Use `deps` as a convenient one-hour UEG runtime service-to-service summary.
-- Use `pup software-catalog entities|kinds|relations` for Catalog inventory. Only `entities` and `kinds` expose mutations; `relations` is read-only.
+- Use `pup software-catalog entities list`, `pup software-catalog kinds list`, and `pup software-catalog relations list` for Catalog inventory. Only entities and kinds expose mutations; relations are read-only.
 - Use `pup idp register` to preserve the familiar file-oriented workflow across v1, v2, v2.1, v2.2, and v3 Catalog definitions. It sends raw YAML or JSON to the Catalog entity API and accepts multi-document YAML.
 
-Do not use nonexistent `pup services` or `pup catalog` commands.
+The legacy service registry is not a top-level `services` command, and Catalog is not a top-level `catalog` command.
 
 ## Read workflows
 

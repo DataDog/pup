@@ -222,7 +222,7 @@ pup service-catalog get <service-name>
 
 ### Notebooks
 ```bash
-pup notebooks list
+pup notebooks search --query="incident"
 pup notebooks get 12345
 pup notebooks create --file notebook.json
 ```

@@ -1,5 +1,5 @@
 ---
-description: Inspect AWS integrations and explain which AWS integration operations the current pup CLI supports.
+description: Configure and manage AWS integration for monitoring, log collection, and resource tracking across AWS accounts and services.
 ---
 
 # AWS Integration Agent

@@ -63,7 +63,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "dd-monitors",
-        description: "Concise guide to monitor CRUD and design best practices; use monitoring-alerting for downtime workflows.",
+        description: "Monitor management - create, update, mute, and alerting best practices.",
         entry_type: "skill",
         content: include_str!("../skills/dd-monitors/SKILL.md"),
         platform: "",
@@ -71,7 +71,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "dd-logs",
-        description: "Log-management playbook for pipelines, archives, and cost workflows; use logs for focused search and result analysis.",
+        description: "Log management - search, pipelines, archives, and cost control.",
         entry_type: "skill",
         content: include_str!("../skills/dd-logs/SKILL.md"),
         platform: "",
@@ -208,7 +208,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "aws-integration",
-        description: "Inspect AWS integrations; the typed CLI currently supports listing only.",
+        description: "Configure AWS integration for monitoring and log collection.",
         entry_type: "agent",
         content: include_str!("../agents/aws-integration.md"),
         platform: "",
@@ -344,7 +344,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "logs",
-        description: "Focused log search and result analysis; use dd-logs for broader pipeline, archive, and log-management workflows.",
+        description: "Search and analyze log data with flexible queries.",
         entry_type: "agent",
         content: include_str!("../agents/logs.md"),
         platform: "",
@@ -360,7 +360,7 @@ pub static SKILLS: &[SkillEntry] = &[
     },
     SkillEntry {
         name: "monitoring-alerting",
-        description: "Manage monitors and downtimes; templates and notification rules are unsupported by the typed CLI.",
+        description: "Full monitor management, downtimes, and templates.",
         entry_type: "agent",
         content: include_str!("../agents/monitoring-alerting.md"),
         platform: "",
@@ -1257,6 +1257,10 @@ mod tests {
 
     fn cli_command_path_error(invocation: &str) -> Option<String> {
         let command_text = invocation.split_once("pup ")?.1;
+        if command_text.trim_start().starts_with('<') {
+            return None;
+        }
+        let command_text = command_text.split('#').next().unwrap_or_default();
         let mut tokens = command_text.split_whitespace().peekable();
         let mut command = crate::cli_command();
         let mut path = vec!["pup".to_string()];
@@ -1321,8 +1325,15 @@ mod tests {
             }
 
             for segment in segments {
-                if segment.contains("pup ") {
-                    commands.push(segment.to_string());
+                let trimmed = segment.trim_start();
+                if trimmed.starts_with('#') {
+                    continue;
+                }
+                if let Some((prefix, _)) = segment.split_once("pup ") {
+                    let prefix = prefix.trim_end();
+                    if prefix.is_empty() || prefix.ends_with('|') || prefix.ends_with("$(") {
+                        commands.push(segment.to_string());
+                    }
                 }
             }
         }
@@ -1330,19 +1341,12 @@ mod tests {
     }
 
     #[test]
-    fn test_edited_skill_commands_match_cli_tree() {
+    fn test_all_skill_source_commands_match_cli_tree() {
         let mut errors = Vec::new();
-        let audited_entries = [
-            "aws-integration",
-            "dd-logs",
-            "dd-monitors",
-            "logs",
-            "monitoring-alerting",
-            "workflows",
-        ];
-        for entry in SKILLS.iter().filter(|entry| {
-            entry.entry_type != "extension" && audited_entries.contains(&entry.name)
-        }) {
+        for entry in SKILLS
+            .iter()
+            .filter(|entry| entry.entry_type != "extension")
+        {
             let mut contents = vec![entry.content];
             contents.extend(entry.files.iter().map(|(_, content)| *content));
             for content in contents {

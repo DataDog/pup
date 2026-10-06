@@ -1,5 +1,5 @@
 ---
-description: Manage Datadog Workflow Automation using commands supported by the current pup CLI.
+description: Manage Datadog Workflow Automation including workflow creation, execution, monitoring, and connection management.
 ---
 
 # Workflow Automation Agent

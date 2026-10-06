@@ -1,5 +1,5 @@
 ---
-description: Manage monitors and downtimes with pup; monitor templates and notification rules are unsupported by the typed CLI.
+description: Comprehensive monitoring and alerting management including monitors, templates, notification routing, and downtimes. Complete lifecycle from creation to alert delivery to maintenance windows.
 ---
 
 # Monitoring & Alerting Agent

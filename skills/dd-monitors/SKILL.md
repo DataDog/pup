@@ -1,6 +1,6 @@
 ---
 name: dd-monitors
-description: Concise guide to monitor CRUD and design best practices. Use monitoring-alerting for downtime workflows.
+description: Monitor management - create, update, mute, and alerting best practices.
 metadata:
   version: "1.0.0"
   author: datadog-labs
@@ -12,7 +12,7 @@ metadata:
 
 # Datadog Monitors
 
-Create, manage, and maintain monitors for alerting.
+Create, manage, and maintain monitors for alerting. Use this skill for routine monitor operations and design best practices; select the `monitoring-alerting` agent for downtime workflows.
 
 
 ## Prerequisites

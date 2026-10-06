@@ -1573,7 +1573,7 @@ mod tests {
         };
         std::fs::write(
             legacy.path().join("sessions.json"),
-            serde_json::to_string(&[entry.clone()]).unwrap(),
+            serde_json::to_string(std::slice::from_ref(&entry)).unwrap(),
         )
         .unwrap();
 

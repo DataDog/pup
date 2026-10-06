@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use datadog_api_client::datadogV2::api_feature_flags::{
     FeatureFlagsAPI, ListFeatureFlagsEnvironmentsOptionalParams, ListFeatureFlagsOptionalParams,
 };
@@ -48,14 +48,14 @@ pub async fn flags_list(
 }
 
 pub async fn flags_get(cfg: &Config, feature_flag_id: &str) -> Result<()> {
-    let api = make_api(cfg);
     let id = feature_flag_id
         .parse::<uuid::Uuid>()
         .map_err(|e| anyhow::anyhow!("invalid feature flag ID: {e:?}"))?;
-    let resp = api
-        .get_feature_flag(id)
+    // The SDK models environment allocations as a map, but the API returns
+    // arrays. Preserve the response as JSON until the SDK schema is corrected.
+    let resp = crate::raw_client::raw_get(cfg, &format!("/api/v2/feature-flags/{id}"), &[])
         .await
-        .map_err(|e| anyhow::anyhow!("failed to get feature flag: {e:?}"))?;
+        .context("failed to get feature flag")?;
     formatter::output(cfg, &resp)
 }
 

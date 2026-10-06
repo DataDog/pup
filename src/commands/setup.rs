@@ -15,6 +15,9 @@ const AI_SETUP_PACKAGE_ENV: &str = "PUP_SETUP_AI_SETUP_PACKAGE";
 const MIN_NODE_MAJOR: u32 = 22;
 const NODE_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 const SESSION_SKILL_ID: &str = "orchestrator";
+/// AI Setup writes the org's API key into the project so the Agent and tracers
+/// can send data, which needs this scope on top of pup's defaults.
+pub const LOGIN_EXTRA_SCOPES: &str = "api_keys_read";
 const TELEMETRY_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, PartialEq, Eq)]
@@ -68,8 +71,9 @@ pub async fn run(
     );
     // A person at a terminal without a session gets AI Setup's own sign-in
     // flow, exactly as when running it standalone.
-    if should_log_in(headless, args) {
-        ensure_session(cfg, login, |cfg| {
+    if should_log_in(headless, cfg.access_token.is_some(), args) {
+        let granted_scopes = stored_token_scopes(cfg);
+        ensure_session(cfg, granted_scopes.as_deref(), login, |cfg| {
             crate::config::load_token_from_storage(&cfg.site, cfg.org.as_deref())
         })
         .await?;
@@ -96,14 +100,15 @@ async fn report_missing_node(cfg: &Config, status: &NodeStatus) -> i32 {
     1
 }
 
-/// Signs the user in when pup has no credentials, so `pup setup` works as a
-/// single command for someone who never ran `pup auth login`.
+/// Signs the user in when pup has no credentials, or when the saved session
+/// lacks the scopes setup needs, so `pup setup` stays a single command.
 async fn ensure_session(
     cfg: &mut Config,
+    granted_scopes: Option<&str>,
     login: impl AsyncFnOnce(&Config) -> Result<()>,
     stored_token: impl FnOnce(&Config) -> Option<String>,
 ) -> Result<()> {
-    if has_credentials(cfg) {
+    if !needs_login(cfg, granted_scopes) {
         return Ok(());
     }
     login(cfg).await?;
@@ -118,8 +123,37 @@ fn has_credentials(cfg: &Config) -> bool {
     cfg.access_token.is_some() || (cfg.api_key.is_some() && cfg.app_key.is_some())
 }
 
-fn should_log_in(headless: bool, args: &[String]) -> bool {
-    headless && !asks_for_help(args)
+/// `granted_scopes` is `None` when pup can't see the token's scopes, such as a
+/// token passed in `DD_ACCESS_TOKEN`; that token is used as is.
+fn needs_login(cfg: &Config, granted_scopes: Option<&str>) -> bool {
+    if cfg.access_token.is_none() {
+        return !has_credentials(cfg);
+    }
+    granted_scopes.is_some_and(|scopes| !has_scopes(scopes, LOGIN_EXTRA_SCOPES))
+}
+
+fn has_scopes(granted: &str, required: &str) -> bool {
+    let granted: Vec<&str> = granted.split_whitespace().collect();
+    crate::config::parse_scopes(required)
+        .iter()
+        .all(|scope| granted.contains(&scope.as_str()))
+}
+
+fn stored_token_scopes(cfg: &Config) -> Option<String> {
+    if std::env::var("DD_ACCESS_TOKEN").is_ok_and(|token| !token.is_empty()) {
+        return None;
+    }
+    let guard = crate::auth::storage::get_storage().ok()?;
+    let lock = guard.lock().ok()?;
+    let tokens = lock
+        .as_ref()?
+        .load_tokens(&cfg.site, cfg.org.as_deref())
+        .ok()??;
+    Some(tokens.scope)
+}
+
+fn should_log_in(headless: bool, has_session: bool, args: &[String]) -> bool {
+    (headless || has_session) && !asks_for_help(args)
 }
 
 fn asks_for_help(args: &[String]) -> bool {
@@ -511,6 +545,7 @@ mod tests {
         let called = std::cell::Cell::new(false);
         let result = ensure_session(
             &mut cfg,
+            None,
             async |_: &Config| {
                 called.set(true);
                 Ok(())
@@ -525,22 +560,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn existing_session_skips_login() {
+    async fn session_login_decision_follows_granted_scopes() {
         let _lock = lock_env().await;
-        let mut cfg = test_config("http://unused");
-        let called = std::cell::Cell::new(false);
-        let result = ensure_session(
-            &mut cfg,
-            async |_: &Config| {
-                called.set(true);
-                Ok(())
-            },
-            |_| None,
-        )
-        .await;
-        assert!(result.is_ok());
-        assert!(!called.get());
+        let cases = [
+            (None, false),
+            (Some("apm_read api_keys_read dashboards_read"), false),
+            (Some("apm_read dashboards_read"), true),
+            (Some(""), true),
+        ];
+        for (granted_scopes, expect_login) in cases {
+            let mut cfg = test_config("http://unused");
+            cfg.access_token = Some("old-token".into());
+            let called = std::cell::Cell::new(false);
+            let result = ensure_session(
+                &mut cfg,
+                granted_scopes,
+                async |_: &Config| {
+                    called.set(true);
+                    Ok(())
+                },
+                |_| Some("new-token".into()),
+            )
+            .await;
+            assert!(result.is_ok(), "{granted_scopes:?}");
+            assert_eq!(called.get(), expect_login, "{granted_scopes:?}");
+            let expected_token = if expect_login {
+                "new-token"
+            } else {
+                "old-token"
+            };
+            assert_eq!(cfg.access_token.as_deref(), Some(expected_token));
+        }
         cleanup_env();
+    }
+
+    #[test]
+    fn key_pair_without_session_skips_login() {
+        let mut cfg = test_config("http://unused");
+        cfg.access_token = None;
+        cfg.api_key = Some("api".into());
+        cfg.app_key = Some("app".into());
+        assert!(!needs_login(&cfg, None));
     }
 
     #[tokio::test]
@@ -550,6 +610,7 @@ mod tests {
         no_credentials(&mut cfg);
         let result = ensure_session(
             &mut cfg,
+            None,
             async |_: &Config| Err(anyhow::anyhow!("login cancelled")),
             |_| Some("unused".into()),
         )
@@ -564,17 +625,23 @@ mod tests {
         let _lock = lock_env().await;
         let mut cfg = test_config("http://unused");
         no_credentials(&mut cfg);
-        let result = ensure_session(&mut cfg, async |_: &Config| Ok(()), |_| None).await;
+        let result = ensure_session(&mut cfg, None, async |_: &Config| Ok(()), |_| None).await;
         assert!(result.unwrap_err().to_string().contains("no pup session"));
         cleanup_env();
     }
 
     #[test]
-    fn logs_in_only_for_headless_runs_that_are_not_help() {
-        assert!(should_log_in(true, &args(&["--product", "apm"])));
-        assert!(!should_log_in(false, &args(&["--product", "apm"])));
-        assert!(!should_log_in(true, &args(&["--help"])));
-        assert!(!should_log_in(true, &args(&["--product", "apm", "-h"])));
+    fn logs_in_for_headless_runs_or_existing_sessions_but_not_help() {
+        let setup = args(&["--product", "apm"]);
+        assert!(should_log_in(true, false, &setup));
+        assert!(should_log_in(false, true, &setup));
+        assert!(!should_log_in(false, false, &setup));
+        assert!(!should_log_in(true, true, &args(&["--help"])));
+        assert!(!should_log_in(
+            true,
+            false,
+            &args(&["--product", "apm", "-h"])
+        ));
     }
 
     #[test]

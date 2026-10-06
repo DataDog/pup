@@ -20393,7 +20393,12 @@ async fn main_inner() -> anyhow::Result<()> {
         #[cfg(not(target_arch = "wasm32"))]
         Commands::Setup { args } => {
             let login = async |cfg: &config::Config| -> anyhow::Result<()> {
-                let scopes = resolve_login_scopes(None, None, cfg.org.as_deref(), cfg.read_only);
+                let scopes = resolve_login_scopes(
+                    None,
+                    Some(commands::setup::LOGIN_EXTRA_SCOPES),
+                    cfg.org.as_deref(),
+                    cfg.read_only,
+                );
                 let port = resolve_callback_port(None)?;
                 commands::auth::login(cfg, scopes, port, None).await
             };

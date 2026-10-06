@@ -331,6 +331,10 @@ pup setup --help
 - **No session yet.** For headless runs, pup runs its OAuth login first (the same
   flow as `pup auth login`) and then continues. At a terminal, AI Setup's own
   sign-in runs instead.
+- **API key scope.** AI Setup writes the org's API key into the project so the
+  Agent and tracers can send data, which needs `api_keys_read`. pup's login for
+  setup requests it on top of the usual scopes. If the saved session doesn't
+  have it, `pup setup` runs the login once more to add it.
 - **Help for agents.** In agent mode (or with `PUP_OUTPUT=json`), `--help` is
   forwarded as `--help --json` so AI Setup returns machine-readable help.
 - **Missing Node.js.** If `npx` or Node.js 22+ is not available, pup prints how to

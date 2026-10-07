@@ -1389,8 +1389,7 @@ enum Commands {
     /// Set up Datadog products in your project. Run `pup setup --help` to list products and their flags.
     ///
     /// Runs Datadog's AI Setup CLI from npm with npx, so it needs Node.js 22
-    /// or newer. Every argument after `setup` is passed through to AI Setup,
-    /// including --help.
+    /// or newer. Every argument after `setup` is passed through to AI Setup.
     ///
     /// EXAMPLES:
     ///   pup setup --product apm
@@ -12195,6 +12194,21 @@ fn help_command_path<'a>(
     (names, current)
 }
 
+fn setup_help_alias(mut args: Vec<String>) -> Vec<String> {
+    let is_alias = {
+        let mut positionals = positional_tokens(&args);
+        positionals.next() == Some("help") && positionals.next() == Some("setup")
+    };
+    if !is_alias {
+        return args;
+    }
+    if let Some(index) = args.iter().skip(1).position(|arg| arg == "help") {
+        args.remove(index + 1);
+        args.push("--help".to_string());
+    }
+    args
+}
+
 fn help_belongs_to_wrapped_cli(args: &[String]) -> bool {
     top_level_subcommand(args) == Some("setup")
 }
@@ -12252,7 +12266,7 @@ fn agent_query_syntax() -> serde_json::Value {
 
 /// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`
 /// or `pup logs aggregate --help`). `sub_path` is the target's canonical path.
-fn build_agent_schema_scoped(
+pub(crate) fn build_agent_schema_scoped(
     _root_cmd: &clap::Command,
     target: &clap::Command,
     sub_path: &[&str],
@@ -12840,7 +12854,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "setup"
 }
 
-fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
+pub(crate) fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
     let mut obj = serde_json::Map::new();
     let name = cmd.get_name().to_string();
     let full_path = if parent_path.is_empty() {
@@ -13118,6 +13132,30 @@ mod test_agent_schema {
         assert_eq!(setup["read_only"], serde_json::json!(false));
         let description = setup["description"].as_str().unwrap_or_default();
         assert!(description.contains("Set up Datadog products"));
+    }
+
+    #[test]
+    fn help_setup_is_an_alias_for_setup_help() {
+        let argv = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            setup_help_alias(argv(&["pup", "help", "setup"])),
+            argv(&["pup", "setup", "--help"])
+        );
+        assert_eq!(
+            setup_help_alias(argv(&[
+                "pup",
+                "--agent",
+                "help",
+                "setup",
+                "--product",
+                "linux"
+            ])),
+            argv(&["pup", "--agent", "setup", "--product", "linux", "--help"])
+        );
+        assert_eq!(
+            setup_help_alias(argv(&["pup", "help", "monitors"])),
+            argv(&["pup", "help", "monitors"])
+        );
     }
 
     #[test]
@@ -14845,7 +14883,7 @@ mod resolve_output_format_tests {
 
 async fn main_inner() -> anyhow::Result<()> {
     // In agent mode, intercept --help to return a JSON schema instead of plain text.
-    let args: Vec<String> = std::env::args().collect();
+    let args = setup_help_alias(std::env::args().collect());
     let has_help = args.iter().any(|a| a == "--help" || a == "-h");
     let has_agent_flag = args.iter().any(|a| a == "--agent");
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");

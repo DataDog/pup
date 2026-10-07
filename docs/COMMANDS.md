@@ -337,8 +337,11 @@ pup setup --help
   Agent and tracers can send data, which needs `api_keys_read`. pup's login for
   setup requests it on top of the usual scopes. If the saved session doesn't
   have it, `pup setup` runs the login once more to add it.
-- **Help for agents.** In agent mode (or with `PUP_OUTPUT=json`), `--help` is
-  forwarded as `--help --json` so AI Setup returns machine-readable help.
+- **Help.** `pup setup --help` (or `pup setup help`, `pup help setup`) lists AI
+  Setup's products and their flags in pup's own help format: the JSON schema in
+  agent mode and clap text otherwise, like every other command. `--site` and
+  `--headless` are left out because pup sets them. If AI Setup's help can't be
+  read, `--help` is passed through to AI Setup.
 - **Missing Node.js.** If `npx` or Node.js 22+ is not available, pup prints how to
   install it, exits non-zero, and records the outcome through the onboarding
   sessions API when it has credentials.

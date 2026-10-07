@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use crate::commands::skills_remote;
+use crate::commands::{setup_help, skills_remote};
 use crate::config::Config;
 use crate::extensions::exec;
 
@@ -56,10 +56,19 @@ pub async fn run(
     args: &[String],
     login: impl AsyncFnOnce(&Config) -> Result<()>,
 ) -> Result<i32> {
+    let args = &normalize_help_args(args);
     let status = probe_node();
     let NodeStatus::Ready(npx) = status else {
         return Ok(report_missing_node(cfg, &status).await);
     };
+    let package = package_spec(std::env::var(AI_SETUP_PACKAGE_ENV).ok().as_deref())?;
+    let json_help = cfg.agent_mode;
+    if asks_for_help(args) {
+        if let Some(help) = fetch_ai_setup_help(&npx, &package) {
+            setup_help::print(&help, json_help)?;
+            return Ok(0);
+        }
+    }
     let headless = wants_headless(
         cfg.agent_mode,
         std::io::stdin().is_terminal(),
@@ -77,9 +86,9 @@ pub async fn run(
         }
     }
     let launch = Launch {
-        package: package_spec(std::env::var(AI_SETUP_PACKAGE_ENV).ok().as_deref())?,
+        package,
         headless,
-        json_help: wants_json_help(cfg.agent_mode, std::env::var("PUP_OUTPUT").ok().as_deref()),
+        json_help,
     };
     let cmd = build_command(&npx, &build_args(args, &cfg.site, &launch), cfg);
     let exit_code = exec::run_inherited(cmd, "npx")?;
@@ -196,6 +205,26 @@ fn should_log_in(headless: bool, has_session: bool, args: &[String]) -> bool {
     (headless || has_session) && !asks_for_help(args)
 }
 
+fn normalize_help_args(args: &[String]) -> Vec<String> {
+    let mut args = args.to_vec();
+    if args.first().is_some_and(|arg| arg == "help") {
+        args[0] = "--help".to_string();
+    }
+    args
+}
+
+fn fetch_ai_setup_help(npx: &Path, package: &str) -> Option<setup_help::AiSetupHelp> {
+    let output = Command::new(npx)
+        .args(["-y", "--package", package, AI_SETUP_BIN, "--help", "--json"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    setup_help::parse(&output.stdout)
+}
+
 fn asks_for_help(args: &[String]) -> bool {
     args.iter().any(|arg| arg == "--help" || arg == "-h")
 }
@@ -218,10 +247,6 @@ async fn record_failure(cfg: &Config, summary: &str) {
 
 fn wants_headless(agent_mode: bool, stdin_tty: bool, stdout_tty: bool) -> bool {
     agent_mode || !stdin_tty || !stdout_tty
-}
-
-fn wants_json_help(agent_mode: bool, pup_output_env: Option<&str>) -> bool {
-    agent_mode || pup_output_env == Some("json")
 }
 
 fn package_spec(override_value: Option<&str>) -> Result<String> {
@@ -446,14 +471,6 @@ mod tests {
     }
 
     #[test]
-    fn json_help_for_agents_or_explicit_json_output_only() {
-        assert!(wants_json_help(true, None));
-        assert!(wants_json_help(false, Some("json")));
-        assert!(!wants_json_help(false, Some("table")));
-        assert!(!wants_json_help(false, None));
-    }
-
-    #[test]
     fn package_spec_defaults_to_latest() {
         assert_eq!(package_spec(None).unwrap(), "@datadog/ai-setup-cli@latest");
         assert_eq!(
@@ -659,6 +676,19 @@ mod tests {
         let result = ensure_session(&mut cfg, None, async |_: &Config| Ok(()), |_| None).await;
         assert!(result.unwrap_err().to_string().contains("no pup session"));
         cleanup_env();
+    }
+
+    #[test]
+    fn leading_help_word_is_treated_as_help_flag() {
+        assert_eq!(
+            normalize_help_args(&args(&["help", "--product", "linux"])),
+            args(&["--help", "--product", "linux"])
+        );
+        assert!(asks_for_help(&normalize_help_args(&args(&["help"]))));
+        assert_eq!(
+            normalize_help_args(&args(&["--product", "help"])),
+            args(&["--product", "help"])
+        );
     }
 
     #[test]

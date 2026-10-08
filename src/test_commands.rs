@@ -8,6 +8,28 @@
 
 use clap::CommandFactory;
 
+#[test]
+fn test_traces_get_parses_id_and_is_read_only() {
+    use clap::Parser;
+    let cli =
+        crate::Cli::try_parse_from(["pup", "--read-only", "traces", "get", "14401469471269993012"])
+            .unwrap();
+    let crate::Commands::Traces {
+        action: crate::TracesActions::Get { trace_id },
+    } = cli.command
+    else {
+        panic!("expected traces get");
+    };
+    assert_eq!(trace_id, "14401469471269993012");
+    let matches = crate::Cli::command()
+        .try_get_matches_from(["pup", "traces", "get", "14401469471269993012"])
+        .unwrap();
+    assert!(!crate::is_write_command_name(
+        &crate::get_leaf_subcommand_name(&matches).unwrap()
+    ));
+    assert!(crate::Cli::try_parse_from(["pup", "traces", "get"]).is_err());
+}
+
 // -------------------------------------------------------------------------
 // Notebook discovery
 // -------------------------------------------------------------------------

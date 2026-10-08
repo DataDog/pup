@@ -59,52 +59,87 @@ pub async fn flags_get(cfg: &Config, feature_flag_id: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+// These writes return the same mismodeled response as flags_get. Keep SDK
+// request validation, but decode responses as JSON, including allocation arrays.
+// Archive/unarchive must remain bodyless POSTs.
+async fn write_flag(
+    cfg: &Config,
+    method: &str,
+    path: &str,
+    body: Option<Vec<u8>>,
+) -> Result<serde_json::Value> {
+    let resp = crate::raw_client::raw_request(
+        cfg,
+        method,
+        path,
+        &[],
+        body,
+        Some("application/json"),
+        "application/json",
+        &[],
+    )
+    .await?;
+    serde_json::from_slice(&resp.bytes).context("failed to decode feature flag response")
+}
+
 pub async fn flags_create(cfg: &Config, file: &str) -> Result<()> {
     let body: datadog_api_client::datadogV2::model::CreateFeatureFlagRequest =
         util::read_json_file(file)?;
-    let api = make_api(cfg);
-    let resp = api
-        .create_feature_flag(body)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to create feature flag: {e:?}"))?;
+    let resp = write_flag(
+        cfg,
+        "POST",
+        "/api/v2/feature-flags",
+        Some(serde_json::to_vec(&body)?),
+    )
+    .await
+    .context("failed to create feature flag")?;
     formatter::output(cfg, &resp)
 }
 
 pub async fn flags_update(cfg: &Config, feature_flag_id: &str, file: &str) -> Result<()> {
     let body: datadog_api_client::datadogV2::model::UpdateFeatureFlagRequest =
         util::read_json_file(file)?;
-    let api = make_api(cfg);
     let id = feature_flag_id
         .parse::<uuid::Uuid>()
         .map_err(|e| anyhow::anyhow!("invalid feature flag ID: {e:?}"))?;
-    let resp = api
-        .update_feature_flag(id, body)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to update feature flag: {e:?}"))?;
+    let resp = write_flag(
+        cfg,
+        "PUT",
+        &format!("/api/v2/feature-flags/{id}"),
+        Some(serde_json::to_vec(&body)?),
+    )
+    .await
+    .context("failed to update feature flag")?;
     formatter::output(cfg, &resp)
 }
 
 pub async fn flags_archive(cfg: &Config, feature_flag_id: &str) -> Result<()> {
-    let api = make_api(cfg);
     let id = feature_flag_id
         .parse::<uuid::Uuid>()
         .map_err(|e| anyhow::anyhow!("invalid feature flag ID: {e:?}"))?;
-    let resp = api
-        .archive_feature_flag(id)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to archive feature flag: {e:?}"))?;
+    let resp = write_flag(
+        cfg,
+        "POST",
+        &format!("/api/v2/feature-flags/{id}/archive"),
+        None,
+    )
+    .await
+    .context("failed to archive feature flag")?;
     formatter::output(cfg, &resp)
 }
 
 pub async fn flags_unarchive(cfg: &Config, feature_flag_id: &str) -> Result<()> {
-    let api = make_api(cfg);
     let id = feature_flag_id
         .parse::<uuid::Uuid>()
         .map_err(|e| anyhow::anyhow!("invalid feature flag ID: {e:?}"))?;
-    let resp = api
-        .unarchive_feature_flag(id)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to unarchive feature flag: {e:?}"))?;
+    let resp = write_flag(
+        cfg,
+        "POST",
+        &format!("/api/v2/feature-flags/{id}/unarchive"),
+        None,
+    )
+    .await
+    .context("failed to unarchive feature flag")?;
     formatter::output(cfg, &resp)
 }
 

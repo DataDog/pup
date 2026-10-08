@@ -1415,7 +1415,7 @@ enum Commands {
     ///
     /// EXAMPLES:
     ///   # List running experiments
-    ///   pup experiments list --status=running
+    ///   pup experiments list --status=IN_PROGRESS
     ///
     ///   # Create a draft experiment
     ///   pup experiments create --file=experiment.json
@@ -8780,7 +8780,7 @@ enum ExperimentActions {
         #[arg(
             long,
             value_delimiter = ',',
-            help = "Filter by status (repeatable or comma-separated)"
+            help = "Filter by status (repeatable or comma-separated): DRAFT, SCHEDULED, IN_PROGRESS, READY_FOR_DECISION, DECISION_MADE, CANCELLED"
         )]
         status: Vec<String>,
         #[arg(

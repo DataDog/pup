@@ -1411,7 +1411,7 @@ enum Commands {
     ///   diagnostics          Show diagnostics (sample ratio mismatch, zero-data metrics)
     ///   traffic-summary      Show per-variant traffic
     ///   results              Show per-variant results
-    ///   refresh              Recompute an experiment's results
+    ///   refresh-results      Recompute an experiment's results
     ///
     /// EXAMPLES:
     ///   # List running experiments
@@ -8847,7 +8847,7 @@ enum ExperimentActions {
         experiment_id: String,
     },
     /// Recompute an experiment's results
-    Refresh {
+    RefreshResults {
         #[arg(help = "Experiment ID (UUID)")]
         experiment_id: String,
         #[arg(long, help = "Recompute from scratch instead of incrementally")]
@@ -13144,7 +13144,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "update"
         || name == "cancel"
         || name == "conclude"
-        || name == "refresh"
+        || name == "refresh-results"
         || name == "set-default"
         || name == "trigger"
         || name == "set"
@@ -13737,13 +13737,13 @@ mod test_agent_schema {
 
     #[test]
     fn experiments_lifecycle_verbs_are_classified_as_write() {
-        // conclude/refresh/set-default mutate experiment state, so read-only
+        // conclude/refresh-results/set-default mutate experiment state, so read-only
         // mode must block them; diagnostics/results stay read-only.
         let schema = get_schema();
         let commands = schema["commands"].as_array().unwrap();
         for path in [
             &["experiments", "conclude"][..],
-            &["experiments", "refresh"],
+            &["experiments", "refresh-results"],
             &["experiments", "subject-types", "set-default"],
             &["experiments", "metric-groups", "create-from-collection"],
         ] {
@@ -13751,7 +13751,8 @@ mod test_agent_schema {
             assert_eq!(cmd["read_only"].as_bool(), Some(false), "{path:?}");
         }
         for path in [
-            &["experiments", "diagnostics"][..],
+            &["auth", "refresh"][..],
+            &["experiments", "diagnostics"],
             &["experiments", "results"],
             &["experiments", "traffic-summary"],
         ] {
@@ -18153,7 +18154,7 @@ async fn main_inner() -> anyhow::Result<()> {
                 ExperimentActions::Results { experiment_id } => {
                     ex::results(&cfg, &experiment_id).await?
                 }
-                ExperimentActions::Refresh {
+                ExperimentActions::RefreshResults {
                     experiment_id,
                     full,
                 } => ex::refresh(&cfg, &experiment_id, full).await?,

@@ -156,6 +156,12 @@ pub async fn search(
         .map_err(|e| anyhow::anyhow!("failed to search spans: {:?}", e))?;
 
     formatter::format_and_print(&resp, &cfg.output_format, cfg.jq.as_deref())?;
+    let next_cursor = resp
+        .meta
+        .as_ref()
+        .and_then(|m| m.page.as_ref())
+        .and_then(|p| p.after.as_deref());
+    crate::output::eprint_next_page_hint(cfg, next_cursor);
     Ok(())
 }
 
@@ -505,7 +511,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_sends_cursor_and_surfaces_next_cursor() {
+    async fn test_search_sends_cursor() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());

@@ -208,18 +208,34 @@ fn is_rate_limited(err: &anyhow::Error) -> bool {
     err.to_string().contains("HTTP 429 Too Many Requests")
 }
 
-/// Print `items`, then note on stderr when the list was cut short so the hint
-/// never alters the JSON on stdout.
-fn output_items<T: Serialize>(cfg: &Config, items: &T, truncated: bool, hint: &str) -> Result<()> {
-    formatter::output(cfg, items)?;
-    if let Some(note) = truncation_note(truncated, hint) {
-        eprintln!("{note}");
+/// Wrap one page of schema results with where to resume. `next_offset` is set
+/// only when more results exist; pass it back with `--offset`.
+fn paged_items<T: Serialize>(
+    items: &[T],
+    offset: usize,
+    truncated: bool,
+    warnings: &[&str],
+) -> Value {
+    let mut meta = json!({
+        "offset": offset,
+        "returned": items.len(),
+        "truncated": truncated,
+    });
+    if truncated {
+        meta["next_offset"] = json!(offset.saturating_add(items.len()));
     }
-    Ok(())
+    if !warnings.is_empty() {
+        meta["warnings"] = json!(warnings);
+    }
+    json!({ "data": items, "meta": meta })
 }
 
-fn truncation_note(truncated: bool, hint: &str) -> Option<String> {
-    truncated.then(|| format!("Results truncated; {hint}."))
+fn output_paged(cfg: &Config, page: &Value) -> Result<()> {
+    formatter::output_with_table(
+        cfg,
+        page,
+        formatter::TableOptions::new(&[]).rows_at("/data"),
+    )
 }
 
 fn parse_ddsql_docs(resp: Value) -> Result<DdsqlDocsResponse> {
@@ -473,15 +489,8 @@ pub async fn schema_tables(
     let total = items.len();
     let paged: Vec<DdsqlSchemaTable> = items.into_iter().skip(offset).take(limit).collect();
     let truncated = references_truncated || offset.saturating_add(paged.len()) < total;
-    if let Some(note) = rate_limit_note {
-        eprintln!("Warning: {note}");
-    }
-    output_items(
-        cfg,
-        &paged,
-        truncated,
-        "rerun with `--offset <n>` to inspect additional tables",
-    )
+    let warnings: Vec<&str> = rate_limit_note.into_iter().collect();
+    output_paged(cfg, &paged_items(&paged, offset, truncated, &warnings))
 }
 
 pub async fn schema_columns(
@@ -506,12 +515,7 @@ pub async fn schema_columns(
     let total = columns.len();
     let paged: Vec<DdsqlSchemaColumn> = columns.into_iter().skip(offset).take(limit).collect();
     let truncated = offset.saturating_add(paged.len()) < total;
-    output_items(
-        cfg,
-        &paged,
-        truncated,
-        "rerun with `--offset <n>` to inspect additional columns",
-    )
+    output_paged(cfg, &paged_items(&paged, offset, truncated, &[]))
 }
 
 /// Build a request for the Advanced Query API (tabular/scalar endpoint).
@@ -829,16 +833,25 @@ fn columnar_to_rows(resp: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{cleanup_env, lock_env, test_config};
 
     #[test]
-    fn test_truncation_note_only_when_truncated() {
-        assert_eq!(
-            truncation_note(true, "rerun with `--offset <n>`").as_deref(),
-            Some("Results truncated; rerun with `--offset <n>`.")
-        );
-        assert!(truncation_note(false, "anything").is_none());
+    fn test_paged_items_sets_next_offset_when_truncated() {
+        let page = paged_items(&["a", "b"], 10, true, &[]);
+        assert_eq!(page["data"], json!(["a", "b"]));
+        assert_eq!(page["meta"]["returned"], 2);
+        assert_eq!(page["meta"]["truncated"], true);
+        assert_eq!(page["meta"]["next_offset"], 12);
+        assert!(page["meta"].get("warnings").is_none());
     }
-    use crate::test_support::{cleanup_env, lock_env, test_config};
+
+    #[test]
+    fn test_paged_items_omits_next_offset_on_last_page() {
+        let page = paged_items(&["a"], 0, false, &["rate limited"]);
+        assert_eq!(page["meta"]["truncated"], false);
+        assert!(page["meta"].get("next_offset").is_none());
+        assert_eq!(page["meta"]["warnings"], json!(["rate limited"]));
+    }
 
     #[test]
     fn test_build_advanced_table_with_limit() {

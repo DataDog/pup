@@ -386,6 +386,12 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
         cfg.jq.as_deref(),
         formatter::TableOptions::new(LOG_SEARCH_COLUMNS).rows_at("/data"),
     )?;
+    let next_cursor = resp
+        .meta
+        .as_ref()
+        .and_then(|m| m.page.as_ref())
+        .and_then(|p| p.after.as_deref());
+    crate::output::eprint_next_page_hint(cfg, next_cursor);
     Ok(())
 }
 

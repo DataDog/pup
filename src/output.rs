@@ -313,6 +313,27 @@ fn format_value_to_string_with_options(
     }
 }
 
+/// Stderr hint naming the cursor for the next page. Plain JSON and YAML already
+/// carry the cursor in the body; table/CSV/TSV rendering and `--jq` can drop it.
+pub fn next_page_hint(
+    format: &OutputFormat,
+    jq: Option<&str>,
+    cursor: Option<&str>,
+) -> Option<String> {
+    let cursor = cursor.filter(|c| !c.is_empty())?;
+    let body_keeps_cursor =
+        jq.is_none() && matches!(format, OutputFormat::Json | OutputFormat::Yaml);
+    (!body_keeps_cursor)
+        .then(|| format!("More results available; rerun with --cursor=\"{cursor}\""))
+}
+
+/// Print `next_page_hint` to stderr when there is one.
+pub fn eprint_next_page_hint(cfg: &crate::config::Config, cursor: Option<&str>) {
+    if let Some(hint) = next_page_hint(&cfg.output_format, cfg.jq.as_deref(), cursor) {
+        eprintln!("{hint}");
+    }
+}
+
 /// Format and print a JSON value to stderr (same renderers as stdout).
 pub fn eprint_formatted(data: &serde_json::Value, format: &OutputFormat) -> Result<()> {
     let rendered = format_value_to_string(data, format)?;
@@ -2415,6 +2436,24 @@ mod tests {
         assert_eq!(parsed, payload);
         assert!(parsed.get("status").is_none());
         assert!(parsed.get("metadata").is_none());
+    }
+
+    #[test]
+    fn test_next_page_hint_only_when_body_drops_cursor() {
+        let hint = |format, jq| next_page_hint(&format, jq, Some("abc"));
+        assert!(hint(OutputFormat::Json, None).is_none());
+        assert!(hint(OutputFormat::Yaml, None).is_none());
+        let expected = Some("More results available; rerun with --cursor=\"abc\"".to_string());
+        assert_eq!(hint(OutputFormat::Table, None), expected);
+        assert_eq!(hint(OutputFormat::Csv, None), expected);
+        assert_eq!(hint(OutputFormat::Tsv, None), expected);
+        assert_eq!(hint(OutputFormat::Json, Some(".data")), expected);
+    }
+
+    #[test]
+    fn test_next_page_hint_none_without_cursor() {
+        assert!(next_page_hint(&OutputFormat::Table, None, None).is_none());
+        assert!(next_page_hint(&OutputFormat::Table, None, Some("")).is_none());
     }
 
     #[test]

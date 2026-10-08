@@ -619,7 +619,12 @@ pub async fn find(cfg: &Config, query: &str, limit: usize, cursor: Option<&str>)
     }
     let data = raw_client::raw_get(cfg, entity_query::ENTITIES_PATH, &params).await?;
 
-    formatter::format_and_print(&data, &cfg.output_format, cfg.jq.as_deref())
+    formatter::format_and_print(&data, &cfg.output_format, cfg.jq.as_deref())?;
+    let next_cursor = data
+        .pointer("/meta/page/next_cursor")
+        .and_then(serde_json::Value::as_str);
+    crate::output::eprint_next_page_hint(cfg, next_cursor);
+    Ok(())
 }
 
 /// Resolve owner, team, and on-call context for an entity.

@@ -122,7 +122,31 @@ pub async fn sessions_create(
         anyhow::bail!("at least one --skill-id is required when status is '{status}'");
     }
 
-    let body = serde_json::json!({
+    let body = session_body(session_id, skill_ids, summary, status);
+    let resp = post(cfg, SESSIONS_PATH, body, None).await?;
+    formatter::output(cfg, &resp)
+}
+
+pub(crate) async fn record_session(
+    cfg: &Config,
+    session_id: &str,
+    skill_ids: &[String],
+    summary: &str,
+    status: &str,
+    timeout: std::time::Duration,
+) -> Result<()> {
+    let body = session_body(session_id, skill_ids, summary, status);
+    post(cfg, SESSIONS_PATH, body, Some(timeout)).await?;
+    Ok(())
+}
+
+fn session_body(
+    session_id: &str,
+    skill_ids: &[String],
+    summary: &str,
+    status: &str,
+) -> serde_json::Value {
+    serde_json::json!({
         "data": {
             "type": "onboarding_session",
             "id": session_id,
@@ -132,10 +156,7 @@ pub async fn sessions_create(
                 "status": status,
             },
         },
-    });
-
-    let resp = post(cfg, SESSIONS_PATH, body).await?;
-    formatter::output(cfg, &resp)
+    })
 }
 
 // list/get are public (OpenAuth), so unlike `client::apply_auth` this attaches
@@ -190,9 +211,18 @@ async fn send_get(
         .await?)
 }
 
-async fn post(cfg: &Config, path: &str, body: serde_json::Value) -> Result<serde_json::Value> {
+async fn post(
+    cfg: &Config,
+    path: &str,
+    body: serde_json::Value,
+    timeout: Option<std::time::Duration>,
+) -> Result<serde_json::Value> {
     let url = format!("{}{}", cfg.api_base_url(), path);
-    let client = reqwest::Client::new();
+    let mut builder = reqwest::Client::builder();
+    if let Some(timeout) = timeout {
+        builder = builder.timeout(timeout);
+    }
+    let client = builder.build()?;
     let mut req = client.post(&url);
     req = apply_optional_auth(req, cfg);
     let resp = req

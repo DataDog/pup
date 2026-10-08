@@ -79,6 +79,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | fleet | agents (list, get, versions, tracers), deployments (list, get, configure, upgrade, cancel), schedules (list, get, create, update, delete, trigger), tracers (list), clusters (list), instrumented-pods (list) | src/commands/fleet.rs | ✅ |
 | skills | list, install, path (positional `<platform>`: claude/cursor/codex/opencode/windsurf/gemini/pi/devin/all; `--name`, `--type`, `--project` for project-local scope; bundled skills include supplementary references) | src/commands/skills.rs | ✅ |
 | runbooks | list, describe, run, import, validate | src/commands/runbooks.rs | ✅ |
+| setup | (all arguments passed to AI Setup, run from npm with npx; needs Node.js 22+) | src/commands/setup.rs | ✅ |
 | workflows | get, create, update, diff, delete, run, instances (list, get, cancel), connections (get, create, update, delete) | src/commands/workflows.rs | ✅ |
 | investigations | list, get, trigger | src/commands/investigations.rs | ✅ |
 | change-requests | create, get, update, create-branch, decisions (update, delete) | src/commands/change_management.rs | ✅ |
@@ -309,6 +310,45 @@ pre-filter data, not the filtered result.
 steps) bypass `format_and_print` and do not honor `--jq`.
 
 ## Recent Enhancements
+
+### `pup setup`: Datadog product setup
+
+`pup setup` runs Datadog's AI Setup CLI (`@datadog/ai-setup-cli`) from npm with
+`npx`, so it needs Node.js 22 or newer. Every argument after `setup` is passed
+through, so `pup setup --help` lists the supported products and their flags.
+
+```bash
+pup setup --product linux
+pup setup --help
+```
+
+- **Auth.** pup forwards its session to AI Setup as `DD_ACCESS_TOKEN`. When an
+  OAuth session exists, API and app keys from the shell are not forwarded, and a
+  lone key without its pair is never forwarded.
+- **Headless vs. interactive.** In agent mode, or when stdin or stdout is not a
+  terminal, pup adds `--headless`. A person at a terminal gets AI Setup's
+  interactive flow.
+- **No session yet.** For headless runs, pup runs its OAuth login first (the same
+  flow as `pup auth login`) and then continues, first pointing people without
+  a Datadog account to the sign-up page. At a terminal, AI Setup's own sign-in
+  or sign-up runs instead, and after a successful run pup offers to log in too,
+  since AI Setup's session isn't shared with pup.
+- **API key scope.** AI Setup writes the org's API key into the project so the
+  Agent and tracers can send data, which needs `api_keys_read`. pup's login for
+  setup requests it on top of the usual scopes. If the saved session doesn't
+  have it, `pup setup` runs the login once more to add it.
+- **Help.** `pup setup --help` (or `pup setup help`, `pup help setup`) lists AI
+  Setup's products and their flags in pup's own help format: the JSON schema in
+  agent mode and clap text otherwise, like every other command. `--site` and
+  `--headless` are left out because pup sets them. If AI Setup's help can't be
+  read, `--help` is passed through to AI Setup.
+- **Missing Node.js.** If `npx` or Node.js 22+ is not available, pup prints how to
+  install it, exits non-zero, and records the outcome through the onboarding
+  sessions API when it has credentials.
+- **Testing an unreleased build.** `PUP_SETUP_AI_SETUP_PACKAGE` overrides the
+  package npx runs: a version or dist-tag (`2.1.0`, `next`) or an npm package spec
+  such as a local tarball (`/path/to/datadog-ai-setup-cli-2.1.0.tgz`) or a `file:`
+  spec. The default is `@datadog/ai-setup-cli@latest`.
 
 ### Notebooks — Markdown representation (experimental)
 

@@ -1386,6 +1386,21 @@ enum Commands {
         #[command(subcommand)]
         action: ExtensionActions,
     },
+    /// Set up Datadog products in your project. Run `pup setup --help` to list products and their flags.
+    ///
+    /// Runs Datadog's AI Setup CLI from npm with npx, so it needs Node.js 22
+    /// or newer. Every argument after `setup` is passed through to AI Setup.
+    ///
+    /// EXAMPLES:
+    ///   pup setup --product apm
+    ///   pup setup --help
+    #[cfg(not(target_arch = "wasm32"))]
+    #[command(verbatim_doc_comment, disable_help_flag = true)]
+    Setup {
+        /// Arguments passed through to AI Setup
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Manage feature flags
     ///
     /// Manage Datadog feature flags and their environments.
@@ -12179,6 +12194,25 @@ fn help_command_path<'a>(
     (names, current)
 }
 
+fn setup_help_alias(mut args: Vec<String>) -> Vec<String> {
+    let is_alias = {
+        let mut positionals = positional_tokens(&args);
+        positionals.next() == Some("help") && positionals.next() == Some("setup")
+    };
+    if !is_alias {
+        return args;
+    }
+    if let Some(index) = args.iter().skip(1).position(|arg| arg == "help") {
+        args.remove(index + 1);
+        args.push("--help".to_string());
+    }
+    args
+}
+
+fn help_belongs_to_wrapped_cli(args: &[String]) -> bool {
+    top_level_subcommand(args) == Some("setup")
+}
+
 /// Return the agent-help schema for a valid command, or `None` when clap should
 /// handle an unknown command or invalid nested subcommand normally.
 fn agent_help_schema(cmd: &clap::Command, args: &[String]) -> Option<serde_json::Value> {
@@ -12232,7 +12266,7 @@ fn agent_query_syntax() -> serde_json::Value {
 
 /// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`
 /// or `pup logs aggregate --help`). `sub_path` is the target's canonical path.
-fn build_agent_schema_scoped(
+pub(crate) fn build_agent_schema_scoped(
     _root_cmd: &clap::Command,
     target: &clap::Command,
     sub_path: &[&str],
@@ -12817,9 +12851,10 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "pause"
         || name == "resume"
         || name == "generate"
+        || name == "setup"
 }
 
-fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
+pub(crate) fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
     let mut obj = serde_json::Map::new();
     let name = cmd.get_name().to_string();
     let full_path = if parent_path.is_empty() {
@@ -13087,6 +13122,93 @@ mod test_agent_schema {
             let subs = cmd.get("subcommands")?.as_array()?;
             find_command(subs, &path[1..])
         }
+    }
+
+    #[test]
+    fn setup_is_listed_in_agent_schema_as_a_write_command() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let setup = find_command(commands, &["setup"]).expect("setup must be in the schema");
+        assert_eq!(setup["read_only"], serde_json::json!(false));
+        let description = setup["description"].as_str().unwrap_or_default();
+        assert!(description.contains("Set up Datadog products"));
+    }
+
+    #[test]
+    fn help_setup_is_an_alias_for_setup_help() {
+        let argv = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            setup_help_alias(argv(&["pup", "help", "setup"])),
+            argv(&["pup", "setup", "--help"])
+        );
+        assert_eq!(
+            setup_help_alias(argv(&[
+                "pup",
+                "--agent",
+                "help",
+                "setup",
+                "--product",
+                "linux"
+            ])),
+            argv(&["pup", "--agent", "setup", "--product", "linux", "--help"])
+        );
+        assert_eq!(
+            setup_help_alias(argv(&["pup", "help", "monitors"])),
+            argv(&["pup", "help", "monitors"])
+        );
+    }
+
+    #[test]
+    fn setup_passes_all_arguments_through() {
+        let cli =
+            Cli::try_parse_from(["pup", "setup", "--product", "apm", "--help", "-x"]).unwrap();
+        match cli.command {
+            Commands::Setup { args } => assert_eq!(args, ["--product", "apm", "--help", "-x"]),
+            _ => panic!("expected the setup command"),
+        }
+    }
+
+    #[test]
+    fn setup_description_points_to_its_help() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let setup = find_command(commands, &["setup"]).unwrap();
+        let description = setup["description"].as_str().unwrap_or_default();
+        assert!(
+            description.contains("Run `pup setup --help` to list products and their flags"),
+            "got: {description}"
+        );
+    }
+
+    #[test]
+    fn agent_help_passes_through_for_setup_only() {
+        let argv = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(help_belongs_to_wrapped_cli(&argv(&[
+            "pup", "--agent", "setup", "--help"
+        ])));
+        assert!(help_belongs_to_wrapped_cli(&argv(&[
+            "pup", "-o", "json", "setup", "-h"
+        ])));
+        assert!(!help_belongs_to_wrapped_cli(&argv(&[
+            "pup", "--agent", "logs", "--help"
+        ])));
+        assert!(!help_belongs_to_wrapped_cli(&argv(&["pup", "--help"])));
+    }
+
+    #[test]
+    fn setup_accepts_no_arguments() {
+        let cli = Cli::try_parse_from(["pup", "setup"]).unwrap();
+        match cli.command {
+            Commands::Setup { args } => assert!(args.is_empty()),
+            _ => panic!("expected the setup command"),
+        }
+    }
+
+    #[test]
+    fn setup_is_a_write_command_but_similar_names_are_not() {
+        assert!(is_write_command_name("setup"));
+        assert!(!is_write_command_name("setups"));
+        assert!(!is_write_command_name("list"));
     }
 
     #[test]
@@ -14761,11 +14883,15 @@ mod resolve_output_format_tests {
 
 async fn main_inner() -> anyhow::Result<()> {
     // In agent mode, intercept --help to return a JSON schema instead of plain text.
-    let args: Vec<String> = std::env::args().collect();
+    let args = setup_help_alias(std::env::args().collect());
     let has_help = args.iter().any(|a| a == "--help" || a == "-h");
     let has_agent_flag = args.iter().any(|a| a == "--agent");
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
-    if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
+    if has_help
+        && !has_no_agent_flag
+        && (useragent::is_agent_mode() || has_agent_flag)
+        && !help_belongs_to_wrapped_cli(&args)
+    {
         let cmd = cli_command();
         if let Some(schema) = agent_help_schema(&cmd, &args) {
             println!("{}", serde_json::to_string_pretty(&schema).unwrap());
@@ -20299,6 +20425,21 @@ async fn main_inner() -> anyhow::Result<()> {
                     commands::reference_tables::batch_query(&cfg, &file).await?;
                 }
             }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        Commands::Setup { args } => {
+            let login = async |cfg: &config::Config| -> anyhow::Result<()> {
+                let scopes = resolve_login_scopes(
+                    None,
+                    Some(commands::setup::LOGIN_EXTRA_SCOPES),
+                    cfg.org.as_deref(),
+                    cfg.read_only,
+                );
+                let port = resolve_callback_port(None)?;
+                commands::auth::login(cfg, scopes, port, None).await
+            };
+            let exit_code = commands::setup::run(&mut cfg, &args, login).await?;
+            std::process::exit(exit_code);
         }
         // --- Extensions ---
         #[cfg(not(target_arch = "wasm32"))]

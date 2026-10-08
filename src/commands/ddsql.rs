@@ -208,26 +208,18 @@ fn is_rate_limited(err: &anyhow::Error) -> bool {
     err.to_string().contains("HTTP 429 Too Many Requests")
 }
 
-fn output_items<T: Serialize>(
-    cfg: &Config,
-    items: &T,
-    count: usize,
-    truncated: bool,
-    next_action: Option<String>,
-) -> Result<()> {
-    let meta = formatter::Metadata {
-        count: Some(count),
-        truncated,
-        command: None,
-        next_action,
-    };
-    formatter::format_and_print(
-        items,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+/// Print `items`, then note on stderr when the list was cut short so the hint
+/// never alters the JSON on stdout.
+fn output_items<T: Serialize>(cfg: &Config, items: &T, truncated: bool, hint: &str) -> Result<()> {
+    formatter::output(cfg, items)?;
+    if let Some(note) = truncation_note(truncated, hint) {
+        eprintln!("{note}");
+    }
+    Ok(())
+}
+
+fn truncation_note(truncated: bool, hint: &str) -> Option<String> {
+    truncated.then(|| format!("Results truncated; {hint}."))
 }
 
 fn parse_ddsql_docs(resp: Value) -> Result<DdsqlDocsResponse> {
@@ -470,8 +462,7 @@ pub async fn schema_tables(
                 Vec::new(),
                 true,
                 Some(
-                    "reference table search hit rate limit; rerun later or use `pup reference-tables list`"
-                        .to_string(),
+                    "reference table search hit rate limit; rerun later or use `pup reference-tables list`",
                 ),
             ),
             Err(err) => return Err(err),
@@ -482,10 +473,15 @@ pub async fn schema_tables(
     let total = items.len();
     let paged: Vec<DdsqlSchemaTable> = items.into_iter().skip(offset).take(limit).collect();
     let truncated = references_truncated || offset.saturating_add(paged.len()) < total;
-    let next_action = rate_limit_note.unwrap_or_else(|| {
-        "use `pup ddsql schema columns --table-id <id>` for column details".to_string()
-    });
-    output_items(cfg, &paged, paged.len(), truncated, Some(next_action))
+    if let Some(note) = rate_limit_note {
+        eprintln!("Warning: {note}");
+    }
+    output_items(
+        cfg,
+        &paged,
+        truncated,
+        "rerun with `--offset <n>` to inspect additional tables",
+    )
 }
 
 pub async fn schema_columns(
@@ -513,9 +509,8 @@ pub async fn schema_columns(
     output_items(
         cfg,
         &paged,
-        paged.len(),
         truncated,
-        Some("rerun with `--offset <n>` to inspect additional columns".to_string()),
+        "rerun with `--offset <n>` to inspect additional columns",
     )
 }
 
@@ -834,6 +829,15 @@ fn columnar_to_rows(resp: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_truncation_note_only_when_truncated() {
+        assert_eq!(
+            truncation_note(true, "rerun with `--offset <n>`").as_deref(),
+            Some("Results truncated; rerun with `--offset <n>`.")
+        );
+        assert!(truncation_note(false, "anything").is_none());
+    }
     use crate::test_support::{cleanup_env, lock_env, test_config};
 
     #[test]

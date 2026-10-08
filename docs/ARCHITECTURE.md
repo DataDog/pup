@@ -147,7 +147,7 @@ Based on [RFC 6749](https://tools.ietf.org/html/rfc6749) and [RFC 7636](https://
 **Fallback:**
 - If refresh fails, prompt user to re-authenticate
 
-## User Agent & Agent Mode
+## User Agent
 
 Custom user agent identifies pup CLI and detects AI coding assistants:
 
@@ -161,13 +161,8 @@ pup/v0.1.0 (rust; os darwin; arch arm64; ai-agent claude-code)  # With agent
 
 Table-driven registry detecting AI coding agents via environment variables. First match wins:
 - Claude Code (`CLAUDECODE`, `CLAUDE_CODE`), Cursor (`CURSOR_AGENT`; or presence of `CURSOR_TRACE_ID`), Codex (`CODEX`, `OPENAI_CODEX`; or presence of `CODEX_SESSION_ID`/`CODEX_THREAD_ID`/`CODEX_VERSION`/`CODEX_SANDBOX`/`CODEX_CI`, which Codex injects into shell commands), OpenCode (`OPENCODE`), Aider (`AIDER`), Cline (`CLINE`), Windsurf (`WINDSURF_AGENT`), GitHub Copilot (`GITHUB_COPILOT`, `COPILOT_CLI`; or presence of `COPILOT_AGENT_SESSION_ID`), Amazon Q (`AMAZON_Q`, `AWS_Q_DEVELOPER`), Gemini Code Assist (`GEMINI_CODE_ASSIST`), Gemini CLI (`GEMINI_CLI`), Sourcegraph Cody (`SRC_CODY`), pi.dev (`PI_CODING_AGENT`), Devin (presence of `DEVIN_SESSION_ID`), Generic Agent (`AGENT`)
-- Manual override: `FORCE_AGENT_MODE=1` or `--agent` flag
 
-**Agent Mode Behavior** (when detected):
-- `--help` returns structured JSON schema instead of text
-- Confirmation prompts auto-approved (prevents stdin hangs)
-- API responses wrapped in metadata envelope (count, truncation, warnings)
-- Errors returned as structured JSON with suggestions
+Detection only adds the `ai-agent <name>` token to the User-Agent header. It does not change output, help, prompts, or colors: agents get the same raw JSON and text help as humans. The legacy `--agent`/`--no-agent` flags are accepted as hidden no-ops.
 
 See [LLM_GUIDE.md](LLM_GUIDE.md) for the complete agent guide.
 

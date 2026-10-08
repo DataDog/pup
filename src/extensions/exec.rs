@@ -93,11 +93,6 @@ fn inject_auth_env(cmd: &mut std::process::Command, cfg: &Config) {
     } else {
         cmd.env_remove("PUP_READ_ONLY");
     }
-    if cfg.agent_mode {
-        cmd.env("PUP_AGENT_MODE", "true");
-    } else {
-        cmd.env_remove("PUP_AGENT_MODE");
-    }
     // Pass --jq expression to extension subprocesses so they can self-apply it.
     // Note: pup does not post-filter an extension's stdout; this only lets an
     // extension read the expression via PUP_FILTER if it chooses.
@@ -126,7 +121,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         }

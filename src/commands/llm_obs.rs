@@ -1412,7 +1412,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2116,7 +2115,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2203,7 +2201,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2352,7 +2349,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2888,7 +2884,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -4563,7 +4558,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -4913,7 +4907,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };

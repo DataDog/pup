@@ -427,16 +427,12 @@ fn extract_create_fields(resp: &serde_json::Value, field_list: &str) -> serde_js
 
 pub async fn probes_delete(cfg: &Config, id: &str) -> Result<()> {
     delete(cfg, &format!("{PROBES_PATH}{id}/")).await?;
-    delete_output(cfg, id)
+    delete_output(id)
 }
 
-fn delete_output(cfg: &Config, id: &str) -> Result<()> {
-    if cfg.agent_mode {
-        formatter::output(cfg, &serde_json::json!({"id": id, "deleted": true}))
-    } else {
-        println!("Probe {id} deleted.");
-        Ok(())
-    }
+fn delete_output(id: &str) -> Result<()> {
+    println!("Probe {id} deleted.");
+    Ok(())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -703,36 +699,10 @@ mod tests {
     use crate::test_support::*;
 
     use super::*;
-    use crate::config::{Config, OutputFormat};
-
-    fn test_cfg() -> Config {
-        Config {
-            api_key: Some("test".into()),
-            app_key: Some("test".into()),
-            access_token: None,
-            site: "datadoghq.com".into(),
-            site_explicit: false,
-            org: None,
-            output_format: OutputFormat::Json,
-            auto_approve: false,
-            agent_mode: false,
-            read_only: false,
-            jq: None,
-        }
-    }
 
     #[test]
     fn test_delete_output_human() {
-        let cfg = test_cfg();
-        let result = delete_output(&cfg, "probe-123");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_delete_output_agent_mode() {
-        let mut cfg = test_cfg();
-        cfg.agent_mode = true;
-        let result = delete_output(&cfg, "probe-123");
+        let result = delete_output("probe-123");
         assert!(result.is_ok());
     }
 

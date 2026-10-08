@@ -77,7 +77,7 @@ The Software Catalog entity API and the IDP entity graph are related but distinc
 
 ## Write workflows
 
-Pup agent mode may auto-approve CLI prompts. Obtain the user's explicit authorization immediately before any remote mutation even when Pup would not prompt.
+Pup does not prompt when `--yes` or `DD_AUTO_APPROVE` is set. Obtain the user's explicit authorization immediately before any remote mutation even when Pup would not prompt.
 
 ### Register Catalog entities
 

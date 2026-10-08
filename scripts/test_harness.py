@@ -2235,7 +2235,8 @@ def build_clean_env(dd_vars: dict[str, str], agent_mode: bool = False) -> dict[s
       - DD_TOKEN_STORAGE=file (prevents macOS keychain prompts)
       - All DD_* variables from the outer environment
       - All variables supplied via dd_vars (override outer DD_* vars)
-      - FORCE_AGENT_MODE=1 when agent_mode=True
+      - CLAUDECODE=1 when agent_mode=True, so pup detects an AI agent the
+        same way it does under Claude Code (only the User-Agent changes)
 
     No other outer-environment variables are forwarded, ensuring test
     reproducibility and preventing accidental credential leakage.
@@ -2253,11 +2254,11 @@ def build_clean_env(dd_vars: dict[str, str], agent_mode: bool = False) -> dict[s
             env[k] = v
     # Apply dd-auth / caller-supplied vars (highest priority)
     env.update(dd_vars)
-    # Explicitly control agent mode — never leak it from the outer environment
+    # Explicitly control agent detection — never leak it from the outer environment
     if agent_mode:
-        env["FORCE_AGENT_MODE"] = "1"
+        env["CLAUDECODE"] = "1"
     else:
-        env.pop("FORCE_AGENT_MODE", None)
+        env.pop("CLAUDECODE", None)
     return env
 
 
@@ -2359,16 +2360,15 @@ def get_untested_commands(
     test_env: dict[str, str],
 ) -> tuple[list[str], list[str]]:
     """
-    Run `FORCE_AGENT_MODE=1 pup --help` to get the complete command schema and
+    Run `pup agent schema` to get the complete command schema and
     return two lists:
       - uncovered_read_only: read_only=True commands not in the test catalog
       - write_commands:      read_only=False leaf commands (intentionally skipped)
     """
     env = dict(test_env)
-    env["FORCE_AGENT_MODE"] = "1"
     try:
         proc = subprocess.run(
-            [str(BINARY), "--help"],
+            [str(BINARY), "agent", "schema"],
             capture_output=True, text=True, timeout=15,
             env=env, cwd=REPO_ROOT,
         )
@@ -2999,7 +2999,7 @@ def main() -> int:
 
     auth_info = " | ".join(auth_info_parts) if auth_info_parts else "outer environment only"
 
-    # Build mode-specific environments (human has no FORCE_AGENT_MODE)
+    # Build mode-specific environments (human has no agent marker)
     human_env = build_clean_env(dd_auth_vars, agent_mode=False)
     agent_env = build_clean_env(dd_auth_vars, agent_mode=True)
 

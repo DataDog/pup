@@ -9,7 +9,7 @@ use super::entity_types::{
     KindScope,
 };
 use crate::config::Config;
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 use crate::raw_client;
 use crate::util_ext;
 
@@ -126,36 +126,15 @@ pub async fn list_kinds(
                 include_low_level,
                 include_experimental,
             );
-            let metadata = kind_metadata(response.count);
-            return formatter::format_and_print(
-                &response,
-                &cfg.output_format,
-                cfg.agent_mode,
-                Some(&metadata),
-                cfg.jq.as_deref(),
-            );
+            return formatter::format_and_print(&response, &cfg.output_format, cfg.jq.as_deref());
         }
         let mut response = curated_kinds(include_low_level, include_experimental);
         response.custom_kinds = custom_kind_summaries(&live);
-        let metadata = kind_metadata(curated_count(&response));
-        return formatter::format_and_print(
-            &response,
-            &cfg.output_format,
-            cfg.agent_mode,
-            Some(&metadata),
-            cfg.jq.as_deref(),
-        );
+        return formatter::format_and_print(&response, &cfg.output_format, cfg.jq.as_deref());
     }
 
     let response = curated_kinds(include_low_level, include_experimental);
-    let metadata = kind_metadata(curated_count(&response));
-    formatter::format_and_print(
-        &response,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&metadata),
-        cfg.jq.as_deref(),
-    )
+    formatter::format_and_print(&response, &cfg.output_format, cfg.jq.as_deref())
 }
 
 pub async fn describe_kind(cfg: &Config, kind: &str, no_examples: bool) -> Result<()> {
@@ -192,29 +171,7 @@ pub async fn describe_kind(cfg: &Config, kind: &str, no_examples: bool) -> Resul
         ),
     };
 
-    formatter::format_and_print(
-        &response,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&Metadata {
-            count: Some(response.attributes.len() + response.relations.len()),
-            truncated: false,
-            command: Some("pup idp kinds describe".into()),
-            next_action: Some(format!(
-                "Query this kind with: pup idp entities query 'kind:{kind}'"
-            )),
-        }),
-        cfg.jq.as_deref(),
-    )
-}
-
-fn kind_metadata(count: usize) -> Metadata {
-    Metadata {
-        count: Some(count),
-        truncated: false,
-        command: Some("pup idp kinds list".into()),
-        next_action: Some("Inspect a kind with: pup idp kinds describe <kind>".into()),
-    }
+    formatter::format_and_print(&response, &cfg.output_format, cfg.jq.as_deref())
 }
 
 pub(super) async fn fetch_kind(cfg: &Config, kind: &str) -> Result<KindResource> {
@@ -940,15 +897,6 @@ fn summary(
 
 fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).into()).collect()
-}
-
-fn curated_count(response: &CuratedKindsResponse) -> usize {
-    response
-        .categories
-        .iter()
-        .map(|category| category.kinds.len())
-        .sum::<usize>()
-        + response.custom_kinds.len()
 }
 
 fn is_low_level_kind(kind: &str) -> bool {

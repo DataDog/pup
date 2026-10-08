@@ -266,13 +266,7 @@ pub async fn run(
         if let Ok(json) = serde_json::from_slice::<Value>(&body_bytes) {
             // Render through the shared formatter so `--output`/agent mode are
             // honored, matching every other pup command.
-            crate::formatter::format_and_print(
-                &json,
-                &cfg.output_format,
-                cfg.agent_mode,
-                None,
-                cfg.jq.as_deref(),
-            )?;
+            crate::formatter::format_and_print(&json, &cfg.output_format, cfg.jq.as_deref())?;
         } else {
             print!("{}", String::from_utf8_lossy(&body_bytes));
         }
@@ -975,7 +969,6 @@ mod tests {
             org: None,
             output_format: crate::config::OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -1044,7 +1037,6 @@ mod tests {
             org: None,
             output_format: crate::config::OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -1099,7 +1091,6 @@ mod tests {
             org: None,
             output_format: crate::config::OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };

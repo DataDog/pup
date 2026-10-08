@@ -55,11 +55,11 @@ pub(crate) struct Cli {
     /// Auto-approve destructive operations
     #[arg(short = 'y', long = "yes", global = true)]
     yes: bool,
-    /// Enable agent mode
-    #[arg(long, global = true)]
+    /// No-op. Agent mode was removed; kept so existing scripts that pass it still parse.
+    #[arg(long, global = true, hide = true)]
     agent: bool,
-    /// Disable agent mode (overrides auto-detection and --agent)
-    #[arg(long, global = true)]
+    /// No-op. Agent mode was removed; kept so existing scripts that pass it still parse.
+    #[arg(long, global = true, hide = true)]
     no_agent: bool,
     /// Block all write operations (create, update, delete)
     #[arg(long, global = true)]
@@ -147,9 +147,6 @@ enum Commands {
     ///   guide   — Displays an operational reference for the datadog-agent
     ///             daemon (the Datadog host agent that collects metrics, traces,
     ///             and logs). This is the `datadog-agent` binary, NOT an AI agent.
-    ///
-    /// In agent mode (auto-detected or via --agent / FORCE_AGENT_MODE=1),
-    /// --help returns structured JSON schema instead of human-readable text.
     ///
     /// COMMANDS:
     ///   schema    Output the complete pup command schema as JSON (for AI assistants)
@@ -1500,9 +1497,9 @@ enum Commands {
     /// Render JSON through pup's formatter
     ///
     /// Reads a JSON document from stdin (or --input FILE) and prints it using the
-    /// configured output format (--output, or $DD_OUTPUT / $PUP_OUTPUT) and agent
-    /// mode. Lets an extension in any language reuse pup's table/yaml/csv/tsv
-    /// rendering and agent envelope instead of reimplementing them.
+    /// configured output format (--output, or $DD_OUTPUT / $PUP_OUTPUT). Lets an
+    /// extension in any language reuse pup's table/yaml/csv/tsv rendering instead
+    /// of reimplementing it.
     ///
     /// EXAMPLES:
     ///   pup api v2/monitors --silent | pup format --output table
@@ -1514,14 +1511,14 @@ enum Commands {
         /// Read JSON from file, or use "-" (default) for stdin
         #[arg(long, value_name = "FILE")]
         input: Option<String>,
-        /// Set metadata.count in the agent-mode envelope
-        #[arg(long, value_name = "N")]
+        /// No-op. Fed the removed agent-mode envelope; kept so existing extensions still parse.
+        #[arg(long, value_name = "N", hide = true)]
         count: Option<usize>,
-        /// Set metadata.command in the agent-mode envelope
-        #[arg(long, value_name = "STR")]
+        /// No-op. Fed the removed agent-mode envelope; kept so existing extensions still parse.
+        #[arg(long, value_name = "STR", hide = true)]
         command: Option<String>,
-        /// Set metadata.next_action in the agent-mode envelope
-        #[arg(long, value_name = "STR")]
+        /// No-op. Fed the removed agent-mode envelope; kept so existing extensions still parse.
+        #[arg(long, value_name = "STR", hide = true)]
         next_action: Option<String>,
         /// Select table rows using an RFC 6901 JSON Pointer (for example, /data)
         #[arg(long, value_name = "POINTER")]
@@ -11352,7 +11349,7 @@ enum TracesActions {
     ///   indexed store — useful for viewing very recent traces that haven't
     ///   gone through ingestion sampling yet. Combine with the default
     ///   -timestamp sort and page backwards through older spans with
-    ///   --cursor (returned as `next_action` in agent mode).
+    ///   --cursor (pass back the response's meta.page.after).
     #[command(verbatim_doc_comment)]
     Search {
         #[arg(long, default_value = "*", help = "Span search query")]
@@ -12086,135 +12083,7 @@ enum AuthActions {
     Test,
 }
 
-// ---- Agent-mode JSON schema for --help ----
-
-/// Extract the top-level subcommand token from raw CLI args (the value passed
-/// to `pup`, including the binary name at index 0). Used by the agent-mode
-/// `--help` intercept, which runs before clap parses.
-///
-/// Skips the binary name, flags, `--help`/`-h`, and any value belonging to a
-/// value-taking global flag — so `--org myorg logs` yields `logs`, not `myorg`.
-/// The `--flag=value` form is a single `-`-prefixed token and needs no lookahead.
-fn top_level_subcommand(args: &[String]) -> Option<&str> {
-    positional_tokens(args).next()
-}
-
-/// Non-flag tokens from raw CLI args, skipping the binary name and the values
-/// of value-taking global flags. See `top_level_subcommand`.
-fn positional_tokens(args: &[String]) -> impl Iterator<Item = &str> {
-    // Global flags that consume the following token as their value.
-    const VALUE_GLOBALS: &[&str] = &["-o", "--output", "--org", "--jq"];
-    let mut prev_consumes_value = false;
-    args.iter().skip(1).filter_map(move |arg| {
-        if prev_consumes_value {
-            prev_consumes_value = false;
-            return None;
-        }
-        if arg.starts_with('-') {
-            prev_consumes_value = VALUE_GLOBALS.contains(&arg.as_str());
-            return None;
-        }
-        Some(arg.as_str())
-    })
-}
-
-/// True when `flag` (e.g. `--header`, `-o`) is a value-taking option of `cmd`,
-/// or a global option of `root`, written without an inline value
-/// (`--header=x`, `-ojson`), so the next raw token is its value.
-fn flag_consumes_next(root: &clap::Command, cmd: &clap::Command, flag: &str) -> bool {
-    if flag.contains('=') {
-        return false;
-    }
-    let is_match = |arg: &clap::Arg| match flag.strip_prefix("--") {
-        Some(long) => {
-            arg.get_long() == Some(long)
-                || arg
-                    .get_all_aliases()
-                    .is_some_and(|aliases| aliases.contains(&long))
-        }
-        None => {
-            let mut chars = flag.chars().skip(1);
-            matches!((chars.next(), chars.next()), (Some(c), None) if arg.get_short() == Some(c))
-        }
-    };
-    cmd.get_arguments()
-        .chain(root.get_arguments().filter(|a| a.is_global_set()))
-        .find(|arg| is_match(arg))
-        .is_some_and(|arg| arg.get_action().takes_values())
-}
-
-/// Resolve the deepest command named by raw CLI args, e.g. `pup logs aggregate
-/// --help` -> `["logs", "aggregate"]`. Skips the values of value-taking
-/// options at each level (global or command-local, like `profiling --header`),
-/// stops at the first token that is not a subcommand (a positional value), and
-/// never descends into commands hidden from agent schemas. Returns canonical
-/// names, resolving aliases.
-fn help_command_path<'a>(
-    root: &'a clap::Command,
-    args: &[String],
-) -> (Vec<&'a str>, &'a clap::Command) {
-    let mut current = root;
-    let mut names: Vec<&str> = Vec::new();
-    let mut skip_value = false;
-    for token in args.iter().skip(1) {
-        if skip_value {
-            skip_value = false;
-            continue;
-        }
-        if token.starts_with('-') {
-            skip_value = flag_consumes_next(root, current, token);
-            continue;
-        }
-        let parent = names.join(" ");
-        let Some(next) = current.get_subcommands().find(|s| {
-            s.get_name() != "help"
-                && is_visible_in_agent_schema(&parent, s.get_name())
-                && (s.get_name() == token || s.get_all_aliases().any(|a| a == token))
-        }) else {
-            break;
-        };
-        names.push(next.get_name());
-        current = next;
-    }
-    (names, current)
-}
-
-/// Return the agent-help schema for a valid command, or `None` when clap should
-/// handle an unknown command or invalid nested subcommand normally.
-fn agent_help_schema(cmd: &clap::Command, args: &[String]) -> Option<serde_json::Value> {
-    let (path, target) = help_command_path(cmd, args);
-    if path.is_empty() {
-        // Unknown top-level commands fall through to clap's normal error.
-        return top_level_subcommand(args)
-            .is_none()
-            .then(|| build_agent_schema(cmd));
-    }
-    let has_invalid_subcommand = cmd
-        .clone()
-        .try_get_matches_from(args)
-        .is_err_and(|error| error.kind() == clap::error::ErrorKind::InvalidSubcommand);
-    (!has_invalid_subcommand).then(|| build_agent_schema_scoped(cmd, target, &path))
-}
-
-/// Guidance returned in the agent schema for LLMs that author shell scripts
-/// or runbooks the user will execute outside the agent session. Agent mode
-/// wraps responses in a `{status, data, metadata}` envelope; outside agent
-/// mode, output is raw. Without `--no-agent`, a script tested in-session
-/// silently breaks when the user runs it.
-fn build_script_authoring_guidance() -> serde_json::Value {
-    serde_json::json!({
-        "summary": "Agent mode wraps JSON responses in a {status, data, metadata} envelope. Outside agent mode, pup emits the raw payload. Scripts written without --no-agent will see different shapes depending on who runs them.",
-        "rule": "When authoring a script, alias, runbook, or any pup command that the user (or CI) will run outside this agent session, append --no-agent so the output format matches what they will see.",
-        "examples": [
-            "# Agent runs interactively (envelope wrapped):",
-            "pup monitors list --tag='env:prod'",
-            "",
-            "# Agent writes a script for the user (raw output, parity with their shell):",
-            "pup --no-agent monitors list --tag='env:prod' | jq '.[].name'"
-        ],
-        "detection": "Agent mode is on when any of: --agent flag, FORCE_AGENT_MODE=1, or an agent env var (CLAUDECODE, CURSOR_AGENT, CODEX, etc.) is set."
-    })
-}
+// ---- Agent JSON schema (`pup agent schema`) ----
 
 /// Query syntax hints per domain, shared by the full and scoped agent schemas.
 fn agent_query_syntax() -> serde_json::Value {
@@ -12228,139 +12097,6 @@ fn agent_query_syntax() -> serde_json::Value {
         "security": "@workflow.rule.type:log_detection source:cloudtrail @network.client.ip:10.0.0.0/8 status:critical",
         "traces": "service:<name> resource_name:<path> @duration:>5s (shorthand) env:production"
     })
-}
-
-/// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`
-/// or `pup logs aggregate --help`). `sub_path` is the target's canonical path.
-fn build_agent_schema_scoped(
-    _root_cmd: &clap::Command,
-    target: &clap::Command,
-    sub_path: &[&str],
-) -> serde_json::Value {
-    let mut root = serde_json::Map::new();
-    root.insert("version".into(), serde_json::json!(version::VERSION));
-    root.insert("command".into(), serde_json::json!(sub_path.join(" ")));
-
-    // Use the subcommand's description
-    let desc = target
-        .get_about()
-        .map(|a| a.to_string())
-        .unwrap_or_default();
-    root.insert("description".into(), serde_json::json!(desc));
-
-    let mut auth = serde_json::Map::new();
-    auth.insert("oauth".into(), serde_json::json!("pup auth login"));
-    auth.insert(
-        "api_keys".into(),
-        serde_json::json!("Set DD_API_KEY + DD_APP_KEY + DD_SITE environment variables"),
-    );
-    root.insert("auth".into(), serde_json::Value::Object(auth));
-
-    // Global flags
-    root.insert(
-        "global_flags".into(),
-        serde_json::json!([
-            {
-                "name": "--agent",
-                "type": "bool",
-                "default": "false",
-                "description": "Enable agent mode (auto-detected for AI coding assistants)"
-            },
-            {
-                "name": "--no-agent",
-                "type": "bool",
-                "default": "false",
-                "description": "Disable agent mode (overrides auto-detection and --agent)"
-            },
-            {
-                "name": "--org",
-                "type": "string",
-                "default": null,
-                "description": "Named org session for multi-org support (see 'pup auth login --org')"
-            },
-            {
-                "name": "--output",
-                "type": "string",
-                "default": "json",
-                "description": "Output format (json, table, yaml, csv, tsv)"
-            },
-            {
-                "name": "--yes",
-                "type": "bool",
-                "default": "false",
-                "description": "Skip confirmation prompts (auto-approve all operations)"
-            }
-        ]),
-    );
-
-    // Build scoped command tree — only the target command, with response
-    // contracts on its leaves (examples only for a single-command lookup)
-    let parent_path = sub_path[..sub_path.len() - 1].join(" ");
-    let mut cmd_schema = build_command_schema(target, &parent_path);
-    attach_returns(&mut cmd_schema, !target.has_subcommands());
-    root.insert("envelope".into(), commands::agent::envelope_contract());
-    root.insert("commands".into(), serde_json::json!([cmd_schema]));
-
-    // Include query_syntax: scoped to the matching command if it has one, full map otherwise
-    let top_name = sub_path[0];
-    let all_syntax = agent_query_syntax();
-    if let Some(syntax) = all_syntax.get(top_name) {
-        // Scope to just this command's entry
-        let mut scoped = serde_json::Map::new();
-        scoped.insert(top_name.to_string(), syntax.clone());
-        root.insert("query_syntax".into(), serde_json::Value::Object(scoped));
-    } else {
-        // No match — include the full map
-        root.insert("query_syntax".into(), all_syntax);
-    }
-
-    root.insert(
-        "time_formats".into(),
-        serde_json::json!({
-            "relative": ["5s", "30m", "1h", "4h", "1d", "7d", "1w", "30d", "5min", "2hours", "3days"],
-            "absolute": ["Unix timestamp in milliseconds", "RFC3339 (2024-01-01T00:00:00Z)"],
-            "examples": [
-                "--from=1h (1 hour ago)",
-                "--from=30m --to=now",
-                "--from=7d --to=1d (7 days ago to 1 day ago)",
-                "--from=2024-01-01T00:00:00Z --to=2024-01-02T00:00:00Z",
-                "--from=\"5 minutes\""
-            ]
-        }),
-    );
-
-    // No workflows for scoped help
-    root.insert("workflows".into(), serde_json::Value::Null);
-
-    root.insert("best_practices".into(), serde_json::json!([
-        "Always specify --from to set a time range; most commands default to 1h but be explicit",
-        "Start with narrow time ranges (1h) then widen if needed; large ranges are slow and expensive",
-        "Filter by service first when investigating issues: --query='service:<name>'",
-        "Use --limit to control result size; default varies by command (50-200)",
-        "For monitors, use --tags to filter rather than listing all and parsing locally",
-        "APM durations are in NANOSECONDS: 1 second = 1000000000, 5ms = 5000000",
-        "Use 'pup logs aggregate' for counts and distributions instead of fetching all logs and counting locally",
-        "Prefer JSON output (default) for structured parsing; use --output=table only for human display",
-        "Chain narrow queries: first aggregate to find patterns, then search for specific examples",
-        "Use 'pup monitors search' for full-text search, 'pup monitors list' for tag/name filtering"
-    ]));
-
-    root.insert("anti_patterns".into(), serde_json::json!([
-        "Don't omit --from on time-series queries; you'll get unexpected time ranges or errors",
-        "Don't use --limit=1000 as a first step; start with small limits and refine queries",
-        "Don't list all monitors/logs without filters in large organizations (>10k monitors)",
-        "Don't assume APM durations are in seconds or milliseconds; they are in NANOSECONDS",
-        "Don't fetch raw logs to count them; use 'pup logs aggregate --compute=count' instead",
-        "Don't use --from=30d unless you specifically need a month of data; it's slow",
-        "Don't retry failed requests without checking the error; 401 means re-authenticate, 403 means missing permissions",
-        "Don't use 'pup metrics query' without specifying an aggregation (avg, sum, max, min, count)",
-        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level",
-        "Don't author scripts for the user without --no-agent; the envelope wrapping in agent mode won't appear when they run it (see script_authoring)"
-    ]));
-
-    root.insert("script_authoring".into(), build_script_authoring_guidance());
-
-    serde_json::Value::Object(root)
 }
 
 fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
@@ -12384,18 +12120,6 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
     root.insert(
         "global_flags".into(),
         serde_json::json!([
-            {
-                "name": "--agent",
-                "type": "bool",
-                "default": "false",
-                "description": "Enable agent mode (auto-detected for AI coding assistants)"
-            },
-            {
-                "name": "--no-agent",
-                "type": "bool",
-                "default": "false",
-                "description": "Disable agent mode (overrides auto-detection and --agent)"
-            },
             {
                 "name": "--org",
                 "type": "string",
@@ -12427,11 +12151,8 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
         "Don't use --from=30d unless you specifically need a month of data; it's slow",
         "Don't retry failed requests without checking the error; 401 means re-authenticate, 403 means missing permissions",
         "Don't use 'pup metrics query' without specifying an aggregation (avg, sum, max, min, count)",
-        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level",
-        "Don't author scripts for the user without --no-agent; the envelope wrapping in agent mode won't appear when they run it (see script_authoring)"
+        "Don't pipe large JSON responses through multiple jq transforms; use query filters at the API level"
     ]));
-
-    root.insert("script_authoring".into(), build_script_authoring_guidance());
 
     root.insert("best_practices".into(), serde_json::json!([
         "Always specify --from to set a time range; most commands default to 1h but be explicit",
@@ -12751,7 +12472,7 @@ fn build_filtered_agent_schema(
     attach_returns(&mut entry, !is_group);
 
     root.insert("command".into(), serde_json::json!(full_path));
-    root.insert("envelope".into(), commands::agent::envelope_contract());
+    root.insert("output".into(), commands::agent::output_contract());
     let domain = full_path.split(' ').next().unwrap_or_default();
     if let Some(syntax) = agent_query_syntax().get(domain) {
         root.insert("query_syntax".into(), serde_json::json!({ domain: syntax }));
@@ -13309,20 +13030,6 @@ mod test_agent_schema {
         assert!(find_command(commands, &["auth", "status"]).is_some());
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn auth_token_is_hidden_from_scoped_agent_schema() {
-        let cmd = Cli::command();
-        let auth_cmd = cmd
-            .get_subcommands()
-            .find(|s| s.get_name() == "auth")
-            .expect("auth subcommand not found");
-        let schema = build_agent_schema_scoped(&cmd, auth_cmd, &["auth"]);
-        let commands = schema["commands"].as_array().unwrap();
-        assert!(find_command(commands, &["auth", "token"]).is_none());
-        assert!(find_command(commands, &["auth", "status"]).is_some());
-    }
-
     #[test]
     fn agent_schema_visibility_filter_is_narrow() {
         assert!(!is_visible_in_agent_schema("auth", "token"));
@@ -13557,134 +13264,25 @@ mod test_agent_schema {
     }
 
     #[test]
-    fn global_flags_include_no_agent() {
+    fn global_flags_omit_removed_agent_flags() {
         let schema = get_schema();
         let flags = schema["global_flags"]
             .as_array()
             .expect("global_flags missing");
+        assert!(flags.iter().any(|f| f["name"] == "--output"));
         assert!(
-            flags
+            !flags
                 .iter()
-                .any(|f| f["name"].as_str() == Some("--no-agent")),
-            "global_flags must include --no-agent"
+                .any(|f| matches!(f["name"].as_str(), Some("--agent" | "--no-agent"))),
+            "removed agent-mode flags must not be advertised: {flags:?}"
         );
     }
 
     #[test]
-    fn no_agent_flag_in_scoped_schema() {
-        let cmd = Cli::command();
-        let monitors_cmd = cmd
-            .get_subcommands()
-            .find(|s| s.get_name() == "monitors")
-            .expect("monitors subcommand not found");
-        let schema = build_agent_schema_scoped(&cmd, monitors_cmd, &["monitors"]);
-        let flags = schema["global_flags"]
-            .as_array()
-            .expect("global_flags missing");
-        assert!(
-            flags
-                .iter()
-                .any(|f| f["name"].as_str() == Some("--no-agent")),
-            "scoped schema global_flags must include --no-agent"
-        );
-    }
-
-    /// Assert that a `script_authoring` JSON block has the full contract:
-    /// summary + rule + examples + detection, with rule mentioning `--no-agent`.
-    /// Shared between the top-level and scoped schema tests.
-    fn assert_script_authoring_contract(block: &serde_json::Value) {
-        assert!(
-            block.is_object(),
-            "script_authoring must be an object: {block}"
-        );
-        let summary = block["summary"]
-            .as_str()
-            .expect("script_authoring.summary must be a string");
-        assert!(
-            !summary.is_empty(),
-            "script_authoring.summary must not be empty"
-        );
-        let rule = block["rule"]
-            .as_str()
-            .expect("script_authoring.rule must be a string");
-        assert!(
-            rule.contains("--no-agent"),
-            "script_authoring.rule must mention --no-agent: {rule}"
-        );
-        assert!(
-            block["examples"].is_array(),
-            "script_authoring.examples must be an array"
-        );
-        let detection = block["detection"]
-            .as_str()
-            .expect("script_authoring.detection must be a string");
-        assert!(
-            !detection.is_empty(),
-            "script_authoring.detection must not be empty"
-        );
-    }
-
-    /// Top-level schema must surface the script-authoring guidance so that
-    /// LLMs reading `pup --help` in agent mode know to pass `--no-agent`
-    /// when writing scripts the user will run later. Without this, an
-    /// agent's script gets the envelope wrapping the user won't see.
-    #[test]
-    fn schema_includes_script_authoring_guidance() {
+    fn schema_has_no_envelope_or_script_authoring() {
         let schema = get_schema();
-        assert_script_authoring_contract(&schema["script_authoring"]);
-    }
-
-    /// Scoped (per-domain) schema must also include the guidance so an
-    /// agent that only ran `pup logs --help` still gets the warning.
-    #[test]
-    fn scoped_schema_includes_script_authoring_guidance() {
-        let cmd = Cli::command();
-        let logs_cmd = cmd
-            .get_subcommands()
-            .find(|s| s.get_name() == "logs")
-            .expect("logs subcommand not found");
-        let schema = build_agent_schema_scoped(&cmd, logs_cmd, &["logs"]);
-        assert_script_authoring_contract(&schema["script_authoring"]);
-    }
-
-    /// The anti-patterns array should include a pointer to the new
-    /// script_authoring section so LLMs that scan anti_patterns first
-    /// are still led to the full guidance. Match the actual phrasing
-    /// (`see script_authoring`) so an unrelated future entry that
-    /// merely contains the word doesn't accidentally satisfy this test.
-    #[test]
-    fn schema_anti_patterns_reference_script_authoring() {
-        let schema = get_schema();
-        let anti = schema["anti_patterns"]
-            .as_array()
-            .expect("anti_patterns missing");
-        assert!(
-            anti.iter().any(|v| v
-                .as_str()
-                .is_some_and(|s| s.contains("see script_authoring"))),
-            "anti_patterns must reference script_authoring so LLMs find it"
-        );
-    }
-
-    /// Same as above for the scoped schema — agents that only ever call
-    /// `pup logs --help` should still get pointed at script_authoring.
-    #[test]
-    fn scoped_schema_anti_patterns_reference_script_authoring() {
-        let cmd = Cli::command();
-        let logs_cmd = cmd
-            .get_subcommands()
-            .find(|s| s.get_name() == "logs")
-            .expect("logs subcommand not found");
-        let schema = build_agent_schema_scoped(&cmd, logs_cmd, &["logs"]);
-        let anti = schema["anti_patterns"]
-            .as_array()
-            .expect("scoped anti_patterns missing");
-        assert!(
-            anti.iter().any(|v| v
-                .as_str()
-                .is_some_and(|s| s.contains("see script_authoring"))),
-            "scoped anti_patterns must reference script_authoring"
-        );
+        assert!(schema.get("envelope").is_none());
+        assert!(schema.get("script_authoring").is_none());
     }
 
     fn filtered(path: &[&str]) -> anyhow::Result<serde_json::Value> {
@@ -13759,7 +13357,8 @@ mod test_agent_schema {
         assert_eq!(entry["returns"]["documented"], true);
         assert_eq!(entry["returns"]["jq_root"], ".data.buckets[]");
         assert!(entry["returns"]["example"]["invocation"].is_string());
-        assert!(schema["envelope"]["agent_mode"].is_object());
+        assert!(schema["output"]["json"].is_string());
+        assert!(schema.get("envelope").is_none());
         assert!(schema["query_syntax"]["logs"].is_string());
     }
 
@@ -13922,7 +13521,6 @@ mod test_agent_schema {
                 "description",
                 "global_flags",
                 "query_syntax",
-                "script_authoring",
                 "time_formats",
                 "version",
                 "workflows"
@@ -13941,11 +13539,10 @@ mod test_agent_schema {
             .contains("\"returns\":"));
     }
 
-    /// Feed recorded raw API bodies through the real agent envelope and check
-    /// the result against the published `returns` contract, so the contract
-    /// cannot drift from the hoisting logic in `output::build_agent_envelope`.
+    /// Check recorded raw API bodies against the published `returns.body`
+    /// contract: pup prints the body unchanged, so the contract must describe it.
     #[test]
-    fn documented_returns_match_agent_envelope_output() {
+    fn documented_returns_match_raw_output() {
         let fixtures = [
             (
                 "logs aggregate",
@@ -13953,7 +13550,6 @@ mod test_agent_schema {
                     "data": {"buckets": [{"by": {"status": "error"}, "computes": {"c0": 42}}]},
                     "meta": {"status": "done"}
                 }),
-                None,
             ),
             (
                 "logs search",
@@ -13964,24 +13560,12 @@ mod test_agent_schema {
                     }}],
                     "links": {"next": "x"}
                 }),
-                Some(output::Metadata {
-                    count: Some(1),
-                    truncated: true,
-                    command: Some("logs search".into()),
-                    next_action: Some("page".into()),
-                }),
             ),
             (
                 "traces aggregate",
                 serde_json::json!({
                     "data": [{"id": "f8", "type": "bucket", "attributes": {"by": {"service": "web"}, "compute": {"c0": 7}}}],
                     "meta": {"status": "done"}
-                }),
-                Some(output::Metadata {
-                    count: None,
-                    truncated: false,
-                    command: Some("traces aggregate".into()),
-                    next_action: None,
                 }),
             ),
             (
@@ -13993,12 +13577,6 @@ mod test_agent_schema {
                         "tags": [], "custom": {"duration": 1000}
                     }}]
                 }),
-                Some(output::Metadata {
-                    count: Some(1),
-                    truncated: false,
-                    command: Some("traces search".into()),
-                    next_action: None,
-                }),
             ),
             (
                 "metrics query",
@@ -14006,7 +13584,6 @@ mod test_agent_schema {
                     "status": "ok", "query": "avg:cpu{*}", "from_date": 1, "to_date": 2,
                     "series": [{"metric": "cpu", "scope": "*", "tag_set": [], "pointlist": [[1.0, 2.0]]}]
                 }),
-                None,
             ),
         ];
         let fixtures = fixtures.into_iter().chain([(
@@ -14015,13 +13592,12 @@ mod test_agent_schema {
                 "path": "@advisory.cve", "type": "string",
                 "section": "Advisory", "description": "Primary CVE identifier."
             }]),
-            None,
         )]);
-        for (path, body, meta) in fixtures {
+        for (path, body) in fixtures {
             let returns = commands::agent::returns_for(path);
             assert_eq!(returns["documented"], true, "{path} must be documented");
-            // `--jq` runs on the raw body before hoisting (see output.rs), so the
-            // published jq_root must select something from the raw body.
+            // `--jq` runs on the raw body, so the published jq_root must select
+            // something from it.
             let jq_root = returns["jq_root"]
                 .as_str()
                 .expect("documented returns need jq_root");
@@ -14030,23 +13606,7 @@ mod test_agent_schema {
                 !selected.is_null() && selected != serde_json::json!([]),
                 "{path}: jq_root {jq_root} selected nothing"
             );
-            let envelope = output::build_agent_envelope(&body, meta.as_ref()).unwrap();
-            assert_conforms(
-                &envelope,
-                &commands::agent::envelope_contract()["agent_mode"],
-                path,
-            );
-            assert_conforms(&envelope["data"], &returns["data"], path);
-            for key in envelope["metadata"].as_object().unwrap().keys() {
-                assert!(
-                    returns["metadata"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .any(|k| k == key),
-                    "{path}: metadata.{key} is not listed in returns.metadata"
-                );
-            }
+            assert_conforms(&body, &returns["body"], path);
         }
     }
 
@@ -14054,10 +13614,8 @@ mod test_agent_schema {
     fn conformance_check_rejects_wrong_shape() {
         // traces aggregate output must not satisfy the logs aggregate contract.
         let body = serde_json::json!({"data": [{"attributes": {"by": {}, "compute": {}}}]});
-        let envelope = output::build_agent_envelope(&body, None).unwrap();
         let returns = commands::agent::returns_for("logs aggregate");
-        let result =
-            std::panic::catch_unwind(|| assert_conforms(&envelope["data"], &returns["data"], "x"));
+        let result = std::panic::catch_unwind(|| assert_conforms(&body, &returns["body"], "x"));
         assert!(result.is_err());
     }
 
@@ -14760,18 +14318,7 @@ mod resolve_output_format_tests {
 }
 
 async fn main_inner() -> anyhow::Result<()> {
-    // In agent mode, intercept --help to return a JSON schema instead of plain text.
     let args: Vec<String> = std::env::args().collect();
-    let has_help = args.iter().any(|a| a == "--help" || a == "-h");
-    let has_agent_flag = args.iter().any(|a| a == "--agent");
-    let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
-    if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
-        let cmd = cli_command();
-        if let Some(schema) = agent_help_schema(&cmd, &args) {
-            println!("{}", serde_json::to_string_pretty(&schema).unwrap());
-            return Ok(());
-        }
-    }
 
     // --- Extension interception (before clap parsing) ---
     // If the first positional arg is not a built-in command but matches an
@@ -14786,7 +14333,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     parsed.globals.apply_to(&mut cfg)?;
                     #[cfg(not(feature = "browser"))]
                     {
-                        let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+                        let interactive = std::io::stdin().is_terminal();
                         let trusted_sites = config::configured_trusted_sites();
                         cfg.ensure_site_trusted(
                             parsed.globals.trust_site,
@@ -14862,10 +14409,6 @@ async fn main_inner() -> anyhow::Result<()> {
     if cli.yes {
         cfg.auto_approve = true;
     }
-    cfg.agent_mode = !cli.no_agent && (cli.agent || useragent::is_agent_mode());
-    if cfg.agent_mode {
-        cfg.auto_approve = true;
-    }
     // Apply --org flag (higher priority than DD_ORG env var / config file).
     // Site for this org and access token are also resolved here.
     if let Some(org) = cli.org {
@@ -14901,9 +14444,8 @@ async fn main_inner() -> anyhow::Result<()> {
         }
     }
 
-    // Compute once, after agent_mode is resolved (agent mode is always non-interactive).
     #[cfg(not(target_arch = "wasm32"))]
-    let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
+    let interactive = std::io::stdin().is_terminal();
     #[cfg(target_arch = "wasm32")]
     let interactive = false;
 
@@ -19192,20 +18734,15 @@ async fn main_inner() -> anyhow::Result<()> {
         #[cfg(not(target_arch = "wasm32"))]
         Commands::Format {
             input,
-            count,
-            command,
-            next_action,
             rows_at,
             row_at,
             columns,
+            ..
         } => {
             commands::format::run(
                 &cfg,
                 input.as_deref(),
                 commands::format::FormatOptions {
-                    count,
-                    command,
-                    next_action,
                     rows_at: rows_at.as_deref(),
                     row_at: row_at.as_deref(),
                     columns: &columns,
@@ -19223,7 +18760,6 @@ async fn main_inner() -> anyhow::Result<()> {
                 entry_type,
                 project,
             } => commands::skills::install(
-                &cfg,
                 platform.map(|p| p.as_canonical().to_string()),
                 name,
                 dir,

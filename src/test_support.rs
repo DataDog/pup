@@ -30,7 +30,6 @@ pub(crate) fn test_config(mock_url: &str) -> Config {
         org: None,
         output_format: OutputFormat::Json,
         auto_approve: false,
-        agent_mode: false,
         read_only: false,
         jq: None,
     }

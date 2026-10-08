@@ -380,32 +380,9 @@ pub async fn search(cfg: &Config, args: SearchArgs) -> Result<()> {
         }
         Err(err) => return Err(anyhow::anyhow!("failed to search logs: {:?}", err)),
     };
-    let next_cursor = resp
-        .meta
-        .as_ref()
-        .and_then(|m| m.page.as_ref())
-        .and_then(|p| p.after.clone())
-        .filter(|cursor| !cursor.is_empty());
-
-    let meta = if cfg.agent_mode {
-        let count = resp.data.as_ref().map(|d| d.len());
-
-        Some(formatter::Metadata {
-            count,
-            truncated: next_cursor.is_some(),
-            command: Some("logs search".into()),
-            next_action: next_cursor.map(|c| {
-                format!("More results available. Use --cursor=\"{c}\" to page backwards through older logs, change the limit with --limit, or narrow the --query")
-            }),
-        })
-    } else {
-        None
-    };
     formatter::format_and_print_with_table(
         &resp,
         &cfg.output_format,
-        cfg.agent_mode,
-        meta.as_ref(),
         cfg.jq.as_deref(),
         formatter::TableOptions::new(LOG_SEARCH_COLUMNS).rows_at("/data"),
     )?;
@@ -1412,7 +1389,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -1475,7 +1451,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };

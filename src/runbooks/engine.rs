@@ -359,24 +359,6 @@ async fn execute_datadog_workflow(
         .map(String::from)
         .unwrap_or_default();
 
-    // Emit agent-mode metadata hint to stderr
-    if cfg.agent_mode || instance_id.is_empty() {
-        let meta = serde_json::json!({
-            "metadata": {
-                "kind": "datadog-workflow",
-                "workflow_id": workflow_id,
-                "instance_id": instance_id,
-                "watch_command": format!(
-                    "pup workflows instances get --workflow-id={workflow_id} --instance-id={instance_id}"
-                )
-            }
-        });
-        eprintln!(
-            "  [agent hint] {}",
-            serde_json::to_string(&meta).unwrap_or_default()
-        );
-    }
-
     if instance_id.is_empty() {
         return Ok(serde_json::to_string_pretty(&trigger_resp).unwrap_or_default());
     }

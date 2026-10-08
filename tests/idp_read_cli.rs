@@ -31,7 +31,7 @@ fn assist_requests_health_counts_and_preserves_unknowns_and_enrichment_errors() 
         .with_status(403)
         .with_body("forbidden")
         .create();
-    let result = payload(pup(&server, &["--no-agent", "idp", "assist", "checkout"]));
+    let result = payload(pup(&server, &["idp", "assist", "checkout"]));
     assert_eq!(result["health"]["incidents"]["active"], 0);
     assert_eq!(result["health"]["monitors"]["alert"], 2);
     assert!(result["health"]["slos"]["breached"].is_null());

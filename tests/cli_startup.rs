@@ -3,7 +3,6 @@ use std::process::{Command, Output};
 
 fn run(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_pup"))
-        .arg("--no-agent")
         .args(args)
         .env(
             "PUP_CONFIG_DIR",

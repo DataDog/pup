@@ -11,7 +11,7 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 
 fn parse_relative_duration_millis(input: &str) -> Result<i64> {
     let stripped = input.trim_start_matches('-').trim();
@@ -297,7 +297,6 @@ pub const READONLY_OBS_PIPELINE_FIELDS: &[&str] = &[
 
 /// Options for diffing a live resource against a candidate JSON value.
 pub struct ResourceDiffOptions<'a> {
-    pub command: &'a str,
     pub update_command: &'a str,
     pub resource_kind: &'a str,
     pub resource_id: &'a str,
@@ -311,14 +310,8 @@ pub struct ResourceDiffOptions<'a> {
 }
 
 impl<'a> ResourceDiffOptions<'a> {
-    pub fn new(
-        command: &'a str,
-        update_command: &'a str,
-        resource_kind: &'a str,
-        resource_id: &'a str,
-    ) -> Self {
+    pub fn new(update_command: &'a str, resource_kind: &'a str, resource_id: &'a str) -> Self {
         Self {
-            command,
             update_command,
             resource_kind,
             resource_id,
@@ -413,48 +406,27 @@ pub fn format_resource_diff(
     options: &ResourceDiffOptions<'_>,
 ) -> Result<()> {
     let entries = diff_resource_values(live, candidate, options)?;
-    let has_removed = entries.iter().any(|e| e.change == ChangeKind::Removed);
-    let next_action = if entries.is_empty() {
-        None
-    } else if has_removed {
-        options
-            .removed_entries_next_action
-            .map(ToString::to_string)
-            .or_else(|| {
-                Some(format!(
-                    "review changes, then run `{}`",
-                    options.update_command
-                ))
-            })
-    } else {
-        Some(format!(
-            "review changes, then run `{}`",
-            options.update_command
-        ))
-    };
-    let meta = Metadata {
-        count: Some(entries.len()),
-        truncated: false,
-        command: Some(options.command.to_string()),
-        next_action,
-    };
-    formatter::format_and_print(
-        &entries,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )?;
-    if entries.is_empty() && !cfg.agent_mode {
-        let message = options.no_changes_message.clone().unwrap_or_else(|| {
+    formatter::format_and_print(&entries, &cfg.output_format, cfg.jq.as_deref())?;
+    eprintln!("{}", diff_hint(&entries, options));
+    Ok(())
+}
+
+/// Stderr hint printed after a resource diff: the in-sync message when there
+/// are no changes, otherwise what to do next.
+fn diff_hint(entries: &[DiffEntry], options: &ResourceDiffOptions<'_>) -> String {
+    if entries.is_empty() {
+        return options.no_changes_message.clone().unwrap_or_else(|| {
             format!(
                 "No changes - {} {} is in sync.",
                 options.resource_kind, options.resource_id
             )
         });
-        eprintln!("{message}");
     }
-    Ok(())
+    let has_removed = entries.iter().any(|e| e.change == ChangeKind::Removed);
+    match options.removed_entries_next_action {
+        Some(action) if has_removed => action.to_string(),
+        _ => format!("review changes, then run `{}`", options.update_command),
+    }
 }
 
 /// Recursively compare `before` and `after` as `serde_json::Value`s, building
@@ -1006,6 +978,43 @@ mod tests {
     // ---- diff_json ----
 
     #[test]
+    fn test_diff_hint_in_sync_uses_default_or_custom_message() {
+        let mut options = ResourceDiffOptions::new("pup x update", "monitor", "42");
+        assert_eq!(
+            diff_hint(&[], &options),
+            "No changes - monitor 42 is in sync."
+        );
+        options.no_changes_message = Some("custom".into());
+        assert_eq!(diff_hint(&[], &options), "custom");
+    }
+
+    #[test]
+    fn test_diff_hint_points_at_update_command() {
+        let mut options = ResourceDiffOptions::new("pup x update", "monitor", "42");
+        options.removed_entries_next_action = Some("removed entries are not deleted");
+        let entries = diff_json(&serde_json::json!({"a": 1}), &serde_json::json!({"a": 2}));
+        assert_eq!(
+            diff_hint(&entries, &options),
+            "review changes, then run `pup x update`"
+        );
+    }
+
+    #[test]
+    fn test_diff_hint_warns_when_entries_are_removed() {
+        let mut options = ResourceDiffOptions::new("pup x update", "monitor", "42");
+        let entries = diff_json(&serde_json::json!({"a": 1}), &serde_json::json!({}));
+        assert_eq!(
+            diff_hint(&entries, &options),
+            "review changes, then run `pup x update`"
+        );
+        options.removed_entries_next_action = Some("removed entries are not deleted");
+        assert_eq!(
+            diff_hint(&entries, &options),
+            "removed entries are not deleted"
+        );
+    }
+
+    #[test]
     fn test_diff_json_identical() {
         let v: Value = serde_json::json!({"name": "cpu", "query": "avg:system.cpu.user{*} > 90"});
         assert!(diff_json(&v, &v).is_empty());
@@ -1152,7 +1161,7 @@ mod tests {
         });
         let only = vec!["spec".to_string()];
         let readonly = ["updatedAt"];
-        let mut options = ResourceDiffOptions::new("test diff", "test update", "thing", "id");
+        let mut options = ResourceDiffOptions::new("test update", "thing", "id");
         options.readonly_paths = &readonly;
         options.only = &only;
         options.live_root = Some("data.attributes");

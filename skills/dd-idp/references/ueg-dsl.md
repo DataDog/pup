@@ -165,7 +165,7 @@ Treat `null` or a missing field as unknown/not returned. Only report zero, false
 
 ## Output modes
 
-Normalized JSON is the reasoning contract. Agent mode may wrap it in Pup's `{status,data,metadata}` envelope. Global `--jq` expressions target the command payload before envelope formatting. Use `--raw` only to debug the server contract or access fields the normalized representation intentionally omits.
+Normalized JSON is the reasoning contract, printed as-is with no wrapper. Global `--jq` expressions target that payload. Use `--raw` only to debug the server contract or access fields the normalized representation intentionally omits.
 
 ## Portfolio summaries
 

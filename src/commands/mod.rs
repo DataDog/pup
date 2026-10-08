@@ -43,6 +43,7 @@ pub mod docs;
 pub mod downtime;
 pub mod error_tracking;
 pub mod events;
+pub mod experiments;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod extension;
 pub mod feature_flags;

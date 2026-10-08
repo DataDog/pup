@@ -1,50 +1,47 @@
 {
-  "data": {
-    "config": {
-      "assertions": [
-        "<list>",
-        {
-          "operator": "str",
-          "target": "float",
-          "type": "str"
-        }
-      ],
-      "request": {
-        "method": "str",
-        "timeout": "float",
-        "url": "<url>"
-      }
-    },
-    "created_at": "<timestamp>",
-    "creator": {
-      "email": "str",
-      "handle": "str",
-      "name": "str"
-    },
-    "locations": [
+  "config": {
+    "assertions": [
       "<list>",
-      "str"
+      {
+        "operator": "str",
+        "target": "float",
+        "type": "str"
+      }
     ],
-    "message": "str",
-    "modified_at": "<timestamp>",
-    "monitor_id": "int",
-    "name": "str",
-    "options": {
-      "httpVersion": "str",
-      "min_failure_duration": "int",
-      "min_location_failed": "int",
-      "monitor_options": {
-        "renotify_interval": "int"
-      },
-      "tick_every": "int"
-    },
-    "public_id": "str",
-    "status": "str",
-    "subtype": "str",
-    "tags": [
-      "<empty_list>"
-    ],
-    "type": "str"
+    "request": {
+      "method": "str",
+      "timeout": "float",
+      "url": "<url>"
+    }
   },
-  "status": "str"
+  "created_at": "<timestamp>",
+  "creator": {
+    "email": "str",
+    "handle": "str",
+    "name": "str"
+  },
+  "locations": [
+    "<list>",
+    "str"
+  ],
+  "message": "str",
+  "modified_at": "<timestamp>",
+  "monitor_id": "int",
+  "name": "str",
+  "options": {
+    "httpVersion": "str",
+    "min_failure_duration": "int",
+    "min_location_failed": "int",
+    "monitor_options": {
+      "renotify_interval": "int"
+    },
+    "tick_every": "int"
+  },
+  "public_id": "str",
+  "status": "str",
+  "subtype": "str",
+  "tags": [
+    "<empty_list>"
+  ],
+  "type": "str"
 }

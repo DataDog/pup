@@ -1,75 +1,75 @@
 {
-  "data": {
-    "author_handle": "str",
-    "author_name": "str",
-    "created_at": "<timestamp>",
-    "description": "str",
-    "id": "str",
-    "layout_type": "str",
-    "modified_at": "<timestamp>",
-    "notify_list": [
-      "<empty_list>"
-    ],
-    "reflow_type": "str",
-    "restricted_roles": [
-      "<empty_list>"
-    ],
-    "tags": [
-      "<empty_list>"
-    ],
-    "template_variable_presets": [
-      "<list>",
-      {
-        "description": "str",
-        "name": "str",
-        "template_variables": [
-          "<list>",
-          {
-            "name": "<...>",
-            "value": "<...>",
-            "values": "<...>"
-          }
-        ]
-      }
-    ],
-    "template_variables": [
-      "<list>",
-      {
-        "available_values": [
-          "<empty_list>"
-        ],
-        "default": "str",
-        "name": "str",
-        "prefix": "str",
-        "type": "str"
-      }
-    ],
-    "title": "str",
-    "url": "str",
-    "widgets": [
-      "<list>",
-      {
-        "definition": {
-          "background_color": "str",
-          "content": "str",
-          "font_size": "str",
-          "has_padding": "bool",
-          "show_tick": "bool",
-          "text_align": "str",
-          "tick_edge": "str",
-          "tick_pos": "str",
-          "type": "str",
-          "vertical_align": "str"
-        },
-        "id": "int",
-        "layout": {
-          "height": "int",
-          "width": "int",
-          "x": "int",
-          "y": "int"
+  "author_handle": "str",
+  "author_name": "str",
+  "created_at": "<timestamp>",
+  "description": "str",
+  "id": "str",
+  "layout_type": "str",
+  "modified_at": "<timestamp>",
+  "notify_list": [
+    "<empty_list>"
+  ],
+  "reflow_type": "str",
+  "restricted_roles": [
+    "<empty_list>"
+  ],
+  "tags": [
+    "<empty_list>"
+  ],
+  "template_variable_presets": [
+    "<list>",
+    {
+      "description": "str",
+      "name": "str",
+      "template_variables": [
+        "<list>",
+        {
+          "name": "str",
+          "value": "str",
+          "values": [
+            "<list>",
+            "<...>"
+          ]
         }
+      ]
+    }
+  ],
+  "template_variables": [
+    "<list>",
+    {
+      "available_values": [
+        "<empty_list>"
+      ],
+      "default": "str",
+      "name": "str",
+      "prefix": "str",
+      "type": "str"
+    }
+  ],
+  "title": "str",
+  "url": "str",
+  "widgets": [
+    "<list>",
+    {
+      "definition": {
+        "background_color": "str",
+        "content": "str",
+        "font_size": "str",
+        "has_padding": "bool",
+        "show_tick": "bool",
+        "text_align": "str",
+        "tick_edge": "str",
+        "tick_pos": "str",
+        "type": "str",
+        "vertical_align": "str"
+      },
+      "id": "int",
+      "layout": {
+        "height": "int",
+        "width": "int",
+        "x": "int",
+        "y": "int"
       }
-    ]
-  },
-  "status": "str"
+    }
+  ]
 }

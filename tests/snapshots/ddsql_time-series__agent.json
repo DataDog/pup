@@ -1,9 +1,6 @@
-{
-  "data": [
-    "<list>",
-    {
-      "?column?": "int"
-    }
-  ],
-  "status": "str"
-}
+[
+  "<list>",
+  {
+    "?column?": "int"
+  }
+]

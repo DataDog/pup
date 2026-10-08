@@ -17,5 +17,19 @@
       "type": "str"
     }
   ],
-  "status": "str"
+  "included": [
+    "<list>",
+    {
+      "attributes": {
+        "*": "<...>"
+      },
+      "id": "str",
+      "type": "str"
+    }
+  ],
+  "meta": {
+    "*": {
+      "total_filtered_count": "int"
+    }
+  }
 }

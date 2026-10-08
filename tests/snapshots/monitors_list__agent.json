@@ -1,57 +1,50 @@
-{
-  "data": [
-    "<list>",
-    {
-      "created": "<timestamp>",
-      "created_at": "int",
-      "creator": {
-        "email": "str",
-        "handle": "str",
-        "id": "int",
-        "name": "str"
-      },
-      "deleted": "NoneType",
-      "draft_status": "str",
+[
+  "<list>",
+  {
+    "created": "<timestamp>",
+    "created_at": "int",
+    "creator": {
+      "email": "str",
+      "handle": "str",
       "id": "int",
-      "matching_downtimes": [
-        "<empty_list>"
-      ],
-      "message": "str",
-      "modified": "<timestamp>",
-      "multi": "bool",
-      "name": "str",
-      "options": {
-        "avalanche_window": "int",
-        "include_tags": "bool",
-        "locked": "bool",
-        "new_host_delay": "int",
-        "no_data_timeframe": "int",
-        "notify_audit": "bool",
-        "notify_no_data": "bool",
-        "renotify_interval": "int",
-        "require_full_window": "bool",
-        "silenced": {},
-        "thresholds": {
-          "critical": "float"
-        },
-        "timeout_h": "int"
+      "name": "str"
+    },
+    "deleted": "NoneType",
+    "draft_status": "str",
+    "id": "int",
+    "matching_downtimes": [
+      "<empty_list>"
+    ],
+    "message": "str",
+    "modified": "<timestamp>",
+    "multi": "bool",
+    "name": "str",
+    "options": {
+      "avalanche_window": "int",
+      "include_tags": "bool",
+      "locked": "bool",
+      "new_host_delay": "int",
+      "no_data_timeframe": "int",
+      "notify_audit": "bool",
+      "notify_no_data": "bool",
+      "renotify_interval": "int",
+      "require_full_window": "bool",
+      "silenced": {},
+      "thresholds": {
+        "critical": "float"
       },
-      "org_id": "int",
-      "overall_state": "str",
-      "overall_state_modified": "<timestamp>",
-      "priority": "NoneType",
-      "query": "str",
-      "restricted_roles": "NoneType",
-      "tags": [
-        "<list>",
-        "str"
-      ],
-      "type": "str"
-    }
-  ],
-  "metadata": {
-    "command": "str",
-    "count": "int"
-  },
-  "status": "str"
-}
+      "timeout_h": "int"
+    },
+    "org_id": "int",
+    "overall_state": "str",
+    "overall_state_modified": "<timestamp>",
+    "priority": "NoneType",
+    "query": "str",
+    "restricted_roles": "NoneType",
+    "tags": [
+      "<list>",
+      "str"
+    ],
+    "type": "str"
+  }
+]

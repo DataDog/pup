@@ -1,61 +1,60 @@
 {
-  "data": {
-    "orgs": [
-      "<list>",
-      {
-        "billing": {
-          "cc_type": "str",
-          "last4": "str",
-          "message": "str",
-          "meta": {},
-          "name": "str",
-          "org_id": "int",
-          "provider": "str",
-          "revoked": "bool",
-          "token": "str",
-          "type": "str"
-        },
-        "created": "str",
-        "description": "str",
+  "orgs": [
+    "<list>",
+    {
+      "billing": {
+        "cc_type": "str",
+        "last4": "str",
+        "message": "str",
+        "meta": {},
         "name": "str",
-        "public_id": "str",
-        "settings": {
-          "custom_landing_page": "str",
-          "default_landing_page": "str",
-          "manage_reports": "str",
-          "private_widget_share": "bool",
-          "saml": {
-            "enabled": "<...>"
-          },
-          "saml_autocreate_access_role": "str",
-          "saml_autocreate_users_domains": {
-            "domains": "<...>",
-            "enabled": "<...>"
-          },
-          "saml_can_be_enabled": "bool",
-          "saml_idp_endpoint": "<url>",
-          "saml_idp_initiated_login": {
-            "enabled": "<...>"
-          },
-          "saml_idp_metadata_uploaded": "bool",
-          "saml_idp_metadata_valid_until": "NoneType",
-          "saml_strict_mode": {
-            "enabled": "<...>"
-          }
+        "org_id": "int",
+        "provider": "str",
+        "revoked": "bool",
+        "token": "str",
+        "type": "str"
+      },
+      "created": "str",
+      "description": "str",
+      "name": "str",
+      "public_id": "str",
+      "settings": {
+        "custom_landing_page": "str",
+        "default_landing_page": "str",
+        "manage_reports": "str",
+        "private_widget_share": "bool",
+        "saml": {
+          "enabled": "bool"
         },
-        "subscription": {
-          "billing_plan_id": "int",
-          "expires": "NoneType",
-          "finished": "NoneType",
-          "id": "NoneType",
-          "is_custom": "bool",
-          "is_expired": "bool",
-          "is_trial": "bool",
-          "started": "int",
-          "type": "str"
+        "saml_autocreate_access_role": "str",
+        "saml_autocreate_users_domains": {
+          "domains": [
+            "<empty_list>"
+          ],
+          "enabled": "bool"
+        },
+        "saml_can_be_enabled": "bool",
+        "saml_idp_endpoint": "<url>",
+        "saml_idp_initiated_login": {
+          "enabled": "bool"
+        },
+        "saml_idp_metadata_uploaded": "bool",
+        "saml_idp_metadata_valid_until": "NoneType",
+        "saml_strict_mode": {
+          "enabled": "bool"
         }
+      },
+      "subscription": {
+        "billing_plan_id": "int",
+        "expires": "NoneType",
+        "finished": "NoneType",
+        "id": "NoneType",
+        "is_custom": "bool",
+        "is_expired": "bool",
+        "is_trial": "bool",
+        "started": "int",
+        "type": "str"
       }
-    ]
-  },
-  "status": "str"
+    }
+  ]
 }

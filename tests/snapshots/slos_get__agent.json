@@ -33,5 +33,5 @@
     "type": "str",
     "type_id": "int"
   },
-  "status": "str"
+  "error": "NoneType"
 }

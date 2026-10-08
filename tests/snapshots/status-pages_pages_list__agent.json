@@ -17,5 +17,16 @@
       "type": "str"
     }
   ],
-  "status": "str"
+  "meta": {
+    "*": {
+      "first_offset": "int",
+      "last_offset": "NoneType",
+      "limit": "int",
+      "next_offset": "int",
+      "offset": "int",
+      "prev_offset": "NoneType",
+      "total": "NoneType",
+      "type": "str"
+    }
+  }
 }

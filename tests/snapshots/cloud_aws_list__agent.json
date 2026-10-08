@@ -1,31 +1,28 @@
 {
-  "data": {
-    "accounts": [
-      "<list>",
-      {
-        "account_id": "<unix_ts>",
-        "account_specific_namespace_rules": {},
-        "cspm_resource_collection_enabled": "bool",
-        "errors": [
-          "<empty_list>"
-        ],
-        "excluded_regions": [
-          "<empty_list>"
-        ],
-        "extended_resource_collection_enabled": "bool",
-        "filter_tags": [
-          "<empty_list>"
-        ],
-        "host_tags": [
-          "<list>",
-          "str"
-        ],
-        "metrics_collection_enabled": "bool",
-        "resource_collection_enabled": "bool",
-        "role_name": "str",
-        "access_key_id": "str"
-      }
-    ]
-  },
-  "status": "str"
+  "accounts": [
+    "<list>",
+    {
+      "account_id": "<unix_ts>",
+      "account_specific_namespace_rules": {},
+      "cspm_resource_collection_enabled": "bool",
+      "errors": [
+        "<empty_list>"
+      ],
+      "excluded_regions": [
+        "<empty_list>"
+      ],
+      "extended_resource_collection_enabled": "bool",
+      "filter_tags": [
+        "<empty_list>"
+      ],
+      "host_tags": [
+        "<list>",
+        "str"
+      ],
+      "metrics_collection_enabled": "bool",
+      "resource_collection_enabled": "bool",
+      "role_name": "str",
+      "access_key_id": "str"
+    }
+  ]
 }

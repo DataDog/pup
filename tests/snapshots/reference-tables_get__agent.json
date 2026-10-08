@@ -5,6 +5,5 @@
     },
     "id": "<uuid>",
     "type": "str"
-  },
-  "status": "str"
+  }
 }

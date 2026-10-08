@@ -9,11 +9,10 @@
       "type": "str"
     }
   ],
-  "metadata": {
-    "command": "str",
-    "count": "int",
-    "next_action": "str",
-    "truncated": "bool"
+  "links": {
+    "next": "<url>"
   },
-  "status": "str"
+  "meta": {
+    "*": "int"
+  }
 }

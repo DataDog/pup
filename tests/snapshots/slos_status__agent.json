@@ -5,6 +5,5 @@
     },
     "id": "<hash>",
     "type": "str"
-  },
-  "status": "str"
+  }
 }

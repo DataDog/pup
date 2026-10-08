@@ -1,122 +1,119 @@
 {
-  "data": {
-    "agents": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<list>",
-        "str"
-      ]
-    },
-    "api": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<list>",
-        "str"
-      ]
-    },
-    "apm": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<list>",
-        "str"
-      ]
-    },
-    "global": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<list>",
-        "str"
-      ]
-    },
-    "logs": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<list>",
-        "str"
-      ]
-    },
-    "modified": "<timestamp>",
-    "orchestrator": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<list>",
-        "str"
-      ]
-    },
-    "process": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<list>",
-        "str"
-      ]
-    },
-    "remote-configuration": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<list>",
-        "str"
-      ]
-    },
-    "synthetics": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv4_by_location": {
-        "*": [
-          "<list>",
-          "str"
-        ]
-      },
-      "prefixes_ipv6": [
-        "<empty_list>"
-      ],
-      "prefixes_ipv6_by_location": {}
-    },
-    "synthetics-private-locations": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<list>",
-        "str"
-      ]
-    },
-    "version": "int",
-    "webhooks": {
-      "prefixes_ipv4": [
-        "<list>",
-        "str"
-      ],
-      "prefixes_ipv6": [
-        "<empty_list>"
-      ]
-    }
+  "agents": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<list>",
+      "str"
+    ]
   },
-  "status": "str"
+  "api": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<list>",
+      "str"
+    ]
+  },
+  "apm": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<list>",
+      "str"
+    ]
+  },
+  "global": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<list>",
+      "str"
+    ]
+  },
+  "logs": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<list>",
+      "str"
+    ]
+  },
+  "modified": "<timestamp>",
+  "orchestrator": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<list>",
+      "str"
+    ]
+  },
+  "process": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<list>",
+      "str"
+    ]
+  },
+  "remote-configuration": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<list>",
+      "str"
+    ]
+  },
+  "synthetics": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv4_by_location": {
+      "*": [
+        "<list>",
+        "str"
+      ]
+    },
+    "prefixes_ipv6": [
+      "<empty_list>"
+    ],
+    "prefixes_ipv6_by_location": {}
+  },
+  "synthetics-private-locations": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<list>",
+      "str"
+    ]
+  },
+  "version": "int",
+  "webhooks": {
+    "prefixes_ipv4": [
+      "<list>",
+      "str"
+    ],
+    "prefixes_ipv6": [
+      "<empty_list>"
+    ]
+  }
 }

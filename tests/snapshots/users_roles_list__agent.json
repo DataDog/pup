@@ -17,5 +17,10 @@
       "type": "str"
     }
   ],
-  "status": "str"
+  "meta": {
+    "*": {
+      "total_count": "int",
+      "total_filtered_count": "int"
+    }
+  }
 }

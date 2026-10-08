@@ -9,5 +9,10 @@
       "type": "str"
     }
   ],
-  "status": "str"
+  "links": {
+    "next": "<url>"
+  },
+  "meta": {
+    "*": "int"
+  }
 }

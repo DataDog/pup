@@ -2,5 +2,7 @@
   "data": [
     "<empty_list>"
   ],
-  "status": "str"
+  "meta": {
+    "*": "str"
+  }
 }

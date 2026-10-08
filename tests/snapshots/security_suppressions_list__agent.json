@@ -9,5 +9,11 @@
       "type": "str"
     }
   ],
-  "status": "str"
+  "meta": {
+    "*": {
+      "pageNumber": "int",
+      "pageSize": "int",
+      "totalCount": "int"
+    }
+  }
 }

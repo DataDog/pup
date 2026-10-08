@@ -15,6 +15,5 @@
       }
     },
     "type": "str"
-  },
-  "status": "str"
+  }
 }

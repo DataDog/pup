@@ -59,5 +59,11 @@
       ]
     }
   ],
-  "status": "str"
+  "error": "NoneType",
+  "metadata": {
+    "page": {
+      "total_count": "int",
+      "total_filtered_count": "int"
+    }
+  }
 }

@@ -17,5 +17,21 @@
       "type": "str"
     }
   ],
-  "status": "str"
+  "included": [
+    "<list>",
+    {
+      "attributes": {
+        "*": "<...>"
+      },
+      "id": "<uuid>",
+      "type": "str"
+    }
+  ],
+  "meta": {
+    "*": {
+      "current": "int",
+      "size": "int",
+      "total": "int"
+    }
+  }
 }

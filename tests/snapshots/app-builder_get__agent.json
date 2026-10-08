@@ -8,6 +8,5 @@
       "*": "<timestamp>"
     },
     "type": "str"
-  },
-  "status": "str"
+  }
 }

@@ -1,11 +1,8 @@
-{
-  "data": [
-    "<list>",
-    {
-      "description": "str",
-      "name": "str",
-      "type": "str"
-    }
-  ],
-  "status": "str"
-}
+[
+  "<list>",
+  {
+    "description": "str",
+    "name": "str",
+    "type": "str"
+  }
+]

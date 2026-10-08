@@ -90,6 +90,9 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "observability_pipelines_read",
         "oci_configuration_read",
         "on_call_read",
+        "product_analytics_experiments_read",
+        "product_analytics_metrics_read",
+        "product_analytics_settings_read",
         "reference_tables_read",
         "repo_info_read",
         "rum_apps_read",
@@ -244,6 +247,13 @@ pub fn default_scopes() -> Vec<&'static str> {
         "on_call_write",
         // Organizations
         "org_management",
+        // Product Analytics Experiments
+        "product_analytics_experiments_read",
+        "product_analytics_experiments_write",
+        "product_analytics_metrics_read",
+        "product_analytics_metrics_write",
+        "product_analytics_settings_read",
+        "product_analytics_settings_write",
         // Reference Tables
         "reference_tables_read",
         "reference_tables_write",
@@ -421,6 +431,30 @@ mod tests {
         assert!(!ro.contains(&"feature_flag_config_write"));
         assert!(!ro.contains(&"feature_flag_environment_config_write"));
         assert!(!ro.contains(&"feature_flag_approvals_override"));
+    }
+
+    #[test]
+    fn test_default_scopes_experiments() {
+        let scopes = default_scopes();
+        assert!(scopes.contains(&"product_analytics_experiments_read"));
+        assert!(scopes.contains(&"product_analytics_experiments_write"));
+        assert!(scopes.contains(&"product_analytics_metrics_read"));
+        assert!(scopes.contains(&"product_analytics_metrics_write"));
+        assert!(scopes.contains(&"product_analytics_settings_read"));
+        assert!(scopes.contains(&"product_analytics_settings_write"));
+        // No pup command manages warehouse SQL models.
+        assert!(!scopes.contains(&"product_analytics_warehouse_model_write"));
+    }
+
+    #[test]
+    fn test_read_only_scopes_experiments() {
+        let ro = read_only_scopes();
+        assert!(ro.contains(&"product_analytics_experiments_read"));
+        assert!(ro.contains(&"product_analytics_metrics_read"));
+        assert!(ro.contains(&"product_analytics_settings_read"));
+        assert!(!ro.contains(&"product_analytics_experiments_write"));
+        assert!(!ro.contains(&"product_analytics_metrics_write"));
+        assert!(!ro.contains(&"product_analytics_settings_write"));
     }
 
     #[test]

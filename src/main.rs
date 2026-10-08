@@ -1383,6 +1383,65 @@ enum Commands {
         #[command(subcommand)]
         action: ExtensionActions,
     },
+    /// Manage experiments (A/B tests)
+    ///
+    /// Manage Datadog Experiments: draft, configure, start, and conclude A/B
+    /// tests, attach metrics, and read diagnostics and results.
+    ///
+    /// Experiments pair with feature flags: create the flag and its
+    /// experiment-linked allocation with `pup feature-flags`, then link the
+    /// flag to the experiment via `pup experiments update`.
+    ///
+    /// COMMAND GROUPS:
+    ///   analysis-plan        Get or update an experiment's analysis plan
+    ///   metric-groups        Manage metrics attached to an experiment (list, create, create-from-collection, update, delete)
+    ///   metrics              Manage experiment metric definitions (list, get, create, update, delete)
+    ///   metric-collections   Manage reusable metric collections (list, get, create, update, delete)
+    ///   subject-types        Manage randomization subject types (list, get, create, update, delete, set-default)
+    ///   protocols            Browse experiment protocols (list, get)
+    ///
+    /// DIRECT COMMANDS:
+    ///   list, get, create, update, delete
+    ///   start                Run readiness checks and start an experiment
+    ///   conclude             Conclude an experiment with a winning variant
+    ///   cancel               Cancel an experiment
+    ///   diagnostics          Show diagnostics (sample ratio mismatch, zero-data metrics)
+    ///   traffic-summary      Show per-variant traffic
+    ///   results              Show per-variant results
+    ///   refresh-results      Recompute an experiment's results
+    ///
+    /// EXAMPLES:
+    ///   # List running experiments
+    ///   pup experiments list --status=IN_PROGRESS
+    ///
+    ///   # Create a draft experiment
+    ///   pup experiments create --file=experiment.json
+    ///
+    ///   # Link a flag and subject type to the experiment
+    ///   pup experiments update <experiment-id> --file=patch.json
+    ///
+    ///   # Find metrics and attach them to the experiment
+    ///   pup experiments metrics list --search=latency
+    ///   pup experiments metric-groups create <experiment-id> --file=group.json
+    ///
+    ///   # Start, check health, read results, and conclude
+    ///   pup experiments start <experiment-id>
+    ///   pup experiments diagnostics <experiment-id>
+    ///   pup experiments results <experiment-id>
+    ///   pup experiments conclude <experiment-id> --decision-variant=treatment
+    ///
+    /// AUTHENTICATION:
+    ///   Requires either OAuth2 authentication (pup auth login) or API keys
+    ///   (DD_API_KEY and DD_APP_KEY environment variables). All scopes below
+    ///   are requested by default.
+    ///     experiments, metric-groups, protocols -- product_analytics_experiments_read/write
+    ///     metrics, metric-collections           -- product_analytics_metrics_read/write
+    ///     subject-types                         -- product_analytics_settings_read/write
+    #[command(verbatim_doc_comment)]
+    Experiments {
+        #[command(subcommand)]
+        action: ExperimentActions,
+    },
     /// Manage feature flags
     ///
     /// Manage Datadog feature flags and their environments.
@@ -8685,6 +8744,317 @@ enum CodeCoverageActions {
     },
 }
 
+// ---- Experiments ----
+#[derive(clap::Args)]
+struct ExperimentListFilterArgs {
+    #[arg(long, help = "Free-text search")]
+    search: Option<String>,
+    #[arg(long, help = "Sort field (prefix with - for descending)")]
+    sort: Option<String>,
+    #[arg(long, help = "Maximum number of results to return")]
+    limit: Option<i64>,
+    #[arg(long, help = "Number of results to skip")]
+    offset: Option<i64>,
+}
+
+impl From<ExperimentListFilterArgs> for commands::experiments::ListFilters {
+    fn from(a: ExperimentListFilterArgs) -> Self {
+        Self {
+            search: a.search,
+            sort: a.sort,
+            limit: a.limit,
+            offset: a.offset,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum ExperimentActions {
+    /// List experiments
+    List {
+        #[command(flatten)]
+        filters: ExperimentListFilterArgs,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Filter by status (repeatable or comma-separated): DRAFT, SCHEDULED, IN_PROGRESS, READY_FOR_DECISION, DECISION_MADE, CANCELLED"
+        )]
+        status: Vec<String>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Filter by tag (repeatable or comma-separated)"
+        )]
+        tags: Vec<String>,
+    },
+    /// Get an experiment
+    Get {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+    },
+    /// Create a draft experiment from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update (patch) an experiment from a JSON file
+    Update {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete an experiment
+    Delete {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+    },
+    /// Run readiness checks and start an experiment
+    Start {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+    },
+    /// Conclude an experiment with a winning variant
+    Conclude {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+        #[arg(long, help = "Key of the winning variant (required)")]
+        decision_variant: String,
+    },
+    /// Cancel an experiment
+    Cancel {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+        #[arg(long, help = "Reason for cancelling (required)")]
+        reason: String,
+    },
+    /// Show experiment diagnostics (sample ratio mismatch, zero-data metrics)
+    Diagnostics {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+    },
+    /// Show per-variant traffic for an experiment
+    TrafficSummary {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+    },
+    /// Show per-variant results for an experiment
+    Results {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+    },
+    /// Recompute an experiment's results
+    RefreshResults {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+        #[arg(long, help = "Recompute from scratch instead of incrementally")]
+        full: bool,
+    },
+    /// Get or update an experiment's analysis plan
+    AnalysisPlan {
+        #[command(subcommand)]
+        action: ExperimentAnalysisPlanActions,
+    },
+    /// Manage metrics attached to an experiment
+    MetricGroups {
+        #[command(subcommand)]
+        action: ExperimentMetricGroupActions,
+    },
+    /// Manage experiment metric definitions
+    Metrics {
+        #[command(subcommand)]
+        action: ExperimentMetricActions,
+    },
+    /// Manage reusable metric collections
+    MetricCollections {
+        #[command(subcommand)]
+        action: ExperimentMetricCollectionActions,
+    },
+    /// Manage randomization subject types
+    SubjectTypes {
+        #[command(subcommand)]
+        action: ExperimentSubjectTypeActions,
+    },
+    /// Browse experiment protocols
+    Protocols {
+        #[command(subcommand)]
+        action: ExperimentProtocolActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExperimentAnalysisPlanActions {
+    /// Get an experiment's analysis plan
+    Get {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+    },
+    /// Update an experiment's analysis plan from a JSON file
+    Update {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExperimentMetricGroupActions {
+    /// List metric groups attached to an experiment
+    List {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+    },
+    /// Attach a metric group to an experiment from a JSON file
+    Create {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Attach the metrics of a metric collection to an experiment
+    CreateFromCollection {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+        #[arg(help = "Metric collection ID (UUID)")]
+        metric_collection_id: String,
+    },
+    /// Update a metric group from a JSON file
+    Update {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+        #[arg(help = "Metric group ID (UUID)")]
+        metric_group_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Remove a metric group from an experiment
+    Delete {
+        #[arg(help = "Experiment ID (UUID)")]
+        experiment_id: String,
+        #[arg(help = "Metric group ID (UUID)")]
+        metric_group_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExperimentMetricActions {
+    /// List experiment metrics
+    List {
+        #[command(flatten)]
+        filters: ExperimentListFilterArgs,
+    },
+    /// Get an experiment metric
+    Get {
+        #[arg(help = "Metric ID (UUID)")]
+        metric_id: String,
+    },
+    /// Create an experiment metric from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update an experiment metric from a JSON file
+    Update {
+        #[arg(help = "Metric ID (UUID)")]
+        metric_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete an experiment metric
+    Delete {
+        #[arg(help = "Metric ID (UUID)")]
+        metric_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExperimentMetricCollectionActions {
+    /// List metric collections
+    List {
+        #[command(flatten)]
+        filters: ExperimentListFilterArgs,
+    },
+    /// Get a metric collection
+    Get {
+        #[arg(help = "Metric collection ID (UUID)")]
+        metric_collection_id: String,
+    },
+    /// Create a metric collection from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update a metric collection from a JSON file
+    Update {
+        #[arg(help = "Metric collection ID (UUID)")]
+        metric_collection_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete a metric collection
+    Delete {
+        #[arg(help = "Metric collection ID (UUID)")]
+        metric_collection_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExperimentSubjectTypeActions {
+    /// List subject types
+    List {
+        #[command(flatten)]
+        filters: ExperimentListFilterArgs,
+    },
+    /// Get a subject type
+    Get {
+        #[arg(help = "Subject type ID (UUID)")]
+        subject_type_id: String,
+    },
+    /// Create a subject type from a JSON file
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update a subject type from a JSON file
+    Update {
+        #[arg(help = "Subject type ID (UUID)")]
+        subject_type_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete a subject type
+    Delete {
+        #[arg(help = "Subject type ID (UUID)")]
+        subject_type_id: String,
+    },
+    /// Make a subject type the organization default
+    SetDefault {
+        #[arg(help = "Subject type ID (UUID)")]
+        subject_type_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExperimentProtocolActions {
+    /// List experiment protocols
+    List {
+        #[arg(long, help = "Free-text filter")]
+        query: Option<String>,
+        #[arg(long, help = "Sort field (prefix with - for descending)")]
+        sort: Option<String>,
+        #[arg(long, help = "Maximum number of results to return")]
+        limit: Option<i64>,
+        #[arg(long, help = "Number of results to skip")]
+        offset: Option<i64>,
+    },
+    /// Get an experiment protocol
+    Get {
+        #[arg(help = "Protocol ID (UUID)")]
+        protocol_id: String,
+    },
+}
+
 // ---- Feature Flags ----
 #[derive(Subcommand)]
 enum FeatureFlagActions {
@@ -12494,6 +12864,9 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "create"
         || name == "update"
         || name == "cancel"
+        || name == "conclude"
+        || name == "refresh-results"
+        || name == "set-default"
         || name == "trigger"
         || name == "set"
         || name == "add"
@@ -13067,6 +13440,32 @@ mod test_agent_schema {
         let full = find_command(commands, &["llm-obs", "datasets", "records-full"])
             .expect("llm-obs datasets records-full not found");
         assert_eq!(full["read_only"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn experiments_lifecycle_verbs_are_classified_as_write() {
+        // conclude/refresh-results/set-default mutate experiment state, so read-only
+        // mode must block them; diagnostics/results stay read-only.
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        for path in [
+            &["experiments", "conclude"][..],
+            &["experiments", "refresh-results"],
+            &["experiments", "subject-types", "set-default"],
+            &["experiments", "metric-groups", "create-from-collection"],
+        ] {
+            let cmd = find_command(commands, path).expect("experiments command not found");
+            assert_eq!(cmd["read_only"].as_bool(), Some(false), "{path:?}");
+        }
+        for path in [
+            &["auth", "refresh"][..],
+            &["experiments", "diagnostics"],
+            &["experiments", "results"],
+            &["experiments", "traffic-summary"],
+        ] {
+            let cmd = find_command(commands, path).expect("experiments command not found");
+            assert_eq!(cmd["read_only"].as_bool(), Some(true), "{path:?}");
+        }
     }
 
     #[test]
@@ -17256,6 +17655,159 @@ async fn main_inner() -> anyhow::Result<()> {
                 CodeCoverageActions::CommitSummary { repo, commit } => {
                     commands::code_coverage::commit_summary(&cfg, repo, commit).await?;
                 }
+            }
+        }
+        // --- Experiments ---
+        Commands::Experiments { action } => {
+            cfg.validate_auth()?;
+            use commands::experiments as ex;
+            match action {
+                ExperimentActions::List {
+                    filters,
+                    status,
+                    tags,
+                } => ex::list(&cfg, filters.into(), status, tags).await?,
+                ExperimentActions::Get { experiment_id } => ex::get(&cfg, &experiment_id).await?,
+                ExperimentActions::Create { file } => ex::create(&cfg, &file).await?,
+                ExperimentActions::Update {
+                    experiment_id,
+                    file,
+                } => ex::update(&cfg, &experiment_id, &file).await?,
+                ExperimentActions::Delete { experiment_id } => {
+                    ex::delete(&cfg, &experiment_id).await?
+                }
+                ExperimentActions::Start { experiment_id } => {
+                    ex::start(&cfg, &experiment_id).await?
+                }
+                ExperimentActions::Conclude {
+                    experiment_id,
+                    decision_variant,
+                } => ex::conclude(&cfg, &experiment_id, &decision_variant).await?,
+                ExperimentActions::Cancel {
+                    experiment_id,
+                    reason,
+                } => ex::cancel(&cfg, &experiment_id, &reason).await?,
+                ExperimentActions::Diagnostics { experiment_id } => {
+                    ex::diagnostics(&cfg, &experiment_id).await?
+                }
+                ExperimentActions::TrafficSummary { experiment_id } => {
+                    ex::traffic_summary(&cfg, &experiment_id).await?
+                }
+                ExperimentActions::Results { experiment_id } => {
+                    ex::results(&cfg, &experiment_id).await?
+                }
+                ExperimentActions::RefreshResults {
+                    experiment_id,
+                    full,
+                } => ex::refresh(&cfg, &experiment_id, full).await?,
+                ExperimentActions::AnalysisPlan { action } => match action {
+                    ExperimentAnalysisPlanActions::Get { experiment_id } => {
+                        ex::analysis_plan_get(&cfg, &experiment_id).await?
+                    }
+                    ExperimentAnalysisPlanActions::Update {
+                        experiment_id,
+                        file,
+                    } => ex::analysis_plan_update(&cfg, &experiment_id, &file).await?,
+                },
+                ExperimentActions::MetricGroups { action } => match action {
+                    ExperimentMetricGroupActions::List { experiment_id } => {
+                        ex::metric_groups_list(&cfg, &experiment_id).await?
+                    }
+                    ExperimentMetricGroupActions::Create {
+                        experiment_id,
+                        file,
+                    } => ex::metric_groups_create(&cfg, &experiment_id, &file).await?,
+                    ExperimentMetricGroupActions::CreateFromCollection {
+                        experiment_id,
+                        metric_collection_id,
+                    } => {
+                        ex::metric_groups_create_from_collection(
+                            &cfg,
+                            &experiment_id,
+                            &metric_collection_id,
+                        )
+                        .await?
+                    }
+                    ExperimentMetricGroupActions::Update {
+                        experiment_id,
+                        metric_group_id,
+                        file,
+                    } => {
+                        ex::metric_groups_update(&cfg, &experiment_id, &metric_group_id, &file)
+                            .await?
+                    }
+                    ExperimentMetricGroupActions::Delete {
+                        experiment_id,
+                        metric_group_id,
+                    } => ex::metric_groups_delete(&cfg, &experiment_id, &metric_group_id).await?,
+                },
+                ExperimentActions::Metrics { action } => match action {
+                    ExperimentMetricActions::List { filters } => {
+                        ex::metrics_list(&cfg, filters.into()).await?
+                    }
+                    ExperimentMetricActions::Get { metric_id } => {
+                        ex::metrics_get(&cfg, &metric_id).await?
+                    }
+                    ExperimentMetricActions::Create { file } => {
+                        ex::metrics_create(&cfg, &file).await?
+                    }
+                    ExperimentMetricActions::Update { metric_id, file } => {
+                        ex::metrics_update(&cfg, &metric_id, &file).await?
+                    }
+                    ExperimentMetricActions::Delete { metric_id } => {
+                        ex::metrics_delete(&cfg, &metric_id).await?
+                    }
+                },
+                ExperimentActions::MetricCollections { action } => match action {
+                    ExperimentMetricCollectionActions::List { filters } => {
+                        ex::metric_collections_list(&cfg, filters.into()).await?
+                    }
+                    ExperimentMetricCollectionActions::Get {
+                        metric_collection_id,
+                    } => ex::metric_collections_get(&cfg, &metric_collection_id).await?,
+                    ExperimentMetricCollectionActions::Create { file } => {
+                        ex::metric_collections_create(&cfg, &file).await?
+                    }
+                    ExperimentMetricCollectionActions::Update {
+                        metric_collection_id,
+                        file,
+                    } => ex::metric_collections_update(&cfg, &metric_collection_id, &file).await?,
+                    ExperimentMetricCollectionActions::Delete {
+                        metric_collection_id,
+                    } => ex::metric_collections_delete(&cfg, &metric_collection_id).await?,
+                },
+                ExperimentActions::SubjectTypes { action } => match action {
+                    ExperimentSubjectTypeActions::List { filters } => {
+                        ex::subject_types_list(&cfg, filters.into()).await?
+                    }
+                    ExperimentSubjectTypeActions::Get { subject_type_id } => {
+                        ex::subject_types_get(&cfg, &subject_type_id).await?
+                    }
+                    ExperimentSubjectTypeActions::Create { file } => {
+                        ex::subject_types_create(&cfg, &file).await?
+                    }
+                    ExperimentSubjectTypeActions::Update {
+                        subject_type_id,
+                        file,
+                    } => ex::subject_types_update(&cfg, &subject_type_id, &file).await?,
+                    ExperimentSubjectTypeActions::Delete { subject_type_id } => {
+                        ex::subject_types_delete(&cfg, &subject_type_id).await?
+                    }
+                    ExperimentSubjectTypeActions::SetDefault { subject_type_id } => {
+                        ex::subject_types_set_default(&cfg, &subject_type_id).await?
+                    }
+                },
+                ExperimentActions::Protocols { action } => match action {
+                    ExperimentProtocolActions::List {
+                        query,
+                        sort,
+                        limit,
+                        offset,
+                    } => ex::protocols_list(&cfg, query, sort, limit, offset).await?,
+                    ExperimentProtocolActions::Get { protocol_id } => {
+                        ex::protocols_get(&cfg, &protocol_id).await?
+                    }
+                },
             }
         }
         // --- Feature Flags ---

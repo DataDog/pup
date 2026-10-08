@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::types::{ClientCredentials, TokenSet};
 
@@ -62,15 +62,35 @@ impl std::fmt::Display for BackendType {
 
 pub struct FileStorage {
     base_dir: PathBuf,
+    legacy_dir: Option<PathBuf>,
 }
 
 impl FileStorage {
     pub fn new() -> Result<Self> {
         let base_dir =
-            crate::config::config_dir().context("could not determine config directory")?;
+            crate::config::auth_config_dir().context("could not determine config directory")?;
         std::fs::create_dir_all(&base_dir)
             .with_context(|| format!("failed to create config dir: {}", base_dir.display()))?;
-        Ok(Self { base_dir })
+        Ok(Self {
+            base_dir,
+            legacy_dir: legacy_auth_config_dir(),
+        })
+    }
+
+    fn read_file(&self, filename: &str) -> Result<Option<String>> {
+        let primary_path = self.base_dir.join(filename);
+        let legacy_path = self.legacy_dir.as_ref().map(|dir| dir.join(filename));
+        Ok(read_path_with_fallback(
+            &primary_path,
+            legacy_path.as_deref(),
+        )?)
+    }
+
+    fn remove_legacy_file(&self, filename: &str) -> Result<()> {
+        if let Some(dir) = &self.legacy_dir {
+            remove_legacy_file_if_distinct(&self.base_dir.join(filename), &dir.join(filename))?;
+        }
+        Ok(())
     }
 }
 
@@ -84,14 +104,12 @@ impl Storage for FileStorage {
     }
 
     fn save_tokens(&self, site: &str, org: Option<&str>, tokens: &TokenSet) -> Result<()> {
-        let path = self
-            .base_dir
-            .join(format!("tokens_{}.json", sanitize(site)));
-        let mut map = match std::fs::read_to_string(&path) {
-            Ok(json) => parse_token_map(&json).unwrap_or_default(),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => OrgTokenMap::new(),
-            Err(e) => return Err(e.into()),
-        };
+        let filename = format!("tokens_{}.json", sanitize(site));
+        let path = self.base_dir.join(&filename);
+        let mut map = self
+            .read_file(&filename)?
+            .map(|json| parse_token_map(&json).unwrap_or_default())
+            .unwrap_or_default();
         map.insert(org_map_key(org).to_string(), tokens.clone());
         let json = serde_json::to_string_pretty(&map)?;
         std::fs::write(&path, json)
@@ -101,35 +119,31 @@ impl Storage for FileStorage {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
         }
+        self.remove_legacy_file(&filename)?;
         Ok(())
     }
 
     fn load_tokens(&self, site: &str, org: Option<&str>) -> Result<Option<TokenSet>> {
-        let path = self
-            .base_dir
-            .join(format!("tokens_{}.json", sanitize(site)));
-        match std::fs::read_to_string(&path) {
-            Ok(json) => Ok(parse_token_map(&json)?.remove(org_map_key(org))),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
+        let filename = format!("tokens_{}.json", sanitize(site));
+        match self.read_file(&filename)? {
+            Some(json) => Ok(parse_token_map(&json)?.remove(org_map_key(org))),
+            None => Ok(None),
         }
     }
 
     fn delete_tokens(&self, site: &str, org: Option<&str>) -> Result<()> {
-        let path = self
-            .base_dir
-            .join(format!("tokens_{}.json", sanitize(site)));
-        let json = match std::fs::read_to_string(&path) {
-            Ok(j) => j,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(e.into()),
+        let filename = format!("tokens_{}.json", sanitize(site));
+        let path = self.base_dir.join(&filename);
+        let json = match self.read_file(&filename)? {
+            Some(json) => json,
+            None => return Ok(()),
         };
         let mut map = parse_token_map(&json).unwrap_or_default();
         map.remove(org_map_key(org));
         if map.is_empty() {
-            match std::fs::remove_file(&path) {
-                Ok(()) | Err(_) => Ok(()),
-            }
+            remove_file_if_exists(&path)?;
+            self.remove_legacy_file(&filename)?;
+            Ok(())
         } else {
             let json = serde_json::to_string_pretty(&map)?;
             std::fs::write(&path, json)
@@ -139,14 +153,14 @@ impl Storage for FileStorage {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
             }
+            self.remove_legacy_file(&filename)?;
             Ok(())
         }
     }
 
     fn save_client_credentials(&self, site: &str, creds: &ClientCredentials) -> Result<()> {
-        let path = self
-            .base_dir
-            .join(format!("client_{}.json", sanitize(site)));
+        let filename = format!("client_{}.json", sanitize(site));
+        let path = self.base_dir.join(&filename);
         let json = serde_json::to_string_pretty(creds)?;
         std::fs::write(&path, json)
             .with_context(|| format!("failed to write credentials: {}", path.display()))?;
@@ -155,29 +169,125 @@ impl Storage for FileStorage {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
         }
+        self.remove_legacy_file(&filename)?;
         Ok(())
     }
 
     fn load_client_credentials(&self, site: &str) -> Result<Option<ClientCredentials>> {
-        let path = self
-            .base_dir
-            .join(format!("client_{}.json", sanitize(site)));
-        match std::fs::read_to_string(&path) {
-            Ok(json) => Ok(Some(serde_json::from_str(&json)?)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
+        let filename = format!("client_{}.json", sanitize(site));
+        match self.read_file(&filename)? {
+            Some(json) => Ok(Some(serde_json::from_str(&json)?)),
+            None => Ok(None),
         }
     }
 
     fn delete_client_credentials(&self, site: &str) -> Result<()> {
-        let path = self
-            .base_dir
-            .join(format!("client_{}.json", sanitize(site)));
-        match std::fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e.into()),
+        let filename = format!("client_{}.json", sanitize(site));
+        remove_file_if_exists(&self.base_dir.join(&filename))?;
+        self.remove_legacy_file(&filename)
+    }
+}
+
+fn legacy_auth_config_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let legacy_dir = dirs::config_dir().map(|dir| dir.join("pup"));
+        legacy_auth_config_dir_for(
+            true,
+            std::env::var("PUP_CONFIG_DIR").ok(),
+            legacy_dir,
+            crate::config::auth_config_dir(),
+        )
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn legacy_auth_config_dir_for(
+    is_macos: bool,
+    pup_config_dir: Option<String>,
+    legacy_dir: Option<PathBuf>,
+    current_dir: Option<PathBuf>,
+) -> Option<PathBuf> {
+    if !is_macos || pup_config_dir.filter(|dir| !dir.is_empty()).is_some() {
+        return None;
+    }
+    let legacy_dir = legacy_dir?;
+    if current_dir.as_deref().is_some_and(|current_dir| {
+        directories_resolve_to_same_location(&legacy_dir, current_dir) == Some(true)
+    }) {
+        return None;
+    }
+    Some(legacy_dir)
+}
+
+fn directories_resolve_to_same_location(left: &Path, right: &Path) -> Option<bool> {
+    fn resolve(path: &Path) -> Option<PathBuf> {
+        let mut ancestor = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir().ok()?.join(path)
+        };
+        let mut missing_components = Vec::new();
+        loop {
+            match std::fs::canonicalize(&ancestor) {
+                Ok(mut resolved) => {
+                    for component in missing_components.iter().rev() {
+                        resolved.push(component);
+                    }
+                    return Some(resolved);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    missing_components.push(ancestor.file_name()?.to_os_string());
+                    ancestor = ancestor.parent()?.to_path_buf();
+                }
+                Err(_) => return None,
+            }
         }
+    }
+
+    Some(resolve(left)? == resolve(right)?)
+}
+
+fn remove_legacy_file_if_distinct(primary_path: &Path, legacy_path: &Path) -> std::io::Result<()> {
+    let (Some(primary_dir), Some(legacy_dir)) = (primary_path.parent(), legacy_path.parent())
+    else {
+        return Ok(());
+    };
+    if directories_resolve_to_same_location(primary_dir, legacy_dir) == Some(false) {
+        remove_file_if_exists(legacy_path)?;
+    }
+    Ok(())
+}
+
+fn read_path_with_fallback(
+    primary_path: &Path,
+    fallback_path: Option<&Path>,
+) -> std::io::Result<Option<String>> {
+    match std::fs::read_to_string(primary_path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let Some(fallback_path) = fallback_path else {
+                return Ok(None);
+            };
+            match std::fs::read_to_string(fallback_path) {
+                Ok(contents) => Ok(Some(contents)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn remove_file_if_exists(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
     }
 }
 
@@ -761,28 +871,9 @@ fn read_config_token_storage() -> Option<String> {
         token_storage: Option<String>,
     }
 
-    // Mirror config_file_candidates() from config.rs. We inline the path logic here
-    // rather than calling into config.rs because config.rs calls get_storage(), and
-    // calling config functions during storage initialisation could be confusing;
-    // config_dir() is safe (it only reads env/filesystem), so we use it directly.
-    let config_dir = crate::config::config_dir()?;
-    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
-    let mut candidates = vec![config_dir.join("config.yaml")];
-    // On macOS also check the XDG-style path (~/.config/pup/) as a fallback,
-    // mirroring the behaviour of config_file_candidates().
-    #[cfg(target_os = "macos")]
-    if std::env::var("PUP_CONFIG_DIR")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .is_none()
-    {
-        if let Some(home) = dirs::home_dir() {
-            let xdg = home.join(".config/pup/config.yaml");
-            if !candidates.contains(&xdg) {
-                candidates.push(xdg);
-            }
-        }
-    }
+    // Use the same candidates as config loading so XDG_CONFIG_HOME and the
+    // documented macOS fallback are honored consistently.
+    let candidates = crate::config::config_file_candidates();
 
     // Mirror load_config_file(): use the first readable file, parse only that one.
     // This avoids the subtle case where the primary file exists but lacks
@@ -860,7 +951,12 @@ fn parse_token_map(json: &str) -> Result<OrgTokenMap> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn sessions_path() -> Option<std::path::PathBuf> {
-    crate::config::config_dir().map(|d| d.join("sessions.json"))
+    crate::config::auth_config_dir().map(|d| d.join("sessions.json"))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn legacy_sessions_path() -> Option<std::path::PathBuf> {
+    legacy_auth_config_dir().map(|d| d.join("sessions.json"))
 }
 
 /// List all stored sessions from the registry file.
@@ -871,10 +967,14 @@ pub fn list_sessions() -> Result<Vec<SessionEntry>> {
         Some(p) => p,
         None => return Ok(vec![]),
     };
-    match std::fs::read_to_string(&path) {
-        Ok(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
-        Err(e) => Err(e.into()),
+    read_sessions_from_paths(&path, legacy_sessions_path().as_deref())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn read_sessions_from_paths(path: &Path, legacy_path: Option<&Path>) -> Result<Vec<SessionEntry>> {
+    match read_path_with_fallback(path, legacy_path)? {
+        Some(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
+        None => Ok(vec![]),
     }
 }
 
@@ -1017,6 +1117,9 @@ fn write_sessions(sessions: &[SessionEntry]) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     }
+    if let Some(legacy_path) = legacy_sessions_path() {
+        remove_legacy_file_if_distinct(&path, &legacy_path)?;
+    }
     Ok(())
 }
 
@@ -1129,10 +1232,200 @@ mod tests {
     // --- FileStorage — token map behaviour ----------------------------------
 
     #[test]
+    fn test_file_storage_new_respects_pup_config_dir_override() {
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("fs_override");
+        let old_pup_dir = std::env::var_os("PUP_CONFIG_DIR");
+        let old_xdg_dir = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::set_var("PUP_CONFIG_DIR", tmp.path());
+        std::env::set_var("XDG_CONFIG_HOME", "/tmp/pup_test_xdg_should_not_win");
+
+        let store = FileStorage::new().unwrap();
+        let location = store.storage_location();
+
+        match old_pup_dir {
+            Some(value) => std::env::set_var("PUP_CONFIG_DIR", value),
+            None => std::env::remove_var("PUP_CONFIG_DIR"),
+        }
+        match old_xdg_dir {
+            Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        assert_eq!(location, tmp.path().display().to_string());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_file_storage_new_uses_xdg_config_home() {
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        let tmp = TempDir::new("fs_xdg");
+        let old_pup_dir = std::env::var_os("PUP_CONFIG_DIR");
+        let old_xdg_dir = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::remove_var("PUP_CONFIG_DIR");
+        std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+        let location = FileStorage::new().unwrap().storage_location();
+
+        match old_pup_dir {
+            Some(value) => std::env::set_var("PUP_CONFIG_DIR", value),
+            None => std::env::remove_var("PUP_CONFIG_DIR"),
+        }
+        match old_xdg_dir {
+            Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        assert_eq!(location, tmp.path().join("pup").display().to_string());
+    }
+
+    #[test]
+    fn test_legacy_auth_config_dir_fallback_is_mac_only_and_skips_override() {
+        let tmp = TempDir::new("legacy_alias");
+        let target = tmp.path().join("target");
+        let alias = tmp.path().join("alias");
+        std::fs::create_dir_all(&target).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+        #[cfg(not(unix))]
+        let alias = target.clone();
+        let legacy_alias = alias.join("pup");
+        let current_alias = target.join("pup");
+        assert_eq!(
+            legacy_auth_config_dir_for(true, None, Some(legacy_alias), Some(current_alias),),
+            None,
+            "symlinked config directories are the same location"
+        );
+
+        let legacy = PathBuf::from("/legacy/pup");
+        let current = PathBuf::from("/xdg/pup");
+        assert_eq!(
+            legacy_auth_config_dir_for(true, None, Some(legacy.clone()), Some(current.clone())),
+            Some(legacy.clone())
+        );
+        assert_eq!(
+            legacy_auth_config_dir_for(
+                true,
+                Some("/custom/pup".into()),
+                Some(legacy.clone()),
+                Some(PathBuf::from("/custom/pup")),
+            ),
+            None,
+            "PUP_CONFIG_DIR disables the legacy fallback"
+        );
+        assert_eq!(
+            legacy_auth_config_dir_for(false, None, Some(legacy), Some(current.clone())),
+            None,
+            "non-macOS platforms do not use the legacy path"
+        );
+        assert_eq!(
+            legacy_auth_config_dir_for(true, None, Some(current.clone()), Some(current.clone())),
+            None,
+            "avoid checking the same directory twice"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_file_storage_save_does_not_remove_file_through_legacy_symlink() {
+        let tmp = TempDir::new("fs_legacy_symlink");
+        let target_dir = tmp.path().join("target");
+        let legacy_alias = tmp.path().join("legacy-alias");
+        std::fs::create_dir_all(target_dir.join("pup")).unwrap();
+        std::os::unix::fs::symlink(&target_dir, &legacy_alias).unwrap();
+        let store = FileStorage {
+            base_dir: target_dir.join("pup"),
+            legacy_dir: Some(legacy_alias.join("pup")),
+        };
+
+        store
+            .save_tokens("datadoghq.com", None, &make_token("saved_tok"))
+            .unwrap();
+
+        assert_eq!(
+            store
+                .load_tokens("datadoghq.com", None)
+                .unwrap()
+                .unwrap()
+                .access_token,
+            "saved_tok"
+        );
+    }
+
+    #[test]
+    fn test_file_storage_reads_legacy_tokens_and_moves_writes_to_primary() {
+        let primary = TempDir::new("fs_legacy_primary");
+        let legacy = TempDir::new("fs_legacy_old");
+        let filename = "tokens_datadoghq_com.json";
+        let old_map: OrgTokenMap = [("prod".to_string(), make_token("legacy_prod_tok"))]
+            .into_iter()
+            .collect();
+        std::fs::write(
+            legacy.path().join(filename),
+            serde_json::to_string(&old_map).unwrap(),
+        )
+        .unwrap();
+        let store = FileStorage {
+            base_dir: primary.path().clone(),
+            legacy_dir: Some(legacy.path().clone()),
+        };
+
+        let loaded = store
+            .load_tokens("datadoghq.com", Some("prod"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.access_token, "legacy_prod_tok");
+        store
+            .save_tokens("datadoghq.com", None, &make_token("new_default_tok"))
+            .unwrap();
+
+        let saved = std::fs::read_to_string(primary.path().join(filename)).unwrap();
+        let saved_map = parse_token_map(&saved).unwrap();
+        assert_eq!(saved_map["prod"].access_token, "legacy_prod_tok");
+        assert_eq!(saved_map[DEFAULT_ORG_KEY].access_token, "new_default_tok");
+        assert!(!legacy.path().join(filename).exists());
+    }
+
+    #[test]
+    fn test_file_storage_reads_legacy_client_credentials() {
+        let primary = TempDir::new("fs_client_primary");
+        let legacy = TempDir::new("fs_client_old");
+        let credentials = ClientCredentials {
+            client_id: "legacy-client".into(),
+            client_name: "pup".into(),
+            redirect_uris: vec!["http://localhost".into()],
+            registered_at: 1,
+            site: "datadoghq.com".into(),
+        };
+        std::fs::write(
+            legacy.path().join("client_datadoghq_com.json"),
+            serde_json::to_string(&credentials).unwrap(),
+        )
+        .unwrap();
+        let store = FileStorage {
+            base_dir: primary.path().clone(),
+            legacy_dir: Some(legacy.path().clone()),
+        };
+
+        assert_eq!(
+            store
+                .load_client_credentials("datadoghq.com")
+                .unwrap()
+                .unwrap()
+                .client_id,
+            "legacy-client"
+        );
+        store
+            .save_client_credentials("datadoghq.com", &credentials)
+            .unwrap();
+        assert!(primary.path().join("client_datadoghq_com.json").exists());
+        assert!(!legacy.path().join("client_datadoghq_com.json").exists());
+    }
+
+    #[test]
     fn test_file_storage_save_load_default_org() {
         let tmp = TempDir::new("fs_default");
         let store = FileStorage {
             base_dir: tmp.path().clone(),
+            legacy_dir: None,
         };
         store
             .save_tokens("datadoghq.com", None, &make_token("default_tok"))
@@ -1146,6 +1439,7 @@ mod tests {
         let tmp = TempDir::new("fs_named");
         let store = FileStorage {
             base_dir: tmp.path().clone(),
+            legacy_dir: None,
         };
         store
             .save_tokens("datadoghq.com", Some("prod-child"), &make_token("prod_tok"))
@@ -1162,6 +1456,7 @@ mod tests {
         let tmp = TempDir::new("fs_multi");
         let store = FileStorage {
             base_dir: tmp.path().clone(),
+            legacy_dir: None,
         };
 
         store
@@ -1214,6 +1509,7 @@ mod tests {
         let tmp = TempDir::new("fs_isolation");
         let store = FileStorage {
             base_dir: tmp.path().clone(),
+            legacy_dir: None,
         };
 
         store
@@ -1231,6 +1527,7 @@ mod tests {
         let tmp = TempDir::new("fs_del_last");
         let store = FileStorage {
             base_dir: tmp.path().clone(),
+            legacy_dir: None,
         };
 
         store
@@ -1250,6 +1547,7 @@ mod tests {
         let tmp = TempDir::new("fs_del_one");
         let store = FileStorage {
             base_dir: tmp.path().clone(),
+            legacy_dir: None,
         };
 
         store
@@ -1281,6 +1579,7 @@ mod tests {
         let tmp = TempDir::new("fs_del_none");
         let store = FileStorage {
             base_dir: tmp.path().clone(),
+            legacy_dir: None,
         };
         assert!(store.delete_tokens("datadoghq.com", None).is_ok());
     }
@@ -1290,6 +1589,7 @@ mod tests {
         let tmp = TempDir::new("fs_legacy");
         let store = FileStorage {
             base_dir: tmp.path().clone(),
+            legacy_dir: None,
         };
 
         // Write old-format file: bare TokenSet, no map wrapper
@@ -1348,6 +1648,29 @@ mod tests {
     }
 
     // --- Session registry ---------------------------------------------------
+
+    #[test]
+    fn test_session_registry_reads_legacy_path() {
+        let primary = TempDir::new("sess_primary");
+        let legacy = TempDir::new("sess_legacy");
+        let entry = SessionEntry {
+            site: "datadoghq.com".into(),
+            org: Some("legacy-org".into()),
+            org_uuid: None,
+        };
+        std::fs::write(
+            legacy.path().join("sessions.json"),
+            serde_json::to_string(std::slice::from_ref(&entry)).unwrap(),
+        )
+        .unwrap();
+
+        let sessions = read_sessions_from_paths(
+            &primary.path().join("sessions.json"),
+            Some(&legacy.path().join("sessions.json")),
+        )
+        .unwrap();
+        assert_eq!(sessions, vec![entry]);
+    }
 
     #[test]
     fn test_session_registry_empty() {

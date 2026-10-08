@@ -61,6 +61,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | containers | list, images (list) | src/commands/containers.rs | ✅ |
 | costs | datadog (projected, attribution, by-org, aws-config, azure-config, gcp-config), ccm (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments) | src/commands/cost.rs, src/commands/cost_ccm.rs | ✅ |
 | product-analytics | events send | src/commands/product_analytics.rs | ✅ |
+| experiments | list, get, create, update, delete, start, conclude, cancel, diagnostics, traffic-summary, results, refresh-results, analysis-plan (get, update), metric-groups (list, create, create-from-collection, update, delete), metrics (list, get, create, update, delete), metric-collections (list, get, create, update, delete), subject-types (list, get, create, update, delete, set-default), protocols (list, get) | src/commands/experiments.rs | ✅ |
 | profiling | profiles (list, download), services (list), profile-types (list), explore (flamegraph, callgraph, timeline) | src/commands/profiling.rs | ✅ |
 | datasets | list, get, create, update, delete | src/commands/datasets.rs | ✅ |
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |

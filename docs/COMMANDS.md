@@ -25,7 +25,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | auth | login, logout, status, token, refresh | src/commands/auth.rs | ✅ |
 | metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate, patterns, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
-| traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
+| traces | get, search, aggregate, metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
 | dashboards | list, get, create, update, diff, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
@@ -107,6 +107,22 @@ pup monitors get 12345678
 pup slos get abc-123-def
 ```
 
+### Full Trace Retrieval
+
+`traces get` uses the preview `GET /api/v2/trace/{trace_id}` endpoint rather than
+indexed span search. It requires `apm_read` and accepts a 32-character hex ID or
+up to 39 decimal digits. To save the full response without reading it into agent
+context, redirect stdout:
+
+```bash
+pup --agent --read-only traces get <TRACE_ID> > trace.json
+```
+
+In agent mode, spans are under `.data.attributes.spans`; check
+`.data.attributes.is_truncated` before treating the response as complete.
+The command requests all available fields. Preserve integer ID precision when
+parsing the saved JSON.
+
 ### Search/Query
 ```bash
 pup logs search --query="status:error" --from="1h"
@@ -181,7 +197,7 @@ pup infrastructure hosts list
 - **metrics** - Time-series metrics (query, list, get, search)
 - **logs** - Log search and analysis (search, list, aggregate, saved views)
 - **dbm** - Database Monitoring query samples (samples search)
-- **traces** - APM spans metrics (list, get, create, update, delete)
+- **traces** - Full trace retrieval, span search/aggregation, and span-based metrics
 - **rum** - Real User Monitoring (apps, metrics, retention-filters, sessions)
 - **events** - Infrastructure events (post, list, search, get)
 - **ddsql** - DDSQL queries and discovery (table, spec, schema)

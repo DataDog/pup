@@ -11699,6 +11699,21 @@ enum ScorecardsCampaignsActions {
 // ---- Traces ----
 #[derive(Subcommand)]
 enum TracesActions {
+    /// Get a complete stored trace by ID
+    ///
+    /// Uses the preview full-trace API, not indexed span search. Requires apm_read.
+    /// Returns every available span field.
+    /// Check attributes.is_truncated before treating the response as complete.
+    ///
+    /// EXAMPLES:
+    ///   pup traces get a8e0e1080f4403c7c7dc4c2e8eae3a34
+    ///   pup traces get 14401469471269993012
+    ///   pup --agent traces get <TRACE_ID> > trace.json
+    #[command(verbatim_doc_comment)]
+    Get {
+        #[arg(help = "Trace ID: 32 hexadecimal characters or up to 39 decimal digits")]
+        trace_id: String,
+    },
     /// Search for spans
     ///
     /// Search for individual spans matching a query.
@@ -19626,6 +19641,9 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Traces { action } => {
             cfg.validate_auth()?;
             match action {
+                TracesActions::Get { trace_id } => {
+                    commands::traces::get(&cfg, &trace_id).await?;
+                }
                 TracesActions::Search {
                     query,
                     from,

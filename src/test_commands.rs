@@ -35,6 +35,64 @@ fn test_traces_get_parses_id_and_is_read_only() {
     assert!(crate::Cli::try_parse_from(["pup", "traces", "get"]).is_err());
 }
 
+#[test]
+fn test_traces_get_pruned_parses_flags_and_is_read_only() {
+    use clap::Parser;
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "--read-only",
+        "traces",
+        "get-pruned",
+        "14401469471269993012",
+        "--expand-span-id=17158905238077369281",
+        "--time-hint=1700000000",
+        "--include-path=service:api",
+        "--include-path=env:prod",
+        "--tag-exclude=^_dd",
+        "--only-service-entry-spans",
+    ])
+    .unwrap();
+    let crate::Commands::Traces {
+        action:
+            crate::TracesActions::GetPruned {
+                trace_id,
+                expand_span_id,
+                time_hint,
+                force_source,
+                include_path,
+                tag_include,
+                tag_exclude,
+                only_service_entry_spans,
+            },
+    } = cli.command
+    else {
+        panic!("expected traces get-pruned");
+    };
+    assert_eq!(trace_id, "14401469471269993012");
+    assert_eq!(expand_span_id, Some(17158905238077369281));
+    assert_eq!(time_hint, Some(1700000000));
+    assert_eq!(force_source, None);
+    assert_eq!(include_path, ["service:api", "env:prod"]);
+    assert!(tag_include.is_empty());
+    assert_eq!(tag_exclude, ["^_dd"]);
+    assert!(only_service_entry_spans);
+    let matches = crate::Cli::command()
+        .try_get_matches_from(["pup", "traces", "get-pruned", "14401469471269993012"])
+        .unwrap();
+    assert!(!crate::is_write_command_name(
+        &crate::get_leaf_subcommand_name(&matches).unwrap()
+    ));
+    assert!(crate::Cli::try_parse_from(["pup", "traces", "get-pruned"]).is_err());
+    assert!(crate::Cli::try_parse_from([
+        "pup",
+        "traces",
+        "get-pruned",
+        "14401469471269993012",
+        "--expand-span-id=-1",
+    ])
+    .is_err());
+}
+
 // -------------------------------------------------------------------------
 // Notebook discovery
 // -------------------------------------------------------------------------

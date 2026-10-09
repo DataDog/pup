@@ -11732,6 +11732,55 @@ enum TracesActions {
         #[arg(help = "Trace ID: 32 hexadecimal characters or up to 39 decimal digits")]
         trace_id: String,
     },
+    /// Get a pruned, summarized span tree for a trace by ID
+    ///
+    /// Uses the preview pruned-trace API. Requires apm_read.
+    /// Returns attributes.summarized_trace.root, a span tree where pruned branches
+    /// are summarized by hidden_child_spans_count. Use this instead of `traces get`
+    /// for large traces when the full span list is not needed.
+    ///
+    /// EXAMPLES:
+    ///   pup traces get-pruned a8e0e1080f4403c7c7dc4c2e8eae3a34
+    ///   pup traces get-pruned <TRACE_ID> --only-service-entry-spans
+    ///   pup traces get-pruned <TRACE_ID> --expand-span-id=17158905238077369281
+    ///   pup traces get-pruned <TRACE_ID> --include-path="service:api" --tag-include="^http\."
+    #[command(verbatim_doc_comment)]
+    GetPruned {
+        #[arg(help = "Trace ID: 32 hexadecimal characters or up to 39 decimal digits")]
+        trace_id: String,
+        #[arg(
+            long,
+            help = "Span ID to keep expanded even if its branch would be pruned"
+        )]
+        expand_span_id: Option<u64>,
+        #[arg(long, help = "Unix time in seconds near the trace; speeds up lookup")]
+        time_hint: Option<i64>,
+        #[arg(
+            long,
+            help = "Force a specific storage source (chosen automatically by default)"
+        )]
+        force_source: Option<String>,
+        #[arg(
+            long,
+            value_name = "KEY:VALUE",
+            help = "Limit the tree to paths through spans matching key:value (repeatable)"
+        )]
+        include_path: Vec<String>,
+        #[arg(
+            long,
+            value_name = "REGEX",
+            help = "Keep tags whose keys match this regex (repeatable)"
+        )]
+        tag_include: Vec<String>,
+        #[arg(
+            long,
+            value_name = "REGEX",
+            help = "Drop tags whose keys match this regex (repeatable)"
+        )]
+        tag_exclude: Vec<String>,
+        #[arg(long, help = "Return only service entry spans")]
+        only_service_entry_spans: bool,
+    },
     /// Search for spans
     ///
     /// Search for individual spans matching a query.
@@ -19661,6 +19710,27 @@ async fn main_inner() -> anyhow::Result<()> {
             match action {
                 TracesActions::Get { trace_id } => {
                     commands::traces::get(&cfg, &trace_id).await?;
+                }
+                TracesActions::GetPruned {
+                    trace_id,
+                    expand_span_id,
+                    time_hint,
+                    force_source,
+                    include_path,
+                    tag_include,
+                    tag_exclude,
+                    only_service_entry_spans,
+                } => {
+                    let opts = commands::traces::PrunedTraceOptions {
+                        expand_span_id,
+                        time_hint,
+                        force_source,
+                        include_path,
+                        tag_include,
+                        tag_exclude,
+                        only_service_entry_spans,
+                    };
+                    commands::traces::get_pruned(&cfg, &trace_id, &opts).await?;
                 }
                 TracesActions::Search {
                     query,

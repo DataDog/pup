@@ -11,9 +11,14 @@ use clap::CommandFactory;
 #[test]
 fn test_traces_get_parses_id_and_is_read_only() {
     use clap::Parser;
-    let cli =
-        crate::Cli::try_parse_from(["pup", "--read-only", "traces", "get", "14401469471269993012"])
-            .unwrap();
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "--read-only",
+        "traces",
+        "get",
+        "14401469471269993012",
+    ])
+    .unwrap();
     let crate::Commands::Traces {
         action: crate::TracesActions::Get { trace_id },
     } = cli.command

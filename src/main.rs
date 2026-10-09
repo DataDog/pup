@@ -10950,8 +10950,26 @@ enum LlmObsPatternsActions {
 enum LlmObsPatternConfigsActions {
     /// List all Topic Discovery configs for the org
     List,
-    /// Get the most-recently-modified Topic Discovery config for the org
-    Get,
+    /// Get a Topic Discovery config (defaults to the most-recently-modified one)
+    Get {
+        #[arg(
+            long,
+            help = "Pattern config ID (defaults to the most-recently-modified config)"
+        )]
+        config_id: Option<String>,
+    },
+    /// Create a Topic Discovery config (does not start a run)
+    Create {
+        #[arg(long, help = "JSON file with pattern config body (required)")]
+        file: String,
+    },
+    /// Update a Topic Discovery config; only fields in the file change
+    Update {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+        #[arg(long, help = "JSON file with fields to change (required)")]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -20556,8 +20574,15 @@ async fn main_inner() -> anyhow::Result<()> {
                         LlmObsPatternConfigsActions::List => {
                             commands::llm_obs::patterns_configs_list(&cfg).await?;
                         }
-                        LlmObsPatternConfigsActions::Get => {
-                            commands::llm_obs::patterns_configs_get(&cfg).await?;
+                        LlmObsPatternConfigsActions::Get { config_id } => {
+                            commands::llm_obs::patterns_configs_get(&cfg, config_id).await?;
+                        }
+                        LlmObsPatternConfigsActions::Create { file } => {
+                            commands::llm_obs::patterns_configs_create(&cfg, &file).await?;
+                        }
+                        LlmObsPatternConfigsActions::Update { config_id, file } => {
+                            commands::llm_obs::patterns_configs_update(&cfg, &config_id, &file)
+                                .await?;
                         }
                     },
                     LlmObsPatternsActions::Runs { action } => match action {

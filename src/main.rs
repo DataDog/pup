@@ -10947,8 +10947,26 @@ enum LlmObsPatternsActions {
 enum LlmObsPatternConfigsActions {
     /// List all Topic Discovery configs for the org
     List,
-    /// Get the most-recently-modified Topic Discovery config for the org
-    Get,
+    /// Get a Topic Discovery config (defaults to the most-recently-modified one)
+    Get {
+        #[arg(
+            long,
+            help = "Pattern config ID (defaults to the most-recently-modified config)"
+        )]
+        config_id: Option<String>,
+    },
+    /// Create a Topic Discovery config (does not start a run)
+    Create {
+        #[arg(long, help = "JSON file with pattern config body (required)")]
+        file: String,
+    },
+    /// Update a Topic Discovery config; only fields in the file change
+    Update {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+        #[arg(long, help = "JSON file with fields to change (required)")]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -11565,7 +11583,10 @@ enum LlmObsEvalsActions {
     CreateOrUpdate {
         #[arg(help = "Evaluator name (required)")]
         eval_name: String,
-        #[arg(long, help = "JSON file with evaluator config body (required)")]
+        #[arg(
+            long,
+            help = "JSON file: flat evaluator args, or get-evaluator / eval-config get output (required)"
+        )]
         file: String,
     },
     /// Delete an evaluator by name
@@ -11693,6 +11714,21 @@ enum ScorecardsCampaignsActions {
 // ---- Traces ----
 #[derive(Subcommand)]
 enum TracesActions {
+    /// Get a complete stored trace by ID
+    ///
+    /// Uses the preview full-trace API, not indexed span search. Requires apm_read.
+    /// Returns every available span field.
+    /// Check attributes.is_truncated before treating the response as complete.
+    ///
+    /// EXAMPLES:
+    ///   pup traces get a8e0e1080f4403c7c7dc4c2e8eae3a34
+    ///   pup traces get 14401469471269993012
+    ///   pup --agent traces get <TRACE_ID> > trace.json
+    #[command(verbatim_doc_comment)]
+    Get {
+        #[arg(help = "Trace ID: 32 hexadecimal characters or up to 39 decimal digits")]
+        trace_id: String,
+    },
     /// Search for spans
     ///
     /// Search for individual spans matching a query.
@@ -19165,6 +19201,9 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Traces { action } => {
             cfg.validate_auth()?;
             match action {
+                TracesActions::Get { trace_id } => {
+                    commands::traces::get(&cfg, &trace_id).await?;
+                }
                 TracesActions::Search {
                     query,
                     from,
@@ -20089,8 +20128,15 @@ async fn main_inner() -> anyhow::Result<()> {
                         LlmObsPatternConfigsActions::List => {
                             commands::llm_obs::patterns_configs_list(&cfg).await?;
                         }
-                        LlmObsPatternConfigsActions::Get => {
-                            commands::llm_obs::patterns_configs_get(&cfg).await?;
+                        LlmObsPatternConfigsActions::Get { config_id } => {
+                            commands::llm_obs::patterns_configs_get(&cfg, config_id).await?;
+                        }
+                        LlmObsPatternConfigsActions::Create { file } => {
+                            commands::llm_obs::patterns_configs_create(&cfg, &file).await?;
+                        }
+                        LlmObsPatternConfigsActions::Update { config_id, file } => {
+                            commands::llm_obs::patterns_configs_update(&cfg, &config_id, &file)
+                                .await?;
                         }
                     },
                     LlmObsPatternsActions::Runs { action } => match action {

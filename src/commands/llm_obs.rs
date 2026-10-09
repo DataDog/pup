@@ -750,7 +750,7 @@ pub async fn evals_get_aggregate_stats(
 }
 
 pub async fn evals_create_or_update(cfg: &Config, eval_name: &str, file: &str) -> Result<()> {
-    let mut body: serde_json::Value = util::read_json_file(file)?;
+    let mut body = flatten_evaluator_body(util::read_json_file(file)?)?;
     body["eval_name"] = serde_json::json!(eval_name);
     raw_client::raw_post(
         cfg,
@@ -761,6 +761,69 @@ pub async fn evals_create_or_update(cfg: &Config, eval_name: &str, file: &str) -
     .map_err(|e| anyhow::anyhow!("failed to create or update evaluator: {e:?}"))?;
     eprintln!("Evaluator '{eval_name}' created or updated.");
     Ok(())
+}
+
+/// The endpoint ignores unknown keys, so nested `get-evaluator` output must be flattened first.
+fn flatten_evaluator_body(mut body: serde_json::Value) -> Result<serde_json::Value> {
+    while let Some(inner) = body.get_mut("data").map(serde_json::Value::take) {
+        body = inner;
+    }
+    if let Some(attributes) = body.get_mut("attributes").map(serde_json::Value::take) {
+        body = attributes;
+    }
+    let Some(obj) = body.as_object_mut() else {
+        anyhow::bail!("--file must contain a JSON object");
+    };
+    for key in ["target", "llm_provider", "llm_judge_config"] {
+        if let Some(serde_json::Value::Object(nested)) = obj.remove(key) {
+            hoist_evaluator_fields(obj, nested, "");
+        }
+    }
+    // Go reads a null output_schema as the literal "null", not as absent.
+    obj.retain(|_, v| !v.is_null());
+    let mut unwritable: Vec<&str> = [
+        "reasoning_effort",
+        "target_query",
+        "context_query",
+        "experiment_project_ids",
+    ]
+    .into_iter()
+    .filter(|k| obj.contains_key(*k))
+    .collect();
+    if obj
+        .get("prompt_template")
+        .and_then(|p| p.as_array())
+        .is_some_and(|msgs| msgs.iter().any(|m| !m["contents"].is_null()))
+    {
+        unwritable.push("prompt_template[].contents");
+    }
+    if !unwritable.is_empty() {
+        anyhow::bail!(
+            "create-or-update cannot write {}; use `eval-config get` output with `eval-config update` instead",
+            unwritable.join(", ")
+        );
+    }
+    Ok(body)
+}
+
+fn hoist_evaluator_fields(
+    flat: &mut serde_json::Map<String, serde_json::Value>,
+    nested: serde_json::Map<String, serde_json::Value>,
+    prefix: &str,
+) {
+    for (key, value) in nested {
+        match (key.as_str(), value) {
+            ("inference_params", serde_json::Value::Object(params)) => {
+                hoist_evaluator_fields(flat, params, "")
+            }
+            ("bedrock" | "vertex_ai", serde_json::Value::Object(opts)) => {
+                hoist_evaluator_fields(flat, opts, &format!("{key}_"))
+            }
+            (_, value) => {
+                flat.insert(format!("{prefix}{key}"), value);
+            }
+        }
+    }
 }
 
 pub async fn evals_delete(cfg: &Config, eval_name: &str) -> Result<()> {
@@ -1083,16 +1146,34 @@ pub async fn patterns_configs_list(cfg: &Config) -> Result<()> {
     .await
 }
 
-/// Gets the most-recently-modified pattern config for the org. Takes no arguments —
-/// use `patterns configs list` to see all configs or resolve a specific config_id.
-pub async fn patterns_configs_get(cfg: &Config) -> Result<()> {
-    patterns_post(
-        cfg,
-        "config/get",
-        serde_json::json!({}),
-        "get pattern config",
-    )
-    .await
+/// Gets a pattern config by ID, or the most-recently-modified config for the org
+/// when `config_id` is omitted.
+pub async fn patterns_configs_get(cfg: &Config, config_id: Option<String>) -> Result<()> {
+    let mut body = serde_json::json!({});
+    if let Some(id) = config_id {
+        body["config_id"] = serde_json::json!(id);
+    }
+    patterns_post(cfg, "config/get", body, "get pattern config").await
+}
+
+/// Creates a pattern config. Saving does not start a run.
+pub async fn patterns_configs_create(cfg: &Config, file: &str) -> Result<()> {
+    let body: serde_json::Value = util::read_json_file(file)?;
+    if !body.is_object() {
+        anyhow::bail!("pattern config file must contain a JSON object");
+    }
+    patterns_post(cfg, "config/create", body, "create pattern config").await
+}
+
+/// Updates a pattern config. Only fields present in the file change; list fields
+/// are replaced as a whole. `config_id` from the flag overrides any in the file.
+pub async fn patterns_configs_update(cfg: &Config, config_id: &str, file: &str) -> Result<()> {
+    let mut body: serde_json::Value = util::read_json_file(file)?;
+    if !body.is_object() {
+        anyhow::bail!("pattern config file must contain a JSON object");
+    }
+    body["config_id"] = serde_json::json!(config_id);
+    patterns_post(cfg, "config/update", body, "update pattern config").await
 }
 
 pub async fn patterns_runs_list(cfg: &Config, config_id: &str) -> Result<()> {
@@ -3600,6 +3681,126 @@ mod tests {
         cleanup_env();
     }
 
+    fn nested_evaluator() -> serde_json::Value {
+        serde_json::json!({
+            "eval_name": "toxicity",
+            "id": "",
+            "created_at": "2025-11-06T14:15:07Z",
+            "target": {"application_name": "app", "enabled": true, "root_spans_only": null},
+            "llm_provider": {
+                "integration_provider": "amazon_bedrock",
+                "model_name": "claude",
+                "bedrock": {"region": "us-east-1"}
+            },
+            "llm_judge_config": {
+                "inference_params": {"temperature": 0, "max_tokens": 4096},
+                "parsing_type": "structured_output",
+                "prompt_template": [{"role": "user", "content": "{{span_output}}"}],
+                "output_schema": {"type": "object"}
+            }
+        })
+    }
+
+    fn flat_evaluator() -> serde_json::Value {
+        serde_json::json!({
+            "eval_name": "toxicity",
+            "id": "",
+            "created_at": "2025-11-06T14:15:07Z",
+            "application_name": "app",
+            "enabled": true,
+            "integration_provider": "amazon_bedrock",
+            "model_name": "claude",
+            "bedrock_region": "us-east-1",
+            "temperature": 0,
+            "max_tokens": 4096,
+            "parsing_type": "structured_output",
+            "prompt_template": [{"role": "user", "content": "{{span_output}}"}],
+            "output_schema": {"type": "object"}
+        })
+    }
+
+    #[test]
+    fn test_flatten_evaluator_body() {
+        let flatten = |v| super::flatten_evaluator_body(v).unwrap();
+        assert_eq!(flatten(nested_evaluator()), flat_evaluator());
+        let envelope = serde_json::json!({
+            "data": {"id": "x", "type": "evaluator_config", "attributes": nested_evaluator()}
+        });
+        assert_eq!(flatten(envelope.clone()), flat_evaluator());
+        let agent_mode = serde_json::json!({"status": "success", "data": envelope, "metadata": {}});
+        assert_eq!(flatten(agent_mode), flat_evaluator());
+        assert_eq!(flatten(flat_evaluator()), flat_evaluator());
+        let vertex =
+            serde_json::json!({"llm_provider": {"vertex_ai": {"project": "p", "location": "l"}}});
+        assert_eq!(
+            flatten(vertex),
+            serde_json::json!({"vertex_ai_project": "p", "vertex_ai_location": "l"})
+        );
+    }
+
+    #[test]
+    fn test_flatten_evaluator_body_rejects_unwritable_fields() {
+        for (path, value) in [
+            (
+                "/llm_judge_config/inference_params",
+                serde_json::json!({"reasoning_effort": "low"}),
+            ),
+            (
+                "/llm_judge_config",
+                serde_json::json!({"target_query": "@a:b"}),
+            ),
+            (
+                "/target",
+                serde_json::json!({"experiment_project_ids": ["p"]}),
+            ),
+            (
+                "/llm_judge_config",
+                serde_json::json!({"prompt_template": [{"role": "user", "contents": []}]}),
+            ),
+        ] {
+            let mut body = nested_evaluator();
+            let parent = body.pointer_mut(path).unwrap().as_object_mut().unwrap();
+            parent.extend(value.as_object().unwrap().clone());
+            let err = super::flatten_evaluator_body(body).unwrap_err().to_string();
+            assert!(err.contains("eval-config update"), "{path}: {err}");
+        }
+        assert!(super::flatten_evaluator_body(serde_json::json!([1])).is_err());
+        assert!(super::flatten_evaluator_body(serde_json::json!({"data": null})).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_create_or_update_flattens_nested_body() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_eval_create_nested.json",
+            &nested_evaluator().to_string(),
+        );
+        let mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/custom-evaluator/create-or-update",
+            )
+            .match_body(mockito::Matcher::Json(flat_evaluator()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"ok"}"#)
+            .create_async()
+            .await;
+
+        let result = super::evals_create_or_update(&cfg, "toxicity", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "evals_create_or_update failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
     // ---- evals_delete ----
 
     #[tokio::test]
@@ -4239,7 +4440,7 @@ mod tests {
         )
         .await;
 
-        let result = super::patterns_configs_get(&cfg).await;
+        let result = super::patterns_configs_get(&cfg, None).await;
         assert!(
             result.is_ok(),
             "patterns_configs_get failed: {:?}",
@@ -4263,8 +4464,198 @@ mod tests {
         )
         .await;
 
-        let result = super::patterns_configs_get(&cfg).await;
+        let result = super::patterns_configs_get(&cfg, None).await;
         assert!(result.is_err(), "should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_get_by_id() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/get",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"cfg-1","name":"prod spans"}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_configs_get(&cfg, Some("cfg-1".into())).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_get by id failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_create() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let config = serde_json::json!({
+            "name": "prod spans",
+            "evp_query": "@ml_app:checkout-agent",
+            "sampling_ratio": 0.5,
+            "num_records": 500,
+            "hierarchy_depth": 2,
+            "integration_provider": "openai",
+            "account_id": "acct-1",
+            "model_name": "gpt-5",
+            "seed_topics": [{"name": "billing", "description": "Billing questions"}]
+        });
+        let tmp = write_temp_json("pup_test_patterns_create.json", &config.to_string());
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/create",
+            )
+            .match_body(mockito::Matcher::Json(config))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"cfg-1","name":"prod spans"}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_configs_create(&cfg, tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_create failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_create_400() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json("pup_test_patterns_create_400.json", r#"{"name":"dup"}"#);
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/create",
+            400,
+            r#"{"errors":["evp_query is required"]}"#,
+        )
+        .await;
+
+        let result = super::patterns_configs_create(&cfg, tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_create_rejects_non_object() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json("pup_test_patterns_create_array.json", r#"[1,2]"#);
+        let result = super::patterns_configs_create(&cfg, tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "non-object body should be rejected");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_create_missing_file() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result =
+            super::patterns_configs_create(&cfg, "/tmp/__pup_nonexistent_patterns__.json").await;
+        assert!(result.is_err(), "missing file should fail");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_update() {
+        // Flag config_id wins over any in the file; explicit [] and clear_schedule pass through.
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_patterns_update.json",
+            r#"{"config_id":"stale","num_records":200,"seed_topics":[],"clear_schedule":true}"#,
+        );
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/update",
+            )
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "config_id": "cfg-1",
+                "num_records": 200,
+                "seed_topics": [],
+                "clear_schedule": true
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"cfg-1","num_records":200}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_configs_update(&cfg, "cfg-1", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_update failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_update_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_patterns_update_404.json",
+            r#"{"num_records":200}"#,
+        );
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/update",
+            404,
+            r#"{"reason":"not_found"}"#,
+        )
+        .await;
+
+        let result = super::patterns_configs_update(&cfg, "missing", tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "should fail on 404");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_update_rejects_non_object() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json("pup_test_patterns_update_str.json", r#""oops""#);
+        let result = super::patterns_configs_update(&cfg, "cfg-1", tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "non-object body should be rejected");
+        let _ = std::fs::remove_file(tmp);
         cleanup_env();
     }
 

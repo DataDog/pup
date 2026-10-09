@@ -20,12 +20,15 @@ fn test_traces_get_parses_id_and_is_read_only() {
     ])
     .unwrap();
     let crate::Commands::Traces {
-        action: crate::TracesActions::Get { trace_id },
+        action: crate::TracesActions::Get {
+            trace_id, pruned, ..
+        },
     } = cli.command
     else {
         panic!("expected traces get");
     };
     assert_eq!(trace_id, "14401469471269993012");
+    assert!(!pruned);
     let matches = crate::Cli::command()
         .try_get_matches_from(["pup", "traces", "get", "14401469471269993012"])
         .unwrap();
@@ -33,6 +36,81 @@ fn test_traces_get_parses_id_and_is_read_only() {
         &crate::get_leaf_subcommand_name(&matches).unwrap()
     ));
     assert!(crate::Cli::try_parse_from(["pup", "traces", "get"]).is_err());
+}
+
+#[test]
+fn test_traces_get_pruned_parses_flags() {
+    use clap::Parser;
+    let cli = crate::Cli::try_parse_from([
+        "pup",
+        "--read-only",
+        "traces",
+        "get",
+        "14401469471269993012",
+        "--pruned",
+        "--expand-span-id=17158905238077369281",
+        "--time-hint=1700000000",
+        "--include-path=service:api",
+        "--include-path=env:prod",
+        "--tag-exclude=^_dd",
+        "--only-service-entry-spans",
+    ])
+    .unwrap();
+    let crate::Commands::Traces {
+        action:
+            crate::TracesActions::Get {
+                trace_id,
+                pruned,
+                expand_span_id,
+                time_hint,
+                force_source,
+                include_path,
+                tag_include,
+                tag_exclude,
+                only_service_entry_spans,
+            },
+    } = cli.command
+    else {
+        panic!("expected traces get");
+    };
+    assert_eq!(trace_id, "14401469471269993012");
+    assert!(pruned);
+    assert_eq!(expand_span_id, Some(17158905238077369281));
+    assert_eq!(time_hint, Some(1700000000));
+    assert_eq!(force_source, None);
+    assert_eq!(include_path, ["service:api", "env:prod"]);
+    assert!(tag_include.is_empty());
+    assert_eq!(tag_exclude, ["^_dd"]);
+    assert!(only_service_entry_spans);
+    assert!(crate::Cli::try_parse_from([
+        "pup",
+        "traces",
+        "get",
+        "14401469471269993012",
+        "--pruned",
+        "--expand-span-id=-1",
+    ])
+    .is_err());
+}
+
+#[test]
+fn test_traces_get_pruning_flags_require_pruned() {
+    use clap::Parser;
+    for flag in [
+        "--expand-span-id=1",
+        "--time-hint=1700000000",
+        "--force-source=hot",
+        "--include-path=service:api",
+        "--tag-include=^http",
+        "--tag-exclude=^_dd",
+        "--only-service-entry-spans",
+    ] {
+        assert!(
+            crate::Cli::try_parse_from(["pup", "traces", "get", "14401469471269993012", flag])
+                .is_err(),
+            "accepted {flag} without --pruned"
+        );
+    }
 }
 
 // -------------------------------------------------------------------------

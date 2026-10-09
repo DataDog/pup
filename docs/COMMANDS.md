@@ -123,6 +123,17 @@ In agent mode, spans are under `.data.attributes.spans`; check
 The command requests all available fields. Preserve integer ID precision when
 parsing the saved JSON.
 
+`traces get --pruned` uses the preview `GET /api/v2/pruned_trace/{trace_id}`
+endpoint, which returns a summarized span tree instead of the full span list.
+It also requires `apm_read`. The tree is under `.data.attributes.summarized_trace.root`,
+and the pruning flags below are rejected unless `--pruned` is set. Each node's `hidden_child_spans_count` shows how many child spans were pruned.
+
+```bash
+pup traces get <TRACE_ID> --pruned --only-service-entry-spans
+pup traces get <TRACE_ID> --pruned --expand-span-id=<SPAN_ID>
+pup traces get <TRACE_ID> --pruned --include-path="service:api" --tag-exclude="^_dd\."
+```
+
 ### Search/Query
 ```bash
 pup logs search --query="status:error" --from="1h"

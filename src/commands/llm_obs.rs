@@ -750,7 +750,7 @@ pub async fn evals_get_aggregate_stats(
 }
 
 pub async fn evals_create_or_update(cfg: &Config, eval_name: &str, file: &str) -> Result<()> {
-    let mut body: serde_json::Value = util::read_json_file(file)?;
+    let mut body = flatten_evaluator_body(util::read_json_file(file)?)?;
     body["eval_name"] = serde_json::json!(eval_name);
     raw_client::raw_post(
         cfg,
@@ -761,6 +761,69 @@ pub async fn evals_create_or_update(cfg: &Config, eval_name: &str, file: &str) -
     .map_err(|e| anyhow::anyhow!("failed to create or update evaluator: {e:?}"))?;
     eprintln!("Evaluator '{eval_name}' created or updated.");
     Ok(())
+}
+
+/// The endpoint ignores unknown keys, so nested `get-evaluator` output must be flattened first.
+fn flatten_evaluator_body(mut body: serde_json::Value) -> Result<serde_json::Value> {
+    while let Some(inner) = body.get_mut("data").map(serde_json::Value::take) {
+        body = inner;
+    }
+    if let Some(attributes) = body.get_mut("attributes").map(serde_json::Value::take) {
+        body = attributes;
+    }
+    let Some(obj) = body.as_object_mut() else {
+        anyhow::bail!("--file must contain a JSON object");
+    };
+    for key in ["target", "llm_provider", "llm_judge_config"] {
+        if let Some(serde_json::Value::Object(nested)) = obj.remove(key) {
+            hoist_evaluator_fields(obj, nested, "");
+        }
+    }
+    // Go reads a null output_schema as the literal "null", not as absent.
+    obj.retain(|_, v| !v.is_null());
+    let mut unwritable: Vec<&str> = [
+        "reasoning_effort",
+        "target_query",
+        "context_query",
+        "experiment_project_ids",
+    ]
+    .into_iter()
+    .filter(|k| obj.contains_key(*k))
+    .collect();
+    if obj
+        .get("prompt_template")
+        .and_then(|p| p.as_array())
+        .is_some_and(|msgs| msgs.iter().any(|m| !m["contents"].is_null()))
+    {
+        unwritable.push("prompt_template[].contents");
+    }
+    if !unwritable.is_empty() {
+        anyhow::bail!(
+            "create-or-update cannot write {}; use `eval-config get` output with `eval-config update` instead",
+            unwritable.join(", ")
+        );
+    }
+    Ok(body)
+}
+
+fn hoist_evaluator_fields(
+    flat: &mut serde_json::Map<String, serde_json::Value>,
+    nested: serde_json::Map<String, serde_json::Value>,
+    prefix: &str,
+) {
+    for (key, value) in nested {
+        match (key.as_str(), value) {
+            ("inference_params", serde_json::Value::Object(params)) => {
+                hoist_evaluator_fields(flat, params, "")
+            }
+            ("bedrock" | "vertex_ai", serde_json::Value::Object(opts)) => {
+                hoist_evaluator_fields(flat, opts, &format!("{key}_"))
+            }
+            (_, value) => {
+                flat.insert(format!("{prefix}{key}"), value);
+            }
+        }
+    }
 }
 
 pub async fn evals_delete(cfg: &Config, eval_name: &str) -> Result<()> {
@@ -3601,6 +3664,126 @@ mod tests {
 
         let result = super::evals_create_or_update(&cfg, "toxicity", tmp.to_str().unwrap()).await;
         assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    fn nested_evaluator() -> serde_json::Value {
+        serde_json::json!({
+            "eval_name": "toxicity",
+            "id": "",
+            "created_at": "2025-11-06T14:15:07Z",
+            "target": {"application_name": "app", "enabled": true, "root_spans_only": null},
+            "llm_provider": {
+                "integration_provider": "amazon_bedrock",
+                "model_name": "claude",
+                "bedrock": {"region": "us-east-1"}
+            },
+            "llm_judge_config": {
+                "inference_params": {"temperature": 0, "max_tokens": 4096},
+                "parsing_type": "structured_output",
+                "prompt_template": [{"role": "user", "content": "{{span_output}}"}],
+                "output_schema": {"type": "object"}
+            }
+        })
+    }
+
+    fn flat_evaluator() -> serde_json::Value {
+        serde_json::json!({
+            "eval_name": "toxicity",
+            "id": "",
+            "created_at": "2025-11-06T14:15:07Z",
+            "application_name": "app",
+            "enabled": true,
+            "integration_provider": "amazon_bedrock",
+            "model_name": "claude",
+            "bedrock_region": "us-east-1",
+            "temperature": 0,
+            "max_tokens": 4096,
+            "parsing_type": "structured_output",
+            "prompt_template": [{"role": "user", "content": "{{span_output}}"}],
+            "output_schema": {"type": "object"}
+        })
+    }
+
+    #[test]
+    fn test_flatten_evaluator_body() {
+        let flatten = |v| super::flatten_evaluator_body(v).unwrap();
+        assert_eq!(flatten(nested_evaluator()), flat_evaluator());
+        let envelope = serde_json::json!({
+            "data": {"id": "x", "type": "evaluator_config", "attributes": nested_evaluator()}
+        });
+        assert_eq!(flatten(envelope.clone()), flat_evaluator());
+        let agent_mode = serde_json::json!({"status": "success", "data": envelope, "metadata": {}});
+        assert_eq!(flatten(agent_mode), flat_evaluator());
+        assert_eq!(flatten(flat_evaluator()), flat_evaluator());
+        let vertex =
+            serde_json::json!({"llm_provider": {"vertex_ai": {"project": "p", "location": "l"}}});
+        assert_eq!(
+            flatten(vertex),
+            serde_json::json!({"vertex_ai_project": "p", "vertex_ai_location": "l"})
+        );
+    }
+
+    #[test]
+    fn test_flatten_evaluator_body_rejects_unwritable_fields() {
+        for (path, value) in [
+            (
+                "/llm_judge_config/inference_params",
+                serde_json::json!({"reasoning_effort": "low"}),
+            ),
+            (
+                "/llm_judge_config",
+                serde_json::json!({"target_query": "@a:b"}),
+            ),
+            (
+                "/target",
+                serde_json::json!({"experiment_project_ids": ["p"]}),
+            ),
+            (
+                "/llm_judge_config",
+                serde_json::json!({"prompt_template": [{"role": "user", "contents": []}]}),
+            ),
+        ] {
+            let mut body = nested_evaluator();
+            let parent = body.pointer_mut(path).unwrap().as_object_mut().unwrap();
+            parent.extend(value.as_object().unwrap().clone());
+            let err = super::flatten_evaluator_body(body).unwrap_err().to_string();
+            assert!(err.contains("eval-config update"), "{path}: {err}");
+        }
+        assert!(super::flatten_evaluator_body(serde_json::json!([1])).is_err());
+        assert!(super::flatten_evaluator_body(serde_json::json!({"data": null})).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_evals_create_or_update_flattens_nested_body() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_eval_create_nested.json",
+            &nested_evaluator().to_string(),
+        );
+        let mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/custom-evaluator/create-or-update",
+            )
+            .match_body(mockito::Matcher::Json(flat_evaluator()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"ok"}"#)
+            .create_async()
+            .await;
+
+        let result = super::evals_create_or_update(&cfg, "toxicity", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "evals_create_or_update failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
         let _ = std::fs::remove_file(tmp);
         cleanup_env();
     }

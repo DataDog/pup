@@ -11568,7 +11568,10 @@ enum LlmObsEvalsActions {
     CreateOrUpdate {
         #[arg(help = "Evaluator name (required)")]
         eval_name: String,
-        #[arg(long, help = "JSON file with evaluator config body (required)")]
+        #[arg(
+            long,
+            help = "JSON file: flat evaluator args, or get-evaluator / eval-config get output (required)"
+        )]
         file: String,
     },
     /// Delete an evaluator by name

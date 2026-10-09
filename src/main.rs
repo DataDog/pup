@@ -12209,6 +12209,90 @@ fn setup_help_alias(mut args: Vec<String>) -> Vec<String> {
     args
 }
 
+fn hoist_setup_global_flags(args: Vec<String>) -> Vec<String> {
+    if !args.iter().any(|arg| arg == "setup") {
+        return args;
+    }
+    let globals = global_flag_specs();
+    let Some(setup_at) = setup_command_index(&args, &globals) else {
+        return args;
+    };
+    let mut hoisted = args[..setup_at].to_vec();
+    let mut passthrough = Vec::new();
+    let mut rest = args[setup_at + 1..].iter();
+    while let Some(token) = rest.next() {
+        if token == "--" {
+            passthrough.push(token.clone());
+            passthrough.extend(rest.by_ref().cloned());
+            break;
+        }
+        match match_global_flag(token, &globals) {
+            Some(takes_value) => {
+                hoisted.push(token.clone());
+                if takes_value && !token.contains('=') {
+                    hoisted.extend(rest.next().cloned());
+                }
+            }
+            None => passthrough.push(token.clone()),
+        }
+    }
+    hoisted.push("setup".to_string());
+    hoisted.extend(passthrough);
+    hoisted
+}
+
+struct GlobalFlag {
+    long: Option<String>,
+    short: Option<char>,
+    takes_value: bool,
+}
+
+fn global_flag_specs() -> Vec<GlobalFlag> {
+    cli_command()
+        .get_arguments()
+        .filter(|arg| arg.is_global_set())
+        .map(|arg| GlobalFlag {
+            long: arg.get_long().map(str::to_string),
+            short: arg.get_short(),
+            takes_value: arg.get_action().takes_values(),
+        })
+        .collect()
+}
+
+fn match_global_flag(token: &str, globals: &[GlobalFlag]) -> Option<bool> {
+    globals
+        .iter()
+        .find(|flag| {
+            let long_match = flag.long.as_deref().is_some_and(|long| {
+                token
+                    .strip_prefix("--")
+                    .is_some_and(|rest| rest == long || rest.starts_with(&format!("{long}=")))
+            });
+            let short_match = flag.short.is_some_and(|short| token == format!("-{short}"));
+            long_match || short_match
+        })
+        .map(|flag| flag.takes_value)
+}
+
+fn setup_command_index(args: &[String], globals: &[GlobalFlag]) -> Option<usize> {
+    let mut index = 1;
+    while index < args.len() {
+        let token = &args[index];
+        match match_global_flag(token, globals) {
+            Some(takes_value) => {
+                index += if takes_value && !token.contains('=') {
+                    2
+                } else {
+                    1
+                };
+            }
+            None if token.starts_with('-') => index += 1,
+            None => return (token == "setup").then_some(index),
+        }
+    }
+    None
+}
+
 fn help_belongs_to_wrapped_cli(args: &[String]) -> bool {
     top_level_subcommand(args) == Some("setup")
 }
@@ -13132,6 +13216,80 @@ mod test_agent_schema {
         assert_eq!(setup["read_only"], serde_json::json!(false));
         let description = setup["description"].as_str().unwrap_or_default();
         assert!(description.contains("Set up Datadog products"));
+    }
+
+    #[test]
+    fn pup_flags_after_setup_are_handled_by_pup() {
+        let argv = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let cases: &[(&[&str], &[&str])] = &[
+            (
+                &["pup", "setup", "--no-agent", "--product", "linux"],
+                &["pup", "--no-agent", "setup", "--product", "linux"],
+            ),
+            (
+                &[
+                    "pup",
+                    "setup",
+                    "--product",
+                    "linux",
+                    "--org",
+                    "eu",
+                    "--read-only",
+                ],
+                &[
+                    "pup",
+                    "--org",
+                    "eu",
+                    "--read-only",
+                    "setup",
+                    "--product",
+                    "linux",
+                ],
+            ),
+            (
+                &[
+                    "pup", "--agent", "setup", "--org=eu", "-o", "json", "--env", "prod",
+                ],
+                &[
+                    "pup", "--agent", "--org=eu", "-o", "json", "setup", "--env", "prod",
+                ],
+            ),
+            (
+                &["pup", "setup", "--product", "linux", "--", "--agent"],
+                &["pup", "setup", "--product", "linux", "--", "--agent"],
+            ),
+            (
+                &["pup", "monitors", "list", "--no-agent"],
+                &["pup", "monitors", "list", "--no-agent"],
+            ),
+            (
+                &["pup", "--org", "setup", "monitors", "list"],
+                &["pup", "--org", "setup", "monitors", "list"],
+            ),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                hoist_setup_global_flags(argv(input)),
+                argv(expected),
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_only_after_setup_still_blocks_it() {
+        let args = hoist_setup_global_flags(
+            ["pup", "setup", "--product", "linux", "--read-only"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        );
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(cli.read_only);
+        match cli.command {
+            Commands::Setup { args } => assert_eq!(args, ["--product", "linux"]),
+            _ => panic!("expected the setup command"),
+        }
     }
 
     #[test]
@@ -14883,7 +15041,7 @@ mod resolve_output_format_tests {
 
 async fn main_inner() -> anyhow::Result<()> {
     // In agent mode, intercept --help to return a JSON schema instead of plain text.
-    let args = setup_help_alias(std::env::args().collect());
+    let args = hoist_setup_global_flags(setup_help_alias(std::env::args().collect()));
     let has_help = args.iter().any(|a| a == "--help" || a == "-h");
     let has_agent_flag = args.iter().any(|a| a == "--agent");
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");

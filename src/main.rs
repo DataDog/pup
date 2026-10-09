@@ -2523,6 +2523,11 @@ enum Commands {
         #[command(subcommand)]
         action: WidgetActions,
     },
+    /// Render widget definitions to stored PNG snapshots using the v2 API
+    Snapshots {
+        #[command(subcommand)]
+        action: commands::snapshots::SnapshotActions,
+    },
     /// Manage service scorecards
     ///
     /// Manage service quality scorecards and rules.
@@ -18598,6 +18603,10 @@ async fn main_inner() -> anyhow::Result<()> {
             // so it sends nothing to the host and needs no trust gate.
             AuthActions::Test => commands::test::run(&cfg)?,
         },
+        Commands::Snapshots { action } => {
+            cfg.validate_auth()?;
+            commands::snapshots::run(&cfg, action).await?;
+        }
         // --- SavedWidgets (top-level saved/reporting widgets) ---
         Commands::SavedWidgets { action } => {
             cfg.validate_auth()?;

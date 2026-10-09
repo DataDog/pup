@@ -28,6 +28,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
 | dashboards | list, get, create, update, diff, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
+| snapshots | create | src/commands/snapshots.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
 | ddsql | table, spec, schema (tables, columns) | src/commands/ddsql.rs | ✅ |
 | debugger | probes (list, get, create, delete, watch) | src/commands/debugger.rs | ✅ |
@@ -402,3 +403,54 @@ Constraints worth knowing before relying on these:
 - **cicd** — Added DORA deployment patching and flaky tests management
 - **slos** — Added SLO status query (V2 API)
 - **rum** — Replaced playlist/heatmap placeholders with working RUM Replay API implementations
+
+## Widget snapshots
+
+Render a bare widget definition with `POST /api/v2/snapshot`. The API queues
+rendering and returns a stored-image URL immediately. OAuth2 and API keys are
+supported; the organization must have the `graphing-snapshot-api` feature enabled.
+
+```bash
+# widget.json contains the definition, not the dashboard widget wrapper:
+# {"type":"timeseries","requests":[{"q":"avg:system.cpu.user{*}"}]}
+pup snapshots create --file widget.json --from 1h
+
+# Wait for the PNG and save it as an Obsidian attachment:
+pup snapshots create --file widget.json --from 1h --out cpu.png
+
+# Return a URL that can load without Datadog authentication:
+pup snapshots create --file widget.json --public --ttl 30d
+
+# Accept a definition on stdin:
+cat widget.json | pup snapshots create --file - --out cpu.png
+```
+
+URLs require Datadog authentication by default. `--public` makes the image
+accessible to anyone with its URL. Use a local PNG for an Obsidian attachment
+that should survive the server-side retention period. The image is a static
+snapshot; embedding its URL does not refresh its data.
+
+Without `--out`, the returned URL may still be pending. With `--out`, Pup polls
+every two seconds until it receives PNG bytes, with a default timeout of 120
+seconds (`--timeout`). Errors and timeouts retain the URL so you can retrieve the
+same snapshot later. Existing output files are never overwritten.
+
+Defaults are `--from 1h --to now --width 1000 --height 400 --ttl 60d`.
+Times accept relative values, RFC3339, or Unix seconds/milliseconds. Width must
+be 32–2000 pixels and height 32–1000. Retention accepts `30d`, `60d`, `90d`,
+`1y`, `2y`, or `inf`.
+
+Use `--additional-config context.json` for a JSON object containing API context,
+such as `notebook_id` for notebook-local datasets or `template_variables`:
+
+```json
+{
+  "notebook_id": 123,
+  "template_variables": [
+    {"name": "env", "prefix": "env", "values": ["prod"]}
+  ]
+}
+```
+
+The backend validates supported widget types and data access. This command
+creates a stored artifact and is blocked by `--read-only`.

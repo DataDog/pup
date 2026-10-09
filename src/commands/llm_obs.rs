@@ -1146,16 +1146,34 @@ pub async fn patterns_configs_list(cfg: &Config) -> Result<()> {
     .await
 }
 
-/// Gets the most-recently-modified pattern config for the org. Takes no arguments —
-/// use `patterns configs list` to see all configs or resolve a specific config_id.
-pub async fn patterns_configs_get(cfg: &Config) -> Result<()> {
-    patterns_post(
-        cfg,
-        "config/get",
-        serde_json::json!({}),
-        "get pattern config",
-    )
-    .await
+/// Gets a pattern config by ID, or the most-recently-modified config for the org
+/// when `config_id` is omitted.
+pub async fn patterns_configs_get(cfg: &Config, config_id: Option<String>) -> Result<()> {
+    let mut body = serde_json::json!({});
+    if let Some(id) = config_id {
+        body["config_id"] = serde_json::json!(id);
+    }
+    patterns_post(cfg, "config/get", body, "get pattern config").await
+}
+
+/// Creates a pattern config. Saving does not start a run.
+pub async fn patterns_configs_create(cfg: &Config, file: &str) -> Result<()> {
+    let body: serde_json::Value = util::read_json_file(file)?;
+    if !body.is_object() {
+        anyhow::bail!("pattern config file must contain a JSON object");
+    }
+    patterns_post(cfg, "config/create", body, "create pattern config").await
+}
+
+/// Updates a pattern config. Only fields present in the file change; list fields
+/// are replaced as a whole. `config_id` from the flag overrides any in the file.
+pub async fn patterns_configs_update(cfg: &Config, config_id: &str, file: &str) -> Result<()> {
+    let mut body: serde_json::Value = util::read_json_file(file)?;
+    if !body.is_object() {
+        anyhow::bail!("pattern config file must contain a JSON object");
+    }
+    body["config_id"] = serde_json::json!(config_id);
+    patterns_post(cfg, "config/update", body, "update pattern config").await
 }
 
 pub async fn patterns_runs_list(cfg: &Config, config_id: &str) -> Result<()> {
@@ -4427,7 +4445,7 @@ mod tests {
         )
         .await;
 
-        let result = super::patterns_configs_get(&cfg).await;
+        let result = super::patterns_configs_get(&cfg, None).await;
         assert!(
             result.is_ok(),
             "patterns_configs_get failed: {:?}",
@@ -4451,8 +4469,198 @@ mod tests {
         )
         .await;
 
-        let result = super::patterns_configs_get(&cfg).await;
+        let result = super::patterns_configs_get(&cfg, None).await;
         assert!(result.is_err(), "should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_get_by_id() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/get",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"cfg-1","name":"prod spans"}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_configs_get(&cfg, Some("cfg-1".into())).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_get by id failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_create() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let config = serde_json::json!({
+            "name": "prod spans",
+            "evp_query": "@ml_app:checkout-agent",
+            "sampling_ratio": 0.5,
+            "num_records": 500,
+            "hierarchy_depth": 2,
+            "integration_provider": "openai",
+            "account_id": "acct-1",
+            "model_name": "gpt-5",
+            "seed_topics": [{"name": "billing", "description": "Billing questions"}]
+        });
+        let tmp = write_temp_json("pup_test_patterns_create.json", &config.to_string());
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/create",
+            )
+            .match_body(mockito::Matcher::Json(config))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"cfg-1","name":"prod spans"}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_configs_create(&cfg, tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_create failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_create_400() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json("pup_test_patterns_create_400.json", r#"{"name":"dup"}"#);
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/create",
+            400,
+            r#"{"errors":["evp_query is required"]}"#,
+        )
+        .await;
+
+        let result = super::patterns_configs_create(&cfg, tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "should fail on 400");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_create_rejects_non_object() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json("pup_test_patterns_create_array.json", r#"[1,2]"#);
+        let result = super::patterns_configs_create(&cfg, tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "non-object body should be rejected");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_create_missing_file() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let result =
+            super::patterns_configs_create(&cfg, "/tmp/__pup_nonexistent_patterns__.json").await;
+        assert!(result.is_err(), "missing file should fail");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_update() {
+        // Flag config_id wins over any in the file; explicit [] and clear_schedule pass through.
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_patterns_update.json",
+            r#"{"config_id":"stale","num_records":200,"seed_topics":[],"clear_schedule":true}"#,
+        );
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/update",
+            )
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "config_id": "cfg-1",
+                "num_records": 200,
+                "seed_topics": [],
+                "clear_schedule": true
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"cfg-1","num_records":200}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_configs_update(&cfg, "cfg-1", tmp.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "patterns_configs_update failed: {:?}",
+            result.err()
+        );
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_update_404() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json(
+            "pup_test_patterns_update_404.json",
+            r#"{"num_records":200}"#,
+        );
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/config/update",
+            404,
+            r#"{"reason":"not_found"}"#,
+        )
+        .await;
+
+        let result = super::patterns_configs_update(&cfg, "missing", tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "should fail on 404");
+        let _ = std::fs::remove_file(tmp);
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_configs_update_rejects_non_object() {
+        let _lock = lock_env().await;
+        let server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let tmp = write_temp_json("pup_test_patterns_update_str.json", r#""oops""#);
+        let result = super::patterns_configs_update(&cfg, "cfg-1", tmp.to_str().unwrap()).await;
+        assert!(result.is_err(), "non-object body should be rejected");
+        let _ = std::fs::remove_file(tmp);
         cleanup_env();
     }
 

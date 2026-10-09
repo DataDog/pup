@@ -209,7 +209,8 @@ fn is_rate_limited(err: &anyhow::Error) -> bool {
 }
 
 /// Wrap one page of schema results with where to resume. `next_offset` is set
-/// only when more results exist; pass it back with `--offset`.
+/// only when more results exist and no warning (such as a rate-limited
+/// reference search) makes the offset unreliable; pass it back with `--offset`.
 fn paged_items<T: Serialize>(
     items: &[T],
     offset: usize,

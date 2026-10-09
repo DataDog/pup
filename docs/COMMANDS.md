@@ -115,10 +115,10 @@ up to 39 decimal digits. To save the full response without reading it into agent
 context, redirect stdout:
 
 ```bash
-pup --agent --read-only traces get <TRACE_ID> > trace.json
+pup --read-only traces get <TRACE_ID> > trace.json
 ```
 
-In agent mode, spans are under `.data.attributes.spans`; check
+Spans are under `.data.attributes.spans`; check
 `.data.attributes.is_truncated` before treating the response as complete.
 The command requests all available fields. Preserve integer ID precision when
 parsing the saved JSON.

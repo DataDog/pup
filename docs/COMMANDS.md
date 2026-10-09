@@ -25,7 +25,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | auth | login, logout, status, token, refresh | src/commands/auth.rs | ✅ |
 | metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate, patterns, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
-| traces | get, get-pruned, search, aggregate, metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
+| traces | get, search, aggregate, metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
 | dashboards | list, get, create, update, diff, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | dbm | samples (search) | src/commands/dbm.rs | ✅ |
@@ -123,15 +123,15 @@ In agent mode, spans are under `.data.attributes.spans`; check
 The command requests all available fields. Preserve integer ID precision when
 parsing the saved JSON.
 
-`traces get-pruned` uses the preview `GET /api/v2/pruned_trace/{trace_id}`
+`traces get --pruned` uses the preview `GET /api/v2/pruned_trace/{trace_id}`
 endpoint, which returns a summarized span tree instead of the full span list.
-It also requires `apm_read`. The tree is under `.data.attributes.summarized_trace.root`.
-Each node's `hidden_child_spans_count` shows how many child spans were pruned.
+It also requires `apm_read`. The tree is under `.data.attributes.summarized_trace.root`,
+and the pruning flags below are rejected unless `--pruned` is set. Each node's `hidden_child_spans_count` shows how many child spans were pruned.
 
 ```bash
-pup traces get-pruned <TRACE_ID> --only-service-entry-spans
-pup traces get-pruned <TRACE_ID> --expand-span-id=<SPAN_ID>
-pup traces get-pruned <TRACE_ID> --include-path="service:api" --tag-exclude="^_dd\."
+pup traces get <TRACE_ID> --pruned --only-service-entry-spans
+pup traces get <TRACE_ID> --pruned --expand-span-id=<SPAN_ID>
+pup traces get <TRACE_ID> --pruned --include-path="service:api" --tag-exclude="^_dd\."
 ```
 
 ### Search/Query

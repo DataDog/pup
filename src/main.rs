@@ -11717,68 +11717,73 @@ enum ScorecardsCampaignsActions {
 // ---- Traces ----
 #[derive(Subcommand)]
 enum TracesActions {
-    /// Get a complete stored trace by ID
+    /// Get a stored trace by ID
     ///
     /// Uses the preview full-trace API, not indexed span search. Requires apm_read.
-    /// Returns every available span field.
+    /// Returns every available span field under attributes.spans.
     /// Check attributes.is_truncated before treating the response as complete.
+    ///
+    /// With --pruned, uses the preview pruned-trace API instead and returns
+    /// attributes.summarized_trace.root, a span tree where pruned branches are
+    /// summarized by hidden_child_spans_count. Use it for large traces when the
+    /// full span list is not needed. The remaining flags require --pruned.
     ///
     /// EXAMPLES:
     ///   pup traces get a8e0e1080f4403c7c7dc4c2e8eae3a34
     ///   pup traces get 14401469471269993012
     ///   pup --agent traces get <TRACE_ID> > trace.json
+    ///   pup traces get <TRACE_ID> --pruned --only-service-entry-spans
+    ///   pup traces get <TRACE_ID> --pruned --expand-span-id=17158905238077369281
+    ///   pup traces get <TRACE_ID> --pruned --include-path="service:api" --tag-include="^http\."
     #[command(verbatim_doc_comment)]
     Get {
         #[arg(help = "Trace ID: 32 hexadecimal characters or up to 39 decimal digits")]
         trace_id: String,
-    },
-    /// Get a pruned, summarized span tree for a trace by ID
-    ///
-    /// Uses the preview pruned-trace API. Requires apm_read.
-    /// Returns attributes.summarized_trace.root, a span tree where pruned branches
-    /// are summarized by hidden_child_spans_count. Use this instead of `traces get`
-    /// for large traces when the full span list is not needed.
-    ///
-    /// EXAMPLES:
-    ///   pup traces get-pruned a8e0e1080f4403c7c7dc4c2e8eae3a34
-    ///   pup traces get-pruned <TRACE_ID> --only-service-entry-spans
-    ///   pup traces get-pruned <TRACE_ID> --expand-span-id=17158905238077369281
-    ///   pup traces get-pruned <TRACE_ID> --include-path="service:api" --tag-include="^http\."
-    #[command(verbatim_doc_comment)]
-    GetPruned {
-        #[arg(help = "Trace ID: 32 hexadecimal characters or up to 39 decimal digits")]
-        trace_id: String,
         #[arg(
             long,
+            help = "Return a pruned, summarized span tree instead of all spans"
+        )]
+        pruned: bool,
+        #[arg(
+            long,
+            requires = "pruned",
             help = "Span ID to keep expanded even if its branch would be pruned"
         )]
         expand_span_id: Option<u64>,
-        #[arg(long, help = "Unix time in seconds near the trace; speeds up lookup")]
+        #[arg(
+            long,
+            requires = "pruned",
+            help = "Unix time in seconds near the trace; speeds up lookup"
+        )]
         time_hint: Option<i64>,
         #[arg(
             long,
+            requires = "pruned",
             help = "Force a specific storage source (chosen automatically by default)"
         )]
         force_source: Option<String>,
         #[arg(
             long,
+            requires = "pruned",
             value_name = "KEY:VALUE",
             help = "Limit the tree to paths through spans matching key:value (repeatable)"
         )]
         include_path: Vec<String>,
         #[arg(
             long,
+            requires = "pruned",
             value_name = "REGEX",
             help = "Keep tags whose keys match this regex (repeatable)"
         )]
         tag_include: Vec<String>,
         #[arg(
             long,
+            requires = "pruned",
             value_name = "REGEX",
             help = "Drop tags whose keys match this regex (repeatable)"
         )]
         tag_exclude: Vec<String>,
-        #[arg(long, help = "Return only service entry spans")]
+        #[arg(long, requires = "pruned", help = "Return only service entry spans")]
         only_service_entry_spans: bool,
     },
     /// Search for spans
@@ -19708,11 +19713,9 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Traces { action } => {
             cfg.validate_auth()?;
             match action {
-                TracesActions::Get { trace_id } => {
-                    commands::traces::get(&cfg, &trace_id).await?;
-                }
-                TracesActions::GetPruned {
+                TracesActions::Get {
                     trace_id,
+                    pruned,
                     expand_span_id,
                     time_hint,
                     force_source,
@@ -19721,16 +19724,20 @@ async fn main_inner() -> anyhow::Result<()> {
                     tag_exclude,
                     only_service_entry_spans,
                 } => {
-                    let opts = commands::traces::PrunedTraceOptions {
-                        expand_span_id,
-                        time_hint,
-                        force_source,
-                        include_path,
-                        tag_include,
-                        tag_exclude,
-                        only_service_entry_spans,
-                    };
-                    commands::traces::get_pruned(&cfg, &trace_id, &opts).await?;
+                    if pruned {
+                        let opts = commands::traces::PrunedTraceOptions {
+                            expand_span_id,
+                            time_hint,
+                            force_source,
+                            include_path,
+                            tag_include,
+                            tag_exclude,
+                            only_service_entry_spans,
+                        };
+                        commands::traces::get_pruned(&cfg, &trace_id, &opts).await?;
+                    } else {
+                        commands::traces::get(&cfg, &trace_id).await?;
+                    }
                 }
                 TracesActions::Search {
                     query,

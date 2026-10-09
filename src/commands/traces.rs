@@ -109,7 +109,7 @@ fn pruned_trace_metadata(response: &serde_json::Value) -> Result<formatter::Meta
     Ok(formatter::Metadata {
         count: None,
         truncated,
-        command: Some("traces get-pruned".into()),
+        command: Some("traces get --pruned".into()),
         next_action: None,
     })
 }
@@ -546,7 +546,7 @@ mod tests {
         let metadata = pruned_trace_metadata(&response).unwrap();
         assert_eq!(metadata.count, None);
         assert!(!metadata.truncated);
-        assert_eq!(metadata.command.as_deref(), Some("traces get-pruned"));
+        assert_eq!(metadata.command.as_deref(), Some("traces get --pruned"));
         assert_eq!(
             response["data"]["attributes"]["summarized_trace"]["root"]["spanID"].as_u64(),
             Some(17158905238077369281)

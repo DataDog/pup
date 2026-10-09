@@ -221,7 +221,7 @@ fn paged_items<T: Serialize>(
         "returned": items.len(),
         "truncated": truncated,
     });
-    if truncated {
+    if truncated && warnings.is_empty() {
         meta["next_offset"] = json!(offset.saturating_add(items.len()));
     }
     if !warnings.is_empty() {

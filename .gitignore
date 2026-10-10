@@ -4,6 +4,7 @@ target/
 
 # Binary
 pup
+!/npm/pup/
 
 # IDEs
 .idea/

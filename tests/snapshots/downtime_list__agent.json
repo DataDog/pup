@@ -9,5 +9,9 @@
       "type": "str"
     }
   ],
-  "status": "str"
+  "meta": {
+    "*": {
+      "total_filtered_count": "int"
+    }
+  }
 }

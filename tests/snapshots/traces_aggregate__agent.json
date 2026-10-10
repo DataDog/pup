@@ -9,8 +9,7 @@
       "type": "str"
     }
   ],
-  "metadata": {
-    "command": "str"
-  },
-  "status": "str"
+  "meta": {
+    "*": "int"
+  }
 }

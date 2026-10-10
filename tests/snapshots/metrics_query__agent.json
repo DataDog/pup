@@ -1,58 +1,55 @@
 {
-  "data": {
-    "from_date": "int",
-    "group_by": [
-      "<empty_list>"
-    ],
-    "message": "str",
-    "query": "str",
-    "res_type": "str",
-    "resp_version": "int",
-    "series": [
-      "<list>",
-      {
-        "aggr": "str",
-        "attributes": {},
-        "display_name": "str",
-        "end": "int",
-        "expression": "str",
-        "interval": "int",
-        "length": "int",
-        "metric": "str",
-        "pointlist": [
+  "from_date": "int",
+  "group_by": [
+    "<empty_list>"
+  ],
+  "message": "str",
+  "query": "str",
+  "res_type": "str",
+  "resp_version": "int",
+  "series": [
+    "<list>",
+    {
+      "aggr": "str",
+      "attributes": {},
+      "display_name": "str",
+      "end": "int",
+      "expression": "str",
+      "interval": "int",
+      "length": "int",
+      "metric": "str",
+      "pointlist": [
+        "<list>",
+        [
           "<list>",
-          [
-            "<list>",
-            "<...>"
-          ]
-        ],
-        "query_index": "int",
-        "scope": "str",
-        "start": "int",
-        "tag_set": [
-          "<empty_list>"
-        ],
-        "unit": [
-          "<list>",
-          {
-            "family": "<...>",
-            "id": "<...>",
-            "name": "<...>",
-            "plural": "<...>",
-            "scale_factor": "<...>",
-            "short_name": "<...>"
-          }
+          "float"
         ]
-      }
-    ],
-    "status": "str",
-    "times": [
-      "<empty_list>"
-    ],
-    "to_date": "int",
-    "values": [
-      "<empty_list>"
-    ]
-  },
-  "status": "str"
+      ],
+      "query_index": "int",
+      "scope": "str",
+      "start": "int",
+      "tag_set": [
+        "<empty_list>"
+      ],
+      "unit": [
+        "<list>",
+        {
+          "family": "str",
+          "id": "int",
+          "name": "str",
+          "plural": "str",
+          "scale_factor": "float",
+          "short_name": "str"
+        }
+      ]
+    }
+  ],
+  "status": "str",
+  "times": [
+    "<empty_list>"
+  ],
+  "to_date": "int",
+  "values": [
+    "<empty_list>"
+  ]
 }

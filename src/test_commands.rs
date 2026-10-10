@@ -7,6 +7,7 @@
 //! `crate::test_support`.
 
 use clap::CommandFactory;
+use clap::Parser;
 
 #[test]
 fn test_traces_get_parses_id_and_is_read_only() {
@@ -2073,245 +2074,49 @@ fn test_saved_widgets_get_parses() {
 }
 
 // -------------------------------------------------------------------------
-// Agent-mode --help intercept: subcommand resolution
-//
-// The `--help` intercept in `main_inner` emits a JSON schema only when the
-// requested command resolves. `help_command_path` drives that decision:
-//   non-empty path              -> scoped schema for the deepest command
-//   empty path, no command typed -> root schema
-//   empty path, unknown command  -> fall through to clap, which reports the typo
+// Removed agent mode: legacy flags stay accepted as hidden no-ops
 // -------------------------------------------------------------------------
 
 #[test]
-fn test_help_command_path_resolves_top_level() {
-    let cmd = crate::Cli::command();
-    let args = owned(&["pup", "monitors", "--help"]);
-    let (path, target) = crate::help_command_path(&cmd, &args);
-    assert_eq!(path, ["monitors"]);
-    assert_eq!(target.get_name(), "monitors");
+fn test_legacy_agent_flags_still_parse() {
+    // Scripts written against agent mode pass --no-agent (the envelope note told
+    // LLMs to), so both flags must keep parsing.
+    for flag in ["--agent", "--no-agent"] {
+        let result = crate::Cli::try_parse_from(["pup", flag, "monitors", "list"]);
+        assert!(
+            result.is_ok(),
+            "{flag} should still parse: {:?}",
+            result.err()
+        );
+    }
 }
 
 #[test]
-fn test_help_command_path_resolves_nested_leaf() {
-    let cmd = crate::Cli::command();
-    let args = owned(&["pup", "--org", "prod", "logs", "aggregate", "--help"]);
-    let (path, target) = crate::help_command_path(&cmd, &args);
-    assert_eq!(
-        path,
-        ["logs", "aggregate"],
-        "global flag values must be skipped"
+fn test_legacy_agent_flags_are_hidden_from_help() {
+    let help = crate::Cli::command().render_long_help().to_string();
+    assert!(
+        !help.contains("--agent"),
+        "--agent should be hidden: {help}"
     );
-    assert_eq!(target.get_name(), "aggregate");
+    assert!(!help.contains("--no-agent"), "--no-agent should be hidden");
 }
 
 #[test]
-fn test_help_command_path_resolves_aliases_to_canonical_names() {
-    let cmd = crate::Cli::command();
-    // `audit` is a visible alias of `audit-logs`.
-    let args = owned(&["pup", "audit", "search", "--help"]);
-    let (path, _) = crate::help_command_path(&cmd, &args);
-    assert_eq!(path, ["audit-logs", "search"]);
-}
-
-#[test]
-fn test_help_command_path_stops_at_positional_values() {
-    let cmd = crate::Cli::command();
-    // `12345` is the monitor id, not a subcommand.
-    let args = owned(&["pup", "monitors", "get", "12345", "--help"]);
-    let (path, _) = crate::help_command_path(&cmd, &args);
-    assert_eq!(path, ["monitors", "get"]);
-}
-
-#[test]
-fn test_help_command_path_empty_for_typo_or_no_command() {
-    let cmd = crate::Cli::command();
-    // `monitor` (singular) is a typo; it must not resolve so the intercept
-    // falls through to clap's "did you mean" suggestion.
-    let (path, _) = crate::help_command_path(&cmd, &owned(&["pup", "monitor", "--help"]));
-    assert!(path.is_empty());
-    let (path, _) = crate::help_command_path(&cmd, &owned(&["pup", "--help"]));
-    assert!(path.is_empty());
-}
-
-#[test]
-fn test_help_command_path_skips_command_local_option_values() {
-    let cmd = crate::Cli::command();
-    // `--header` belongs to `profiling`, not the global flags; its value must
-    // not be mistaken for a subcommand.
-    let args = owned(&[
+fn test_legacy_format_metadata_flags_still_parse() {
+    let result = crate::Cli::try_parse_from([
         "pup",
-        "profiling",
-        "--header",
-        "test-drive-hummer-aurora: 1",
-        "services",
-        "list",
-        "--help",
+        "format",
+        "--count",
+        "1",
+        "--command",
+        "x",
+        "--next-action",
+        "y",
     ]);
-    let (path, _) = crate::help_command_path(&cmd, &args);
-    assert_eq!(path, ["profiling", "services", "list"]);
+    assert!(result.is_ok(), "{:?}", result.err());
 }
 
 #[test]
-fn test_help_command_path_handles_inline_and_short_option_values() {
-    let cmd = crate::Cli::command();
-    let inline = owned(&[
-        "pup",
-        "profiling",
-        "--header=x: 1",
-        "services",
-        "list",
-        "--help",
-    ]);
-    assert_eq!(
-        crate::help_command_path(&cmd, &inline).0,
-        ["profiling", "services", "list"]
-    );
-    let short = owned(&["pup", "-o", "json", "logs", "aggregate", "--help"]);
-    assert_eq!(
-        crate::help_command_path(&cmd, &short).0,
-        ["logs", "aggregate"]
-    );
-    let short_inline = owned(&["pup", "-ojson", "logs", "aggregate", "--help"]);
-    assert_eq!(
-        crate::help_command_path(&cmd, &short_inline).0,
-        ["logs", "aggregate"]
-    );
-}
-
-#[test]
-fn test_help_command_path_bool_flags_do_not_consume_next_token() {
-    let cmd = crate::Cli::command();
-    let args = owned(&["pup", "--agent", "logs", "aggregate", "--help"]);
-    assert_eq!(
-        crate::help_command_path(&cmd, &args).0,
-        ["logs", "aggregate"]
-    );
-}
-
-#[test]
-fn test_help_command_path_never_descends_into_hidden_commands() {
-    let cmd = crate::Cli::command();
-    let args = owned(&["pup", "auth", "token", "--help"]);
-    let (path, _) = crate::help_command_path(&cmd, &args);
-    assert_eq!(
-        path,
-        ["auth"],
-        "auth token must stay hidden from agent help"
-    );
-}
-
-#[test]
-fn test_clap_reports_invalid_nested_subcommand_with_suggestion() {
-    let result = crate::Cli::command()
-        .try_get_matches_from(["pup", "monitors", "lits", "--help", "--agent"]);
-    let err = result.expect_err("clap should reject an unknown subcommand");
-    assert_eq!(
-        err.kind(),
-        clap::error::ErrorKind::InvalidSubcommand,
-        "unknown subcommand should surface as InvalidSubcommand"
-    );
-    let rendered = err.to_string();
-    assert!(rendered.contains("unrecognized subcommand 'lits'"));
-    assert!(rendered.contains("a similar subcommand exists: 'list'"));
-}
-
-fn owned(args: &[&str]) -> Vec<String> {
-    args.iter().map(|s| s.to_string()).collect()
-}
-
-#[test]
-fn test_top_level_subcommand_returns_first_positional() {
-    let args = owned(&["pup", "monitors", "list", "--help", "--agent"]);
-    assert_eq!(crate::top_level_subcommand(&args), Some("monitors"));
-}
-
-#[test]
-fn test_top_level_subcommand_skips_value_global_before_subcommand() {
-    // The value of `--org` must not be mistaken for the subcommand.
-    let args = owned(&["pup", "--org", "myorg", "monitors", "--help", "--agent"]);
-    assert_eq!(crate::top_level_subcommand(&args), Some("monitors"));
-}
-
-#[test]
-fn test_top_level_subcommand_skips_short_value_global() {
-    let args = owned(&["pup", "-o", "table", "logs", "--help", "--agent"]);
-    assert_eq!(crate::top_level_subcommand(&args), Some("logs"));
-}
-
-#[test]
-fn test_top_level_subcommand_handles_attached_value_form() {
-    // `--output=table` is one token and consumes no following token.
-    let args = owned(&["pup", "--output=table", "logs", "--help"]);
-    assert_eq!(crate::top_level_subcommand(&args), Some("logs"));
-}
-
-#[test]
-fn test_top_level_subcommand_returns_none_when_flags_only() {
-    let args = owned(&["pup", "--agent", "--help"]);
-    assert_eq!(crate::top_level_subcommand(&args), None);
-}
-
-#[test]
-fn test_agent_help_schema_for_valid_nested_subcommand() {
-    let cmd = crate::Cli::command();
-    let args = owned(&["pup", "monitors", "list", "--help", "--agent"]);
-
-    let schema = crate::agent_help_schema(&cmd, &args)
-        .expect("valid nested agent help should return a schema");
-
-    assert_eq!(schema["command"], "monitors list");
-    let entry = &schema["commands"][0];
-    assert_eq!(entry["full_path"], "monitors list");
-    assert_eq!(entry["read_only"], true);
-    assert!(
-        entry.get("subcommands").is_none(),
-        "leaf help must not list siblings"
-    );
-    assert!(entry["returns"].is_object());
-    assert!(schema["envelope"].is_object());
-    // Guidance blocks stay so `<cmd> --help` alone still warns about --no-agent.
-    assert!(schema["script_authoring"].is_object());
-    assert!(schema["anti_patterns"].is_array());
-}
-
-#[test]
-fn test_agent_help_schema_for_leaf_is_much_smaller_than_domain() {
-    let cmd = crate::Cli::command();
-    let leaf = crate::agent_help_schema(&cmd, &owned(&["pup", "logs", "aggregate", "--help"]))
-        .expect("leaf schema");
-    let domain =
-        crate::agent_help_schema(&cmd, &owned(&["pup", "logs", "--help"])).expect("domain schema");
-    let leaf_len = serde_json::to_string(&leaf).unwrap().len();
-    let domain_len = serde_json::to_string(&domain).unwrap().len();
-    assert!(
-        leaf_len * 3 < domain_len,
-        "leaf {leaf_len} vs domain {domain_len}"
-    );
-    assert_eq!(leaf["commands"][0]["returns"]["documented"], true);
-    assert!(leaf["commands"][0]["returns"]["example"].is_object());
-}
-
-#[test]
-fn test_agent_help_schema_root_is_full_schema() {
-    let cmd = crate::Cli::command();
-    let schema = crate::agent_help_schema(&cmd, &owned(&["pup", "--help"])).expect("root schema");
-    assert!(
-        schema["workflows"].is_array(),
-        "root help keeps the full schema"
-    );
-    assert!(schema.get("envelope").is_none());
-}
-
-#[test]
-fn test_agent_help_schema_falls_through_for_unknown_top_level() {
-    let cmd = crate::Cli::command();
-    assert!(crate::agent_help_schema(&cmd, &owned(&["pup", "monitor", "--help"])).is_none());
-}
-
-#[test]
-fn test_agent_help_falls_through_for_invalid_nested_subcommand() {
-    let cmd = crate::Cli::command();
-    let args = owned(&["pup", "monitors", "lits", "--help", "--agent"]);
-
-    assert!(crate::agent_help_schema(&cmd, &args).is_none());
+fn test_unknown_flag_is_still_rejected() {
+    assert!(crate::Cli::try_parse_from(["pup", "--agnet", "monitors", "list"]).is_err());
 }

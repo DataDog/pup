@@ -639,7 +639,7 @@ pup <command>
 Because a custom host is not a Datadog-owned domain, pup confirms before sending
 credentials there, which guards against a typo'd host silently receiving your
 tokens or API keys. On an interactive terminal you are prompted once; in
-non-interactive contexts (CI, agent mode) pup fails closed unless you opt in.
+non-interactive contexts (CI, or any run where stdin is not a terminal) pup fails closed unless you opt in.
 Opt-in follows pup's flag > env > config precedence:
 
 ```bash

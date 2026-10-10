@@ -1,26 +1,23 @@
-{
-  "data": [
-    "<list>",
-    {
-      "automute": "bool",
-      "client_email": "str",
-      "cloud_run_revision_filters": [
-        "<empty_list>"
-      ],
-      "errors": [
-        "<empty_list>"
-      ],
-      "host_filters": "str",
-      "id": "<uuid>",
-      "is_cspm_enabled": "bool",
-      "is_resource_change_collection_enabled": "bool",
-      "is_security_command_center_enabled": "bool",
-      "monitored_resource_configs": [
-        "<empty_list>"
-      ],
-      "project_id": "str",
-      "resource_collection_enabled": "bool"
-    }
-  ],
-  "status": "str"
-}
+[
+  "<list>",
+  {
+    "automute": "bool",
+    "client_email": "str",
+    "cloud_run_revision_filters": [
+      "<empty_list>"
+    ],
+    "errors": [
+      "<empty_list>"
+    ],
+    "host_filters": "str",
+    "id": "<uuid>",
+    "is_cspm_enabled": "bool",
+    "is_resource_change_collection_enabled": "bool",
+    "is_security_command_center_enabled": "bool",
+    "monitored_resource_configs": [
+      "<empty_list>"
+    ],
+    "project_id": "str",
+    "resource_collection_enabled": "bool"
+  }
+]

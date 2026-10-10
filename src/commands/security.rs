@@ -223,12 +223,6 @@ pub async fn findings_schema(
 
     let schema = fetch_schema_markdown().await?;
 
-    if cfg.agent_mode {
-        eprintln!(
-            "Use these fields with `pup security findings analyze --query \"SELECT ... FROM dd.security_findings(...)\"`"
-        );
-    }
-
     println!("{schema}");
     Ok(())
 }

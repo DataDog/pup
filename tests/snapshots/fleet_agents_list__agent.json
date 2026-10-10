@@ -6,5 +6,7 @@
     "id": "str",
     "type": "str"
   },
-  "status": "str"
+  "meta": {
+    "*": "int"
+  }
 }

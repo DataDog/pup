@@ -27,7 +27,6 @@ fn facets_preserve_null_counts_and_continuation() {
     let result = payload(pup(
         &server,
         &[
-            "--no-agent",
             "idp",
             "entities",
             "facets",
@@ -69,22 +68,18 @@ fn facets_bound_provider_responses_without_fabricating_a_cursor() {
         "--limit",
         "1",
     ];
-    let result = payload(pup(&server, &[&["--agent"][..], &args].concat()));
-    let data = &result["data"];
+    let data = payload(pup(&server, &args));
     assert_eq!(data["results"][0]["values"].as_array().unwrap().len(), 1);
     assert_eq!(data["results"][0]["values_returned"], 2);
     assert_eq!(data["results"][0]["values_truncated"], true);
     assert_eq!(data["results"][0]["null_count"], 9);
     assert!(data["page"]["next_cursor"].is_null());
-    assert_eq!(result["metadata"]["truncated"], true);
+    assert_eq!(data["page"]["truncated"], true);
     assert!(data["warnings"][0]
         .as_str()
         .unwrap()
         .contains("sampled locally"));
-    let raw = payload(pup(
-        &server,
-        &[&["--no-agent"][..], &args, &["--raw"]].concat(),
-    ));
+    let raw = payload(pup(&server, &[&args[..], &["--raw"]].concat()));
     assert_eq!(raw, response);
     request.assert();
 }
@@ -101,7 +96,6 @@ fn facets_reject_malformed_values_instead_of_reporting_empty_vocabulary() {
     let output = pup(
         &server,
         &[
-            "--no-agent",
             "idp",
             "entities",
             "facets",
@@ -116,7 +110,7 @@ fn facets_reject_malformed_values_instead_of_reporting_empty_vocabulary() {
 }
 
 #[test]
-fn grouped_counts_use_jsonapi_and_work_in_read_only_agent_mode() {
+fn grouped_counts_use_jsonapi() {
     let mut server = Server::new();
     let request = server.mock("POST", "/api/v2/idp/entity_graph/aggregate")
         .match_header("content-type", "application/json")
@@ -135,7 +129,6 @@ fn grouped_counts_use_jsonapi_and_work_in_read_only_agent_mode() {
     let result = payload(pup(
         &server,
         &[
-            "--agent",
             "idp",
             "entities",
             "aggregate",
@@ -148,9 +141,9 @@ fn grouped_counts_use_jsonapi_and_work_in_read_only_agent_mode() {
             "alerting:desc",
         ],
     ));
-    assert_eq!(result["data"]["results"][0]["metrics"][1]["value"], 1);
-    assert!(result["data"]["results"][1]["group"]["owner"].is_null());
-    assert_eq!(result["data"]["page"]["truncated"], false);
+    assert_eq!(result["results"][0]["metrics"][1]["value"], 1);
+    assert!(result["results"][1]["group"]["owner"].is_null());
+    assert_eq!(result["page"]["truncated"], false);
     request.assert();
 }
 
@@ -166,7 +159,6 @@ fn unsupported_summary_provider_is_an_error_not_an_empty_inventory() {
     let output = pup(
         &server,
         &[
-            "--no-agent",
             "idp",
             "entities",
             "facets",

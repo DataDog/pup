@@ -62,7 +62,7 @@ fn run(server: &Server, op: &Operation, input: Option<&str>, flags: &[&str], id:
     ));
     std::fs::create_dir_all(&dir).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_pup"));
-    cmd.args(["--no-agent", "--yes", "--output", "json"])
+    cmd.args(["--yes", "--output", "json"])
         .args(flags)
         .args(["feature-flags", "flags", op.action]);
     if op.action != "create" {

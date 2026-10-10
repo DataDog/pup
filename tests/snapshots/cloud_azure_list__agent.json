@@ -1,30 +1,27 @@
-{
-  "data": [
-    "<list>",
-    {
-      "app_service_plan_filters": "str",
-      "automute": "bool",
-      "client_id": "<uuid>",
-      "container_app_filters": "str",
-      "cspm_enabled": "bool",
-      "custom_metrics_enabled": "bool",
-      "errors": [
-        "<empty_list>"
-      ],
-      "host_filters": "str",
-      "metrics_enabled": "bool",
-      "metrics_enabled_default": "bool",
-      "resource_collection_enabled": "bool",
-      "resource_provider_configs": [
-        "<empty_list>"
-      ],
-      "secretless_auth_enabled": "bool",
-      "tenant_name": "<uuid>",
-      "usage_metrics_enabled": "bool",
-      "warnings": [
-        "<empty_list>"
-      ]
-    }
-  ],
-  "status": "str"
-}
+[
+  "<list>",
+  {
+    "app_service_plan_filters": "str",
+    "automute": "bool",
+    "client_id": "<uuid>",
+    "container_app_filters": "str",
+    "cspm_enabled": "bool",
+    "custom_metrics_enabled": "bool",
+    "errors": [
+      "<empty_list>"
+    ],
+    "host_filters": "str",
+    "metrics_enabled": "bool",
+    "metrics_enabled_default": "bool",
+    "resource_collection_enabled": "bool",
+    "resource_provider_configs": [
+      "<empty_list>"
+    ],
+    "secretless_auth_enabled": "bool",
+    "tenant_name": "<uuid>",
+    "usage_metrics_enabled": "bool",
+    "warnings": [
+      "<empty_list>"
+    ]
+  }
+]

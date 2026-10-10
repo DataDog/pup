@@ -9,9 +9,10 @@
       "type": "str"
     }
   ],
-  "metadata": {
-    "command": "str",
-    "count": "int"
+  "links": {
+    "next": "<url>"
   },
-  "status": "str"
+  "meta": {
+    "*": "int"
+  }
 }

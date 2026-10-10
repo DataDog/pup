@@ -1,92 +1,89 @@
 {
-  "data": {
-    "facets": [
-      "<list>",
-      {
-        "name": "str",
-        "values": [
-          "<list>",
-          {
-            "count": "<...>",
-            "name": "<...>"
-          }
-        ]
-      }
-    ],
-    "tests": [
-      "<list>",
-      {
-        "config": {
-          "request": {
-            "url": "<...>"
-          }
-        },
-        "created_by": {
-          "handle": "str",
+  "facets": [
+    "<list>",
+    {
+      "name": "str",
+      "values": [
+        "<list>",
+        {
+          "count": "int",
           "name": "str"
-        },
-        "domain": "str",
-        "last_triggered_ts": "int",
-        "location_names": [
-          "<list>",
-          "str"
-        ],
-        "modified_at": "<timestamp>",
-        "monitor_id": "int",
-        "monitor_name": "str",
-        "monitor_status": "str",
-        "name": "str",
-        "notifications": [
+        }
+      ]
+    }
+  ],
+  "tests": [
+    "<list>",
+    {
+      "config": {
+        "request": {
+          "url": "<url>"
+        }
+      },
+      "created_by": {
+        "handle": "str",
+        "name": "str"
+      },
+      "domain": "str",
+      "last_triggered_ts": "int",
+      "location_names": [
+        "<list>",
+        "str"
+      ],
+      "modified_at": "<timestamp>",
+      "monitor_id": "int",
+      "monitor_name": "str",
+      "monitor_status": "str",
+      "name": "str",
+      "notifications": [
+        "<empty_list>"
+      ],
+      "options": {
+        "blockedRequestPatterns": [
           "<empty_list>"
         ],
-        "options": {
-          "blockedRequestPatterns": [
-            "<empty_list>"
-          ],
-          "device_ids": [
-            "<list>",
-            "<...>"
-          ],
-          "disableCors": "bool",
-          "disableCsp": "bool",
-          "ignoreServerCertificateError": "bool",
-          "min_failure_duration": "int",
-          "min_location_failed": "int",
-          "monitor_options": {
-            "notification_preset_name": "<...>"
-          },
-          "noScreenshot": "bool",
-          "retry": {
-            "count": "<...>",
-            "interval": "<...>"
-          },
-          "rumSettings": {
-            "applicationId": "<...>",
-            "clientTokenId": "<...>",
-            "isEnabled": "<...>"
-          },
-          "tick_every": "int"
-        },
-        "public_id": "str",
-        "status": "str",
-        "step_count": "int",
-        "tags": [
+        "device_ids": [
           "<list>",
           "str"
         ],
-        "tests": "NoneType",
-        "type": "str",
-        "mobile_application": {
-          "id": "<uuid>",
-          "name": "str"
+        "disableCors": "bool",
+        "disableCsp": "bool",
+        "ignoreServerCertificateError": "bool",
+        "min_failure_duration": "int",
+        "min_location_failed": "int",
+        "monitor_options": {
+          "notification_preset_name": "str"
         },
-        "platform": "str",
-        "http_method": "str",
-        "http_path": "str",
-        "subtype": "str"
-      }
-    ],
-    "total": "int"
-  },
-  "status": "str"
+        "noScreenshot": "bool",
+        "retry": {
+          "count": "int",
+          "interval": "float"
+        },
+        "rumSettings": {
+          "applicationId": "<uuid>",
+          "clientTokenId": "int",
+          "isEnabled": "bool"
+        },
+        "tick_every": "int"
+      },
+      "public_id": "str",
+      "status": "str",
+      "step_count": "int",
+      "tags": [
+        "<list>",
+        "str"
+      ],
+      "tests": "NoneType",
+      "type": "str",
+      "mobile_application": {
+        "id": "<uuid>",
+        "name": "str"
+      },
+      "platform": "str",
+      "http_method": "str",
+      "http_path": "str",
+      "subtype": "str"
+    }
+  ],
+  "total": "int"
 }

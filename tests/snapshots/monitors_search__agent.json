@@ -1,91 +1,88 @@
 {
-  "data": {
-    "counts": {
-      "muted": [
-        "<list>",
-        {
-          "count": "int",
-          "name": "bool"
-        }
-      ],
-      "status": [
-        "<list>",
-        {
-          "count": "int",
-          "name": "str"
-        }
-      ],
-      "tag": [
-        "<list>",
-        {
-          "count": "int",
-          "name": "str"
-        }
-      ],
-      "type": [
-        "<list>",
-        {
-          "count": "int",
-          "name": "str"
-        }
-      ]
-    },
-    "metadata": {
-      "page": "int",
-      "page_count": "int",
-      "per_page": "int",
-      "total_count": "int"
-    },
-    "monitors": [
+  "counts": {
+    "muted": [
       "<list>",
       {
-        "classification": "str",
-        "created": "int",
-        "creator": {
-          "handle": "<uuid>",
-          "id": "int",
-          "name": "str"
-        },
-        "draft_status": "str",
-        "evaluation_window_type": "str",
-        "id": "int",
-        "last_triggered_ts": "NoneType",
-        "message": "str",
-        "metrics": [
-          "<empty_list>"
-        ],
-        "modified": "int",
-        "muted_until_ts": "NoneType",
-        "name": "str",
-        "notifications": [
-          "<list>",
-          {
-            "handle": "<...>",
-            "name": "<...>"
-          }
-        ],
-        "org_id": "int",
-        "overall_state_modified": "int",
-        "priority": "NoneType",
-        "quality_issues": [
-          "<empty_list>"
-        ],
-        "query": "str",
-        "restricted_roles": [
-          "<empty_list>"
-        ],
-        "scheduling_type": "str",
-        "scopes": [
-          "<empty_list>"
-        ],
-        "status": "str",
-        "tags": [
-          "<list>",
-          "str"
-        ],
-        "type": "str"
+        "count": "int",
+        "name": "bool"
+      }
+    ],
+    "status": [
+      "<list>",
+      {
+        "count": "int",
+        "name": "str"
+      }
+    ],
+    "tag": [
+      "<list>",
+      {
+        "count": "int",
+        "name": "str"
+      }
+    ],
+    "type": [
+      "<list>",
+      {
+        "count": "int",
+        "name": "str"
       }
     ]
   },
-  "status": "str"
+  "metadata": {
+    "page": "int",
+    "page_count": "int",
+    "per_page": "int",
+    "total_count": "int"
+  },
+  "monitors": [
+    "<list>",
+    {
+      "classification": "str",
+      "created": "int",
+      "creator": {
+        "handle": "<uuid>",
+        "id": "int",
+        "name": "str"
+      },
+      "draft_status": "str",
+      "evaluation_window_type": "str",
+      "id": "int",
+      "last_triggered_ts": "NoneType",
+      "message": "str",
+      "metrics": [
+        "<empty_list>"
+      ],
+      "modified": "int",
+      "muted_until_ts": "NoneType",
+      "name": "str",
+      "notifications": [
+        "<list>",
+        {
+          "handle": "str",
+          "name": "str"
+        }
+      ],
+      "org_id": "int",
+      "overall_state_modified": "int",
+      "priority": "NoneType",
+      "quality_issues": [
+        "<empty_list>"
+      ],
+      "query": "str",
+      "restricted_roles": [
+        "<empty_list>"
+      ],
+      "scheduling_type": "str",
+      "scopes": [
+        "<empty_list>"
+      ],
+      "status": "str",
+      "tags": [
+        "<list>",
+        "str"
+      ],
+      "type": "str"
+    }
+  ]
 }

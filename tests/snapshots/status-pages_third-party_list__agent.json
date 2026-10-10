@@ -1,27 +1,23 @@
-{
-  "data": [
-    "<list>",
-    {
-      "display_name": "str",
-      "integration_id": "str",
-      "monitored_api_patterns": [
-        "<list>",
-        "str"
-      ],
-      "monitoring_start_date": "int",
-      "outages": [
-        "<list>",
-        {
-          "end": "int",
-          "impacted_region": "str",
-          "start": "int",
-          "status": "str"
-        }
-      ],
-      "provider_name": "str",
-      "provider_service": "str",
-      "status_url": "<url>"
-    }
-  ],
-  "status": "str"
-}
+[
+  "<list>",
+  {
+    "display_name": "str",
+    "integration_id": "str",
+    "monitored_api_patterns": [
+      "<list>",
+      "str"
+    ],
+    "monitoring_start_date": "int",
+    "outages": [
+      "<list>",
+      {
+        "end": "int",
+        "start": "int",
+        "status": "str"
+      }
+    ],
+    "provider_name": "str",
+    "provider_service": "str",
+    "status_url": "<url>"
+  }
+]

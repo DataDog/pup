@@ -5,40 +5,30 @@ use serde::Serialize;
 
 use crate::config::OutputFormat;
 
-pub use crate::output::{Metadata, TableOptions};
+pub use crate::output::TableOptions;
 
 /// Format and print data to stdout.
 pub fn format_and_print<T: Serialize>(
     data: &T,
     format: &OutputFormat,
-    agent_mode: bool,
-    meta: Option<&Metadata>,
     jq: Option<&str>,
 ) -> Result<()> {
-    crate::output::format_and_print(data, format, agent_mode, meta, jq)
+    crate::output::format_and_print(data, format, jq)
 }
 
 /// Format and print data with command-provided table guidance.
 pub fn format_and_print_with_table<T: Serialize>(
     data: &T,
     format: &OutputFormat,
-    agent_mode: bool,
-    meta: Option<&Metadata>,
     jq: Option<&str>,
     table: TableOptions<'_>,
 ) -> Result<()> {
-    crate::output::format_and_print_with_table(data, format, agent_mode, meta, jq, table)
+    crate::output::format_and_print_with_table(data, format, jq, table)
 }
 
-/// Convenience: format and print using config settings (respects -o flag, agent mode, and --jq).
+/// Convenience: format and print using config settings (respects -o flag and --jq).
 pub fn output<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
-    format_and_print(
-        data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-    )
+    format_and_print(data, &cfg.output_format, cfg.jq.as_deref())
 }
 
 /// Convenience wrapper for commands that know their useful table rows and columns.
@@ -47,12 +37,5 @@ pub fn output_with_table<T: Serialize>(
     data: &T,
     table: TableOptions<'_>,
 ) -> Result<()> {
-    format_and_print_with_table(
-        data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-        table,
-    )
+    format_and_print_with_table(data, &cfg.output_format, cfg.jq.as_deref(), table)
 }

@@ -48,28 +48,7 @@ pub async fn list(
     let q_refs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let data = raw_client::raw_get(cfg, "/api/unstable/change-stories/cli", &q_refs).await?;
 
-    let count = data
-        .get("stories")
-        .and_then(|v| v.as_array())
-        .map(|a| a.len());
-    let truncated = data
-        .get("truncated")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let meta = formatter::Metadata {
-        count,
-        truncated,
-        command: Some("change-stories list".into()),
-        next_action: None,
-    };
-
-    formatter::format_and_print(
-        &data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::format_and_print(&data, &cfg.output_format, cfg.jq.as_deref())
 }
 
 #[cfg(test)]
@@ -185,42 +164,6 @@ mod tests {
         )
         .await;
         assert!(result.is_ok(), "list failed: {:?}", result.err());
-        mock.assert_async().await;
-        cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_list_agent_envelope() {
-        let _lock = lock_env().await;
-        let mut server = mockito::Server::new_async().await;
-        let mut cfg = test_config(&server.url());
-        cfg.agent_mode = true;
-
-        let mock = server
-            .mock("GET", "/api/unstable/change-stories/cli")
-            .match_query(mockito::Matcher::Any)
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"stories":[{"id":"s1"},{"id":"s2"}],"truncated":false}"#)
-            .create_async()
-            .await;
-
-        let result = super::list(
-            &cfg,
-            "web".into(),
-            None,
-            ISO_FROM.into(),
-            ISO_TO.into(),
-            vec![],
-            None,
-            None,
-        )
-        .await;
-        assert!(
-            result.is_ok(),
-            "list in agent mode failed: {:?}",
-            result.err()
-        );
         mock.assert_async().await;
         cleanup_env();
     }

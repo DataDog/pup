@@ -1,74 +1,71 @@
 {
-  "data": {
-    "blocking": "bool",
-    "cases": [
-      "<list>",
-      {
-        "condition": "str",
-        "name": "str",
-        "notifications": [
-          "<empty_list>"
-        ],
-        "status": "str"
-      }
-    ],
-    "createdAt": "int",
-    "creationAuthorId": "int",
-    "creator": {
-      "handle": "str",
-      "name": "str"
-    },
-    "filters": [
-      "<empty_list>"
-    ],
-    "hasExtendedTitle": "bool",
-    "id": "str",
-    "isBeta": "bool",
-    "isDefault": "bool",
-    "isDeleted": "bool",
-    "isDeprecated": "bool",
-    "isEnabled": "bool",
-    "isPartner": "bool",
-    "message": "str",
-    "metadata": {
-      "entities": "NoneType",
-      "sources": "NoneType"
-    },
-    "name": "str",
-    "options": {
-      "decreaseCriticalityBasedOnEnv": "bool",
-      "detectionMethod": "str",
-      "evaluationWindow": "int",
-      "keepAlive": "int",
-      "maxSignalDuration": "int"
-    },
-    "queries": [
-      "<list>",
-      {
-        "aggregation": "str",
-        "dataSource": "str",
-        "distinctFields": [
-          "<empty_list>"
-        ],
-        "groupByFields": [
-          "<empty_list>"
-        ],
-        "hasOptionalGroupByFields": "bool",
-        "name": "str",
-        "query": "str"
-      }
-    ],
-    "tags": [
-      "<list>",
-      "str"
-    ],
-    "type": "str",
-    "updatedAt": "int",
-    "updater": {
-      "handle": "str",
-      "name": "str"
-    },
-    "version": "int"
+  "blocking": "bool",
+  "cases": [
+    "<list>",
+    {
+      "condition": "str",
+      "name": "str",
+      "notifications": [
+        "<empty_list>"
+      ],
+      "status": "str"
+    }
+  ],
+  "createdAt": "int",
+  "creationAuthorId": "int",
+  "creator": {
+    "handle": "str",
+    "name": "str"
   },
-  "status": "str"
+  "filters": [
+    "<empty_list>"
+  ],
+  "hasExtendedTitle": "bool",
+  "id": "str",
+  "isBeta": "bool",
+  "isDefault": "bool",
+  "isDeleted": "bool",
+  "isDeprecated": "bool",
+  "isEnabled": "bool",
+  "isPartner": "bool",
+  "message": "str",
+  "metadata": {
+    "entities": "NoneType",
+    "sources": "NoneType"
+  },
+  "name": "str",
+  "options": {
+    "decreaseCriticalityBasedOnEnv": "bool",
+    "detectionMethod": "str",
+    "evaluationWindow": "int",
+    "keepAlive": "int",
+    "maxSignalDuration": "int"
+  },
+  "queries": [
+    "<list>",
+    {
+      "aggregation": "str",
+      "dataSource": "str",
+      "distinctFields": [
+        "<empty_list>"
+      ],
+      "groupByFields": [
+        "<empty_list>"
+      ],
+      "hasOptionalGroupByFields": "bool",
+      "name": "str",
+      "query": "str"
+    }
+  ],
+  "tags": [
+    "<list>",
+    "str"
+  ],
+  "type": "str",
+  "updatedAt": "int",
+  "updater": {
+    "handle": "str",
+    "name": "str"
+  },
+  "version": "int"
 }

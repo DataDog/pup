@@ -1,11 +1,8 @@
 {
-  "data": {
-    "tags": {
-      "*": [
-        "<list>",
-        "str"
-      ]
-    }
-  },
-  "status": "str"
+  "tags": {
+    "*": [
+      "<list>",
+      "str"
+    ]
+  }
 }

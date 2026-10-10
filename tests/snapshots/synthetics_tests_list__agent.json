@@ -1,55 +1,56 @@
 {
-  "data": {
-    "tests": [
-      "<list>",
-      {
-        "config": {
-          "assertions": [
-            "<list>",
-            "<...>"
-          ],
-          "request": {
-            "method": "<...>",
-            "timeout": "<...>",
-            "url": "<...>"
-          }
-        },
-        "created_at": "<timestamp>",
-        "creator": {
-          "email": "str",
-          "handle": "str",
-          "name": "str"
-        },
-        "locations": [
+  "tests": [
+    "<list>",
+    {
+      "config": {
+        "assertions": [
           "<list>",
-          "str"
+          {
+            "operator": "<...>",
+            "target": "<...>",
+            "type": "<...>"
+          }
         ],
-        "message": "str",
-        "modified_at": "<timestamp>",
-        "monitor_id": "int",
-        "name": "str",
-        "options": {
-          "downtime_ids": [
-            "<empty_list>"
-          ],
-          "httpVersion": "str",
-          "min_failure_duration": "int",
-          "min_location_failed": "int",
-          "monitor_options": {
-            "renotify_interval": "<...>"
-          },
-          "tick_every": "int"
-        },
-        "public_id": "str",
-        "status": "str",
-        "subtype": "str",
-        "tags": [
+        "request": {
+          "method": "str",
+          "timeout": "float",
+          "url": "<url>"
+        }
+      },
+      "created_at": "<timestamp>",
+      "creator": {
+        "email": "str",
+        "handle": "str",
+        "name": "str"
+      },
+      "locations": [
+        "<list>",
+        "str"
+      ],
+      "message": "str",
+      "modified_at": "<timestamp>",
+      "monitor_id": "int",
+      "name": "str",
+      "options": {
+        "downtime_ids": [
           "<empty_list>"
         ],
-        "type": "str"
-      }
-    ],
-    "total": "int"
-  },
-  "status": "str"
+        "httpVersion": "str",
+        "min_failure_duration": "int",
+        "min_location_failed": "int",
+        "monitor_options": {
+          "renotify_interval": "int"
+        },
+        "tick_every": "int"
+      },
+      "public_id": "str",
+      "status": "str",
+      "subtype": "str",
+      "tags": [
+        "<empty_list>"
+      ],
+      "type": "str"
+    }
+  ],
+  "total": "int"
 }

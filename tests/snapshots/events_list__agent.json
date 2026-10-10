@@ -1,34 +1,31 @@
 {
-  "data": {
-    "events": [
-      "<list>",
-      {
-        "alert_type": "str",
-        "comments": [
-          "<empty_list>"
-        ],
-        "date_happened": "int",
-        "id": "int",
-        "id_str": "str",
-        "is_aggregate": "bool",
-        "monitor_group_status": "NoneType",
-        "monitor_groups": [
-          "<empty_list>"
-        ],
-        "monitor_id": "NoneType",
-        "priority": "str",
-        "resource": "str",
-        "source": "str",
-        "tags": [
-          "<list>",
-          "str"
-        ],
-        "text": "str",
-        "title": "str",
-        "url": "str",
-        "host": "str"
-      }
-    ]
-  },
-  "status": "str"
+  "events": [
+    "<list>",
+    {
+      "alert_type": "str",
+      "comments": [
+        "<empty_list>"
+      ],
+      "date_happened": "int",
+      "id": "int",
+      "id_str": "str",
+      "is_aggregate": "bool",
+      "monitor_group_status": "NoneType",
+      "monitor_groups": [
+        "<empty_list>"
+      ],
+      "monitor_id": "NoneType",
+      "priority": "str",
+      "resource": "str",
+      "source": "str",
+      "tags": [
+        "<list>",
+        "str"
+      ],
+      "text": "str",
+      "title": "str",
+      "url": "str",
+      "host": "<uuid>"
+    }
+  ]
 }

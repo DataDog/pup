@@ -69,7 +69,7 @@ fn query_preserves_evidence_in_human_agent_jq_and_raw_modes() {
         "--field",
         "name,display_name,active_incidents_count",
     ];
-    let human = payload(pup(&server, &[&["--no-agent"][..], &args].concat()));
+    let human = payload(pup(&server, &args));
     assert_eq!(human["results"][0]["fields"]["name"], "checkout");
     assert_eq!(
         human["results"][0]["fields"]["display_name"],
@@ -82,21 +82,15 @@ fn query_preserves_evidence_in_human_agent_jq_and_raw_modes() {
         42
     );
     assert_eq!(human["server_warnings"], response["meta"]["warnings"]);
+    // The legacy --agent flag is a no-op: output matches the plain run exactly.
     let agent = payload(pup(&server, &[&["--agent"][..], &args].concat()));
-    assert_eq!(agent["data"], human);
+    assert_eq!(agent, human);
     let filtered = payload(pup(
         &server,
-        &[
-            &["--no-agent", "--jq", ".results[0].fields.name"][..],
-            &args,
-        ]
-        .concat(),
+        &[&["--jq", ".results[0].fields.name"][..], &args].concat(),
     ));
     assert_eq!(filtered, "checkout");
-    let raw = payload(pup(
-        &server,
-        &[&["--no-agent"][..], &args, &["--raw"]].concat(),
-    ));
+    let raw = payload(pup(&server, &[&args[..], &["--raw"]].concat()));
     assert_eq!(raw, response);
     request.assert();
 }
@@ -136,7 +130,6 @@ fn related_fields_and_edge_measurements_use_the_ueg_wire_contract() {
                 &["idp", "entities"][..],
                 *command,
                 &[
-                    "--no-agent",
                     "--field",
                     "name,owner",
                     "--include",
@@ -173,7 +166,7 @@ fn field_typos_fail_before_querying_entities() {
             &[
                 &["idp", "entities"][..],
                 *command,
-                &["--no-agent", "--field", "owenr"][..],
+                &["--field", "owenr"][..],
             ]
             .concat(),
         );
@@ -193,10 +186,7 @@ fn malformed_entity_response_exits_unsuccessfully() {
         .with_header("content-type", "application/json")
         .with_body("{\"unexpected\": true}")
         .create();
-    let output = pup(
-        &server,
-        &["--no-agent", "idp", "entities", "query", "kind:service"],
-    );
+    let output = pup(&server, &["idp", "entities", "query", "kind:service"]);
     assert!(!output.status.success());
     let error = String::from_utf8_lossy(&output.stderr);
     assert!(error.contains("missing field `data`"), "{error}");
@@ -232,7 +222,6 @@ fn continuation_replays_projections_absolute_time_scope_and_sorting() {
                 &["idp", "entities"][..],
                 *command,
                 &[
-                    "--no-agent",
                     "--org",
                     "fixture-org",
                     "--field",
@@ -268,14 +257,12 @@ fn continuation_replays_projections_absolute_time_scope_and_sorting() {
             .with_header("content-type", "application/json")
             .with_body("{\"data\":[]}")
             .create();
-        let mut args = vec!["--no-agent"];
-        args.extend(
-            result["next_request"]["args"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|value| value.as_str().unwrap()),
-        );
+        let args: Vec<&str> = result["next_request"]["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect();
         let next = payload(pup(&server, &args));
         assert_eq!(next["page"]["truncated"], false);
         assert!(next.get("next_request").is_none());
@@ -290,7 +277,6 @@ fn undeclared_scope_is_rejected_before_the_entity_request() {
     let output = pup(
         &server,
         &[
-            "--no-agent",
             "idp",
             "entities",
             "query",
@@ -334,7 +320,6 @@ fn bounded_query(server: &Server, budget: &str) -> Output {
     pup(
         server,
         &[
-            "--no-agent",
             "idp",
             "entities",
             "query",
@@ -371,14 +356,12 @@ fn bounded_inventory_sizes_the_last_request_and_replays_its_continuation() {
     second.assert();
 
     let third = entity_page(&mut server, "third", 2, &["d"], "");
-    let mut args = vec!["--no-agent"];
-    args.extend(
-        result["next_request"]["args"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap()),
-    );
+    let args: Vec<&str> = result["next_request"]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
     let continued = payload(pup(&server, &args));
     assert_eq!(continued["page"]["stop_reason"], "end_of_results");
     assert_eq!(continued["page"]["max_results"], 3);
@@ -490,7 +473,6 @@ fn bare_text_modes_preserve_the_query_and_warn_about_empty_fuzzy_results() {
         let result = payload(pup(
             &server,
             &[
-                "--no-agent",
                 "idp",
                 "entities",
                 "query",

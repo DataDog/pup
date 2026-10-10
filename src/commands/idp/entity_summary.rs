@@ -18,15 +18,6 @@ enum SummaryCommand {
     Aggregate,
 }
 
-impl SummaryCommand {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Facets => "pup idp entities facets",
-            Self::Aggregate => "pup idp entities aggregate",
-        }
-    }
-}
-
 pub struct EntityAggregateOptions {
     pub query: String,
     pub group_by: Vec<String>,
@@ -161,13 +152,7 @@ fn print_summary(
     raw: bool,
     command: SummaryCommand,
 ) -> Result<()> {
-    let (count, truncated, next_action) = raw_response_metadata(&response);
-    let mut metadata = formatter::Metadata {
-        count,
-        truncated,
-        command: Some(command.name().into()),
-        next_action,
-    };
+    let (count, truncated) = raw_response_metadata(&response);
     let output = if raw {
         response
     } else {
@@ -187,25 +172,17 @@ fn print_summary(
         if sampled {
             let hint = "Facet values were sampled locally because the API returned more than --limit. Use --raw for all returned values, or aggregate --group-by <field> for pageable counts; a cursor does not recover locally omitted values.";
             warnings.push(hint);
-            metadata.truncated = true;
-            metadata.next_action = Some(hint.into());
         }
         json!({
             "query": query,
             "results": results,
             "count": count,
-            "page": {"limit": limit, "truncated": metadata.truncated, "next_cursor": response.pointer("/meta/page/next_cursor").filter(|value| value.as_str().is_some_and(|cursor| !cursor.is_empty()))},
+            "page": {"limit": limit, "truncated": truncated || sampled, "next_cursor": response.pointer("/meta/page/next_cursor").filter(|value| value.as_str().is_some_and(|cursor| !cursor.is_empty()))},
             "warnings": warnings,
             "server_warnings": response.pointer("/meta/warnings")
         })
     };
-    formatter::format_and_print(
-        &output,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&metadata),
-        cfg.jq.as_deref(),
-    )
+    formatter::format_and_print(&output, &cfg.output_format, cfg.jq.as_deref())
 }
 
 fn limit_facet_values(

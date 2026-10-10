@@ -1,7 +1,4 @@
 {
-  "data": {
-    "message": "str",
-    "status": "str"
-  },
+  "message": "str",
   "status": "str"
 }

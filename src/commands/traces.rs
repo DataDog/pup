@@ -25,21 +25,17 @@ fn validate_trace_id(trace_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn trace_metadata(response: &serde_json::Value) -> Result<formatter::Metadata> {
-    let spans = response
+/// Reject a trace response that lacks the spans array or the truncation flag.
+fn validate_trace_response(response: &serde_json::Value) -> Result<()> {
+    response
         .pointer("/data/attributes/spans")
         .and_then(serde_json::Value::as_array)
         .context("trace response is missing the spans array")?;
-    let truncated = response
+    response
         .pointer("/data/attributes/is_truncated")
         .and_then(serde_json::Value::as_bool)
         .context("trace response is missing the is_truncated flag")?;
-    Ok(formatter::Metadata {
-        count: Some(spans.len()),
-        truncated,
-        command: Some("traces get".into()),
-        next_action: None,
-    })
+    Ok(())
 }
 
 /// Retrieve the stored trace rather than only its indexed spans. Keep the raw
@@ -49,14 +45,8 @@ pub async fn get(cfg: &Config, trace_id: &str) -> Result<()> {
     let response = raw_client::raw_get(cfg, &format!("/api/v2/trace/{trace_id}"), &[])
         .await
         .context("failed to get trace")?;
-    let metadata = trace_metadata(&response)?;
-    formatter::format_and_print(
-        &response,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&metadata),
-        cfg.jq.as_deref(),
-    )
+    validate_trace_response(&response)?;
+    formatter::format_and_print(&response, &cfg.output_format, cfg.jq.as_deref())
 }
 
 /// Optional query parameters for the pruned trace endpoint.
@@ -275,32 +265,13 @@ pub async fn search(
         .await
         .map_err(|e| anyhow::anyhow!("failed to search spans: {:?}", e))?;
 
+    formatter::format_and_print(&resp, &cfg.output_format, cfg.jq.as_deref())?;
     let next_cursor = resp
         .meta
         .as_ref()
         .and_then(|m| m.page.as_ref())
-        .and_then(|p| p.after.clone());
-
-    let meta = if cfg.agent_mode {
-        let count = resp.data.as_ref().map(|d| d.len());
-        Some(formatter::Metadata {
-            count,
-            truncated: next_cursor.is_some(),
-            command: Some("traces search".into()),
-            next_action: next_cursor.map(|c| {
-                format!("More results available. Use --cursor=\"{c}\" to page backwards through older spans.")
-            }),
-        })
-    } else {
-        None
-    };
-    formatter::format_and_print(
-        &resp,
-        &cfg.output_format,
-        cfg.agent_mode,
-        meta.as_ref(),
-        cfg.jq.as_deref(),
-    )?;
+        .and_then(|p| p.after.as_deref());
+    crate::output::eprint_next_page_hint(cfg, next_cursor);
     Ok(())
 }
 
@@ -348,23 +319,7 @@ pub async fn aggregate(
         .await
         .map_err(|e| anyhow::anyhow!("failed to aggregate spans: {:?}", e))?;
 
-    let meta = if cfg.agent_mode {
-        Some(formatter::Metadata {
-            count: None,
-            truncated: false,
-            command: Some("traces aggregate".into()),
-            next_action: None,
-        })
-    } else {
-        None
-    };
-    formatter::format_and_print(
-        &resp,
-        &cfg.output_format,
-        cfg.agent_mode,
-        meta.as_ref(),
-        cfg.jq.as_deref(),
-    )?;
+    formatter::format_and_print(&resp, &cfg.output_format, cfg.jq.as_deref())?;
     Ok(())
 }
 
@@ -400,17 +355,14 @@ mod tests {
     }
 
     #[test]
-    fn test_trace_metadata_and_id_precision() {
+    fn test_trace_response_validates_and_keeps_id_precision() {
         let response: serde_json::Value = serde_json::from_str(
             r#"{"data":{"attributes":{"is_truncated":true,"spans":[
                 {"spanID":17158905238077369281,"parentID":"9329962688430045371"}
             ]}}}"#,
         )
         .unwrap();
-        let metadata = trace_metadata(&response).unwrap();
-        assert_eq!(metadata.count, Some(1));
-        assert!(metadata.truncated);
-        assert_eq!(metadata.command.as_deref(), Some("traces get"));
+        assert!(validate_trace_response(&response).is_ok());
         assert_eq!(
             response["data"]["attributes"]["spans"][0]["spanID"].as_u64(),
             Some(17158905238077369281)
@@ -425,16 +377,16 @@ mod tests {
     }
 
     #[test]
-    fn test_trace_metadata_rejects_incomplete_response() {
+    fn test_trace_response_rejects_incomplete_response() {
         for response in [
             serde_json::json!(null),
             serde_json::json!({"data":{"attributes":{"is_truncated":false}}}),
             serde_json::json!({"data":{"attributes":{"spans":[],"is_truncated":"false"}}}),
         ] {
-            assert!(trace_metadata(&response).is_err());
+            assert!(validate_trace_response(&response).is_err());
         }
         let response = serde_json::json!({"data":{"attributes":{"spans":[],"is_truncated":false}}});
-        assert!(!trace_metadata(&response).unwrap().truncated);
+        assert!(validate_trace_response(&response).is_ok());
     }
 
     #[tokio::test]
@@ -443,7 +395,6 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let mut cfg = test_config(&server.url());
         cfg.access_token = Some("test-trace-token".into());
-        cfg.agent_mode = true;
         let mock = server.mock("GET", "/api/v2/trace/a8e0e1080f4403c7c7dc4c2e8eae3a34")
             .match_query(mockito::Matcher::Missing)
             .match_header("authorization", "Bearer test-trace-token")
@@ -959,11 +910,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_sends_cursor_and_surfaces_next_cursor() {
+    async fn test_search_sends_cursor() {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
-        let mut cfg = test_config(&server.url());
-        cfg.agent_mode = true;
+        let cfg = test_config(&server.url());
         let mock = server
             .mock("POST", "/api/v2/spans/events/search")
             .match_body(mockito::Matcher::PartialJson(serde_json::json!({

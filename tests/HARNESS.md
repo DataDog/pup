@@ -31,13 +31,13 @@ Every catalogued command runs **twice** per harness invocation:
 
 | Mode   | Environment                                    | Purpose                            |
 |--------|------------------------------------------------|------------------------------------|
-| Human  | DD_* vars only, no `FORCE_AGENT_MODE`          | Simulates a developer at a shell   |
-| Agent  | Same DD_* vars + `FORCE_AGENT_MODE=1`          | Simulates an AI agent (Claude, etc.) calling pup |
+| Human  | DD_* vars only, no `CLAUDECODE`                | Simulates a developer at a shell   |
+| Agent  | Same DD_* vars + `CLAUDECODE=1`                | Simulates an AI agent (Claude, etc.) calling pup |
 
-The two modes can produce different output: agent mode activates a structured
-JSON envelope, different formatting, and the agent-schema command path. The
-harness captures both runs independently and shows a **diff** between them in
-the HTML report so regressions in either mode are immediately visible.
+pup detects the agent only to add it to the User-Agent header, so both modes
+should print identical output. The harness captures both runs independently
+and shows a **diff** between them in the HTML report, so any divergence is
+immediately visible as a regression.
 
 ### Why a Clean Environment?
 
@@ -45,14 +45,14 @@ the HTML report so regressions in either mode are immediately visible.
 forwards only `HOME`, `PATH`, and variables starting with `DD_`. This ensures:
 
 1. The test is **reproducible** — no implicit state leaks from the developer's
-   shell (e.g. `RUST_LOG`, `FORCE_AGENT_MODE` set by a calling AI assistant, etc.)
+   shell (e.g. `RUST_LOG`, `CLAUDECODE` set by a calling AI assistant, etc.)
 2. **Credential values** from the outer environment never appear in test output,
    snapshots, or the HTML report. Only the variable names `DD_*` are forwarded;
    their values stay confined to subprocess stdin/stdout which is not logged.
 
-`FORCE_AGENT_MODE` is explicitly set or explicitly deleted — it is never
-inherited from the outer shell. This guarantees the human-mode run is genuinely
-free of agent-mode influence.
+`CLAUDECODE` is explicitly set or explicitly deleted — it is never inherited
+from the outer shell. This guarantees the human-mode run is genuinely free of
+agent detection.
 
 ---
 
@@ -113,8 +113,8 @@ tests/snapshots/monitors_list__human.json
 tests/snapshots/monitors_list__agent.json
 ```
 
-Human-mode and agent-mode responses can differ structurally (the agent envelope
-wraps output differently), so they need separate baselines.
+Each mode keeps its own baseline so a divergence between them shows up as a
+regression in one mode rather than being masked by a shared snapshot.
 
 ---
 
@@ -168,7 +168,7 @@ the **untested** pool; document why in a comment rather than guessing an ID.
 
 ## Untested and Write Command Tracking
 
-`get_untested_commands()` runs `FORCE_AGENT_MODE=1 pup --help` to retrieve the
+`get_untested_commands()` runs `pup agent schema` to retrieve the
 full command schema (JSON) and crosses it against the catalog. It returns:
 
 - **Uncovered read-only** commands — `read_only=true` but no catalog entry.
@@ -238,8 +238,8 @@ what the pup process is waiting for.
    removal of the command from pup is a coverage regression. Prefer marking
    entries with `skip_regression=True` or a `note` rather than deleting them.
 
-4. **Human mode must not have `FORCE_AGENT_MODE`.** `build_clean_env()` calls
-   `env.pop("FORCE_AGENT_MODE", None)` explicitly. Never pass `agent_mode=True`
+4. **Human mode must not have `CLAUDECODE`.** `build_clean_env()` calls
+   `env.pop("CLAUDECODE", None)` explicitly. Never pass `agent_mode=True`
    for the human env.
 
 5. **Snapshot baselines only tighten via `--update-snapshots`.** Auto-merge

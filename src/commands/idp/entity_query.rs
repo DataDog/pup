@@ -15,7 +15,7 @@ use super::entity_types::{
     ResourceIdentifier, ServerPageWarnings,
 };
 use crate::config::Config;
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 use crate::raw_client;
 
 pub(super) const ENTITIES_PATH: &str = "/api/v2/idp/entity_graph/entities";
@@ -102,19 +102,7 @@ pub async fn query_entities(cfg: &Config, options: EntityQueryOptions) -> Result
         for warning in &warnings {
             eprintln!("Warning: {warning}");
         }
-        let (count, truncated, next_action) = raw_response_metadata(&raw);
-        return formatter::format_and_print(
-            &raw,
-            &cfg.output_format,
-            cfg.agent_mode,
-            Some(&Metadata {
-                count,
-                truncated,
-                command: Some("pup idp entities query".into()),
-                next_action,
-            }),
-            cfg.jq.as_deref(),
-        );
+        return formatter::format_and_print(&raw, &cfg.output_format, cfg.jq.as_deref());
     }
 
     let mut normalized = fetch_normalized_pages(cfg, &options, &query_pairs).await?;
@@ -134,30 +122,7 @@ pub async fn query_entities(cfg: &Config, options: EntityQueryOptions) -> Result
         .next_cursor
         .as_ref()
         .map(|cursor| next_request(cfg, &options, &query_pairs, cursor));
-    let next_action = normalized.next_request.as_ref().map(|request| {
-        format!(
-            "Continue with: pup {}",
-            request
-                .args
-                .iter()
-                .map(|arg| shell_words::quote(arg))
-                .collect::<Vec<_>>()
-                .join(" ")
-        )
-    });
-    let metadata = Metadata {
-        count: Some(normalized.count),
-        truncated: normalized.page.truncated,
-        command: Some("pup idp entities query".into()),
-        next_action,
-    };
-    formatter::format_and_print(
-        &normalized,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&metadata),
-        cfg.jq.as_deref(),
-    )
+    formatter::format_and_print(&normalized, &cfg.output_format, cfg.jq.as_deref())
 }
 
 async fn fetch_entity_page(cfg: &Config, params: &[(String, String)]) -> Result<Value> {
@@ -912,17 +877,13 @@ fn try_parse_relationship_data(value: &Value) -> serde_json::Result<Vec<Resource
     })
 }
 
-pub(super) fn raw_response_metadata(raw: &Value) -> (Option<usize>, bool, Option<String>) {
+pub(super) fn raw_response_metadata(raw: &Value) -> (Option<usize>, bool) {
     let count = raw.get("data").and_then(Value::as_array).map(Vec::len);
-    let cursor = raw
+    let truncated = raw
         .pointer("/meta/page/next_cursor")
         .and_then(Value::as_str)
-        .filter(|cursor| !cursor.is_empty());
-    (
-        count,
-        cursor.is_some(),
-        cursor.map(|cursor| format!("Fetch the next page with --cursor {cursor}")),
-    )
+        .is_some_and(|cursor| !cursor.is_empty());
+    (count, truncated)
 }
 
 fn entity_key(kind: &str, id: &str) -> String {

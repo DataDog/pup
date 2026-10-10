@@ -23,7 +23,6 @@ pub struct Config {
     pub org: Option<String>,
     pub output_format: OutputFormat,
     pub auto_approve: bool,
-    pub agent_mode: bool,
     pub read_only: bool,
     /// jq expression applied to command output before formatting (`--jq` flag).
     pub jq: Option<String>,
@@ -196,7 +195,6 @@ impl Config {
                 || env_bool("DD_CLI_AUTO_APPROVE")
                 || env_bool("PUP_AUTO_APPROVE")
                 || file_cfg.auto_approve.unwrap_or(false),
-            agent_mode: false, // set by caller from --agent flag or useragent detection
             read_only: env_bool("DD_READ_ONLY")
                 || env_bool("DD_CLI_READ_ONLY")
                 || env_bool("PUP_READ_ONLY")
@@ -233,7 +231,6 @@ impl Config {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         }
@@ -995,7 +992,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         }
@@ -1991,7 +1987,6 @@ mod tests {
             org: Some("org-a".into()),
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2036,7 +2031,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2074,7 +2068,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2117,7 +2110,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2156,7 +2148,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2203,7 +2194,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2234,7 +2224,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2256,7 +2245,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2277,7 +2265,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };

@@ -1,10 +1,7 @@
-{
-  "data": [
-    "<list>",
-    {
-      "command": "str",
-      "name": "str"
-    }
-  ],
-  "status": "str"
-}
+[
+  "<list>",
+  {
+    "command": "str",
+    "name": "str"
+  }
+]

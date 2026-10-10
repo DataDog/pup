@@ -468,51 +468,25 @@ pup skills install --name dd-idp
 - `DD_AUTO_APPROVE`: Auto-approve destructive operations (true/false)
 - `DD_TOKEN_STORAGE`: Token storage backend (`keychain` (default) or `file`). Can also be set as `token_storage` in the config file.
 
-## Agent Mode
+## AI Agents
 
-When pup is invoked by an AI coding agent, it automatically switches to **agent mode** which returns structured JSON responses optimized for machine consumption (including metadata, error details, and hints). Agent mode also auto-approves confirmation prompts.
+Pup behaves the same whether a person or an AI coding agent runs it: JSON output is always the raw Datadog API response, and `--help` is always standard text help.
 
-Agent mode is **auto-detected** when any of these environment variables is set to `1` or `true`:
+Pup detects common AI coding agents (Claude Code, Cursor, Codex, Gemini CLI, and others) from their environment variables only to add an `ai-agent <name>` token to the User-Agent header for telemetry. Detection does not change any behavior.
 
-| Variable | Agent |
-|----------|-------|
-| `CLAUDE_CODE` or `CLAUDECODE` | Claude Code |
-| `CURSOR_AGENT` | Cursor |
-| `CODEX` or `OPENAI_CODEX` | OpenAI Codex |
-| `AIDER` | Aider |
-| `CLINE` | Cline |
-| `WINDSURF_AGENT` | Windsurf |
-| `GITHUB_COPILOT` or `COPILOT_CLI` | GitHub Copilot |
-| `AMAZON_Q` or `AWS_Q_DEVELOPER` | Amazon Q |
-| `GEMINI_CODE_ASSIST` | Gemini Code Assist |
-| `GEMINI_CLI` | Gemini CLI |
-| `SRC_CODY` | Sourcegraph Cody |
-| `PI_CODING_AGENT` | pi.dev |
-| `FORCE_AGENT_MODE` | Any agent (manual override) |
-
-It is also auto-detected when any of these harness-injected variables is present and non-empty:
-
-| Variable | Agent |
-|----------|-------|
-| `CODEX_SESSION_ID`, `CODEX_THREAD_ID`, `CODEX_VERSION`, `CODEX_SANDBOX`, or `CODEX_CI` | OpenAI Codex |
-| `COPILOT_AGENT_SESSION_ID` | GitHub Copilot |
-| `CURSOR_TRACE_ID` | Cursor |
-| `DEVIN_SESSION_ID` | Devin |
-
-You can also enable it explicitly with the `--agent` flag or by setting `FORCE_AGENT_MODE=1`:
+For agents and scripts:
 
 ```bash
-# Auto-detected (e.g., running inside Claude Code)
-pup monitors list
+# Machine-readable command reference (JSON)
+pup agent schema
+pup agent schema --compact
+pup agent schema logs aggregate   # One command, including its response shape
 
-# Explicit flag
-pup monitors list --agent
-
-# Environment variable override
-FORCE_AGENT_MODE=1 pup monitors list
+# Skip confirmation prompts for write operations
+pup monitors delete 12345 --yes
 ```
 
-If you are integrating pup into an AI agent workflow, make sure the appropriate environment variable is set so responses are optimized for your agent. Without it, pup defaults to human-friendly output.
+Agents get no implicit auto-approval: confirmation prompts are skipped only with `--yes` or `DD_AUTO_APPROVE=true`. The legacy `--agent` and `--no-agent` flags are still accepted and ignored.
 
 ## WASM
 

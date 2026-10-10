@@ -115,10 +115,10 @@ up to 39 decimal digits. To save the full response without reading it into agent
 context, redirect stdout:
 
 ```bash
-pup --agent --read-only traces get <TRACE_ID> > trace.json
+pup --read-only traces get <TRACE_ID> > trace.json
 ```
 
-In agent mode, spans are under `.data.attributes.spans`; check
+Spans are under `.data.attributes.spans`; check
 `.data.attributes.is_truncated` before treating the response as complete.
 The command requests all available fields. Preserve integer ID precision when
 parsing the saved JSON.
@@ -317,21 +317,9 @@ pup logs search --query="status:error" --jq '.data | length'
 - 1 output → the value (unwrapped)
 - 2+ outputs → an array
 
-**Agent mode — filter target:** `--jq` runs on the **raw response payload**, which
-is the value that appears under `.data` in agent mode. Write expressions against the
-payload (e.g. `.[]`), **not** against the envelope (`.data[]` will not work):
-
-```bash
-# correct — targets the payload array
-pup monitors list --agent --jq '.[0]'
-
-# wrong — .data does not exist in the payload --jq sees
-pup monitors list --agent --jq '.data[0]'
-```
-
-**Agent mode — metadata:** when `--jq` is active, `metadata.count` and
-`metadata.truncated` are omitted from the envelope because they describe the
-pre-filter data, not the filtered result.
+**Filter target:** `--jq` runs on the **raw API response body** that pup prints
+without `--jq`. `pup agent schema <command>` reports the starting expression for each
+command as `returns.jq_root`.
 
 **Limitation:** commands that print output directly (e.g. `pup auth login`, some runbook
 steps) bypass `format_and_print` and do not honor `--jq`.
@@ -372,8 +360,8 @@ Constraints worth knowing before relying on these:
 - **No targeted edits.** `update` replaces and `edit` appends; there is no way to
   modify one section in place.
 - `--jq` is rejected with `--markdown`, since the output is not JSON.
-- `--output` and agent mode have no effect under `--markdown`: the document is
-  printed as-is, with no envelope and no format conversion. This matches
+- `--output` has no effect under `--markdown`: the document is printed as-is,
+  with no format conversion. This matches
   `skills remote get`, the other command that emits raw Markdown.
 
 ### v1.13.x — Session Replay API Support (#182)

@@ -1,11 +1,8 @@
 {
-  "data": {
-    "exact_total_matching": "bool",
-    "host_list": [
-      "<empty_list>"
-    ],
-    "total_matching": "int",
-    "total_returned": "int"
-  },
-  "status": "str"
+  "exact_total_matching": "bool",
+  "host_list": [
+    "<empty_list>"
+  ],
+  "total_matching": "int",
+  "total_returned": "int"
 }

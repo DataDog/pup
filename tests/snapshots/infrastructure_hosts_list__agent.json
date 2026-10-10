@@ -1,49 +1,41 @@
 {
-  "data": {
-    "exact_total_matching": "bool",
-    "host_list": [
-      "<list>",
-      {
-        "aliases": [
+  "exact_total_matching": "bool",
+  "host_list": [
+    "<list>",
+    {
+      "aliases": [
+        "<list>",
+        "str"
+      ],
+      "apps": [
+        "<list>",
+        "str"
+      ],
+      "aws_id": "str",
+      "host_name": "str",
+      "id": "int",
+      "is_muted": "bool",
+      "last_reported_time": "int",
+      "meta": {},
+      "metrics": {
+        "*": "float"
+      },
+      "mute_timeout": "NoneType",
+      "name": "str",
+      "sources": [
+        "<list>",
+        "str"
+      ],
+      "tags_by_source": {
+        "*": [
           "<list>",
           "str"
-        ],
-        "apps": [
-          "<list>",
-          "str"
-        ],
-        "aws_id": "str",
-        "aws_name": "str",
-        "host_name": "str",
-        "id": "int",
-        "is_muted": "bool",
-        "last_reported_time": "int",
-        "meta": {
-          "*": [
-            "<list>",
-            "<...>"
-          ]
-        },
-        "metrics": {
-          "*": "float"
-        },
-        "mute_timeout": "NoneType",
-        "name": "str",
-        "sources": [
-          "<list>",
-          "str"
-        ],
-        "tags_by_source": {
-          "*": [
-            "<list>",
-            "<...>"
-          ]
-        },
-        "up": "bool"
-      }
-    ],
-    "total_matching": "int",
-    "total_returned": "int"
-  },
-  "status": "str"
+        ]
+      },
+      "up": "bool",
+      "aws_name": "str"
+    }
+  ],
+  "total_matching": "int",
+  "total_returned": "int"
 }

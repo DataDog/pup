@@ -87,5 +87,11 @@
       ]
     }
   ],
-  "status": "str"
+  "meta": {
+    "*": {
+      "current_page": "int",
+      "total_count": "int",
+      "total_filtered_count": "int"
+    }
+  }
 }

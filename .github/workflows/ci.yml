@@ -89,8 +89,8 @@ jobs:
           config_dir="$(mktemp -d)"
           trap 'rm -rf "$config_dir"' EXIT
 
-          test "$(DD_ACCESS_TOKEN="$expected_token" "$bin" --no-agent auth token)" = "$expected_token"
-          "$bin" --no-agent auth --help >"$config_dir/help"
+          test "$(DD_ACCESS_TOKEN="$expected_token" "$bin" auth token)" = "$expected_token"
+          "$bin" auth --help >"$config_dir/help"
           grep -q '^  token' "$config_dir/help"
           "$bin" completions zsh >"$config_dir/completions"
           grep -q 'token:Print the current OAuth access token for credential-command integrations' "$config_dir/completions"
@@ -103,7 +103,7 @@ jobs:
 
           if env -u DD_ACCESS_TOKEN -u DD_API_KEY -u DD_APP_KEY \
             PUP_CONFIG_DIR="$config_dir" DD_TOKEN_STORAGE=file \
-            "$bin" --no-agent auth token >"$config_dir/stdout" 2>"$config_dir/stderr"; then
+            "$bin" auth token >"$config_dir/stdout" 2>"$config_dir/stderr"; then
             echo "ERROR: auth token succeeded without credentials"
             exit 1
           fi

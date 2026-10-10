@@ -1,16 +1,13 @@
-{
-  "data": [
-    "<list>",
-    {
-      "expires_at": "NoneType",
-      "has_refresh": "bool",
-      "org": "str",
-      "scopes": [
-        "<empty_list>"
-      ],
-      "site": "str",
-      "status": "str"
-    }
-  ],
-  "status": "str"
-}
+[
+  "<list>",
+  {
+    "expires_at": "NoneType",
+    "has_refresh": "bool",
+    "org": "str",
+    "scopes": [
+      "<empty_list>"
+    ],
+    "site": "str",
+    "status": "str"
+  }
+]

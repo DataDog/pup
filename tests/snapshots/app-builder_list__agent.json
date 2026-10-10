@@ -23,5 +23,23 @@
       }
     }
   ],
-  "status": "str"
+  "included": [
+    "<list>",
+    {
+      "attributes": {
+        "*": "<...>"
+      },
+      "id": "<uuid>",
+      "meta": {
+        "*": "<timestamp>"
+      },
+      "type": "str"
+    }
+  ],
+  "meta": {
+    "*": {
+      "totalCount": "int",
+      "totalFilteredCount": "int"
+    }
+  }
 }

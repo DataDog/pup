@@ -89,6 +89,7 @@ pub mod skills;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod skills_remote;
 pub mod slos;
+pub mod snapshots;
 pub mod software_catalog;
 pub mod static_analysis;
 pub mod status_pages;

@@ -29,11 +29,12 @@ jobs:
         id: get_token
         uses: DataDog/dd-octo-sts-action@c85802a58e202b7e764b5441e4378c76043c8108 # v1.0.5
         with:
-          scope: DataDog/datadog-api-spec
+          scope: ddoghq/datadog-api-spec
           policy: pup.approved_status.post-review-status
       - name: Post PR review status check
         uses: DataDog/github-actions/post-review-status@65b4875f33ad773d7ba4b005a2cb5f35020295f3 # v2.3.0
         with:
           github-token: ${{ steps.get_token.outputs.token }}
+          owner: ddoghq
           repo: datadog-api-spec
           context: pup/main

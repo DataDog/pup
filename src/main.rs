@@ -1445,6 +1445,21 @@ enum Commands {
         #[command(subcommand)]
         action: ExperimentActions,
     },
+    /// Set up Datadog products in your project. Run `pup setup --help` to list products and their flags.
+    ///
+    /// Runs Datadog's AI Setup CLI from npm with npx, so it needs Node.js 22
+    /// or newer. Every argument after `setup` is passed through to AI Setup.
+    ///
+    /// EXAMPLES:
+    ///   pup setup --product apm
+    ///   pup setup --help
+    #[cfg(not(target_arch = "wasm32"))]
+    #[command(verbatim_doc_comment, disable_help_flag = true)]
+    Setup {
+        /// Arguments passed through to AI Setup
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Manage feature flags
     ///
     /// Manage Datadog feature flags and their environments.
@@ -12644,6 +12659,109 @@ fn help_command_path<'a>(
     (names, current)
 }
 
+fn setup_help_alias(mut args: Vec<String>) -> Vec<String> {
+    let is_alias = {
+        let mut positionals = positional_tokens(&args);
+        positionals.next() == Some("help") && positionals.next() == Some("setup")
+    };
+    if !is_alias {
+        return args;
+    }
+    if let Some(index) = args.iter().skip(1).position(|arg| arg == "help") {
+        args.remove(index + 1);
+        args.push("--help".to_string());
+    }
+    args
+}
+
+fn hoist_setup_global_flags(args: Vec<String>) -> Vec<String> {
+    if !args.iter().any(|arg| arg == "setup") {
+        return args;
+    }
+    let globals = global_flag_specs();
+    let Some(setup_at) = setup_command_index(&args, &globals) else {
+        return args;
+    };
+    let mut hoisted = args[..setup_at].to_vec();
+    let mut passthrough = Vec::new();
+    let mut rest = args[setup_at + 1..].iter();
+    while let Some(token) = rest.next() {
+        if token == "--" {
+            passthrough.push(token.clone());
+            passthrough.extend(rest.by_ref().cloned());
+            break;
+        }
+        match match_global_flag(token, &globals) {
+            Some(takes_value) => {
+                hoisted.push(token.clone());
+                if takes_value && !token.contains('=') {
+                    hoisted.extend(rest.next().cloned());
+                }
+            }
+            None => passthrough.push(token.clone()),
+        }
+    }
+    hoisted.push("setup".to_string());
+    hoisted.extend(passthrough);
+    hoisted
+}
+
+struct GlobalFlag {
+    long: Option<String>,
+    short: Option<char>,
+    takes_value: bool,
+}
+
+fn global_flag_specs() -> Vec<GlobalFlag> {
+    cli_command()
+        .get_arguments()
+        .filter(|arg| arg.is_global_set())
+        .map(|arg| GlobalFlag {
+            long: arg.get_long().map(str::to_string),
+            short: arg.get_short(),
+            takes_value: arg.get_action().takes_values(),
+        })
+        .collect()
+}
+
+fn match_global_flag(token: &str, globals: &[GlobalFlag]) -> Option<bool> {
+    globals
+        .iter()
+        .find(|flag| {
+            let long_match = flag.long.as_deref().is_some_and(|long| {
+                token
+                    .strip_prefix("--")
+                    .is_some_and(|rest| rest == long || rest.starts_with(&format!("{long}=")))
+            });
+            let short_match = flag.short.is_some_and(|short| token == format!("-{short}"));
+            long_match || short_match
+        })
+        .map(|flag| flag.takes_value)
+}
+
+fn setup_command_index(args: &[String], globals: &[GlobalFlag]) -> Option<usize> {
+    let mut index = 1;
+    while index < args.len() {
+        let token = &args[index];
+        match match_global_flag(token, globals) {
+            Some(takes_value) => {
+                index += if takes_value && !token.contains('=') {
+                    2
+                } else {
+                    1
+                };
+            }
+            None if token.starts_with('-') => index += 1,
+            None => return (token == "setup").then_some(index),
+        }
+    }
+    None
+}
+
+fn help_belongs_to_wrapped_cli(args: &[String]) -> bool {
+    top_level_subcommand(args) == Some("setup")
+}
+
 /// Return the agent-help schema for a valid command, or `None` when clap should
 /// handle an unknown command or invalid nested subcommand normally.
 fn agent_help_schema(cmd: &clap::Command, args: &[String]) -> Option<serde_json::Value> {
@@ -12697,7 +12815,7 @@ fn agent_query_syntax() -> serde_json::Value {
 
 /// Build a scoped agent schema for a specific subcommand (e.g. `pup logs --help`
 /// or `pup logs aggregate --help`). `sub_path` is the target's canonical path.
-fn build_agent_schema_scoped(
+pub(crate) fn build_agent_schema_scoped(
     _root_cmd: &clap::Command,
     target: &clap::Command,
     sub_path: &[&str],
@@ -13285,9 +13403,10 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "pause"
         || name == "resume"
         || name == "generate"
+        || name == "setup"
 }
 
-fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
+pub(crate) fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
     let mut obj = serde_json::Map::new();
     let name = cmd.get_name().to_string();
     let full_path = if parent_path.is_empty() {
@@ -13555,6 +13674,213 @@ mod test_agent_schema {
             let subs = cmd.get("subcommands")?.as_array()?;
             find_command(subs, &path[1..])
         }
+    }
+
+    #[test]
+    fn setup_is_listed_in_agent_schema_as_a_write_command() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let setup = find_command(commands, &["setup"]).expect("setup must be in the schema");
+        assert_eq!(setup["read_only"], serde_json::json!(false));
+        let description = setup["description"].as_str().unwrap_or_default();
+        assert!(description.contains("Set up Datadog products"));
+    }
+
+    #[test]
+    fn pup_flags_after_setup_are_handled_by_pup() {
+        let argv = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let cases: &[(&[&str], &[&str])] = &[
+            (
+                &["pup", "setup", "--no-agent", "--product", "linux"],
+                &["pup", "--no-agent", "setup", "--product", "linux"],
+            ),
+            (
+                &[
+                    "pup",
+                    "setup",
+                    "--product",
+                    "linux",
+                    "--org",
+                    "eu",
+                    "--read-only",
+                ],
+                &[
+                    "pup",
+                    "--org",
+                    "eu",
+                    "--read-only",
+                    "setup",
+                    "--product",
+                    "linux",
+                ],
+            ),
+            (
+                &[
+                    "pup", "--agent", "setup", "--org=eu", "-o", "json", "--env", "prod",
+                ],
+                &[
+                    "pup", "--agent", "--org=eu", "-o", "json", "setup", "--env", "prod",
+                ],
+            ),
+            (
+                &["pup", "setup", "--product", "linux", "--", "--agent"],
+                &["pup", "setup", "--product", "linux", "--", "--agent"],
+            ),
+            (
+                &["pup", "monitors", "list", "--no-agent"],
+                &["pup", "monitors", "list", "--no-agent"],
+            ),
+            (
+                &["pup", "--org", "setup", "monitors", "list"],
+                &["pup", "--org", "setup", "monitors", "list"],
+            ),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                hoist_setup_global_flags(argv(input)),
+                argv(expected),
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn pup_flags_in_and_after_a_setup_alias_are_handled_by_pup() {
+        let aliases = std::collections::BTreeMap::from([(
+            "install-linux".to_string(),
+            "setup --product linux --read-only".to_string(),
+        )]);
+        let args = hoist_setup_global_flags(commands::alias::apply_expansion(
+            &["pup", "install-linux", "--org", "prod"].map(String::from),
+            "install-linux",
+            &aliases,
+        ));
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(cli.read_only);
+        assert_eq!(cli.org.as_deref(), Some("prod"));
+        match cli.command {
+            Commands::Setup { args } => assert_eq!(args, ["--product", "linux"]),
+            _ => panic!("expected the setup command"),
+        }
+    }
+
+    #[test]
+    fn read_only_after_setup_still_blocks_it() {
+        let args = hoist_setup_global_flags(
+            ["pup", "setup", "--product", "linux", "--read-only"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        );
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(cli.read_only);
+        match cli.command {
+            Commands::Setup { args } => assert_eq!(args, ["--product", "linux"]),
+            _ => panic!("expected the setup command"),
+        }
+    }
+
+    #[test]
+    fn read_only_allows_setup_help_but_not_setup() {
+        let exempt = |input: &[&str]| {
+            let matches = cli_command().get_matches_from(input);
+            is_read_only_exempt(&matches)
+        };
+        assert!(exempt(&["pup", "--read-only", "setup", "--help"]));
+        assert!(exempt(&["pup", "--read-only", "setup", "help"]));
+        assert!(exempt(&[
+            "pup",
+            "--read-only",
+            "setup",
+            "--product",
+            "apm",
+            "-h"
+        ]));
+        assert!(!exempt(&[
+            "pup",
+            "--read-only",
+            "setup",
+            "--product",
+            "apm"
+        ]));
+        assert!(!exempt(&["pup", "--read-only", "setup"]));
+    }
+
+    #[test]
+    fn help_setup_is_an_alias_for_setup_help() {
+        let argv = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            setup_help_alias(argv(&["pup", "help", "setup"])),
+            argv(&["pup", "setup", "--help"])
+        );
+        assert_eq!(
+            setup_help_alias(argv(&[
+                "pup",
+                "--agent",
+                "help",
+                "setup",
+                "--product",
+                "linux"
+            ])),
+            argv(&["pup", "--agent", "setup", "--product", "linux", "--help"])
+        );
+        assert_eq!(
+            setup_help_alias(argv(&["pup", "help", "monitors"])),
+            argv(&["pup", "help", "monitors"])
+        );
+    }
+
+    #[test]
+    fn setup_passes_all_arguments_through() {
+        let cli =
+            Cli::try_parse_from(["pup", "setup", "--product", "apm", "--help", "-x"]).unwrap();
+        match cli.command {
+            Commands::Setup { args } => assert_eq!(args, ["--product", "apm", "--help", "-x"]),
+            _ => panic!("expected the setup command"),
+        }
+    }
+
+    #[test]
+    fn setup_description_points_to_its_help() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        let setup = find_command(commands, &["setup"]).unwrap();
+        let description = setup["description"].as_str().unwrap_or_default();
+        assert!(
+            description.contains("Run `pup setup --help` to list products and their flags"),
+            "got: {description}"
+        );
+    }
+
+    #[test]
+    fn agent_help_passes_through_for_setup_only() {
+        let argv = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(help_belongs_to_wrapped_cli(&argv(&[
+            "pup", "--agent", "setup", "--help"
+        ])));
+        assert!(help_belongs_to_wrapped_cli(&argv(&[
+            "pup", "-o", "json", "setup", "-h"
+        ])));
+        assert!(!help_belongs_to_wrapped_cli(&argv(&[
+            "pup", "--agent", "logs", "--help"
+        ])));
+        assert!(!help_belongs_to_wrapped_cli(&argv(&["pup", "--help"])));
+    }
+
+    #[test]
+    fn setup_accepts_no_arguments() {
+        let cli = Cli::try_parse_from(["pup", "setup"]).unwrap();
+        match cli.command {
+            Commands::Setup { args } => assert!(args.is_empty()),
+            _ => panic!("expected the setup command"),
+        }
+    }
+
+    #[test]
+    fn setup_is_a_write_command_but_similar_names_are_not() {
+        assert!(is_write_command_name("setup"));
+        assert!(!is_write_command_name("setups"));
+        assert!(!is_write_command_name("list"));
     }
 
     #[test]
@@ -14694,6 +15020,13 @@ pub(crate) fn is_read_only_exempt(matches: &clap::ArgMatches) -> bool {
             matches.subcommand().and_then(|(_, m)| m.subcommand()),
             Some(("remote", _))
         ),
+        #[cfg(not(target_arch = "wasm32"))]
+        Some("setup") => matches
+            .subcommand_matches("setup")
+            .and_then(|m| m.get_many::<String>("args"))
+            .is_some_and(|args| {
+                commands::setup::is_help_request(&args.cloned().collect::<Vec<_>>())
+            }),
         _ => false,
     }
 }
@@ -15255,11 +15588,15 @@ mod resolve_output_format_tests {
 
 async fn main_inner() -> anyhow::Result<()> {
     // In agent mode, intercept --help to return a JSON schema instead of plain text.
-    let args: Vec<String> = std::env::args().collect();
+    let args = hoist_setup_global_flags(setup_help_alias(std::env::args().collect()));
     let has_help = args.iter().any(|a| a == "--help" || a == "-h");
     let has_agent_flag = args.iter().any(|a| a == "--agent");
     let has_no_agent_flag = args.iter().any(|a| a == "--no-agent");
-    if has_help && !has_no_agent_flag && (useragent::is_agent_mode() || has_agent_flag) {
+    if has_help
+        && !has_no_agent_flag
+        && (useragent::is_agent_mode() || has_agent_flag)
+        && !help_belongs_to_wrapped_cli(&args)
+    {
         let cmd = cli_command();
         if let Some(schema) = agent_help_schema(&cmd, &args) {
             println!("{}", serde_json::to_string_pretty(&schema).unwrap());
@@ -15302,7 +15639,7 @@ async fn main_inner() -> anyhow::Result<()> {
     let args = {
         let parsed = extensions::parse_extension_args(&args);
         if let Some(ref candidate) = parsed.candidate {
-            commands::alias::expand(&args, candidate)
+            hoist_setup_global_flags(commands::alias::expand(&args, candidate))
         } else {
             args
         }
@@ -15404,6 +15741,11 @@ async fn main_inner() -> anyhow::Result<()> {
     // Durable trust allowlist from the config file, sourced once for all gate calls.
     #[cfg(not(feature = "browser"))]
     let trusted_sites = config::configured_trusted_sites();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Commands::Setup { args } = &cli.command {
+        commands::setup::apply_site_arg(&mut cfg, args)?;
+    }
 
     // Gate credential dispatch to non-Datadog hosts before any command dispatches.
     // Auth subcommands resolve their own site late (after --site is applied in-arm),
@@ -20065,7 +20407,7 @@ async fn main_inner() -> anyhow::Result<()> {
                 // Coerce empty `--org-uuid ""` to no-hint so callees treat
                 // it the same as omitting the flag, not as `dd_oid=`.
                 let org_uuid_hint = org_uuid.as_deref().filter(|s| !s.is_empty());
-                commands::auth::login(&cfg, resolved, resolved_port, org_uuid_hint).await?
+                commands::auth::login(&cfg, resolved, resolved_port, org_uuid_hint).await?;
             }
             AuthActions::Logout => commands::auth::logout(&cfg).await?,
             AuthActions::Status { site } => {
@@ -20983,6 +21325,22 @@ async fn main_inner() -> anyhow::Result<()> {
                     commands::reference_tables::batch_query(&cfg, &file).await?;
                 }
             }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        Commands::Setup { args } => {
+            let login =
+                async |cfg: &config::Config| -> anyhow::Result<auth::storage::SessionEntry> {
+                    let scopes = resolve_login_scopes(
+                        None,
+                        Some(commands::setup::LOGIN_EXTRA_SCOPES),
+                        cfg.org.as_deref(),
+                        cfg.read_only,
+                    );
+                    let port = resolve_callback_port(None)?;
+                    commands::auth::login(cfg, scopes, port, None).await
+                };
+            let exit_code = commands::setup::run(&mut cfg, &args, login).await?;
+            std::process::exit(exit_code);
         }
         // --- Extensions ---
         #[cfg(not(target_arch = "wasm32"))]

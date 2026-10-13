@@ -47,7 +47,7 @@ pub async fn login(
     scopes: Vec<String>,
     callback_port: Option<u16>,
     org_uuid: Option<&str>,
-) -> Result<()> {
+) -> Result<storage::SessionEntry> {
     use crate::auth::{dcr, pkce};
 
     let site = &cfg.site;
@@ -238,11 +238,12 @@ pub async fn login(
     let saved_org_uuid = validated_dd_oid
         .map(String::from)
         .or_else(|| org_uuid.map(String::from));
-    storage::save_session(&storage::SessionEntry {
+    let session = storage::SessionEntry {
         site: effective_site.to_string(),
         org: saved_org.map(String::from),
         org_uuid: saved_org_uuid,
-    })?;
+    };
+    storage::save_session(&session)?;
 
     // Enforce the single-slot invariant: a bare login (no org) replaces any
     // previous no-org session on a different site so that
@@ -259,7 +260,7 @@ pub async fn login(
     eprintln!("   Access token expires: {expires_at}");
     eprintln!("   Token stored in: {location}");
 
-    Ok(())
+    Ok(session)
 }
 
 /// Pick the site to key the exchanged token, session, and DCR credential under.

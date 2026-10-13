@@ -199,6 +199,19 @@ brew tap datadog-labs/pack
 brew install datadog-labs/pack/pup
 ```
 
+### npm
+
+```bash
+# Run without installing
+npx @datadog/pup auth login
+npx @datadog/pup monitors list
+
+# Or install globally
+npm install -g @datadog/pup
+```
+
+See [npm/pup/README.md](npm/pup/README.md) for how the platform packages work.
+
 ### Build from Source
 
 ```bash

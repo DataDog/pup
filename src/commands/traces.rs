@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use datadog_api_client::datadogV2::api_spans::SpansAPI;
 use datadog_api_client::datadogV2::api_spans_metrics::SpansMetricsAPI;
 use datadog_api_client::datadogV2::model::{
@@ -10,8 +10,128 @@ use datadog_api_client::datadogV2::model::{
 
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 use crate::util;
 use crate::util_ext;
+
+fn validate_trace_id(trace_id: &str) -> Result<()> {
+    let hexadecimal = trace_id.len() == 32 && trace_id.bytes().all(|b| b.is_ascii_hexdigit());
+    let decimal = !trace_id.is_empty()
+        && trace_id.len() <= 39
+        && trace_id.bytes().all(|b| b.is_ascii_digit());
+    if !hexadecimal && !decimal {
+        bail!("trace ID must be 32 hexadecimal characters or a decimal string of up to 39 digits");
+    }
+    Ok(())
+}
+
+fn trace_metadata(response: &serde_json::Value) -> Result<formatter::Metadata> {
+    let spans = response
+        .pointer("/data/attributes/spans")
+        .and_then(serde_json::Value::as_array)
+        .context("trace response is missing the spans array")?;
+    let truncated = response
+        .pointer("/data/attributes/is_truncated")
+        .and_then(serde_json::Value::as_bool)
+        .context("trace response is missing the is_truncated flag")?;
+    Ok(formatter::Metadata {
+        count: Some(spans.len()),
+        truncated,
+        command: Some("traces get".into()),
+        next_action: None,
+    })
+}
+
+/// Retrieve the stored trace rather than only its indexed spans. Keep the raw
+/// JSON representation so numeric and string span IDs retain their precision.
+pub async fn get(cfg: &Config, trace_id: &str) -> Result<()> {
+    validate_trace_id(trace_id)?;
+    let response = raw_client::raw_get(cfg, &format!("/api/v2/trace/{trace_id}"), &[])
+        .await
+        .context("failed to get trace")?;
+    let metadata = trace_metadata(&response)?;
+    formatter::format_and_print(
+        &response,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&metadata),
+        cfg.jq.as_deref(),
+    )
+}
+
+/// Optional query parameters for the pruned trace endpoint.
+#[derive(Default)]
+pub struct PrunedTraceOptions {
+    pub expand_span_id: Option<u64>,
+    pub time_hint: Option<i64>,
+    pub force_source: Option<String>,
+    pub include_path: Vec<String>,
+    pub tag_include: Vec<String>,
+    pub tag_exclude: Vec<String>,
+    pub only_service_entry_spans: bool,
+}
+
+impl PrunedTraceOptions {
+    fn query_params(&self) -> Vec<(&'static str, String)> {
+        let mut params = Vec::new();
+        if let Some(id) = self.expand_span_id {
+            params.push(("expand_span_id", id.to_string()));
+        }
+        if let Some(hint) = self.time_hint {
+            params.push(("time_hint", hint.to_string()));
+        }
+        if let Some(source) = &self.force_source {
+            params.push(("force_source", source.clone()));
+        }
+        for (key, values) in [
+            ("include_path", &self.include_path),
+            ("tag_include", &self.tag_include),
+            ("tag_exclude", &self.tag_exclude),
+        ] {
+            params.extend(values.iter().map(|v| (key, v.clone())));
+        }
+        if self.only_service_entry_spans {
+            params.push(("only_service_entry_spans", "true".into()));
+        }
+        params
+    }
+}
+
+fn pruned_trace_metadata(response: &serde_json::Value) -> Result<formatter::Metadata> {
+    response
+        .pointer("/data/attributes/summarized_trace/root")
+        .and_then(serde_json::Value::as_object)
+        .context("pruned trace response is missing the summarized_trace root")?;
+    let truncated = response
+        .pointer("/data/attributes/is_truncated")
+        .and_then(serde_json::Value::as_bool)
+        .context("pruned trace response is missing the is_truncated flag")?;
+    Ok(formatter::Metadata {
+        count: None,
+        truncated,
+        command: Some("traces get --pruned".into()),
+        next_action: None,
+    })
+}
+
+/// Retrieve a pruned, summarized span tree for a trace. Like `get`, keep the
+/// raw JSON so 64-bit span IDs retain their precision.
+pub async fn get_pruned(cfg: &Config, trace_id: &str, opts: &PrunedTraceOptions) -> Result<()> {
+    validate_trace_id(trace_id)?;
+    let params = opts.query_params();
+    let query: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let response = raw_client::raw_get(cfg, &format!("/api/v2/pruned_trace/{trace_id}"), &query)
+        .await
+        .context("failed to get pruned trace")?;
+    let metadata = pruned_trace_metadata(&response)?;
+    formatter::format_and_print(
+        &response,
+        &cfg.output_format,
+        cfg.agent_mode,
+        Some(&metadata),
+        cfg.jq.as_deref(),
+    )
+}
 
 // ---------------------------------------------------------------------------
 // Spans Metrics
@@ -254,6 +374,295 @@ mod tests {
 
     use super::*;
     use datadog_api_client::datadogV2::model::SpansAggregationFunction;
+
+    #[test]
+    fn test_validate_trace_id() {
+        for id in [
+            "af3f0726cca34527c552a24cf0f406e6",
+            "AF3F0726CCA34527C552A24CF0F406E6",
+            "14218605424905815782",
+            "232942159015317696491581973883660797670",
+        ] {
+            assert!(validate_trace_id(id).is_ok(), "rejected {id}");
+        }
+        for id in [
+            "",
+            "../trace",
+            "1?unexpected=value",
+            "abc",
+            "-1",
+            "+1",
+            "af3f0726cca34527c552a24cf0f40xyz",
+            "3079693305339682435991237200369920885916",
+        ] {
+            assert!(validate_trace_id(id).is_err(), "accepted {id}");
+        }
+    }
+
+    #[test]
+    fn test_trace_metadata_and_id_precision() {
+        let response: serde_json::Value = serde_json::from_str(
+            r#"{"data":{"attributes":{"is_truncated":true,"spans":[
+                {"spanID":17158905238077369281,"parentID":"9329962688430045371"}
+            ]}}}"#,
+        )
+        .unwrap();
+        let metadata = trace_metadata(&response).unwrap();
+        assert_eq!(metadata.count, Some(1));
+        assert!(metadata.truncated);
+        assert_eq!(metadata.command.as_deref(), Some("traces get"));
+        assert_eq!(
+            response["data"]["attributes"]["spans"][0]["spanID"].as_u64(),
+            Some(17158905238077369281)
+        );
+        assert_eq!(
+            response["data"]["attributes"]["spans"][0]["parentID"],
+            "9329962688430045371"
+        );
+        let roundtrip: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&response).unwrap()).unwrap();
+        assert_eq!(response, roundtrip);
+    }
+
+    #[test]
+    fn test_trace_metadata_rejects_incomplete_response() {
+        for response in [
+            serde_json::json!(null),
+            serde_json::json!({"data":{"attributes":{"is_truncated":false}}}),
+            serde_json::json!({"data":{"attributes":{"spans":[],"is_truncated":"false"}}}),
+        ] {
+            assert!(trace_metadata(&response).is_err());
+        }
+        let response = serde_json::json!({"data":{"attributes":{"spans":[],"is_truncated":false}}});
+        assert!(!trace_metadata(&response).unwrap().truncated);
+    }
+
+    #[tokio::test]
+    async fn test_get_trace_uses_full_trace_endpoint_and_oauth() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.access_token = Some("test-trace-token".into());
+        cfg.agent_mode = true;
+        let mock = server.mock("GET", "/api/v2/trace/a8e0e1080f4403c7c7dc4c2e8eae3a34")
+            .match_query(mockito::Matcher::Missing)
+            .match_header("authorization", "Bearer test-trace-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"id":"a8e0e1080f4403c7c7dc4c2e8eae3a34","type":"trace","attributes":{"is_truncated":false,"spans":[{"spanID":"17158905238077369281","parentID":"0"}]}}}"#)
+            .create_async().await;
+        let result = get(&cfg, "a8e0e1080f4403c7c7dc4c2e8eae3a34").await;
+        cleanup_env();
+        assert!(result.is_ok(), "{result:?}");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_get_trace_rejects_invalid_input() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        assert!(get(&cfg, "../trace").await.is_err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_get_trace_propagates_http_errors() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        for status in [403, 404, 429] {
+            let mock = server
+                .mock("GET", "/api/v2/trace/14401469471269993012")
+                .with_status(status)
+                .with_body(r#"{"errors":[{"detail":"trace unavailable"}]}"#)
+                .create_async()
+                .await;
+            let error = get(&cfg, "14401469471269993012").await.unwrap_err();
+            assert_eq!(
+                error
+                    .downcast_ref::<raw_client::HttpError>()
+                    .unwrap()
+                    .status,
+                status as u16
+            );
+            mock.assert_async().await;
+        }
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_get_trace_rejects_malformed_response() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        for body in ["not JSON", r#"{"data":{"attributes":{"spans":[]}}}"#] {
+            let mock = server
+                .mock("GET", "/api/v2/trace/14401469471269993012")
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(body)
+                .create_async()
+                .await;
+            assert!(get(&cfg, "14401469471269993012").await.is_err());
+            mock.assert_async().await;
+        }
+        cleanup_env();
+    }
+
+    const PRUNED_BODY: &str = r#"{"data":{"id":"a8e0e1080f4403c7c7dc4c2e8eae3a34","type":"pruned_trace","attributes":{"is_truncated":false,"size_bytes":2048,"summarized_trace":{"traceId":"a8e0e1080f4403c7c7dc4c2e8eae3a34","root":{"spanID":17158905238077369281,"parentID":0,"hidden_child_spans_count":3,"children":[]}}}}}"#;
+
+    #[test]
+    fn test_pruned_trace_query_params() {
+        assert!(PrunedTraceOptions::default().query_params().is_empty());
+        let opts = PrunedTraceOptions {
+            expand_span_id: Some(17158905238077369281),
+            time_hint: Some(1700000000),
+            force_source: Some("hot".into()),
+            include_path: vec!["service:api".into(), "env:prod".into()],
+            tag_include: vec!["^http\\.".into()],
+            tag_exclude: vec!["^_dd\\.".into()],
+            only_service_entry_spans: true,
+        };
+        let params = opts.query_params();
+        let get = |key: &str| -> Vec<&str> {
+            params
+                .iter()
+                .filter(|(k, _)| *k == key)
+                .map(|(_, v)| v.as_str())
+                .collect()
+        };
+        assert_eq!(get("expand_span_id"), ["17158905238077369281"]);
+        assert_eq!(get("time_hint"), ["1700000000"]);
+        assert_eq!(get("force_source"), ["hot"]);
+        assert_eq!(get("include_path"), ["service:api", "env:prod"]);
+        assert_eq!(get("tag_include"), ["^http\\."]);
+        assert_eq!(get("tag_exclude"), ["^_dd\\."]);
+        assert_eq!(get("only_service_entry_spans"), ["true"]);
+    }
+
+    #[test]
+    fn test_pruned_trace_metadata() {
+        let response: serde_json::Value = serde_json::from_str(PRUNED_BODY).unwrap();
+        let metadata = pruned_trace_metadata(&response).unwrap();
+        assert_eq!(metadata.count, None);
+        assert!(!metadata.truncated);
+        assert_eq!(metadata.command.as_deref(), Some("traces get --pruned"));
+        assert_eq!(
+            response["data"]["attributes"]["summarized_trace"]["root"]["spanID"].as_u64(),
+            Some(17158905238077369281)
+        );
+        for response in [
+            serde_json::json!(null),
+            serde_json::json!({"data":{"attributes":{"is_truncated":false}}}),
+            serde_json::json!({"data":{"attributes":{"is_truncated":"true","summarized_trace":{"root":{}}}}}),
+        ] {
+            assert!(pruned_trace_metadata(&response).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_pruned_trace_uses_endpoint_and_query_params() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let mut cfg = test_config(&server.url());
+        cfg.access_token = Some("test-trace-token".into());
+        cfg.agent_mode = true;
+        let mock = server
+            .mock(
+                "GET",
+                "/api/v2/pruned_trace/a8e0e1080f4403c7c7dc4c2e8eae3a34",
+            )
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("expand_span_id".into(), "42".into()),
+                mockito::Matcher::UrlEncoded("include_path".into(), "service:api".into()),
+                mockito::Matcher::UrlEncoded("only_service_entry_spans".into(), "true".into()),
+            ]))
+            .match_header("authorization", "Bearer test-trace-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(PRUNED_BODY)
+            .create_async()
+            .await;
+        let opts = PrunedTraceOptions {
+            expand_span_id: Some(42),
+            include_path: vec!["service:api".into()],
+            only_service_entry_spans: true,
+            ..Default::default()
+        };
+        let result = get_pruned(&cfg, "a8e0e1080f4403c7c7dc4c2e8eae3a34", &opts).await;
+        cleanup_env();
+        assert!(result.is_ok(), "{result:?}");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_get_pruned_trace_sends_no_query_by_default() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/v2/pruned_trace/14401469471269993012")
+            .match_query(mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(PRUNED_BODY)
+            .create_async()
+            .await;
+        let result = get_pruned(&cfg, "14401469471269993012", &Default::default()).await;
+        cleanup_env();
+        assert!(result.is_ok(), "{result:?}");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_get_pruned_trace_rejects_invalid_input() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        assert!(get_pruned(&cfg, "../trace", &Default::default())
+            .await
+            .is_err());
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_get_pruned_trace_propagates_errors() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        for status in [403, 404, 429, 504] {
+            let mock = server
+                .mock("GET", "/api/v2/pruned_trace/14401469471269993012")
+                .with_status(status)
+                .with_body(r#"{"errors":[{"detail":"trace unavailable"}]}"#)
+                .create_async()
+                .await;
+            let error = get_pruned(&cfg, "14401469471269993012", &Default::default())
+                .await
+                .unwrap_err();
+            assert_eq!(
+                error
+                    .downcast_ref::<raw_client::HttpError>()
+                    .unwrap()
+                    .status,
+                status as u16
+            );
+            mock.assert_async().await;
+        }
+        let mock = server
+            .mock("GET", "/api/v2/pruned_trace/14401469471269993012")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"attributes":{"is_truncated":false}}}"#)
+            .create_async()
+            .await;
+        assert!(
+            get_pruned(&cfg, "14401469471269993012", &Default::default())
+                .await
+                .is_err()
+        );
+        mock.assert_async().await;
+        cleanup_env();
+    }
 
     #[test]
     fn test_parse_compute_count() {
@@ -505,6 +914,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_limit_too_small() {
+        let _lock = lock_env().await;
         let cfg = test_config("http://unused.local");
         let result = super::search(
             &cfg,
@@ -517,6 +927,7 @@ mod tests {
             false,
         )
         .await;
+        cleanup_env();
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -526,6 +937,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_limit_too_large() {
+        let _lock = lock_env().await;
         let cfg = test_config("http://unused.local");
         let result = super::search(
             &cfg,
@@ -538,6 +950,7 @@ mod tests {
             false,
         )
         .await;
+        cleanup_env();
         assert!(result.is_err());
         assert!(result
             .unwrap_err()

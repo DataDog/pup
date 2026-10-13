@@ -272,6 +272,11 @@ pup dbm samples search \
 
 `pup profiling` wraps a small, pup-CLI-scoped Continuous Profiler API.
 
+> **Reduced support guarantee:** `pup profiling` commands call unstable
+> (`/api/unstable/profiling/pup/...`) endpoints. These are supported for the latest pup
+> release, with older pup versions kept working for 30 days after a newer release. Upgrade
+> pup regularly if you depend on these commands.
+
 ### Search Profile Events
 ```bash
 pup profiling profiles list --query="service:my-service" --from="1h" --to="now" --limit=20
@@ -296,7 +301,7 @@ pup profiling services list --query="env:prod" --from="1h" --to="now"
 pup profiling profile-types list --query="service:my-service" --from="1h" --to="now"
 
 # Scoped to a specific trace
-pup profiling profile-types list --trace-id="trace-abc" --span-id="span-123" --from="1h" --to="now"
+pup profiling profile-types list --trace-id="trace-abc" --span-id="span-123" --time-hint="1700000000" --from="1h" --to="now"
 ```
 
 ### Explore a Flame Graph / Top Stack Traces
@@ -319,6 +324,42 @@ pup profiling explore flamegraph \
   --profile-type="cpu-time" \
   --profile-id="prof-123" --event-id="AwAAAaB7..." \
   --from="1h" --to="now"
+```
+
+### Explore a Call Graph
+```bash
+pup profiling explore callgraph \
+  --profile-type="cpu-time" \
+  --query="service:my-service" \
+  --from="1h" --to="now" \
+  -o json
+
+# Filter to frames matching a glob pattern, scoped to a specific trace instead of --query
+pup profiling explore callgraph \
+  --profile-type="cpu-time" \
+  --trace-id="trace-abc" --span-id="span-123" --time-hint="1700000000" \
+  --frame-filter="*MyService*" \
+  --from="1h" --to="now"
+```
+
+### Explore a Timeline
+```bash
+# Summarize a single profile's timeline (top lane groups by activity)
+pup profiling explore timeline \
+  --profile-id="prof-123" --event-id="AwAAAaB7..."
+
+# Recent timeline of one process, drilling into one lane group
+# (use a "groupName" returned by a previous call)
+pup profiling explore timeline \
+  --runtime-id="0b1c2d3e-..." \
+  --query="service:my-service" \
+  --from="15m" --to="now" \
+  --focus-lane-group="<groupName>"
+
+# Timeline around a span, restricted to its critical path (Go only)
+pup profiling explore timeline \
+  --trace-id="trace-abc" --span-id="span-123" --time-hint="1700000000" \
+  --critical-path
 ```
 
 ## Change Stories

@@ -25,7 +25,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | auth | login, logout, status, token, refresh | src/commands/auth.rs | ✅ |
 | metrics | query, list, search, timeseries, metadata, tags, submit | src/commands/metrics.rs | ✅ |
 | logs | search, list, aggregate, patterns, saved-views (list, get, create, delete) | src/commands/logs.rs | ✅ |
-| traces | metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
+| traces | get, search, aggregate, metrics (list, get, create, update, delete) | src/commands/traces.rs | ✅ |
 | monitors | list, get, create, update, delete, search, diff | src/commands/monitors.rs | ✅ |
 | dashboards | list, get, create, update, diff, delete, url, annotations (list, get-page, create, update, delete) | src/commands/dashboards.rs, src/commands/annotations.rs | ✅ |
 | snapshots | create | src/commands/snapshots.rs | ✅ |
@@ -62,12 +62,13 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | containers | list, images (list) | src/commands/containers.rs | ✅ |
 | costs | datadog (projected, attribution, by-org, aws-config, azure-config, gcp-config), ccm (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments) | src/commands/cost.rs, src/commands/cost_ccm.rs | ✅ |
 | product-analytics | events send | src/commands/product_analytics.rs | ✅ |
-| profiling | profiles (list, download), services (list), profile-types (list), explore (flamegraph) | src/commands/profiling.rs | ✅ |
+| experiments | list, get, create, update, delete, start, conclude, cancel, diagnostics, traffic-summary, results, refresh-results, analysis-plan (get, update), metric-groups (list, create, create-from-collection, update, delete), metrics (list, get, create, update, delete), metric-collections (list, get, create, update, delete), subject-types (list, get, create, update, delete, set-default), protocols (list, get) | src/commands/experiments.rs | ✅ |
+| profiling | profiles (list, download), services (list), profile-types (list), explore (flamegraph, callgraph, timeline) | src/commands/profiling.rs | ✅ |
 | datasets | list, get, create, update, delete | src/commands/datasets.rs | ✅ |
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
 | obs-pipelines | list, get, create, update, diff, delete, validate | src/commands/obs_pipelines.rs | ✅ |
-| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get), runs (list, status), topics, topics-with-points, points), agent-insights (list, get, update-status, submit-feedback), annotation-queues (create, list, update, delete, interactions (add, delete, list), schema (get, update), annotations (upsert, delete)), model-pricing | src/commands/llm_obs.rs | ✅ |
+| llm-obs | projects (create, list), experiments (create, list, update, delete, summary, events (list, get, submit), metric-values, dimension-values), datasets (create, list, batch-update, clone, restore, records, records-add, records-all, records-full), spans (search), patterns (configs (list, get, create, update), runs (list, status), topics, topics-with-points, points), agent-insights (list, get, update-status, submit-feedback), annotation-queues (create, list, update, delete, interactions (add, delete, list), schema (get, update), annotations (upsert, delete)), model-pricing | src/commands/llm_obs.rs | ✅ |
 | reference-tables | list, get, create, batch-query | src/commands/reference_tables.rs | ✅ |
 | network | flows list, devices (list, get, interfaces, tags), interfaces (list, update) | src/commands/network.rs | ✅ |
 | cloud | aws, gcp, azure, oci | src/commands/cloud.rs | ✅ |
@@ -105,6 +106,33 @@ pup dashboards list
 pup <domain> get <id>
 pup monitors get 12345678
 pup slos get abc-123-def
+```
+
+### Full Trace Retrieval
+
+`traces get` uses the preview `GET /api/v2/trace/{trace_id}` endpoint rather than
+indexed span search. It requires `apm_read` and accepts a 32-character hex ID or
+up to 39 decimal digits. To save the full response without reading it into agent
+context, redirect stdout:
+
+```bash
+pup --agent --read-only traces get <TRACE_ID> > trace.json
+```
+
+In agent mode, spans are under `.data.attributes.spans`; check
+`.data.attributes.is_truncated` before treating the response as complete.
+The command requests all available fields. Preserve integer ID precision when
+parsing the saved JSON.
+
+`traces get --pruned` uses the preview `GET /api/v2/pruned_trace/{trace_id}`
+endpoint, which returns a summarized span tree instead of the full span list.
+It also requires `apm_read`. The tree is under `.data.attributes.summarized_trace.root`,
+and the pruning flags below are rejected unless `--pruned` is set. Each node's `hidden_child_spans_count` shows how many child spans were pruned.
+
+```bash
+pup traces get <TRACE_ID> --pruned --only-service-entry-spans
+pup traces get <TRACE_ID> --pruned --expand-span-id=<SPAN_ID>
+pup traces get <TRACE_ID> --pruned --include-path="service:api" --tag-exclude="^_dd\."
 ```
 
 ### Search/Query
@@ -181,7 +209,7 @@ pup infrastructure hosts list
 - **metrics** - Time-series metrics (query, list, get, search)
 - **logs** - Log search and analysis (search, list, aggregate, saved views)
 - **dbm** - Database Monitoring query samples (samples search)
-- **traces** - APM spans metrics (list, get, create, update, delete)
+- **traces** - Full trace retrieval, span search/aggregation, and span-based metrics
 - **rum** - Real User Monitoring (apps, metrics, retention-filters, sessions)
 - **events** - Infrastructure events (post, list, search, get)
 - **ddsql** - DDSQL queries and discovery (table, spec, schema)
@@ -200,7 +228,8 @@ pup infrastructure hosts list
 - **infrastructure** - Host inventory (hosts list, hosts get)
 - **network** - Network monitoring (flows list, devices list/get/interfaces/tags, interfaces list/update)
 - **tags** - Host tag management (list, get, add, update, delete)
-- **profiling** - Continuous Profiler search/download (profiles list/download, services list, profile-types list, explore flamegraph)
+- **profiling** - Continuous Profiler search/download (profiles list/download, services list, profile-types list, explore flamegraph/callgraph/timeline)
+  - Uses unstable `/api/unstable/profiling/pup/...` endpoints with a reduced support guarantee: the latest pup release, plus 30 days for older versions (see [EXAMPLES.md](EXAMPLES.md#continuous-profiler))
 
 ### Security & Compliance
 - **security** - Security monitoring (rules, signals, findings, content-packs, risk-scores)

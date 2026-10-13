@@ -3,13 +3,14 @@
 # (ci-cd.yml on pull_request); this one trusts the merge-queue workflow that, at merge time, repoints
 # pup's Cargo.toml at the just-merged Rust client commit and merges pup's generated PR.
 issuer: https://token.actions.githubusercontent.com
-subject_pattern: repo:DataDog/datadog-api-spec:ref:refs/heads/mq-working-branch-.*
+# GitHub OIDC `sub` claims in the ddoghq enterprise embed numeric org/repo IDs.
+subject_pattern: 'repo:(DataDog/datadog-api-spec|ddoghq/datadog-api-spec|ddoghq@230443989/datadog-api-spec@1405341541):ref:refs/heads/mq-working-branch-.*'
 
 claim_pattern:
   event_name: push
   ref: refs/heads/mq-working-branch-.*
-  job_workflow_ref: DataDog/datadog-api-spec/\.github/workflows/merge-queue\.yml@.*
-  repository: DataDog/datadog-api-spec
+  job_workflow_ref: '(DataDog|ddoghq)/datadog-api-spec/\.github/workflows/merge-queue\.yml@.*'
+  repository: '(DataDog|ddoghq)/datadog-api-spec'
 
 permissions:
   contents: write

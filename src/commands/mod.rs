@@ -34,9 +34,16 @@ pub mod ddsql;
 pub mod debugger;
 pub mod deployment_gates;
 pub mod docs;
+#[cfg(not(all(
+    generated_op = "downtime.list",
+    generated_op = "downtime.get",
+    generated_op = "downtime.create",
+    generated_op = "downtime.cancel"
+)))]
 pub mod downtime;
 pub mod error_tracking;
 pub mod events;
+pub mod experiments;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod extension;
 pub mod feature_flags;

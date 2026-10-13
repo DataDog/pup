@@ -35,12 +35,9 @@ use datadog_api_client::datadogV2::model::{
 const SCHEMA_URL: &str = "https://docs.datadoghq.com/security/guide/findings-schema.md";
 const SCHEMA_SECTION_MARKER: &str = "## Schema Reference";
 
-/// Fetch the security findings schema reference from Datadog docs.
-///
-/// Downloads the markdown page at runtime, extracts everything after
-/// "## Schema Reference", and strips template directives ({% ... %})
-/// so the output is clean, readable plaintext/markdown.
-async fn fetch_schema_markdown() -> Result<String> {
+/// Fetch the raw "## Schema Reference" section of the security findings
+/// schema page from Datadog docs, template directives ({% ... %}) intact.
+async fn fetch_schema_section() -> Result<String> {
     let resp = reqwest::Client::new()
         .get(SCHEMA_URL)
         .header("User-Agent", crate::useragent::get())
@@ -74,8 +71,13 @@ async fn fetch_schema_markdown() -> Result<String> {
         .map(|pos| schema_section[..pos].trim_end())
         .unwrap_or(schema_section);
 
-    // Strip template directives: {% ... %}
-    let mut cleaned = strip_template_directives(schema_section);
+    Ok(schema_section.to_string())
+}
+
+/// Fetch the security findings schema reference from Datadog docs as clean,
+/// readable markdown (template directives stripped, source attributed).
+async fn fetch_schema_markdown() -> Result<String> {
+    let mut cleaned = strip_template_directives(&fetch_schema_section().await?);
 
     // Add source attribution
     cleaned.push_str("\n\n---\n*This schema was fetched from Datadog public documentation.*\n");
@@ -107,7 +109,118 @@ fn strip_template_directives(input: &str) -> String {
     lines.join("\n")
 }
 
-pub async fn findings_schema(cfg: &Config) -> Result<()> {
+/// One queryable attribute from the findings schema reference.
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct SchemaField {
+    /// Query path, e.g. `@advisory.cve`.
+    path: String,
+    #[serde(rename = "type")]
+    type_: String,
+    /// Top-level namespace heading, e.g. `Advisory`.
+    section: String,
+    description: String,
+}
+
+/// Parse the attribute tables of the raw schema section. Each row looks like
+/// "| `cve` | string | **Path:** `@advisory.cve`Primary identifier... |".
+/// A `{% collapsible-section %}` marker followed by a `###` heading starts a
+/// new top-level namespace; nested `###` headings stay in that namespace.
+fn parse_schema_fields(raw: &str) -> Vec<SchemaField> {
+    let mut fields = Vec::new();
+    let mut section = String::new();
+    let mut at_namespace_start = false;
+    for line in raw.lines().map(str::trim) {
+        if line.starts_with("{% collapsible-section") {
+            at_namespace_start = true;
+        } else if let Some(heading) = line.strip_prefix("### ") {
+            if at_namespace_start || section.is_empty() {
+                section = heading
+                    .split("{%")
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+            }
+            at_namespace_start = false;
+        } else if let Some(field) = parse_schema_row(line, &section) {
+            fields.push(field);
+        }
+    }
+    fields
+}
+
+fn parse_schema_row(line: &str, section: &str) -> Option<SchemaField> {
+    let row = line.strip_prefix("| `")?.strip_suffix('|')?;
+    let mut cells = row.splitn(3, '|').skip(1).map(str::trim);
+    let type_ = cells.next()?.to_string();
+    let rest = cells.next()?.strip_prefix("**Path:** `")?;
+    let (path, description) = rest.split_once('`')?;
+    Some(SchemaField {
+        path: path.to_string(),
+        type_,
+        section: section.to_string(),
+        description: description.trim().to_string(),
+    })
+}
+
+/// Keep fields in `section` (case-insensitive substring of the namespace)
+/// whose path or description contains `search` (case-insensitive). Errors
+/// when `section` matches no namespace, listing the valid ones.
+fn filter_schema_fields(
+    fields: Vec<SchemaField>,
+    search: Option<&str>,
+    section: Option<&str>,
+) -> Result<Vec<SchemaField>> {
+    let section = section.map(|s| s.trim().to_lowercase());
+    if section.as_deref() == Some("") {
+        anyhow::bail!("--section term must not be empty");
+    }
+    if let Some(wanted) = &section {
+        if !fields
+            .iter()
+            .any(|f| f.section.to_lowercase().contains(wanted.as_str()))
+        {
+            let mut sections: Vec<&str> = fields.iter().map(|f| f.section.as_str()).collect();
+            sections.dedup();
+            anyhow::bail!(
+                "no schema section matches '{wanted}'; available sections: {}",
+                sections.join(", ")
+            );
+        }
+    }
+    let search = search.map(|s| s.trim().to_lowercase());
+    if search.as_deref() == Some("") {
+        anyhow::bail!("--search term must not be empty");
+    }
+    Ok(fields
+        .into_iter()
+        .filter(|f| {
+            section
+                .as_deref()
+                .is_none_or(|s| f.section.to_lowercase().contains(s))
+        })
+        .filter(|f| {
+            search.as_deref().is_none_or(|q| {
+                f.path.to_lowercase().contains(q) || f.description.to_lowercase().contains(q)
+            })
+        })
+        .collect())
+}
+
+pub async fn findings_schema(
+    cfg: &Config,
+    search: Option<String>,
+    section: Option<String>,
+) -> Result<()> {
+    if search.is_some() || section.is_some() {
+        let fields = parse_schema_fields(&fetch_schema_section().await?);
+        if fields.is_empty() {
+            anyhow::bail!("could not parse any fields from {SCHEMA_URL}; the page format may have changed (run without --search/--section for the raw reference)");
+        }
+        let fields = filter_schema_fields(fields, search.as_deref(), section.as_deref())?;
+        return formatter::output(cfg, &fields);
+    }
+
     let schema = fetch_schema_markdown().await?;
 
     if cfg.agent_mode {
@@ -746,6 +859,125 @@ mod tests {
         let input = "| Name | Type |\n| ---- | ---- |\n| `severity` | string |";
         let result = strip_template_directives(input);
         assert_eq!(result, input);
+    }
+
+    const SCHEMA_FIXTURE: &str = "## Schema Reference{% #schema-reference %}
+
+{% collapsible-section #core-attributes %}
+### Core Attributes
+
+| Attribute name | Type   | Description |
+| -------------- | ------ | ----------- |
+| `severity`     | string | **Path:** `@severity`Final severity level. Valid values: `critical`, `high`. |
+| `status`       | string | **Path:** `@status`Workflow status of the finding. |
+
+### Additional Resources{% #additional-resources %}
+
+| Attribute name | Type   | Description |
+| -------------- | ------ | ----------- |
+| `key`          | string | **Path:** `@additional_resources.key`Canonical Cloud Resource Identifier. |
+
+{% /collapsible-section %}
+
+{% collapsible-section #advisory %}
+### Advisory
+
+| Attribute name | Type           | Description |
+| -------------- | -------------- | ----------- |
+| `aliases`      | array (string) | **Path:** `@advisory.aliases`Additional identifiers. |
+| `cve`          | string         | **Path:** `@advisory.cve`Primary CVE identifier. |
+
+{% /collapsible-section %}
+";
+
+    #[test]
+    fn test_parse_schema_fields_extracts_rows_with_namespaces() {
+        let fields = parse_schema_fields(SCHEMA_FIXTURE);
+        let paths: Vec<&str> = fields.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "@severity",
+                "@status",
+                "@additional_resources.key",
+                "@advisory.aliases",
+                "@advisory.cve"
+            ]
+        );
+        // Nested headings stay in their namespace.
+        assert_eq!(fields[2].section, "Core Attributes");
+        assert_eq!(fields[4].section, "Advisory");
+        assert_eq!(fields[3].type_, "array (string)");
+        assert_eq!(
+            fields[0].description,
+            "Final severity level. Valid values: `critical`, `high`."
+        );
+    }
+
+    #[test]
+    fn test_parse_schema_fields_ignores_non_attribute_lines() {
+        let input = "### Core Attributes\n| Attribute name | Type |\n| --- | --- |\n| `x` | string | no path marker |\nprose";
+        assert!(parse_schema_fields(input).is_empty());
+    }
+
+    #[test]
+    fn test_filter_schema_fields_by_search() {
+        let fields = parse_schema_fields(SCHEMA_FIXTURE);
+        let found = filter_schema_fields(fields, Some("CVE"), None).unwrap();
+        let paths: Vec<&str> = found.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["@advisory.cve"]);
+    }
+
+    #[test]
+    fn test_filter_schema_fields_search_matches_description() {
+        let fields = parse_schema_fields(SCHEMA_FIXTURE);
+        let found = filter_schema_fields(fields, Some("workflow"), None).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, "@status");
+    }
+
+    #[test]
+    fn test_filter_schema_fields_by_section_and_search() {
+        let fields = parse_schema_fields(SCHEMA_FIXTURE);
+        let all = filter_schema_fields(fields, None, Some("advisory")).unwrap();
+        assert_eq!(all.len(), 2);
+        let fields = parse_schema_fields(SCHEMA_FIXTURE);
+        let both = filter_schema_fields(fields, Some("alias"), Some("ADVISORY")).unwrap();
+        assert_eq!(both.len(), 1);
+        assert_eq!(both[0].path, "@advisory.aliases");
+    }
+
+    #[test]
+    fn test_filter_schema_fields_no_match_is_empty() {
+        let fields = parse_schema_fields(SCHEMA_FIXTURE);
+        assert!(filter_schema_fields(fields, Some("zzz"), None)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn test_filter_schema_fields_unknown_section_lists_available() {
+        let fields = parse_schema_fields(SCHEMA_FIXTURE);
+        let err = filter_schema_fields(fields, None, Some("nope"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no schema section matches 'nope'"), "{err}");
+        assert!(err.contains("Core Attributes, Advisory"), "{err}");
+    }
+
+    #[test]
+    fn test_filter_schema_fields_rejects_blank_section() {
+        for blank in ["", "   "] {
+            let fields = parse_schema_fields(SCHEMA_FIXTURE);
+            let err = filter_schema_fields(fields, None, Some(blank)).unwrap_err();
+            assert!(err.to_string().contains("--section term must not be empty"));
+        }
+    }
+
+    #[test]
+    fn test_filter_schema_fields_rejects_blank_search() {
+        let fields = parse_schema_fields(SCHEMA_FIXTURE);
+        assert!(filter_schema_fields(fields, Some(" "), None).is_err());
     }
 
     #[test]

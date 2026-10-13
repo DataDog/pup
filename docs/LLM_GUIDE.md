@@ -60,7 +60,22 @@ pup metrics --help   # Only metrics commands
 ```bash
 pup agent schema              # Full JSON schema
 pup agent schema --compact    # Minimal schema (names + flags only, fewer tokens)
+pup agent schema logs aggregate   # One command, plus its response shape (also: logs.aggregate)
+pup agent schema logs             # One domain, with a response shape for each subcommand
+pup agent schema --search cache   # Find leaf commands by path or description
 ```
+
+A path lookup prints minified JSON with:
+
+- `envelope`: the agent-mode `{status, data, metadata}` contract, including how
+  `data` is hoisted, what `--no-agent` and `--jq` see, and how errors are reported.
+- `returns` on each leaf command: `documented` (`true` when the shape is
+  hand-verified), a JSON Schema for `data`, the `metadata` keys present, a
+  `jq_root` expression for `--jq`, and, for single-command lookups, a worked `example`.
+  Commands with `documented: false` pass the Datadog API body through and do
+  not publish a shape yet.
+
+The no-argument and `--compact` forms are unchanged.
 
 ## Authentication
 

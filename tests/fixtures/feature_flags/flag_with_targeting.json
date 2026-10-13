@@ -1,0 +1,171 @@
+{
+  "data": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "type": "feature-flags",
+    "attributes": {
+      "archived_at": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "created_by": "00000000-0000-4000-8000-000000000002",
+      "description": "test-string-1",
+      "distribution_channel": "SERVER",
+      "feature_flag_environments": [
+        {
+          "environment_id": "00000000-0000-4000-8000-000000000003",
+          "environment_name": "Development",
+          "environment_queries": [
+            "test-string-2"
+          ],
+          "status": "DISABLED",
+          "default_variant_id": "00000000-0000-4000-8000-000000000004",
+          "override_variant_id": null,
+          "default_allocation_key": "test-string-3",
+          "override_allocation_key": "test-string-4",
+          "allocations": null,
+          "is_production": true,
+          "require_feature_flag_approval": false,
+          "observe_full_evaluation_data": false,
+          "pending_suggestion_id": null
+        },
+        {
+          "environment_id": "00000000-0000-4000-8000-000000000005",
+          "environment_name": "Staging",
+          "environment_queries": [
+            "test-string-5"
+          ],
+          "status": "DISABLED",
+          "default_variant_id": "00000000-0000-4000-8000-000000000004",
+          "override_variant_id": null,
+          "default_allocation_key": "test-string-6",
+          "override_allocation_key": "test-string-7",
+          "allocations": [
+            {
+              "id": "00000000-0000-4000-8000-000000000006",
+              "name": "test-string-8",
+              "key": "00000000-0000-4000-8000-000000000007",
+              "targeting_rules": [
+                {
+                  "id": "00000000-0000-4000-8000-000000000008",
+                  "conditions": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000009",
+                      "operator": "ONE_OF",
+                      "attribute": "test-string-9",
+                      "value": [
+                        "test-string-10"
+                      ],
+                      "created_at": "2026-01-01T00:00:00Z",
+                      "updated_at": "2026-01-01T00:00:00Z"
+                    }
+                  ],
+                  "created_at": "2026-01-01T00:00:00Z",
+                  "updated_at": "2026-01-01T00:00:00Z"
+                }
+              ],
+              "variant_weights": [
+                {
+                  "id": "00000000-0000-4000-8000-000000000010",
+                  "created_at": "2026-01-01T00:00:00Z",
+                  "updated_at": "2026-01-01T00:00:00Z",
+                  "value": 100,
+                  "variant_id": "00000000-0000-4000-8000-000000000011",
+                  "variant": {
+                    "id": "00000000-0000-4000-8000-000000000011",
+                    "key": "true",
+                    "name": "test-string-12",
+                    "value": "true",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z"
+                  }
+                }
+              ],
+              "order_position": 0,
+              "environment_ids": [
+                "00000000-0000-4000-8000-000000000005"
+              ],
+              "exposure_schedule": {
+                "id": "00000000-0000-4000-8000-000000000012",
+                "allocation_id": "00000000-0000-4000-8000-000000000006",
+                "control_variant_id": null,
+                "absolute_start_time": "2026-01-01T00:00:00Z",
+                "scheduled_start_time": null,
+                "rollout_options": {
+                  "strategy": "NO_ROLLOUT",
+                  "autostart": true,
+                  "selection_interval_ms": 0
+                },
+                "rollout_steps": [
+                  {
+                    "id": "00000000-0000-4000-8000-000000000013",
+                    "allocation_exposure_schedule_id": "00000000-0000-4000-8000-000000000012",
+                    "order_position": 0,
+                    "exposure_ratio": 1,
+                    "interval_ms": null,
+                    "is_pause_record": false,
+                    "grouped_step_index": 0,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z"
+                  }
+                ],
+                "guardrail_triggers": [],
+                "guardrail_triggered_action": null,
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z"
+              },
+              "experiment_id": null,
+              "type": "FEATURE_GATE",
+              "status": "published",
+              "guardrail_metrics": [],
+              "created_at": "2026-01-01T00:00:00Z",
+              "updated_at": "2026-01-01T00:00:00Z"
+            }
+          ],
+          "is_production": true,
+          "require_feature_flag_approval": false,
+          "observe_full_evaluation_data": false,
+          "pending_suggestion_id": null
+        }
+      ],
+      "is_favorite": false,
+      "key": "test-string-14",
+      "last_updated_by": "00000000-0000-4000-8000-000000000002",
+      "name": "test-string-14",
+      "require_approval": false,
+      "staleness_details": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "staleness_status": "ACTIVE",
+        "stale_reason": null,
+        "recommended_actions": null,
+        "code_references": [],
+        "skip_state_check_until": null,
+        "dismissed_by": null
+      },
+      "staleness_status": "ACTIVE",
+      "tags": [
+        "test-string-15",
+        "test-string-16",
+        "test-string-17",
+        "test-string-18"
+      ],
+      "updated_at": "2026-01-01T00:00:00Z",
+      "value_type": "BOOLEAN",
+      "variants": [
+        {
+          "id": "00000000-0000-4000-8000-000000000004",
+          "key": "false",
+          "name": "test-string-20",
+          "value": "false",
+          "created_at": "2026-01-01T00:00:00Z",
+          "updated_at": "2026-01-01T00:00:00Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000011",
+          "key": "true",
+          "name": "test-string-12",
+          "value": "true",
+          "created_at": "2026-01-01T00:00:00Z",
+          "updated_at": "2026-01-01T00:00:00Z"
+        }
+      ]
+    }
+  }
+}

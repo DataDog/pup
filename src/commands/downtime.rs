@@ -1,11 +1,14 @@
 use anyhow::Result;
+use datadog_api_client::datadogV2::api_downtimes::DowntimesAPI;
 #[cfg(not(generated_op = "downtime.get"))]
 use datadog_api_client::datadogV2::api_downtimes::GetDowntimeOptionalParams;
-use datadog_api_client::datadogV2::api_downtimes::{DowntimesAPI, ListDowntimesOptionalParams};
+#[cfg(not(generated_op = "downtime.list"))]
+use datadog_api_client::datadogV2::api_downtimes::ListDowntimesOptionalParams;
 
 use crate::config::Config;
 use crate::formatter;
 
+#[cfg(not(generated_op = "downtime.list"))]
 pub async fn list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(DowntimesAPI, cfg);
     let resp = api
@@ -52,6 +55,7 @@ mod tests {
 
     use crate::test_support::*;
 
+    #[cfg(not(generated_op = "downtime.list"))]
     #[tokio::test]
     async fn test_downtime_list() {
         let _lock = lock_env().await;

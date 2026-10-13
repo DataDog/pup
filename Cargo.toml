@@ -1,6 +1,6 @@
 [package]
 name = "pup"
-version = "1.23.7"
+version = "1.26.0"
 edition = "2021"
 rust-version = "1.93.1"
 publish = false
@@ -126,7 +126,7 @@ aes-gcm = { version = "0.11", optional = true }
 # Synthetics tunnel
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"], optional = true }
 yamux = { version = "0.14", optional = true }
-russh = { version = "0.62", optional = true }
+russh = { version = "0.63", optional = true }
 ssh-key = { version = "0.6", features = ["p256", "std"], optional = true }
 futures = { version = "0.3", optional = true }
 tokio-util = { version = "0.7", features = ["compat", "io"], optional = true }
@@ -136,7 +136,7 @@ zip = { version = "8", default-features = false, features = ["deflate"], optiona
 
 # Datadog API client — pinned to 0.33.0 tag
 # Use default-features = false; feature sets are activated per-target via features above
-datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "03c935aa8f9e32dec4bddfa96d361059eefa78cc", optional = true, default-features = false }
+datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "9c0ff3bccf8c75142f42ac95fc83011d73a34f8c", optional = true, default-features = false }
 
 # HTTP middleware (version-matched to DD client; compiles on all targets)
 reqwest-middleware = "0.5"

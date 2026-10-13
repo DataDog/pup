@@ -438,6 +438,49 @@ pub fn config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("pup"))
 }
 
+/// Directory for file-backed authentication data. Keep this separate from
+/// config_dir(): aliases, runbooks, and extensions retain their native platform
+/// locations, while auth files follow the documented XDG path on macOS.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn auth_config_dir() -> Option<PathBuf> {
+    resolve_auth_config_dir(
+        std::env::var("PUP_CONFIG_DIR").ok(),
+        std::env::var("XDG_CONFIG_HOME").ok(),
+        dirs::home_dir(),
+        dirs::config_dir(),
+        cfg!(target_os = "macos"),
+    )
+}
+
+#[cfg(all(target_arch = "wasm32", not(feature = "browser")))]
+pub fn auth_config_dir() -> Option<PathBuf> {
+    std::env::var("PUP_CONFIG_DIR").ok().map(PathBuf::from)
+}
+
+#[cfg(feature = "browser")]
+pub fn auth_config_dir() -> Option<PathBuf> {
+    None
+}
+
+fn resolve_auth_config_dir(
+    pup_config_dir: Option<String>,
+    xdg_config_home: Option<String>,
+    home_dir: Option<PathBuf>,
+    native_config_dir: Option<PathBuf>,
+    is_macos: bool,
+) -> Option<PathBuf> {
+    if let Some(dir) = pup_config_dir.filter(|dir| !dir.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    if is_macos {
+        if let Some(dir) = xdg_config_home.filter(|dir| !dir.is_empty()) {
+            return Some(PathBuf::from(dir).join("pup"));
+        }
+        return home_dir.map(|home| home.join(".config").join("pup"));
+    }
+    native_config_dir.map(|dir| dir.join("pup"))
+}
+
 /// WASI: use PUP_CONFIG_DIR env var or return None
 #[cfg(all(target_arch = "wasm32", not(feature = "browser")))]
 pub fn config_dir() -> Option<PathBuf> {
@@ -453,25 +496,24 @@ pub fn config_dir() -> Option<PathBuf> {
 /// Returns candidate config.yaml paths in priority order.
 ///
 /// On macOS, `dirs::config_dir()` returns `~/Library/Application Support` rather
-/// than `~/.config`. To keep the documented `~/.config/pup/config.yaml` path
-/// working cross-platform, the XDG-style path is checked as a fallback when
-/// `PUP_CONFIG_DIR` has not been set explicitly.
+/// than `~/.config`. The auth config directory is also checked as a fallback so
+/// both XDG_CONFIG_HOME and the documented `~/.config/pup` path work there.
 #[cfg(not(feature = "browser"))]
-fn config_file_candidates() -> Vec<PathBuf> {
+pub(crate) fn config_file_candidates() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(dir) = config_dir() {
         paths.push(dir.join("config.yaml"));
     }
-    // On macOS, also try the XDG-style path as a fallback. Skip when
-    // PUP_CONFIG_DIR is set so explicit overrides are fully respected.
+    // Keep the explicit PUP_CONFIG_DIR authoritative; otherwise try the
+    // XDG-compatible auth directory after the native config location.
     #[cfg(all(not(target_arch = "wasm32"), target_os = "macos"))]
     if std::env::var("PUP_CONFIG_DIR")
         .ok()
         .filter(|s| !s.is_empty())
         .is_none()
     {
-        if let Some(home) = dirs::home_dir() {
-            let xdg = home.join(".config/pup/config.yaml");
+        if let Some(dir) = auth_config_dir() {
+            let xdg = dir.join("config.yaml");
             if !paths.contains(&xdg) {
                 paths.push(xdg);
             }
@@ -1593,6 +1635,59 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_auth_config_dir_override_wins_over_xdg() {
+        let resolved = resolve_auth_config_dir(
+            Some("/custom/pup".into()),
+            Some("/xdg".into()),
+            Some("/home/test".into()),
+            Some("/native/config".into()),
+            true,
+        );
+        assert_eq!(resolved, Some("/custom/pup".into()));
+    }
+
+    #[test]
+    fn test_auth_config_dir_macos_honors_xdg_config_home() {
+        let resolved = resolve_auth_config_dir(
+            None,
+            Some("/xdg".into()),
+            Some("/home/test".into()),
+            Some("/native/config".into()),
+            true,
+        );
+        assert_eq!(resolved, Some("/xdg/pup".into()));
+    }
+
+    #[test]
+    fn test_auth_config_dir_macos_defaults_to_dot_config() {
+        let resolved = resolve_auth_config_dir(
+            None,
+            None,
+            Some("/home/test".into()),
+            Some("/native/config".into()),
+            true,
+        );
+        assert_eq!(resolved, Some("/home/test/.config/pup".into()));
+        assert_eq!(
+            resolve_auth_config_dir(None, None, None, None, true),
+            None,
+            "macOS default requires a home directory"
+        );
+    }
+
+    #[test]
+    fn test_auth_config_dir_non_macos_keeps_native_location() {
+        let resolved = resolve_auth_config_dir(
+            None,
+            None,
+            Some("/home/test".into()),
+            Some("/native/config".into()),
+            false,
+        );
+        assert_eq!(resolved, Some("/native/config/pup".into()));
+    }
+
     // --- config_file_candidates tests ---
 
     #[test]
@@ -1616,7 +1711,13 @@ mod tests {
         let _guard = ENV_LOCK.blocking_lock();
         std::env::remove_var("PUP_CONFIG_DIR");
         let candidates = config_file_candidates();
-        let xdg = dirs::home_dir().unwrap().join(".config/pup/config.yaml");
+        let xdg_home = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|dir| !dir.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| dirs::home_dir().map(|home| home.join(".config")))
+            .unwrap();
+        let xdg = xdg_home.join("pup/config.yaml");
         assert!(
             candidates.contains(&xdg),
             "XDG fallback should be in candidates on macOS: {candidates:?}"
@@ -1631,7 +1732,13 @@ mod tests {
         std::env::set_var("PUP_CONFIG_DIR", &tmp);
         let candidates = config_file_candidates();
         std::env::remove_var("PUP_CONFIG_DIR");
-        let xdg = dirs::home_dir().unwrap().join(".config/pup/config.yaml");
+        let xdg_home = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|dir| !dir.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| dirs::home_dir().map(|home| home.join(".config")))
+            .unwrap();
+        let xdg = xdg_home.join("pup/config.yaml");
         assert_eq!(
             candidates.len(),
             1,

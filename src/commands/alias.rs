@@ -78,7 +78,11 @@ pub fn delete(names: Vec<String>) -> Result<()> {
 /// Core expansion logic, operating on an already-loaded alias map.
 /// Exposed separately so unit tests can exercise it without touching the
 /// filesystem.
-fn apply_expansion(args: &[String], name: &str, aliases: &BTreeMap<String, String>) -> Vec<String> {
+pub(crate) fn apply_expansion(
+    args: &[String],
+    name: &str,
+    aliases: &BTreeMap<String, String>,
+) -> Vec<String> {
     // Built-in commands cannot be shadowed by aliases.
     #[cfg(not(target_arch = "wasm32"))]
     if crate::extensions::is_builtin_command(name) {

@@ -77,8 +77,21 @@ pub fn returns_for(full_path: &str) -> serde_json::Value {
         "traces search" => traces_search_returns(),
         "metrics query" | "metrics search" => metrics_query_returns(),
         "security findings schema" => findings_schema_returns(),
+        "setup" => setup_returns(),
         _ => generic_returns(),
     }
+}
+
+fn setup_returns() -> serde_json::Value {
+    serde_json::json!({
+        "documented": false,
+        "data": {"description": "No envelope and no API body: AI Setup's output is passed through to stdout and stderr."},
+        "notes": [
+            "Headless runs (an AI agent is detected, or there is no terminal) print AI_SETUP_PROGRESS lines and end with one AI_SETUP_RESULT line: `status=success product=<product> code=0 url=<next step>` or `status=error product=<product> code=<n> reason=\"<message>\"`.",
+            "The exit code is AI Setup's: 0 on success, non-zero on failure.",
+            "Needs Node.js 22+ and npx; without them pup prints how to install them and exits 1."
+        ]
+    })
 }
 
 fn generic_returns() -> serde_json::Value {

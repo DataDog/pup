@@ -11,12 +11,16 @@ pub fn exec_extension(ext_path: &Path, args: &[String], cfg: &Config) -> Result<
 
     inject_auth_env(&mut cmd, cfg);
 
+    run_inherited(cmd, &format!("extension {}", ext_path.display()))
+}
+
+pub(crate) fn run_inherited(mut cmd: std::process::Command, label: &str) -> Result<i32> {
     let status = cmd
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .status()
-        .map_err(|e| anyhow::anyhow!("failed to execute extension {}: {e}", ext_path.display()))?;
+        .map_err(|e| anyhow::anyhow!("failed to execute {label}: {e}"))?;
 
     // On Unix, if the process was killed by a signal, status.code() returns None.
     // Use the standard convention of 128 + signal_number.
@@ -37,7 +41,7 @@ pub fn exec_extension(ext_path: &Path, args: &[String], cfg: &Config) -> Result<
 /// Set (or remove) auth and config environment variables on the child process command.
 /// Variables not active in the current config are explicitly removed to prevent
 /// stale credentials from leaking through the parent environment.
-fn inject_auth_env(cmd: &mut std::process::Command, cfg: &Config) {
+pub(crate) fn inject_auth_env(cmd: &mut std::process::Command, cfg: &Config) {
     // Always set site and output format.
     cmd.env("DD_SITE", &cfg.site);
     cmd.env("PUP_OUTPUT", cfg.output_format.to_string());

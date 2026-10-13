@@ -1,0 +1,28 @@
+{
+  "name": "@datadog/pup",
+  "version": "0.0.0",
+  "description": "Datadog CLI for AI agents and humans",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DataDog/pup.git",
+    "directory": "npm/pup"
+  },
+  "bin": {
+    "pup": "bin/pup.js"
+  },
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@datadog/pup-darwin-arm64": "0.0.0",
+    "@datadog/pup-darwin-x64": "0.0.0",
+    "@datadog/pup-linux-arm64": "0.0.0",
+    "@datadog/pup-linux-x64": "0.0.0",
+    "@datadog/pup-win32-x64": "0.0.0"
+  }
+}

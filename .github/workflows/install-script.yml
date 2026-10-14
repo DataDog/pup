@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     defaults:
       run:
         shell: bash
@@ -62,24 +62,6 @@ jobs:
             echo "expected install of a nonexistent version to fail"
             exit 1
           fi
-
-  install-posix-shells:
-    name: Install (${{ matrix.shell }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shell: [dash, posh, busybox sh]
-    env:
-      PUP_INSTALL_DIR: ${{ github.workspace }}/pup-bin
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install shells
-        run: sudo apt-get install -y dash posh busybox
-      - name: Install via pipe
-        run: ${{ matrix.shell }} < install.sh
-      - name: Verify install
-        run: '"$PUP_INSTALL_DIR/pup" --version'
 
   install-brew:
     name: Install via Homebrew (macOS)

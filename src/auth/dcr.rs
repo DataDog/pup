@@ -71,8 +71,8 @@ struct TokenResponse {
 impl DcrClient {
     pub fn new(site: &str) -> Self {
         Self {
-            api_host: crate::config::api_host_for(site),
-            auth_host: crate::config::auth_host_for(site),
+            api_host: crate::settings::api_host_for(site),
+            auth_host: crate::settings::auth_host_for(site),
             site: site.to_string(),
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))

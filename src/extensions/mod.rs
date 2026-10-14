@@ -141,7 +141,7 @@ impl PreParsedGlobals {
         }
         if let Some(ref org) = self.org {
             #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-            config::apply_org_override(cfg, org.clone())?;
+            crate::settings::apply_org_override(cfg, org.clone())?;
             #[cfg(any(feature = "browser", target_arch = "wasm32"))]
             {
                 cfg.org = Some(org.clone());

@@ -2,10 +2,10 @@ use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::config;
+use crate::settings;
 
 fn aliases_path() -> Result<PathBuf> {
-    let dir = config::config_dir().context("could not determine config directory")?;
+    let dir = settings::config_dir().context("could not determine config directory")?;
     Ok(dir.join("aliases.yaml"))
 }
 

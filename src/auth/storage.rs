@@ -68,7 +68,7 @@ pub struct FileStorage {
 impl FileStorage {
     pub fn new() -> Result<Self> {
         let base_dir =
-            crate::config::auth_config_dir().context("could not determine config directory")?;
+            crate::settings::auth_config_dir().context("could not determine config directory")?;
         std::fs::create_dir_all(&base_dir)
             .with_context(|| format!("failed to create config dir: {}", base_dir.display()))?;
         Ok(Self {
@@ -196,7 +196,7 @@ fn legacy_auth_config_dir() -> Option<PathBuf> {
             true,
             std::env::var("PUP_CONFIG_DIR").ok(),
             legacy_dir,
-            crate::config::auth_config_dir(),
+            crate::settings::auth_config_dir(),
         )
     }
     #[cfg(not(target_os = "macos"))]
@@ -873,7 +873,7 @@ fn read_config_token_storage() -> Option<String> {
 
     // Use the same candidates as config loading so XDG_CONFIG_HOME and the
     // documented macOS fallback are honored consistently.
-    let candidates = crate::config::config_file_candidates();
+    let candidates = crate::settings::config_file_candidates();
 
     // Mirror load_config_file(): use the first readable file, parse only that one.
     // This avoids the subtle case where the primary file exists but lacks
@@ -951,7 +951,7 @@ fn parse_token_map(json: &str) -> Result<OrgTokenMap> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn sessions_path() -> Option<std::path::PathBuf> {
-    crate::config::auth_config_dir().map(|d| d.join("sessions.json"))
+    crate::settings::auth_config_dir().map(|d| d.join("sessions.json"))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

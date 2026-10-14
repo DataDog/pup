@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Shellcheck
-        run: shellcheck install.sh
+        run: shellcheck --shell=sh install.sh
 
   install:
     name: Install (${{ matrix.os }})
@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install latest via pipe
-        run: bash < install.sh
+        run: sh < install.sh
       - name: Verify latest version
         run: |
           latest="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/DataDog/pup/releases/latest)"
@@ -51,17 +51,35 @@ jobs:
           "$PUP_INSTALL_DIR/pup" --version | tee version.txt
           grep -F "$latest" version.txt
       - name: Install pinned version with v prefix
-        run: PUP_VERSION=v1.27.0 bash install.sh
+        run: PUP_VERSION=v1.27.0 sh install.sh
       - name: Verify pinned version
         run: |
           "$PUP_INSTALL_DIR/pup" --version | tee version.txt
           grep -F "1.27.0" version.txt
       - name: Nonexistent version fails
         run: |
-          if PUP_VERSION=0.0.0 bash install.sh; then
+          if PUP_VERSION=0.0.0 sh install.sh; then
             echo "expected install of a nonexistent version to fail"
             exit 1
           fi
+
+  install-posix-shells:
+    name: Install (${{ matrix.shell }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [dash, posh, busybox sh]
+    env:
+      PUP_INSTALL_DIR: ${{ github.workspace }}/pup-bin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install shells
+        run: sudo apt-get install -y dash posh busybox
+      - name: Install via pipe
+        run: ${{ matrix.shell }} < install.sh
+      - name: Verify install
+        run: '"$PUP_INSTALL_DIR/pup" --version'
 
   install-brew:
     name: Install via Homebrew (macOS)
@@ -72,7 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install via pipe
-        run: bash < install.sh 2>&1 | tee install.log
+        run: sh < install.sh 2>&1 | tee install.log
       - name: Verify Homebrew was used
         run: |
           grep -F "Homebrew detected" install.log

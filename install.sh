@@ -1,7 +1,7 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Install the pup CLI (https://github.com/DataDog/pup).
 #
-#   curl -fsSL https://raw.githubusercontent.com/DataDog/pup/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/DataDog/pup/main/install.sh | sh
 #
 # On macOS with Homebrew available, installs via `brew install datadog-labs/pack/pup`.
 # Everywhere else (Linux, macOS without Homebrew, Windows via Git Bash/MSYS2/Cygwin),
@@ -37,7 +37,7 @@ detect_os() {
 }
 
 detect_arch() {
-  local os="$1" arch
+  os="$1"
   arch="$(uname -m)"
   case "$arch" in
     x86_64 | amd64) arch=x86_64 ;;
@@ -57,7 +57,6 @@ detect_arch() {
 }
 
 latest_version() {
-  local url
   # Follow the /releases/latest redirect instead of the rate-limited GitHub API.
   url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest")" ||
     die "could not resolve the latest release"
@@ -78,7 +77,8 @@ sha256_of() {
 }
 
 verify_checksum() {
-  local file="$1" checksums="$2" name expected actual
+  file="$1"
+  checksums="$2"
   name="$(basename "$file")"
   expected="$(awk -v f="$name" '$2 == f {print $1}' "$checksums")"
   [ -n "$expected" ] || die "no checksum listed for $name"
@@ -87,7 +87,8 @@ verify_checksum() {
 }
 
 extract() {
-  local archive="$1" dest="$2"
+  archive="$1"
+  dest="$2"
   case "$archive" in
     *.tar.gz) tar -xzf "$archive" -C "$dest" ;;
     *.zip)
@@ -108,7 +109,7 @@ install_with_brew() {
 }
 
 install_direct() {
-  local os="$1" arch version ext bin asset base tmp install_dir
+  os="$1"
   arch="$(detect_arch "$os")"
   version="${PUP_VERSION:-$(latest_version)}"
   version="${version#v}"
@@ -123,7 +124,7 @@ install_direct() {
   install_dir="${PUP_INSTALL_DIR:-$HOME/.local/bin}"
 
   tmp="$(mktemp -d)"
-  # shellcheck disable=SC2064 # expand $tmp now; it is local to this function
+  # shellcheck disable=SC2064 # expand $tmp now, not when the trap fires
   trap "rm -rf '$tmp'" EXIT
 
   say "downloading $asset"
@@ -152,7 +153,6 @@ install_direct() {
 
 main() {
   need uname
-  local os
   os="$(detect_os)"
   if [ "$os" = Darwin ] && [ "${PUP_NO_BREW:-0}" != 1 ] && command -v brew >/dev/null 2>&1; then
     install_with_brew
@@ -164,5 +164,6 @@ main() {
   install_direct "$os"
 }
 
-# Everything runs from main so a truncated `curl | bash` download executes nothing.
-main "$@"
+# POSIX sh: no `local`, so function variables are script-global.
+# Everything runs from main so a truncated `curl | sh` download executes nothing.
+main

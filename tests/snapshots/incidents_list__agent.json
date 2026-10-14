@@ -16,5 +16,33 @@
     },
     "type": "str"
   },
+  "included": [
+    "<list>",
+    {
+      "attributes": {
+        "*": "<...>"
+      },
+      "id": "<uuid>",
+      "relationships": {
+        "*": {
+          "data": [
+            "<empty_list>"
+          ]
+        }
+      },
+      "type": "str"
+    }
+  ],
+  "meta": {
+    "*": {
+      "next_offset": "int",
+      "offset": "int",
+      "size": "int"
+    }
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

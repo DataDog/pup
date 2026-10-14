@@ -88,5 +88,9 @@
     ],
     "total": "int"
   },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

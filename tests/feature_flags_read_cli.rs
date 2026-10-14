@@ -50,7 +50,7 @@ fn get_preserves_targeting_allocations() {
 
     let actual = payload(pup(
         &server,
-        &["--no-agent", "feature-flags", "flags", "get", FLAG_ID],
+        &["--no-envelope", "feature-flags", "flags", "get", FLAG_ID],
     ));
     assert_eq!(actual, expected);
     mock.assert();
@@ -68,7 +68,7 @@ fn get_preserves_flags_without_targeting() {
             .create();
         let actual = payload(pup(
             &server,
-            &["--no-agent", "feature-flags", "flags", "get", FLAG_ID],
+            &["--no-envelope", "feature-flags", "flags", "get", FLAG_ID],
         ));
         assert_eq!(actual, expected);
         mock.assert();
@@ -82,7 +82,13 @@ fn get_rejects_invalid_id_without_requesting_api() {
     let mock = server.mock("GET", mockito::Matcher::Any).expect(0).create();
     let output = pup(
         &server,
-        &["--no-agent", "feature-flags", "flags", "get", "not-a-uuid"],
+        &[
+            "--no-envelope",
+            "feature-flags",
+            "flags",
+            "get",
+            "not-a-uuid",
+        ],
     );
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("invalid feature flag ID"));
@@ -99,7 +105,7 @@ fn get_reports_api_errors() {
         .create();
     let output = pup(
         &server,
-        &["--no-agent", "feature-flags", "flags", "get", FLAG_ID],
+        &["--no-envelope", "feature-flags", "flags", "get", FLAG_ID],
     );
     assert!(!output.status.success());
     let error = String::from_utf8_lossy(&output.stderr);
@@ -118,7 +124,7 @@ fn get_reports_invalid_json() {
         .create();
     let output = pup(
         &server,
-        &["--no-agent", "feature-flags", "flags", "get", FLAG_ID],
+        &["--no-envelope", "feature-flags", "flags", "get", FLAG_ID],
     );
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("failed to get feature flag"));
@@ -136,7 +142,7 @@ fn get_preserves_rate_limit_errors() {
         .create();
     let output = pup(
         &server,
-        &["--no-agent", "feature-flags", "flags", "get", FLAG_ID],
+        &["--no-envelope", "feature-flags", "flags", "get", FLAG_ID],
     );
     let expected_exit_code = if cfg!(unix) { 429 % 256 } else { 429 };
     assert_eq!(output.status.code(), Some(expected_exit_code));

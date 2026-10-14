@@ -26,9 +26,13 @@
         "text": "str",
         "title": "str",
         "url": "str",
-        "host": "str"
+        "host": "<uuid>"
       }
     ]
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
   },
   "status": "str"
 }

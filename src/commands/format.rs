@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::io::Read;
 
 use crate::config::Config;
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 
 #[derive(Default)]
 pub struct FormatOptions<'a> {
@@ -18,15 +18,15 @@ pub struct FormatOptions<'a> {
 /// Render JSON through pup's formatter.
 ///
 /// Reads a JSON document from stdin (default) or `--input FILE`, then prints it
-/// using the configured output format (`--output`, `$DD_OUTPUT`/`$PUP_OUTPUT`) and
-/// agent mode. This lets an extension in any language produce JSON and reuse pup's
-/// table/yaml/csv/tsv rendering and agent envelope instead of reimplementing them.
+/// using the configured output format (`--output`, `$DD_OUTPUT`/`$PUP_OUTPUT`). This
+/// lets an extension in any language produce JSON and reuse pup's JSON envelope and
+/// table/yaml/csv/tsv rendering instead of reimplementing them.
 ///
-/// `rows_at`, `row_at`, and `columns` provide table-only presentation hints. They do not
-/// project or otherwise change JSON, YAML, CSV, or TSV output.
+/// `rows_at`, `row_at`, and `columns` select the rows and columns for table, CSV, and
+/// TSV output. They do not project or otherwise change JSON or YAML output.
 ///
-/// The optional metadata flags populate the agent-mode envelope and are ignored
-/// for non-agent, non-JSON formats.
+/// `count`, `command`, and `next_action` override the envelope's metadata; unset
+/// fields are derived from the document as for any other command.
 pub fn run(cfg: &Config, input: Option<&str>, options: FormatOptions<'_>) -> Result<()> {
     let raw = read_input(input, std::io::stdin().lock())?;
     render(cfg, &raw, options)
@@ -50,6 +50,7 @@ fn render(cfg: &Config, raw: &str, options: FormatOptions<'_>) -> Result<()> {
     }
 
     let value: Value = serde_json::from_str(raw).context("input is not valid JSON")?;
+    let piped = crate::output::unwrap_envelope(&value);
     let FormatOptions {
         count,
         command,
@@ -58,19 +59,6 @@ fn render(cfg: &Config, raw: &str, options: FormatOptions<'_>) -> Result<()> {
         row_at,
         columns,
     } = options;
-
-    // Only build a metadata envelope when at least one field is supplied; otherwise
-    // pass None so the output matches `pup api` / other commands with no metadata.
-    let meta = if count.is_some() || command.is_some() || next_action.is_some() {
-        Some(Metadata {
-            count,
-            truncated: false,
-            command,
-            next_action,
-        })
-    } else {
-        None
-    };
 
     let columns: Vec<&str> = columns
         .iter()
@@ -85,13 +73,43 @@ fn render(cfg: &Config, raw: &str, options: FormatOptions<'_>) -> Result<()> {
     if let Some(pointer) = row_at {
         table = table.row_at(pointer);
     }
-    formatter::format_and_print_with_table(
-        &value,
+    let Some((body, piped_meta)) = piped else {
+        let meta = formatter::Metadata {
+            count,
+            command,
+            next_action,
+            ..Default::default()
+        };
+        return formatter::format_and_print_with(
+            &value,
+            &cfg.output_format,
+            cfg.jq.as_deref(),
+            Some(&meta),
+            Some(table),
+        );
+    };
+    let meta = formatter::Metadata {
+        count: count.or(piped_meta.count),
+        command: command.or(piped_meta.command),
+        next_action: next_action.or(piped_meta.next_action),
+        ..piped_meta
+    };
+    // Re-render pup's own envelope (e.g. `pup api ... | pup format`) rather
+    // than wrapping it again. Rebuilding it from the unwrapped body would be
+    // lossy (`[1]` and `{"data": [1]}` produce the same envelope), so JSON and
+    // YAML print the piped envelope as-is, with any metadata overrides.
+    if crate::output::metadata_visible(&cfg.output_format) && cfg.jq.is_none() {
+        let mut envelope = value;
+        envelope["metadata"] = serde_json::to_value(&meta)?;
+        return crate::output::print_envelope(&envelope, &cfg.output_format);
+    }
+    // Rows (table/CSV/TSV), `--jq`, and `--no-envelope` work on the body.
+    formatter::format_and_print_with(
+        &body,
         &cfg.output_format,
-        cfg.agent_mode,
-        meta.as_ref(),
         cfg.jq.as_deref(),
-        table,
+        Some(&meta),
+        Some(table),
     )
 }
 
@@ -131,13 +149,13 @@ mod tests {
     #[test]
     fn test_render_stdin_table() {
         // The primary documented path: JSON piped via stdin, rendered as a table.
-        let cfg = cfg_with(OutputFormat::Table, false);
+        let cfg = cfg_with(OutputFormat::Table);
         let raw = read_input(None, Cursor::new(b"[{\"id\":1}]".to_vec())).unwrap();
         let result = render(&cfg, &raw, FormatOptions::default());
         assert!(result.is_ok(), "stdin render failed: {:?}", result.err());
     }
 
-    fn cfg_with(format: OutputFormat, agent_mode: bool) -> Config {
+    fn cfg_with(format: OutputFormat) -> Config {
         Config {
             api_key: None,
             app_key: None,
@@ -147,7 +165,6 @@ mod tests {
             org: None,
             output_format: format,
             auto_approve: false,
-            agent_mode,
             read_only: false,
             jq: None,
         }
@@ -156,7 +173,7 @@ mod tests {
     #[test]
     fn test_run_reads_file_input_json() {
         let path = write_temp_json("pup_format_input.json", r#"[{"id":1,"name":"x"}]"#);
-        let cfg = cfg_with(OutputFormat::Json, false);
+        let cfg = cfg_with(OutputFormat::Json);
         let result = run(&cfg, path.to_str(), FormatOptions::default());
         std::fs::remove_file(&path).ok();
         assert!(
@@ -169,7 +186,7 @@ mod tests {
     #[test]
     fn test_run_table_format_from_file() {
         let path = write_temp_json("pup_format_table.json", r#"[{"id":1,"name":"x"}]"#);
-        let cfg = cfg_with(OutputFormat::Table, false);
+        let cfg = cfg_with(OutputFormat::Table);
         let result = run(&cfg, path.to_str(), FormatOptions::default());
         std::fs::remove_file(&path).ok();
         assert!(result.is_ok(), "table format failed: {:?}", result.err());
@@ -177,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_render_table_with_explicit_rows_and_columns() {
-        let cfg = cfg_with(OutputFormat::Table, false);
+        let cfg = cfg_with(OutputFormat::Table);
         let columns = vec!["name".to_string(), "id".to_string()];
         let result = render(
             &cfg,
@@ -194,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_render_table_rejects_missing_rows_path() {
-        let cfg = cfg_with(OutputFormat::Table, false);
+        let cfg = cfg_with(OutputFormat::Table);
         let result = render(
             &cfg,
             r#"{"results":[]}"#,
@@ -208,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_non_table_output_ignores_table_hints() {
-        let cfg = cfg_with(OutputFormat::Json, false);
+        let cfg = cfg_with(OutputFormat::Json);
         let result = render(
             &cfg,
             r#"{"results":[]}"#,
@@ -221,26 +238,21 @@ mod tests {
     }
 
     #[test]
-    fn test_run_agent_envelope_with_metadata() {
-        let path = write_temp_json("pup_format_agent.json", r#"{"data":[]}"#);
-        let cfg = cfg_with(OutputFormat::Json, true);
-        let result = run(
-            &cfg,
-            path.to_str(),
-            FormatOptions {
-                count: Some(0),
-                command: Some("format".into()),
-                ..FormatOptions::default()
-            },
-        );
-        std::fs::remove_file(&path).ok();
-        assert!(result.is_ok(), "agent envelope failed: {:?}", result.err());
+    fn test_render_json_with_metadata_flags() {
+        let cfg = cfg_with(OutputFormat::Json);
+        let options = FormatOptions {
+            count: Some(0),
+            command: Some("format".into()),
+            next_action: Some("next".into()),
+            ..FormatOptions::default()
+        };
+        assert!(render(&cfg, "[]", options).is_ok());
     }
 
     #[test]
     fn test_run_invalid_json_errors() {
         let path = write_temp_json("pup_format_bad.json", "{not json");
-        let cfg = cfg_with(OutputFormat::Json, false);
+        let cfg = cfg_with(OutputFormat::Json);
         let result = run(&cfg, path.to_str(), FormatOptions::default());
         std::fs::remove_file(&path).ok();
         assert!(result.is_err(), "expected error for invalid JSON");
@@ -249,7 +261,7 @@ mod tests {
     #[test]
     fn test_run_empty_input_errors() {
         let path = write_temp_json("pup_format_empty.json", "   \n");
-        let cfg = cfg_with(OutputFormat::Json, false);
+        let cfg = cfg_with(OutputFormat::Json);
         let result = run(&cfg, path.to_str(), FormatOptions::default());
         std::fs::remove_file(&path).ok();
         assert!(result.is_err(), "expected error for empty input");
@@ -257,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_run_missing_file_errors() {
-        let cfg = cfg_with(OutputFormat::Json, false);
+        let cfg = cfg_with(OutputFormat::Json);
         let result = run(
             &cfg,
             Some("/nonexistent/pup-format/x.json"),

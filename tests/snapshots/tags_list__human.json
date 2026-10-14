@@ -1,8 +1,15 @@
 {
-  "tags": {
-    "*": [
-      "<list>",
-      "str"
-    ]
-  }
+  "data": {
+    "tags": {
+      "*": [
+        "<list>",
+        "str"
+      ]
+    }
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

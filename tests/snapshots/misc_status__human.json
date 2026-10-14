@@ -1,4 +1,11 @@
 {
-  "message": "str",
+  "data": {
+    "message": "str",
+    "status": "str"
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

@@ -16,5 +16,9 @@
     },
     "type": "str"
   },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

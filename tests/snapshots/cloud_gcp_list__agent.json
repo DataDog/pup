@@ -22,5 +22,10 @@
       "resource_collection_enabled": "bool"
     }
   ],
+  "metadata": {
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
+  },
   "status": "str"
 }

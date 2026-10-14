@@ -9,7 +9,7 @@ use anyhow::Result;
 use serde_json::json;
 
 use crate::config::Config;
-use crate::formatter::{self, Metadata};
+use crate::formatter;
 use crate::raw_client;
 use crate::util_ext;
 
@@ -100,20 +100,7 @@ pub async fn profiles_list(
     )
     .await
     .map_err(|e| anyhow::anyhow!("failed to list profile events: {e:?}"))?;
-    let count = resp.get("data").and_then(|d| d.as_array()).map(|a| a.len());
-    let meta = Metadata {
-        count,
-        truncated: count == Some(limit as usize),
-        command: Some("pup profiling profiles list".to_string()),
-        next_action: None,
-    };
-    formatter::format_and_print(
-        &resp,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::format_and_print(&resp, &cfg.output_format, cfg.jq.as_deref())
 }
 
 pub async fn profiles_download(
@@ -424,7 +411,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         }

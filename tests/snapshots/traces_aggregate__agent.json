@@ -9,8 +9,13 @@
       "type": "str"
     }
   ],
+  "meta": {
+    "*": "int"
+  },
   "metadata": {
-    "command": "str"
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
   },
   "status": "str"
 }

@@ -1,69 +1,69 @@
 {
-  "data": [
-    "<list>",
-    {
-      "created_at": "int",
-      "creator": {
-        "email": "str",
-        "handle": "str",
-        "name": "str"
-      },
-      "description": "str",
-      "id": "<hash>",
-      "modified_at": "int",
-      "monitor_ids": [
-        "<list>",
-        "int"
-      ],
-      "monitor_tags": [
-        "<empty_list>"
-      ],
-      "name": "str",
-      "tags": [
-        "<empty_list>"
-      ],
-      "target_threshold": "float",
-      "thresholds": [
-        "<list>",
-        {
-          "target": "float",
-          "target_display": "str",
-          "timeframe": "str"
-        }
-      ],
-      "timeframe": "str",
-      "type": "str",
-      "type_id": "int",
-      "query": {
-        "denominator": "str",
-        "numerator": "str"
-      },
-      "sli_specification": {
-        "count": {
-          "good_events_formula": {
-            "formula": "<...>"
-          },
-          "queries": [
-            "<list>",
-            "<...>"
-          ],
-          "total_events_formula": {
-            "formula": "<...>"
+  "data": {
+    "data": [
+      "<list>",
+      {
+        "created_at": "int",
+        "creator": {
+          "email": "str",
+          "handle": "str",
+          "name": "str"
+        },
+        "description": "str",
+        "id": "<hash>",
+        "modified_at": "int",
+        "monitor_ids": [
+          "<list>",
+          "int"
+        ],
+        "monitor_tags": [
+          "<empty_list>"
+        ],
+        "name": "str",
+        "tags": [
+          "<empty_list>"
+        ],
+        "target_threshold": "float",
+        "thresholds": [
+          "<list>",
+          {
+            "target": "<...>",
+            "target_display": "<...>",
+            "timeframe": "<...>"
           }
-        }
-      },
-      "warning_threshold": "float",
-      "groups": [
-        "<list>",
-        "str"
-      ]
+        ],
+        "timeframe": "str",
+        "type": "str",
+        "type_id": "int",
+        "query": {
+          "denominator": "str",
+          "numerator": "str"
+        },
+        "sli_specification": {
+          "count": {
+            "good_events_formula": "<...>",
+            "queries": "<...>",
+            "total_events_formula": "<...>"
+          }
+        },
+        "warning_threshold": "float",
+        "groups": [
+          "<list>",
+          "str"
+        ]
+      }
+    ],
+    "error": "NoneType",
+    "metadata": {
+      "page": {
+        "total_count": "int",
+        "total_filtered_count": "int"
+      }
     }
-  ],
-  "error": "NoneType",
+  },
   "metadata": {
-    "page": {
-      "total_count": "int",
-      "total_filtered_count": "int"
-    }
-  }
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

@@ -1,13 +1,21 @@
-[
-  "<list>",
-  {
-    "expires_at": "NoneType",
-    "has_refresh": "bool",
-    "org": "str",
-    "scopes": [
-      "<empty_list>"
-    ],
-    "site": "str",
-    "status": "str"
-  }
-]
+{
+  "data": [
+    "<list>",
+    {
+      "expires_at": "NoneType",
+      "has_refresh": "bool",
+      "org": "str",
+      "scopes": [
+        "<empty_list>"
+      ],
+      "site": "str",
+      "status": "str"
+    }
+  ],
+  "metadata": {
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
+  },
+  "status": "str"
+}

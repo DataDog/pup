@@ -13,7 +13,6 @@
         "<list>",
         {
           "end": "int",
-          "impacted_region": "str",
           "start": "int",
           "status": "str"
         }
@@ -23,5 +22,10 @@
       "status_url": "<url>"
     }
   ],
+  "metadata": {
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
+  },
   "status": "str"
 }

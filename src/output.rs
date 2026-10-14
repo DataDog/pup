@@ -3,6 +3,9 @@ use serde::Serialize;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::IsTerminal;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
+
 use crate::config::OutputFormat;
 use crate::filter;
 
@@ -73,36 +76,6 @@ impl<'a> TableOptions<'a> {
         self
     }
 }
-
-/// Agent mode metadata envelope.
-#[derive(Serialize)]
-pub struct Metadata {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub count: Option<usize>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub truncated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub command: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_action: Option<String>,
-}
-
-/// Note injected into `metadata.note` of every agent-mode JSON envelope so
-/// an LLM authoring a script for the user to run later is reminded that
-/// this envelope only appears in agent mode — without `--no-agent` the
-/// user will get raw JSON and any script depending on `.data` / `.status`
-/// will silently break.
-pub const AGENT_ENVELOPE_NOTE: &str = "This envelope (status/data/metadata) \
-    only appears in agent mode. If you are writing a script the user will \
-    run outside this agent session, append --no-agent so the output format \
-    matches what they will see.";
-
-/// Appended to `metadata.note` when `--jq` ran, so an agent reading the
-/// enveloped output knows to write jq expressions against the raw payload
-/// (the value under `.data`), not against the envelope itself.
-pub const JQ_FILTER_NOTE: &str = "This output was filtered by --jq, which runs on \
-    the response payload (the value shown under .data), not on this envelope. \
-    Write jq expressions against the payload (e.g. .[]), not .data[].";
 
 const ANSI_RESET: &str = "\x1b[0m";
 const ANSI_BOLD_CYAN: &str = "\x1b[1;36m";
@@ -190,191 +163,465 @@ fn go_html_escape(json: &str) -> String {
         .replace('>', "\\u003e")
 }
 
-/// After a `--jq` filter rewrites the payload, the caller's `count`/`truncated`
-/// describe the pre-filter data and would mislead agents. Drop them, keeping
-/// `command`/`next_action`. `None` in → `None` out (envelope behaves as for a
-/// command that supplies no metadata). `Metadata`'s `skip_serializing_if` on
-/// both fields makes them disappear from the JSON.
-fn strip_counts_after_filter(meta: Option<&Metadata>) -> Option<Metadata> {
-    let m = meta?;
-    Some(Metadata {
-        count: None,
-        truncated: false,
-        command: m.command.clone(),
-        next_action: m.next_action.clone(),
+/// Metadata in the `metadata` field of the default JSON envelope.
+///
+/// Commands set only what the response cannot tell pup on its own;
+/// `resolve_metadata` fills in the count, command path, continuation cursor,
+/// and truncation flag from the response itself.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Metadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<usize>,
+    /// True when pup can tell more results exist than were returned; false
+    /// means "not known to be truncated", since not every API reports it.
+    /// Always serialized so a known partial result is never hidden.
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// Cursor for the next page; pass it back with the command's cursor flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    /// Offset for the next page; pass it back with `--offset`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<usize>,
+    /// Page number of the next page; pass it back with the command's page flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_page: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+/// Response locations that hold a continuation cursor, checked in order.
+/// Only fields that always mean "the next page" belong here: a field that can
+/// hold the current page's cursor (such as deployment gates' `meta.page.cursor`)
+/// would mark every last page as truncated.
+const CURSOR_POINTERS: &[&str] = &[
+    "/meta/page/after",
+    "/meta/page/next_cursor",
+    "/meta/after",
+    "/meta/next_cursor",
+    "/meta/pagination/next_page",
+    "/page/next_cursor",
+    "/data/next_cursor",
+    "/next_cursor",
+    "/next_page_token",
+];
+
+/// Response locations whose `true` value marks a partial result.
+const TRUNCATION_POINTERS: &[&str] = &[
+    "/truncated",
+    "/is_truncated",
+    "/meta/truncated",
+    "/meta/page/truncated",
+    "/page/truncated",
+    "/data/attributes/is_truncated",
+    "/data/truncated",
+];
+
+/// `(total, items)` pointer pairs: the result is truncated when the response's
+/// total exceeds the number of items it returned.
+const TOTAL_COUNT_POINTERS: &[(&str, &str)] = &[("/meta/page/total_filtered_count", "/data")];
+
+/// `(page, page_count)` pointer pairs for 0-indexed page pagination (e.g.
+/// monitors search's own top-level `metadata`): another page exists when
+/// `page + 1 < page_count`.
+const PAGE_POINTERS: &[(&str, &str)] = &[("/metadata/page", "/metadata/page_count")];
+
+/// `--no-envelope` (or `PUP_NO_ENVELOPE`): print the raw response body.
+static RAW_OUTPUT: AtomicBool = AtomicBool::new(false);
+/// The running command, reported as `metadata.command`.
+static COMMAND: OnceLock<CommandInfo> = OnceLock::new();
+
+struct CommandInfo {
+    path: String,
+    flags: ContinuationFlags,
+}
+
+/// The flags a command takes to fetch the next page, read from its clap
+/// definition so hints name the real flag.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ContinuationFlags {
+    /// Resumes from a cursor (e.g. `--cursor`, `--page-cursor`, `--page-token`).
+    pub cursor: Option<String>,
+    /// Selects a page number (e.g. `--page`).
+    pub page: Option<String>,
+}
+
+/// Print raw response bodies instead of the envelope (`--no-envelope`).
+pub fn set_raw_output(raw: bool) {
+    RAW_OUTPUT.store(raw, Ordering::Relaxed);
+}
+
+/// `--no-envelope` was passed, or `PUP_NO_ENVELOPE` is truthy (it is injected
+/// into extension subprocesses so a child `pup` inherits the parent's choice).
+#[cfg(not(feature = "browser"))]
+pub fn raw_output_requested(flag: bool) -> bool {
+    flag || crate::settings::env_bool("PUP_NO_ENVELOPE")
+}
+
+pub fn raw_output_enabled() -> bool {
+    RAW_OUTPUT.load(Ordering::Relaxed)
+}
+
+/// Record the running command's path (e.g. `logs search`) for
+/// `metadata.command`, and the flags it takes to fetch the next page.
+pub fn set_command(path: String, flags: ContinuationFlags) {
+    let _ = COMMAND.set(CommandInfo { path, flags });
+}
+
+/// Outside a parsed command (library use, unit tests) no flags are known, so
+/// hints fall back to the most common ones.
+fn continuation_flags() -> ContinuationFlags {
+    match COMMAND.get() {
+        Some(info) => info.flags.clone(),
+        None => ContinuationFlags {
+            cursor: Some("--cursor".into()),
+            page: Some("--page".into()),
+        },
+    }
+}
+
+/// True when `format` prints the envelope (JSON and YAML), so its metadata is
+/// part of stdout. Table, CSV, and TSV print only rows; their metadata goes to
+/// stderr instead (see `stderr_block`).
+pub fn metadata_visible(format: &OutputFormat) -> bool {
+    matches!(format, OutputFormat::Json | OutputFormat::Yaml) && !raw_output_enabled()
+}
+
+fn derive_cursor(raw: &serde_json::Value) -> Option<String> {
+    CURSOR_POINTERS
+        .iter()
+        .filter_map(|pointer| raw.pointer(pointer)?.as_str())
+        .find(|cursor| !cursor.is_empty())
+        .map(str::to_string)
+}
+
+fn derive_next_page(raw: &serde_json::Value) -> Option<u64> {
+    PAGE_POINTERS.iter().find_map(|(page, count)| {
+        let page = raw.pointer(page)?.as_u64()?;
+        let count = raw.pointer(count)?.as_u64()?;
+        (page + 1 < count).then_some(page + 1)
     })
 }
 
-/// Append `JQ_FILTER_NOTE` to the `metadata.note` field of an agent envelope.
-/// Called only when `--jq` ran so agents learn the filter targets the payload,
-/// not the envelope.
-fn append_jq_note(envelope: &mut serde_json::Value) {
-    if let Some(serde_json::Value::String(note)) = envelope.pointer_mut("/metadata/note") {
-        note.push(' ');
-        note.push_str(JQ_FILTER_NOTE);
-    }
+fn derive_truncated(raw: &serde_json::Value) -> bool {
+    let flagged = TRUNCATION_POINTERS
+        .iter()
+        .any(|pointer| raw.pointer(pointer) == Some(&serde_json::Value::Bool(true)));
+    flagged
+        || TOTAL_COUNT_POINTERS.iter().any(|(total, items)| {
+            let total = raw.pointer(total).and_then(serde_json::Value::as_u64);
+            let returned = raw
+                .pointer(items)
+                .and_then(serde_json::Value::as_array)
+                .map(|items| items.len() as u64);
+            matches!((total, returned), (Some(total), Some(returned)) if total > returned)
+        })
 }
 
-/// Build the agent-mode envelope as a JSON value. Always sets `status`,
-/// `data`, and `metadata` — `metadata.note` is always present so an LLM
-/// authoring a script for the user is reminded to pass `--no-agent`.
-/// Extracted from `format_and_print` for unit-testability.
-pub fn build_agent_envelope(
+/// Fill in metadata the caller did not set. `raw` is the response before
+/// `--jq`; `data` is what the envelope will carry. The count always describes
+/// `data`, while truncation and the cursor describe the underlying results, so
+/// they survive a `--jq` filter that drops the response's own paging fields.
+fn resolve_metadata(
+    raw: &serde_json::Value,
     data: &serde_json::Value,
-    meta: Option<&Metadata>,
-) -> Result<serde_json::Value> {
-    build_agent_envelope_with_order(data, meta, OutputOrder::Default)
+    explicit: Option<&Metadata>,
+    filtered: bool,
+) -> Metadata {
+    let mut meta = explicit.cloned().unwrap_or_default();
+    if filtered || meta.count.is_none() {
+        meta.count = data.as_array().map(Vec::len);
+    }
+    if meta.command.is_none() {
+        meta.command = COMMAND.get().map(|info| info.path.clone());
+    }
+    if meta.next_cursor.is_none() {
+        meta.next_cursor = derive_cursor(raw);
+    }
+    if meta.next_page.is_none() {
+        meta.next_page = derive_next_page(raw);
+    }
+    meta.truncated = meta.truncated
+        || derive_truncated(raw)
+        || meta.next_cursor.is_some()
+        || meta.next_offset.is_some()
+        || meta.next_page.is_some();
+    if meta.next_action.is_none() {
+        meta.next_action = continuation_hint(&meta);
+    }
+    meta
 }
 
-fn build_agent_envelope_with_order(
-    data: &serde_json::Value,
-    meta: Option<&Metadata>,
-    output_order: OutputOrder,
-) -> Result<serde_json::Value> {
-    let ordered_data = order_json_value(data, output_order);
-    // Hoist: when the API wraps its list/object in a nested "data" key,
-    // use that inner value directly so agents see .data[*] instead of .data.data[*].
-    let effective_data = match &ordered_data {
-        serde_json::Value::Object(obj) if obj.contains_key("data") => obj["data"].clone(),
-        _ => ordered_data,
-    };
-    let mut metadata_value = match meta {
-        Some(m) => serde_json::to_value(m)?,
-        None => serde_json::Value::Object(serde_json::Map::new()),
-    };
-    // `Metadata` is a struct and serializes to an object; an empty map
-    // is constructed above when `meta` is None. The branch is defensive
-    // against future changes that might serialize a non-object type.
-    if let serde_json::Value::Object(ref mut map) = metadata_value {
-        map.insert(
-            "note".to_string(),
-            serde_json::Value::String(AGENT_ENVELOPE_NOTE.to_string()),
-        );
+/// How to fetch the next page, when there is one, using the running command's
+/// own cursor or page flag.
+pub fn continuation_hint(meta: &Metadata) -> Option<String> {
+    continuation_hint_with(meta, &continuation_flags())
+}
+
+fn continuation_hint_with(meta: &Metadata, flags: &ContinuationFlags) -> Option<String> {
+    if let Some(cursor) = &meta.next_cursor {
+        return Some(match &flags.cursor {
+            Some(flag) => format!("More results available; rerun with {flag}=\"{cursor}\""),
+            None => format!(
+                "More results available; next cursor: \"{cursor}\" (this command has no cursor flag)"
+            ),
+        });
     }
-    Ok(serde_json::json!({
-        "status": "success",
-        "data": effective_data,
-        "metadata": metadata_value,
-    }))
+    if let Some(offset) = meta.next_offset {
+        return Some(format!(
+            "More results available; rerun with --offset={offset}"
+        ));
+    }
+    meta.next_page.map(|page| match &flags.page {
+        Some(flag) => format!("More results available; rerun with {flag}={page}"),
+        None => {
+            format!("More results available; next page: {page} (this command has no page flag)")
+        }
+    })
+}
+
+/// The metadata block printed to stderr when stdout has no envelope.
+///
+/// With the envelope enabled, table, CSV, and TSV output print only rows on
+/// stdout, so their metadata always goes to stderr as one block:
+///
+/// ```text
+/// metadata: command="logs search" count=2 truncated=true next_cursor="abc"
+/// next_action: More results available; rerun with --cursor="abc"
+/// warning: <one line per warning>
+/// ```
+///
+/// The `metadata:` line always appears; its `key=value` pairs keep this order
+/// and omit absent keys, with strings JSON-quoted. `next_action:` and
+/// `warning:` lines appear only when set. With `--no-envelope` pup adds no
+/// metadata anywhere, so only `warning:` lines (problems) are printed.
+fn stderr_block(meta: &Metadata, envelope: bool) -> Vec<String> {
+    let mut lines = Vec::new();
+    if envelope {
+        let mut pairs = Vec::new();
+        let quote = |s: &str| serde_json::Value::String(s.to_string()).to_string();
+        if let Some(command) = &meta.command {
+            pairs.push(format!("command={}", quote(command)));
+        }
+        if let Some(count) = meta.count {
+            pairs.push(format!("count={count}"));
+        }
+        pairs.push(format!("truncated={}", meta.truncated));
+        if let Some(cursor) = &meta.next_cursor {
+            pairs.push(format!("next_cursor={}", quote(cursor)));
+        }
+        if let Some(offset) = meta.next_offset {
+            pairs.push(format!("next_offset={offset}"));
+        }
+        if let Some(page) = meta.next_page {
+            pairs.push(format!("next_page={page}"));
+        }
+        lines.push(format!("metadata: {}", pairs.join(" ")));
+        if let Some(action) = &meta.next_action {
+            lines.push(format!("next_action: {action}"));
+        }
+    }
+    lines.extend(meta.warnings.iter().map(|w| format!("warning: {w}")));
+    lines
+}
+
+/// Split a document that is already a pup envelope (for example `pup api`
+/// output piped into `pup format`) back into the response and its metadata.
+/// Returns `None` for any other document. pup always writes a boolean
+/// `metadata.truncated` and only `Metadata`'s own keys, so a look-alike
+/// document with other metadata is left whole rather than losing those keys.
+pub fn unwrap_envelope(value: &serde_json::Value) -> Option<(serde_json::Value, Metadata)> {
+    let obj = value.as_object()?;
+    if obj.get("status")?.as_str()? != "success" || !obj.contains_key("data") {
+        return None;
+    }
+    let metadata = obj.get("metadata")?;
+    metadata.get("truncated")?.as_bool()?;
+    let meta: Metadata = serde_json::from_value(metadata.clone()).ok()?;
+    let mut rest = obj.clone();
+    rest.remove("status");
+    rest.remove("metadata");
+    let body = if rest.len() == 1 {
+        rest.remove("data").unwrap_or_default()
+    } else {
+        serde_json::Value::Object(rest)
+    };
+    Some((body, meta))
+}
+
+/// Wrap a response in the default `{status, data, metadata}` envelope.
+///
+/// A JSON:API-style body (an object with a top-level `data`) keeps all of its
+/// keys: `data` stays where it is, and siblings such as `meta`, `links`, and
+/// `included` are preserved next to `status` and `metadata`. Any other body,
+/// and any `--jq` result, becomes the envelope's `data`. `unfiltered` is the
+/// response before `--jq`, set only when a filter produced `value`.
+pub fn build_envelope(
+    value: serde_json::Value,
+    unfiltered: Option<&serde_json::Value>,
+    explicit: Option<&Metadata>,
+) -> Result<serde_json::Value> {
+    let filtered = unfiltered.is_some();
+    let merge_in_place = !filtered
+        && value.as_object().is_some_and(|obj| {
+            obj.contains_key("data") && !obj.contains_key("status") && !obj.contains_key("metadata")
+        });
+    let data = if merge_in_place {
+        &value["data"]
+    } else {
+        &value
+    };
+    let raw = unfiltered.unwrap_or(&value);
+    let meta = serde_json::to_value(resolve_metadata(raw, data, explicit, filtered))?;
+    if merge_in_place {
+        let mut envelope = value;
+        if let Some(obj) = envelope.as_object_mut() {
+            obj.insert("status".into(), "success".into());
+            obj.insert("metadata".into(), meta);
+        }
+        return Ok(envelope);
+    }
+    Ok(serde_json::json!({ "status": "success", "data": value, "metadata": meta }))
 }
 
 /// Format and print data to stdout.
 ///
-/// The `jq` parameter, when `Some`, applies a jq expression to the serialized
-/// data **before** envelope wrapping or format rendering. The filter runs on
-/// the raw API payload regardless of `--agent`/`-o`, so the same expression
-/// works consistently across all output modes.
+/// JSON output is wrapped in the default envelope (see `build_envelope`)
+/// unless `--no-envelope` is set. The `jq` parameter, when `Some`, applies a
+/// jq expression to the serialized response **before** wrapping or rendering,
+/// so the same expression works across all output formats; its result becomes
+/// the envelope's `data`.
 pub fn format_and_print<T: Serialize>(
     data: &T,
     format: &OutputFormat,
-    agent_mode: bool,
-    meta: Option<&Metadata>,
     jq: Option<&str>,
 ) -> Result<()> {
-    format_and_print_with_order(
-        data,
-        format,
-        agent_mode,
-        meta,
-        jq,
-        TableInput::Generic,
-        OutputOrder::Default,
-    )
+    format_and_print_with(data, format, jq, None, None)
 }
 
 /// Format and print data with command-provided table guidance.
 pub fn format_and_print_with_table<T: Serialize>(
     data: &T,
     format: &OutputFormat,
-    agent_mode: bool,
-    meta: Option<&Metadata>,
     jq: Option<&str>,
     table: TableOptions<'_>,
 ) -> Result<()> {
-    format_and_print_with_order(
-        data,
-        format,
-        agent_mode,
-        meta,
-        jq,
-        table.into(),
-        OutputOrder::Default,
-    )
+    format_and_print_with(data, format, jq, None, Some(table))
+}
+
+/// Format and print data with command-provided metadata and/or table guidance.
+pub fn format_and_print_with<T: Serialize>(
+    data: &T,
+    format: &OutputFormat,
+    jq: Option<&str>,
+    meta: Option<&Metadata>,
+    table: Option<TableOptions<'_>>,
+) -> Result<()> {
+    let table_input = table.map_or(TableInput::Generic, Into::into);
+    format_and_print_with_order(data, format, jq, meta, table_input, OutputOrder::Default)
 }
 
 fn format_and_print_with_order<T: Serialize>(
     data: &T,
     format: &OutputFormat,
-    agent_mode: bool,
-    meta: Option<&Metadata>,
     jq: Option<&str>,
+    meta: Option<&Metadata>,
     table_input: TableInput<'_>,
     output_order: OutputOrder,
 ) -> Result<()> {
-    // Serialize once; all renderers and the filter operate on this Value.
-    let mut value = serde_json::to_value(data)?;
-    if let Some(expr) = jq {
-        value = filter::apply_jq(value, expr)?;
-    }
+    // Serialize once; all renderers and the filter operate on this Value. The
+    // pre-filter response is kept only when `--jq` replaced it.
+    let response = serde_json::to_value(data)?;
+    let (mut value, unfiltered) = match jq {
+        Some(expr) => (filter::apply_jq(response.clone(), expr)?, Some(response)),
+        None => (response, None),
+    };
     let output_order = effective_output_order(format, jq, output_order);
     let table_input = effective_table_input(format, jq, table_input);
-
-    if agent_mode && *format == OutputFormat::Json {
-        // A --jq filter rewrites the payload, so the caller's count/truncated
-        // (computed on the pre-filter data) no longer describe .data. Drop them;
-        // keep command/next_action.
-        let stripped_meta;
-        let meta = if jq.is_some() {
-            stripped_meta = strip_counts_after_filter(meta);
-            stripped_meta.as_ref()
-        } else {
-            meta
-        };
-        let mut envelope = match output_order {
-            OutputOrder::Default => build_agent_envelope(&value, meta)?,
-            OutputOrder::Preserve => {
-                build_agent_envelope_with_order(&value, meta, OutputOrder::Preserve)?
-            }
-        };
-        if jq.is_some() {
-            // Extend the inline note so agents learn --jq targets the payload.
-            append_jq_note(&mut envelope);
+    if metadata_visible(format) {
+        value = build_envelope(value, unfiltered.as_ref(), meta)?;
+    } else {
+        // Table, CSV, and TSV print only rows (and `--no-envelope` prints the
+        // raw body), so stdout stays parseable and the metadata goes to stderr.
+        let raw = unfiltered.as_ref().unwrap_or(&value);
+        let rows = select_table_data(&value, table_input).unwrap_or(&value);
+        let resolved = resolve_metadata(raw, rows, meta, jq.is_some());
+        for line in stderr_block(&resolved, !raw_output_enabled()) {
+            eprintln!("{line}");
         }
-        let json = go_html_escape(&serde_json::to_string_pretty(&envelope)?);
-        println!("{json}");
-        #[cfg(not(feature = "browser"))]
-        if crate::rate_limit::verbose_enabled() {
-            crate::rate_limit::eprint_verbose_response(format, agent_mode)?;
-        }
-        return Ok(());
     }
 
-    let capabilities = if agent_mode {
-        TerminalCapabilities::default()
+    print_value(&value, format, output_order, table_input)
+}
+
+/// Print an already-built pup envelope (for example one piped into
+/// `pup format`) as-is, without re-deriving it, so re-rendering JSON or YAML
+/// is lossless.
+pub fn print_envelope(envelope: &serde_json::Value, format: &OutputFormat) -> Result<()> {
+    print_value(envelope, format, OutputOrder::Default, TableInput::Generic)
+}
+
+/// Render a raw payload produced by another pup process (a runbook step runs
+/// pup with `--no-envelope`) the way `format_and_print` would print it in
+/// `format`: the envelope for JSON/YAML (unless `--no-envelope`), or rows for
+/// table/CSV/TSV. Returns the stdout text and the stderr metadata lines.
+/// `filtered` marks a payload that is a `--jq` result, so it is wrapped whole.
+pub fn render_payload(
+    payload: serde_json::Value,
+    format: &OutputFormat,
+    meta: Option<&Metadata>,
+    filtered: bool,
+) -> Result<(String, Vec<String>)> {
+    let table_input = if filtered {
+        TableInput::AsIs
     } else {
-        stdout_terminal_capabilities()
+        TableInput::Generic
     };
+    if metadata_visible(format) {
+        let unfiltered = filtered.then(|| payload.clone());
+        let envelope = build_envelope(payload, unfiltered.as_ref(), meta)?;
+        return Ok((format_value_to_string(&envelope, format)?, Vec::new()));
+    }
+    let rows = select_table_data(&payload, table_input).unwrap_or(&payload);
+    let resolved = resolve_metadata(&payload, rows, meta, filtered);
+    let notes = stderr_block(&resolved, !raw_output_enabled());
+    let text =
+        format_value_to_string_with_options(&payload, format, OutputOrder::Default, table_input)?;
+    Ok((text, notes))
+}
+
+/// Render `value` to stdout in `format` (with colors on a terminal).
+fn print_value(
+    value: &serde_json::Value,
+    format: &OutputFormat,
+    output_order: OutputOrder,
+    table_input: TableInput<'_>,
+) -> Result<()> {
+    let capabilities = stdout_terminal_capabilities();
     if capabilities.colors
         && matches!(
             format,
             OutputFormat::Json | OutputFormat::Yaml | OutputFormat::Table
         )
     {
-        print_formatted(&value, format, capabilities, output_order, table_input)?;
+        print_formatted(value, format, capabilities, output_order, table_input)?;
     } else {
         match output_order {
             OutputOrder::Default => match format {
-                OutputFormat::Json => print_json(&value),
-                OutputFormat::Yaml => print_yaml(&value),
-                OutputFormat::Table => print_table_with_options(&value, table_input),
-                OutputFormat::Csv => print_csv(&value),
-                OutputFormat::Tsv => print_tsv(&value),
+                OutputFormat::Json => print_json(value),
+                OutputFormat::Yaml => print_yaml(value),
+                OutputFormat::Table => print_table_with_options(value, table_input),
+                OutputFormat::Csv => print_csv(value, table_input),
+                OutputFormat::Tsv => print_tsv(value, table_input),
             }?,
             OutputOrder::Preserve => {
                 let rendered = format_value_to_string_with_options(
-                    &value,
+                    value,
                     format,
-                    false,
                     OutputOrder::Preserve,
                     table_input,
                 )?;
@@ -390,7 +637,7 @@ fn format_and_print_with_order<T: Serialize>(
 
     #[cfg(not(feature = "browser"))]
     if crate::rate_limit::verbose_enabled() {
-        crate::rate_limit::eprint_verbose_response(format, agent_mode)?;
+        crate::rate_limit::eprint_verbose_response(format)?;
     }
 
     Ok(())
@@ -413,9 +660,13 @@ fn effective_table_input<'a>(
     jq: Option<&str>,
     table_input: TableInput<'a>,
 ) -> TableInput<'a> {
-    if jq.is_some() && *format == OutputFormat::Table {
+    let row_format = matches!(
+        format,
+        OutputFormat::Table | OutputFormat::Csv | OutputFormat::Tsv
+    );
+    if jq.is_some() && row_format {
         // A jq expression explicitly reshapes the response. Render that result as-is
-        // instead of applying the command's defaults to a now-different shape.
+        // instead of applying the command's row hints to a now-different shape.
         TableInput::AsIs
     } else {
         table_input
@@ -427,9 +678,8 @@ pub fn output_preserving_order<T: Serialize>(cfg: &crate::config::Config, data: 
     format_and_print_with_order(
         data,
         &cfg.output_format,
-        cfg.agent_mode,
-        None,
         cfg.jq.as_deref(),
+        None,
         TableInput::AsIs,
         OutputOrder::Preserve,
     )
@@ -443,32 +693,16 @@ pub fn print_json(data: &serde_json::Value) -> Result<()> {
 }
 
 /// Render a JSON value to a string using the selected output format.
-pub fn format_value_to_string(
-    data: &serde_json::Value,
-    format: &OutputFormat,
-    agent_mode: bool,
-) -> Result<String> {
-    format_value_to_string_with_options(
-        data,
-        format,
-        agent_mode,
-        OutputOrder::Default,
-        TableInput::Generic,
-    )
+pub fn format_value_to_string(data: &serde_json::Value, format: &OutputFormat) -> Result<String> {
+    format_value_to_string_with_options(data, format, OutputOrder::Default, TableInput::Generic)
 }
 
 fn format_value_to_string_with_options(
     data: &serde_json::Value,
     format: &OutputFormat,
-    agent_mode: bool,
     output_order: OutputOrder,
     table_input: TableInput<'_>,
 ) -> Result<String> {
-    if agent_mode && *format == OutputFormat::Json {
-        let envelope = build_agent_envelope_with_order(data, None, output_order)?;
-        return Ok(go_html_escape(&serde_json::to_string_pretty(&envelope)?));
-    }
-
     match format {
         OutputFormat::Json => {
             let ordered_data = order_json_value(data, output_order);
@@ -481,18 +715,14 @@ fn format_value_to_string_with_options(
             Ok(serde_norway::to_string(&ordered_data)?)
         }
         OutputFormat::Table => format_table_to_string_with_options(data, output_order, table_input),
-        OutputFormat::Csv => format_csv_to_string_with_order(data, output_order),
-        OutputFormat::Tsv => format_tsv_to_string_with_order(data, output_order),
+        OutputFormat::Csv => format_delimited(data, output_order, table_input, Delimited::Csv),
+        OutputFormat::Tsv => format_delimited(data, output_order, table_input, Delimited::Tsv),
     }
 }
 
 /// Format and print a JSON value to stderr (same renderers as stdout).
-pub fn eprint_formatted(
-    data: &serde_json::Value,
-    format: &OutputFormat,
-    agent_mode: bool,
-) -> Result<()> {
-    let rendered = format_value_to_string(data, format, agent_mode)?;
+pub fn eprint_formatted(data: &serde_json::Value, format: &OutputFormat) -> Result<()> {
+    let rendered = format_value_to_string(data, format)?;
     eprintln!("{rendered}");
     Ok(())
 }
@@ -507,7 +737,7 @@ fn print_formatted(
     let rendered = if *format == OutputFormat::Table {
         format_table_with_options(data, output_order, table_input, capabilities)?
     } else {
-        format_value_to_string_with_options(data, format, false, output_order, table_input)?
+        format_value_to_string_with_options(data, format, output_order, table_input)?
     };
     let Some(rendered) = visible_output(rendered, format) else {
         return Ok(());
@@ -1295,65 +1525,26 @@ fn csv_cell(value: Option<&serde_json::Value>) -> String {
     }
 }
 
-fn format_csv_to_string(data: &serde_json::Value) -> Result<String> {
-    format_csv_to_string_with_order(data, OutputOrder::Default)
+#[derive(Clone, Copy)]
+enum Delimited {
+    Csv,
+    Tsv,
 }
 
-fn format_csv_to_string_with_order(
-    data: &serde_json::Value,
-    output_order: OutputOrder,
-) -> Result<String> {
-    let raw_rows = extract_rows(data);
-
-    if raw_rows.is_empty() {
-        return Ok(String::new());
-    }
-
-    let flat_rows: Vec<serde_json::Map<String, serde_json::Value>> = raw_rows
-        .iter()
-        .map(|r| {
-            let mut out = serde_json::Map::new();
-            flatten_deep(r, "", &mut out);
-            out
-        })
-        .collect();
-
-    let mut header_set = std::collections::HashSet::new();
-    let mut headers: Vec<String> = Vec::new();
-    for row in &flat_rows {
-        for key in row.keys() {
-            if header_set.insert(key.clone()) {
-                headers.push(key.clone());
-            }
+impl Delimited {
+    fn separator(self) -> &'static str {
+        match self {
+            Self::Csv => ",",
+            Self::Tsv => "\t",
         }
     }
-    if output_order == OutputOrder::Default {
-        headers.sort();
-    }
 
-    let mut lines = vec![headers
-        .iter()
-        .map(|h| csv_escape(h))
-        .collect::<Vec<_>>()
-        .join(",")];
-    for row in &flat_rows {
-        lines.push(
-            headers
-                .iter()
-                .map(|h| csv_escape(&csv_cell(row.get(h.as_str()))))
-                .collect::<Vec<_>>()
-                .join(","),
-        );
+    fn escape(self, s: &str) -> String {
+        match self {
+            Self::Csv => csv_escape(s),
+            Self::Tsv => tsv_escape(s),
+        }
     }
-    Ok(lines.join("\n"))
-}
-
-fn print_csv(data: &serde_json::Value) -> Result<()> {
-    let rendered = format_csv_to_string(data)?;
-    if !rendered.is_empty() {
-        println!("{rendered}");
-    }
-    Ok(())
 }
 
 /// Escape a single TSV field: literal tab characters in values are replaced with \t.
@@ -1362,75 +1553,111 @@ fn tsv_escape(s: &str) -> String {
     s.replace('\t', "\\t")
 }
 
-fn format_tsv_to_string(data: &serde_json::Value) -> Result<String> {
-    format_tsv_to_string_with_order(data, OutputOrder::Default)
+/// Rows for CSV/TSV, chosen exactly like the table: the command's `rows_at` /
+/// `row_at` hints, the JSON:API `data` array for generic output, and the
+/// `--jq` result as-is.
+fn delimited_rows<'a>(
+    data: &'a serde_json::Value,
+    table_input: TableInput<'_>,
+) -> Result<Vec<&'a serde_json::Value>> {
+    let selected = select_table_data(data, table_input)?;
+    let rows = match selected {
+        serde_json::Value::Array(arr) => arr.iter().collect(),
+        serde_json::Value::Object(_) => vec![selected],
+        _ => vec![],
+    };
+    select_table_rows(rows, table_input)
 }
 
-fn format_tsv_to_string_with_order(
+/// Render rows as CSV or TSV. Without column hints every field is flattened to
+/// a dot-notation column; with the command's columns (as for the table) only
+/// those columns are printed, in that order.
+fn format_delimited(
     data: &serde_json::Value,
     output_order: OutputOrder,
+    table_input: TableInput<'_>,
+    kind: Delimited,
 ) -> Result<String> {
-    let raw_rows = extract_rows(data);
-
+    let raw_rows = delimited_rows(data, table_input)?;
     if raw_rows.is_empty() {
         return Ok(String::new());
     }
 
-    let flat_rows: Vec<serde_json::Map<String, serde_json::Value>> = raw_rows
-        .iter()
-        .map(|r| {
-            let mut out = serde_json::Map::new();
-            flatten_deep(r, "", &mut out);
-            out
-        })
-        .collect();
-
-    let mut header_set = std::collections::HashSet::new();
-    let mut headers: Vec<String> = Vec::new();
-    for row in &flat_rows {
-        for key in row.keys() {
-            if header_set.insert(key.clone()) {
-                headers.push(key.clone());
+    let requested = table_input
+        .options()
+        .map(|options| options.columns)
+        .unwrap_or_default();
+    let (headers, cells): (Vec<String>, Vec<Vec<String>>) = if requested.is_empty() {
+        let flat_rows: Vec<serde_json::Map<String, serde_json::Value>> = raw_rows
+            .iter()
+            .map(|r| {
+                let mut out = serde_json::Map::new();
+                flatten_deep(r, "", &mut out);
+                out
+            })
+            .collect();
+        let mut header_set = std::collections::HashSet::new();
+        let mut headers: Vec<String> = Vec::new();
+        for row in &flat_rows {
+            for key in row.keys() {
+                if header_set.insert(key.clone()) {
+                    headers.push(key.clone());
+                }
             }
         }
-    }
-    if output_order == OutputOrder::Default {
-        headers.sort();
-    }
+        if output_order == OutputOrder::Default {
+            headers.sort();
+        }
+        let cells = flat_rows
+            .iter()
+            .map(|row| {
+                headers
+                    .iter()
+                    .map(|h| csv_cell(row.get(h.as_str())))
+                    .collect()
+            })
+            .collect();
+        (headers, cells)
+    } else {
+        let headers = select_requested_headers(&raw_rows, requested)?;
+        let cells = raw_rows
+            .iter()
+            .map(|row| {
+                headers
+                    .iter()
+                    .map(|h| csv_cell(flattened_value(row, h)))
+                    .collect()
+            })
+            .collect();
+        (headers, cells)
+    };
 
-    let mut lines = vec![headers
-        .iter()
-        .map(|h| tsv_escape(h))
-        .collect::<Vec<_>>()
-        .join("\t")];
-    for row in &flat_rows {
-        lines.push(
-            headers
-                .iter()
-                .map(|h| tsv_escape(&csv_cell(row.get(h.as_str()))))
-                .collect::<Vec<_>>()
-                .join("\t"),
-        );
-    }
+    let join = |fields: Vec<String>| {
+        fields
+            .iter()
+            .map(|f| kind.escape(f))
+            .collect::<Vec<_>>()
+            .join(kind.separator())
+    };
+    let mut lines = vec![join(headers)];
+    lines.extend(cells.into_iter().map(join));
     Ok(lines.join("\n"))
 }
 
-fn print_tsv(data: &serde_json::Value) -> Result<()> {
-    let rendered = format_tsv_to_string(data)?;
+fn print_csv(data: &serde_json::Value, table_input: TableInput<'_>) -> Result<()> {
+    let rendered = format_delimited(data, OutputOrder::Default, table_input, Delimited::Csv)?;
     if !rendered.is_empty() {
         println!("{rendered}");
     }
     Ok(())
 }
 
-/// Extract displayable rows from a JSON value.
-/// Handles: arrays, objects with "data" field, single objects.
-fn extract_rows(value: &serde_json::Value) -> Vec<&serde_json::Value> {
-    match unwrap_data(value) {
-        serde_json::Value::Array(arr) => arr.iter().collect(),
-        value @ serde_json::Value::Object(_) => vec![value],
-        _ => vec![],
+fn print_tsv(data: &serde_json::Value, table_input: TableInput<'_>) -> Result<()> {
+    let rendered = format_delimited(data, OutputOrder::Default, table_input, Delimited::Tsv)?;
+    if !rendered.is_empty() {
+        println!("{rendered}");
     }
+    Ok(())
 }
 
 fn unwrap_data(value: &serde_json::Value) -> &serde_json::Value {
@@ -2329,21 +2556,21 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_rows_array() {
+    fn test_delimited_rows_array() {
         let val = serde_json::json!([{"id": 1}, {"id": 2}]);
-        assert_eq!(extract_rows(&val).len(), 2);
+        assert_eq!(delimited_rows(&val, TableInput::Generic).unwrap().len(), 2);
     }
 
     #[test]
-    fn test_extract_rows_data_wrapper() {
+    fn test_delimited_rows_data_wrapper() {
         let val = serde_json::json!({"data": [{"id": 1}], "meta": {}});
-        assert_eq!(extract_rows(&val).len(), 1);
+        assert_eq!(delimited_rows(&val, TableInput::Generic).unwrap().len(), 1);
     }
 
     #[test]
-    fn test_extract_rows_single_object() {
+    fn test_delimited_rows_single_object() {
         let val = serde_json::json!({"id": 1, "name": "test"});
-        assert_eq!(extract_rows(&val).len(), 1);
+        assert_eq!(delimited_rows(&val, TableInput::Generic).unwrap().len(), 1);
     }
 
     #[test]
@@ -2454,7 +2681,6 @@ mod tests {
             let rendered = format_value_to_string_with_options(
                 &data,
                 &format,
-                false,
                 OutputOrder::Preserve,
                 TableInput::AsIs,
             )
@@ -2471,7 +2697,6 @@ mod tests {
         let csv = format_value_to_string_with_options(
             &data,
             &OutputFormat::Csv,
-            false,
             OutputOrder::Preserve,
             TableInput::AsIs,
         )
@@ -2481,7 +2706,6 @@ mod tests {
         let tsv = format_value_to_string_with_options(
             &data,
             &OutputFormat::Tsv,
-            false,
             OutputOrder::Preserve,
             TableInput::AsIs,
         )
@@ -2490,31 +2714,9 @@ mod tests {
     }
 
     #[test]
-    fn test_preserving_order_renderer_keeps_agent_data_order() {
-        let data = serde_json::json!([{
-            "zebra": 1,
-            "alpha": 2,
-            "middle": 3
-        }]);
-
-        let rendered = format_value_to_string_with_options(
-            &data,
-            &OutputFormat::Json,
-            true,
-            OutputOrder::Preserve,
-            TableInput::AsIs,
-        )
-        .unwrap();
-        let zebra = rendered.find("zebra").unwrap();
-        let alpha = rendered.find("alpha").unwrap();
-        let middle = rendered.find("middle").unwrap();
-        assert!(zebra < alpha && alpha < middle, "{rendered}");
-    }
-
-    #[test]
     fn test_default_renderer_still_sorts_json_keys() {
         let data = serde_json::json!({"zebra": 1, "alpha": 2, "middle": 3});
-        let rendered = format_value_to_string(&data, &OutputFormat::Json, false).unwrap();
+        let rendered = format_value_to_string(&data, &OutputFormat::Json).unwrap();
 
         let alpha = rendered.find("alpha").unwrap();
         let middle = rendered.find("middle").unwrap();
@@ -2548,21 +2750,21 @@ mod tests {
     #[test]
     fn test_format_and_print_json() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Json, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Json, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_format_and_print_yaml() {
         let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Yaml, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Yaml, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_format_and_print_table() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Table, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Table, None);
         assert!(result.is_ok());
     }
 
@@ -2607,94 +2809,346 @@ mod tests {
         assert!(rendered.contains("| attributes | {0 fields} |"));
     }
 
-    #[test]
-    fn test_format_and_print_agent_mode() {
-        let data = serde_json::json!({"name": "test"});
-        let meta = Metadata {
-            count: Some(1),
-            truncated: false,
-            command: Some("test".into()),
-            next_action: None,
-        };
-        let result = format_and_print(&data, &OutputFormat::Json, true, Some(&meta), None);
-        assert!(result.is_ok());
+    fn envelope(raw: serde_json::Value) -> serde_json::Value {
+        build_envelope(raw, None, None).unwrap()
     }
 
     #[test]
-    fn test_agent_envelope_injects_script_authoring_note_with_meta() {
-        let data = serde_json::json!({"name": "test"});
+    fn test_envelope_keeps_jsonapi_siblings_and_lifts_cursor() {
+        let raw = serde_json::json!({
+            "data": [{"id": 1}, {"id": 2}],
+            "meta": {"page": {"after": "abc"}},
+            "links": {"next": "x"}
+        });
+        let env = envelope(raw);
+        assert_eq!(env["status"], "success");
+        assert_eq!(env["data"], serde_json::json!([{"id": 1}, {"id": 2}]));
+        // Siblings are not dropped, so the response's own cursor is still there.
+        assert_eq!(env["meta"]["page"]["after"], "abc");
+        assert_eq!(env["links"]["next"], "x");
+        assert_eq!(env["metadata"]["count"], 2);
+        assert_eq!(env["metadata"]["truncated"], true);
+        assert_eq!(env["metadata"]["next_cursor"], "abc");
+        assert!(env["metadata"]["next_action"]
+            .as_str()
+            .unwrap()
+            .contains("--cursor=\"abc\""));
+        assert!(env["metadata"].get("note").is_none());
+    }
+
+    #[test]
+    fn test_envelope_wraps_non_jsonapi_bodies() {
+        let env = envelope(serde_json::json!([{"id": 1}]));
+        assert_eq!(env["data"], serde_json::json!([{"id": 1}]));
+        assert_eq!(env["metadata"]["count"], 1);
+        assert_eq!(env["metadata"]["truncated"], false);
+        assert!(env["metadata"].get("next_cursor").is_none());
+        assert!(env["metadata"].get("next_action").is_none());
+
+        let env = envelope(serde_json::json!({"status": "ok", "series": []}));
+        assert_eq!(env["status"], "success");
+        assert_eq!(env["data"]["status"], "ok");
+        assert!(env["metadata"].get("count").is_none());
+    }
+
+    #[test]
+    fn test_envelope_wraps_body_whose_keys_would_collide() {
+        let raw = serde_json::json!({"data": [1], "status": "done"});
+        let env = envelope(raw.clone());
+        assert_eq!(env["data"], raw);
+        assert_eq!(env["metadata"]["count"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_envelope_keeps_cursor_and_truncation_after_jq() {
+        let raw = serde_json::json!({
+            "results": [{"id": 1}, {"id": 2}, {"id": 3}],
+            "page": {"next_cursor": "c2", "truncated": true}
+        });
+        let filtered = filter::apply_jq(raw.clone(), ".results[0:1]").unwrap();
         let meta = Metadata {
-            count: Some(1),
-            truncated: false,
-            command: Some("monitors list".into()),
-            next_action: None,
+            count: Some(3),
+            ..Default::default()
         };
-        let envelope = build_agent_envelope(&data, Some(&meta)).unwrap();
-        assert_eq!(envelope["status"], "success");
-        assert_eq!(envelope["metadata"]["count"], 1);
-        assert_eq!(envelope["metadata"]["command"], "monitors list");
-        assert_eq!(envelope["metadata"]["note"], AGENT_ENVELOPE_NOTE);
+        let env = build_envelope(filtered, Some(&raw), Some(&meta)).unwrap();
+        assert_eq!(env["data"], serde_json::json!([{"id": 1}]));
+        // The count describes what was printed, not the pre-filter page.
+        assert_eq!(env["metadata"]["count"], 1);
+        assert_eq!(env["metadata"]["truncated"], true);
+        assert_eq!(env["metadata"]["next_cursor"], "c2");
+    }
+
+    #[test]
+    fn test_explicit_metadata_wins_over_derived() {
+        let raw = serde_json::json!({"data": [], "meta": {"page": {"after": "abc"}}});
+        let meta = Metadata {
+            command: Some("logs search".into()),
+            next_action: Some("custom".into()),
+            ..Default::default()
+        };
+        let env = build_envelope(raw, None, Some(&meta)).unwrap();
+        assert_eq!(env["metadata"]["command"], "logs search");
+        assert_eq!(env["metadata"]["next_action"], "custom");
+        assert_eq!(env["metadata"]["next_cursor"], "abc");
+    }
+
+    #[test]
+    fn test_truncation_flags_are_derived() {
+        for raw in [
+            serde_json::json!({"truncated": true}),
+            serde_json::json!({"meta": {"truncated": true}}),
+            serde_json::json!({"page": {"truncated": true}}),
+            serde_json::json!({"data": {"attributes": {"is_truncated": true}}}),
+        ] {
+            assert!(derive_truncated(&raw), "{raw}");
+        }
+        assert!(!derive_truncated(&serde_json::json!({"truncated": "true"})));
+        assert!(!derive_truncated(&serde_json::json!({"meta": {}})));
+    }
+
+    #[test]
+    fn test_continuation_hint_prefers_cursor_then_offset() {
+        let mut meta = Metadata::default();
+        assert!(continuation_hint(&meta).is_none());
+        meta.next_offset = Some(10);
+        assert_eq!(
+            continuation_hint(&meta).as_deref(),
+            Some("More results available; rerun with --offset=10")
+        );
+        meta.next_cursor = Some("abc".into());
+        assert!(continuation_hint(&meta)
+            .unwrap()
+            .contains("--cursor=\"abc\""));
+        assert!(derive_cursor(&serde_json::json!({"meta": {"page": {"after": ""}}})).is_none());
+    }
+
+    #[test]
+    fn test_unwrap_envelope_round_trips_jsonapi_and_wrapped_bodies() {
+        let jsonapi = serde_json::json!({"data": [{"id": 1}], "meta": {"page": {"after": "abc"}}});
+        let (body, meta) = unwrap_envelope(&envelope(jsonapi.clone())).unwrap();
+        assert_eq!(body, jsonapi);
+        assert_eq!(meta.next_cursor.as_deref(), Some("abc"));
+
+        let list = serde_json::json!([1, 2]);
+        let (body, meta) = unwrap_envelope(&envelope(list.clone())).unwrap();
+        assert_eq!(body, list);
+        assert_eq!(meta.count, Some(2));
+    }
+
+    #[test]
+    fn test_unwrap_envelope_ignores_other_documents() {
+        assert!(unwrap_envelope(&serde_json::json!({"data": [1]})).is_none());
         assert!(
-            envelope["metadata"]["note"]
-                .as_str()
-                .unwrap()
-                .contains("--no-agent"),
-            "note must point agents at --no-agent so the gaslighting case is fixed: {envelope}"
+            unwrap_envelope(&serde_json::json!({"status": "ok", "data": 1, "metadata": {}}))
+                .is_none()
+        );
+        assert!(unwrap_envelope(&serde_json::json!({"status": "success", "data": 1})).is_none());
+        assert!(unwrap_envelope(&serde_json::json!([1])).is_none());
+    }
+
+    #[test]
+    fn test_unwrap_envelope_leaves_foreign_success_documents_whole() {
+        // Another tool's `{status, data, metadata}` must not be mistaken for a
+        // pup envelope: unwrapping it would silently drop `total` and `foo`.
+        let foreign = serde_json::json!({
+            "status": "success", "data": [1], "metadata": {"total": 9, "foo": "bar"}
+        });
+        assert!(unwrap_envelope(&foreign).is_none());
+        let unknown_key = serde_json::json!({
+            "status": "success", "data": [1], "metadata": {"truncated": false, "total": 9}
+        });
+        assert!(unwrap_envelope(&unknown_key).is_none());
+        let not_bool = serde_json::json!({
+            "status": "success", "data": [1], "metadata": {"truncated": "false"}
+        });
+        assert!(unwrap_envelope(&not_bool).is_none());
+    }
+
+    #[test]
+    fn test_continuation_hint_uses_the_commands_cursor_flag() {
+        let meta = Metadata {
+            next_cursor: Some("G2".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            continuation_hint_with(
+                &meta,
+                &ContinuationFlags {
+                    cursor: Some("--page-cursor".into()),
+                    page: None
+                }
+            )
+            .as_deref(),
+            Some("More results available; rerun with --page-cursor=\"G2\"")
+        );
+        assert_eq!(
+            continuation_hint_with(&meta, &ContinuationFlags::default()).as_deref(),
+            Some("More results available; next cursor: \"G2\" (this command has no cursor flag)")
         );
     }
 
     #[test]
-    fn test_agent_envelope_injects_script_authoring_note_without_meta() {
-        let data = serde_json::json!({"name": "test"});
-        let envelope = build_agent_envelope(&data, None).unwrap();
-        // Even when callers pass no Metadata, the note must still appear —
-        // otherwise the "envelope only in agent mode" warning is invisible
-        // for the many commands that don't construct a Metadata.
-        assert_eq!(envelope["metadata"]["note"], AGENT_ENVELOPE_NOTE);
-        assert_eq!(envelope["status"], "success");
-        assert!(envelope["metadata"]["count"].is_null());
-        assert!(
-            envelope["metadata"]["note"]
-                .as_str()
-                .unwrap()
-                .contains("--no-agent"),
-            "note constant itself must mention --no-agent so the rule survives if the constant is rewritten"
+    fn test_new_continuation_locations_are_detected() {
+        let points = serde_json::json!({"points": [], "next_page_token": "tok"});
+        assert_eq!(derive_cursor(&points).as_deref(), Some("tok"));
+        let flaky = serde_json::json!({"data": [], "meta": {"pagination": {"next_page": "p2"}}});
+        assert_eq!(derive_cursor(&flaky).as_deref(), Some("p2"));
+        let mcp = serde_json::json!({"status": "success", "data": {"next_cursor": "m2", "truncated": true}});
+        assert_eq!(derive_cursor(&mcp).as_deref(), Some("m2"));
+        assert!(derive_truncated(&mcp));
+        // Deployment gates report the *current* page cursor; it is not a next page.
+        let gates_last = serde_json::json!({"data": [], "meta": {"page": {"cursor": "cur"}}});
+        assert!(derive_cursor(&gates_last).is_none());
+        assert!(!derive_truncated(&gates_last));
+    }
+
+    #[test]
+    fn test_truncation_from_total_filtered_count() {
+        let partial =
+            serde_json::json!({"data": [1, 2], "meta": {"page": {"total_filtered_count": 5}}});
+        assert!(derive_truncated(&partial));
+        let complete =
+            serde_json::json!({"data": [1, 2], "meta": {"page": {"total_filtered_count": 2}}});
+        assert!(!derive_truncated(&complete));
+    }
+
+    #[test]
+    fn test_stderr_block_always_has_a_metadata_line() {
+        assert_eq!(
+            stderr_block(&Metadata::default(), true),
+            ["metadata: truncated=false"]
+        );
+        let meta = Metadata {
+            command: Some("logs search".into()),
+            count: Some(2),
+            truncated: true,
+            next_cursor: Some("a\"b".into()),
+            next_offset: Some(10),
+            next_page: Some(3),
+            next_action: Some("rerun with --cursor".into()),
+            warnings: vec!["rate limited".into()],
+        };
+        assert_eq!(
+            stderr_block(&meta, true),
+            [
+                r#"metadata: command="logs search" count=2 truncated=true next_cursor="a\"b" next_offset=10 next_page=3"#,
+                "next_action: rerun with --cursor",
+                "warning: rate limited",
+            ]
         );
     }
 
     #[test]
-    fn test_agent_envelope_hoists_inner_data_and_keeps_note() {
-        // When the caller's payload is `{ "data": [...] }`, the envelope
-        // hoists the inner array so agents see `.data[*]` instead of
-        // `.data.data[*]`. Verify that the hoist and the metadata.note
-        // injection don't interfere with each other — both must happen.
-        let payload = serde_json::json!({"data": [{"id": 1}, {"id": 2}]});
-        let envelope = build_agent_envelope(&payload, None).unwrap();
-        assert_eq!(envelope["data"], serde_json::json!([{"id": 1}, {"id": 2}]));
-        assert_eq!(envelope["metadata"]["note"], AGENT_ENVELOPE_NOTE);
+    fn test_stderr_block_without_envelope_keeps_only_warnings() {
+        let meta = Metadata {
+            next_cursor: Some("CUR".into()),
+            next_action: Some("more".into()),
+            warnings: vec!["rate limited".into()],
+            ..Default::default()
+        };
+        assert_eq!(stderr_block(&meta, false), ["warning: rate limited"]);
+        assert!(stderr_block(&Metadata::default(), false).is_empty());
     }
 
     #[test]
-    fn test_format_and_print_agent_mode_no_meta() {
-        let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Json, true, None, None);
-        assert!(result.is_ok());
+    fn test_page_pagination_in_a_bodys_own_metadata() {
+        // monitors search: `metadata` is the API's own pagination block.
+        let more = serde_json::json!({
+            "monitors": [], "metadata": {"page": 0, "page_count": 3, "per_page": 30, "total_count": 70}
+        });
+        assert_eq!(derive_next_page(&more), Some(1));
+        let last = serde_json::json!({
+            "monitors": [], "metadata": {"page": 2, "page_count": 3, "per_page": 30, "total_count": 70}
+        });
+        assert_eq!(derive_next_page(&last), None);
+        assert!(derive_next_page(&serde_json::json!({"metadata": {"page": 0}})).is_none());
+
+        // The body has its own `metadata`, so the envelope wraps it whole and
+        // the API's pagination stays findable under data.metadata.
+        let env = envelope(more);
+        assert_eq!(env["data"]["metadata"]["page_count"], 3);
+        assert_eq!(env["metadata"]["next_page"], 1);
+        assert_eq!(env["metadata"]["truncated"], true);
+        assert!(env["metadata"]["next_action"]
+            .as_str()
+            .unwrap()
+            .contains("--page=1"));
     }
 
     #[test]
-    fn test_format_and_print_agent_mode_respects_yaml_flag() {
-        // In agent mode, -o yaml should bypass the agent envelope and use YAML output.
-        let data = serde_json::json!({"name": "test"});
-        let result = format_and_print(&data, &OutputFormat::Yaml, true, None, None);
-        assert!(result.is_ok());
+    fn test_page_hint_uses_the_commands_page_flag() {
+        let meta = Metadata {
+            next_page: Some(2),
+            ..Default::default()
+        };
+        let flags = ContinuationFlags {
+            cursor: None,
+            page: Some("--page".into()),
+        };
+        assert_eq!(
+            continuation_hint_with(&meta, &flags).as_deref(),
+            Some("More results available; rerun with --page=2")
+        );
+        assert_eq!(
+            continuation_hint_with(&meta, &ContinuationFlags::default()).as_deref(),
+            Some("More results available; next page: 2 (this command has no page flag)")
+        );
     }
 
     #[test]
-    fn test_format_and_print_agent_mode_respects_table_flag() {
-        // In agent mode, -o table should bypass the agent envelope and use table output.
+    fn test_delimited_output_follows_table_row_hints() {
+        let body = serde_json::json!({
+            "counts": {"status": []},
+            "metadata": {"page": 0, "page_count": 1},
+            "monitors": [{"id": 1, "name": "cpu", "status": "OK"}, {"id": 2, "name": "disk", "status": "Alert"}]
+        });
+        let table = TableInput::Explicit(TableOptions::new(&["id", "name"]).rows_at("/monitors"));
+        let csv = format_delimited(&body, OutputOrder::Default, table, Delimited::Csv).unwrap();
+        assert_eq!(csv, "id,name\n1,cpu\n2,disk");
+        let tsv = format_delimited(&body, OutputOrder::Default, table, Delimited::Tsv).unwrap();
+        assert_eq!(tsv, "id\tname\n1\tcpu\n2\tdisk");
+        // Without hints the whole body is one row, which is what the hints fix.
+        let generic = format_delimited(
+            &body,
+            OutputOrder::Default,
+            TableInput::Generic,
+            Delimited::Csv,
+        )
+        .unwrap();
+        assert_eq!(generic.lines().count(), 2);
+    }
+
+    #[test]
+    fn test_delimited_output_honors_row_at_and_rejects_missing_rows_path() {
+        let body = serde_json::json!({"results": [{"data": {"id": 1}}, {"data": {"id": 2}}]});
+        let table =
+            TableInput::Explicit(TableOptions::new(&[]).rows_at("/results").row_at("/data"));
+        let csv = format_delimited(&body, OutputOrder::Default, table, Delimited::Csv).unwrap();
+        assert_eq!(csv, "id\n1\n2");
+        let missing = TableInput::Explicit(TableOptions::new(&["id"]).rows_at("/nope"));
+        assert!(format_delimited(&body, OutputOrder::Default, missing, Delimited::Csv).is_err());
+    }
+
+    #[test]
+    fn test_metadata_visible_for_json_and_yaml_only() {
+        assert!(metadata_visible(&OutputFormat::Json));
+        assert!(metadata_visible(&OutputFormat::Yaml));
+        for format in [OutputFormat::Table, OutputFormat::Csv, OutputFormat::Tsv] {
+            assert!(!metadata_visible(&format));
+        }
+    }
+
+    #[test]
+    fn test_format_and_print_yaml_and_table() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Table, true, None, None);
-        assert!(result.is_ok());
+        assert!(format_and_print(&data, &OutputFormat::Yaml, None).is_ok());
+        assert!(format_and_print(&data, &OutputFormat::Table, None).is_ok());
+    }
+
+    #[test]
+    fn test_format_and_print_rejects_invalid_jq() {
+        let data = serde_json::json!({"name": "test"});
+        assert!(format_and_print(&data, &OutputFormat::Json, Some(".[")).is_err());
     }
 
     #[test]
@@ -2716,8 +3170,10 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_rows_primitive() {
-        assert!(extract_rows(&serde_json::json!(42)).is_empty());
+    fn test_delimited_rows_primitive() {
+        assert!(delimited_rows(&serde_json::json!(42), TableInput::Generic)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -2808,25 +3264,25 @@ mod tests {
     #[test]
     fn test_print_csv_basic() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        assert!(print_csv(&data).is_ok());
+        assert!(print_csv(&data, TableInput::Generic).is_ok());
     }
 
     #[test]
     fn test_print_csv_empty() {
         let data = serde_json::json!([]);
-        assert!(print_csv(&data).is_ok());
+        assert!(print_csv(&data, TableInput::Generic).is_ok());
     }
 
     #[test]
     fn test_print_csv_nested() {
         let data = serde_json::json!([{"id": 1, "attrs": {"host": "web", "env": "prod"}}]);
-        assert!(print_csv(&data).is_ok());
+        assert!(print_csv(&data, TableInput::Generic).is_ok());
     }
 
     #[test]
     fn test_format_and_print_csv() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Csv, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Csv, None);
         assert!(result.is_ok());
     }
 
@@ -2841,7 +3297,6 @@ mod tests {
             org: None,
             output_format: OutputFormat::Json,
             auto_approve: false,
-            agent_mode: false,
             read_only: false,
             jq: None,
         };
@@ -2887,144 +3342,25 @@ mod tests {
     #[test]
     fn test_print_tsv_basic() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        assert!(print_tsv(&data).is_ok());
+        assert!(print_tsv(&data, TableInput::Generic).is_ok());
     }
 
     #[test]
     fn test_print_tsv_empty() {
         let data = serde_json::json!([]);
-        assert!(print_tsv(&data).is_ok());
+        assert!(print_tsv(&data, TableInput::Generic).is_ok());
     }
 
     #[test]
     fn test_print_tsv_nested() {
         let data = serde_json::json!([{"id": 1, "attrs": {"host": "web", "env": "prod"}}]);
-        assert!(print_tsv(&data).is_ok());
+        assert!(print_tsv(&data, TableInput::Generic).is_ok());
     }
 
     #[test]
     fn test_format_and_print_tsv() {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
-        let result = format_and_print(&data, &OutputFormat::Tsv, false, None, None);
+        let result = format_and_print(&data, &OutputFormat::Tsv, None);
         assert!(result.is_ok());
-    }
-
-    // --- strip_counts_after_filter -------------------------------------------
-
-    #[test]
-    fn test_strip_counts_none_meta_returns_none() {
-        assert!(strip_counts_after_filter(None).is_none());
-    }
-
-    #[test]
-    fn test_strip_counts_drops_count_and_truncated() {
-        let meta = Metadata {
-            count: Some(10),
-            truncated: true,
-            command: Some("monitors list".into()),
-            next_action: Some("next".into()),
-        };
-        let stripped = strip_counts_after_filter(Some(&meta)).unwrap();
-        assert!(stripped.count.is_none(), "count should be dropped");
-        assert!(!stripped.truncated, "truncated should be cleared");
-        assert_eq!(stripped.command.as_deref(), Some("monitors list"));
-        assert_eq!(stripped.next_action.as_deref(), Some("next"));
-    }
-
-    // --- append_jq_note ------------------------------------------------------
-
-    #[test]
-    fn test_append_jq_note_extends_note_field() {
-        let data = serde_json::json!({"id": 1});
-        let mut envelope = build_agent_envelope(&data, None).unwrap();
-        // Before: note contains only AGENT_ENVELOPE_NOTE.
-        let before = envelope["metadata"]["note"].as_str().unwrap().to_string();
-        assert!(before.contains("agent mode"), "pre-condition: {before}");
-
-        append_jq_note(&mut envelope);
-
-        let after = envelope["metadata"]["note"].as_str().unwrap();
-        assert!(
-            after.contains(AGENT_ENVELOPE_NOTE),
-            "original note must be preserved: {after}"
-        );
-        assert!(
-            after.contains(JQ_FILTER_NOTE),
-            "jq note must be appended: {after}"
-        );
-        assert!(
-            after.contains(".data"),
-            "jq note must mention .data: {after}"
-        );
-    }
-
-    // --- integration: strip + append through the real builder ----------------
-
-    #[test]
-    fn test_jq_filter_path_drops_count_and_appends_note() {
-        let filtered = serde_json::json!({"id": 1, "name": "foo"});
-        let meta = Metadata {
-            count: Some(10),
-            truncated: false,
-            command: Some("monitors list".into()),
-            next_action: None,
-        };
-
-        let stripped = strip_counts_after_filter(Some(&meta));
-        let mut env = build_agent_envelope(&filtered, stripped.as_ref()).unwrap();
-        append_jq_note(&mut env);
-
-        assert!(
-            env["metadata"]["count"].is_null(),
-            "count must be omitted after filter: {}",
-            env["metadata"]["count"]
-        );
-        assert!(
-            env["metadata"]["truncated"].is_null(),
-            "truncated must be omitted after filter"
-        );
-        assert_eq!(
-            env["metadata"]["command"],
-            serde_json::json!("monitors list"),
-            "command must be preserved"
-        );
-        let note = env["metadata"]["note"].as_str().unwrap();
-        assert!(
-            note.contains(AGENT_ENVELOPE_NOTE),
-            "original note must survive: {note}"
-        );
-        assert!(
-            note.contains(JQ_FILTER_NOTE),
-            "jq note must be appended: {note}"
-        );
-        assert_eq!(env["status"], "success");
-    }
-
-    #[test]
-    fn test_no_jq_path_keeps_count_and_note_unchanged() {
-        // Regression: when --jq is NOT used, the envelope must be byte-for-byte
-        // identical to pre-change behavior: count stays, only AGENT_ENVELOPE_NOTE.
-        let data = serde_json::json!([{"id": 1}, {"id": 2}]);
-        let meta = Metadata {
-            count: Some(2),
-            truncated: false,
-            command: Some("monitors list".into()),
-            next_action: None,
-        };
-        let env = build_agent_envelope(&data, Some(&meta)).unwrap();
-        assert_eq!(
-            env["metadata"]["count"],
-            serde_json::json!(2),
-            "count must survive without --jq"
-        );
-        let note = env["metadata"]["note"].as_str().unwrap();
-        assert!(
-            !note.contains(JQ_FILTER_NOTE),
-            "jq note must NOT appear without --jq: {note}"
-        );
-        assert!(
-            note.contains(AGENT_ENVELOPE_NOTE),
-            "original note must be present: {note}"
-        );
     }
 }

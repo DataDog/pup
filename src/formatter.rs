@@ -7,38 +7,40 @@ use crate::config::OutputFormat;
 
 pub use crate::output::{Metadata, TableOptions};
 
-/// Format and print data to stdout.
+/// Format and print data to stdout (JSON is wrapped in the default envelope).
 pub fn format_and_print<T: Serialize>(
     data: &T,
     format: &OutputFormat,
-    agent_mode: bool,
-    meta: Option<&Metadata>,
     jq: Option<&str>,
 ) -> Result<()> {
-    crate::output::format_and_print(data, format, agent_mode, meta, jq)
+    crate::output::format_and_print(data, format, jq)
 }
 
 /// Format and print data with command-provided table guidance.
 pub fn format_and_print_with_table<T: Serialize>(
     data: &T,
     format: &OutputFormat,
-    agent_mode: bool,
-    meta: Option<&Metadata>,
     jq: Option<&str>,
     table: TableOptions<'_>,
 ) -> Result<()> {
-    crate::output::format_and_print_with_table(data, format, agent_mode, meta, jq, table)
+    crate::output::format_and_print_with_table(data, format, jq, table)
 }
 
-/// Convenience: format and print using config settings (respects -o flag, agent mode, and --jq).
+/// Format and print data with command-provided envelope metadata and/or table
+/// guidance. Unset metadata fields are derived from the response.
+pub fn format_and_print_with<T: Serialize>(
+    data: &T,
+    format: &OutputFormat,
+    jq: Option<&str>,
+    meta: Option<&Metadata>,
+    table: Option<TableOptions<'_>>,
+) -> Result<()> {
+    crate::output::format_and_print_with(data, format, jq, meta, table)
+}
+
+/// Convenience: format and print using config settings (respects -o flag and --jq).
 pub fn output<T: Serialize>(cfg: &crate::config::Config, data: &T) -> Result<()> {
-    format_and_print(
-        data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-    )
+    format_and_print(data, &cfg.output_format, cfg.jq.as_deref())
 }
 
 /// Convenience wrapper for commands that know their useful table rows and columns.
@@ -47,12 +49,20 @@ pub fn output_with_table<T: Serialize>(
     data: &T,
     table: TableOptions<'_>,
 ) -> Result<()> {
-    format_and_print_with_table(
+    format_and_print_with_table(data, &cfg.output_format, cfg.jq.as_deref(), table)
+}
+
+/// Convenience wrapper for commands that add envelope metadata.
+pub fn output_with_meta<T: Serialize>(
+    cfg: &crate::config::Config,
+    data: &T,
+    meta: &Metadata,
+) -> Result<()> {
+    format_and_print_with(
         data,
         &cfg.output_format,
-        cfg.agent_mode,
-        None,
         cfg.jq.as_deref(),
-        table,
+        Some(meta),
+        None,
     )
 }

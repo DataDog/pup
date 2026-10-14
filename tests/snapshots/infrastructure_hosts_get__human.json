@@ -1,8 +1,15 @@
 {
-  "exact_total_matching": "bool",
-  "host_list": [
-    "<empty_list>"
-  ],
-  "total_matching": "int",
-  "total_returned": "int"
+  "data": {
+    "exact_total_matching": "bool",
+    "host_list": [
+      "<empty_list>"
+    ],
+    "total_matching": "int",
+    "total_returned": "int"
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

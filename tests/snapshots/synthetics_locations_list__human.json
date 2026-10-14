@@ -1,9 +1,16 @@
 {
-  "locations": [
-    "<list>",
-    {
-      "id": "str",
-      "name": "str"
-    }
-  ]
+  "data": {
+    "locations": [
+      "<list>",
+      {
+        "id": "str",
+        "name": "str"
+      }
+    ]
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

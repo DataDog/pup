@@ -72,15 +72,12 @@ pub async fn search(
         SymdbView::Full => formatter::output(cfg, &data),
         SymdbView::Names => {
             let names = collect_names(&data);
-            output_lines(cfg, &names)
+            print_lines(&names);
+            Ok(())
         }
         SymdbView::ProbeLocations => {
             let mut collector = ProbeCollector::new();
-            let mut all = collector.collect(cfg, &data).await?;
-
-            if !cfg.agent_mode {
-                print_lines(&all);
-            }
+            print_lines(&collector.collect(cfg, &data).await?);
 
             // Re-poll while any service-version is still indexing.
             if !all_indexing_complete(&data) {
@@ -91,23 +88,13 @@ pub async fn search(
                     let data =
                         fetch(cfg, "/api/unstable/symdb-api/v2/scopes/search", &params).await?;
                     let new = collector.collect(cfg, &data).await?;
-                    if !new.is_empty() {
-                        if !cfg.agent_mode {
-                            print_lines(&new);
-                        }
-                        all.extend(new);
-                    }
+                    print_lines(&new);
                     if all_indexing_complete(&data) || std::time::Instant::now() >= deadline {
                         break;
                     }
                 }
             }
-
-            if cfg.agent_mode {
-                output_lines(cfg, &all)
-            } else {
-                Ok(())
-            }
+            Ok(())
         }
     }
 }
@@ -129,15 +116,6 @@ fn all_indexing_complete(data: &serde_json::Value) -> bool {
             Some("COMPLETED" | "SOME_FAILED" | "ALL_FAILED" | "NO_ATTACHMENTS") | None
         )
     })
-}
-
-/// In agent mode, emit a structured envelope; otherwise print one line per item.
-fn output_lines(cfg: &Config, lines: &[String]) -> Result<()> {
-    if cfg.agent_mode {
-        return formatter::output(cfg, &lines.to_vec());
-    }
-    print_lines(lines);
-    Ok(())
 }
 
 fn collect_names(data: &serde_json::Value) -> Vec<String> {

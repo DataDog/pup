@@ -61,9 +61,9 @@ pup/
 │   ├── client.rs          # Datadog API client wrapper
 │   ├── config.rs          # Generator-owned configuration contract
 │   ├── formatter.rs       # Generator-owned formatting contract
-│   ├── output.rs          # Output rendering and printing (JSON, YAML, table, agent envelope)
+│   ├── output.rs          # Output rendering and printing (JSON envelope, YAML, table, CSV, TSV)
 │   ├── settings.rs        # Configuration loading, precedence, and storage paths
-│   ├── useragent.rs       # AI agent detection (FORCE_AGENT_MODE, Claude Code, etc.)
+│   ├── useragent.rs       # AI agent detection (User-Agent token, prompt auto-approval)
 │   ├── util.rs            # Time parsing, validation
 │   └── version.rs         # Version and build info
 ├── tests/                 # E2E parity report

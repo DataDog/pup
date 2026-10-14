@@ -553,21 +553,12 @@ pub async fn assist(cfg: &Config, entity: &str) -> Result<()> {
     };
 
     let meta = formatter::Metadata {
-        count: Some(1),
-        truncated: false,
-        command: Some(format!("idp assist {entity}")),
         next_action: Some(format!(
             "Use `pup idp owner {entity}` for full ownership details, or `pup idp deps {entity}` for dependency graph"
         )),
+        ..Default::default()
     };
-
-    formatter::format_and_print(
-        &response,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output_with_meta(cfg, &response, &meta)
 }
 
 fn find_query(query: &str) -> Result<String> {
@@ -633,24 +624,19 @@ pub async fn find(cfg: &Config, query: &str, limit: usize, cursor: Option<&str>)
         params.push(("page[cursor]", cursor));
     }
     let data = raw_client::raw_get(cfg, entity_query::ENTITIES_PATH, &params).await?;
-    let (count, truncated, next_action) = entity_query::raw_response_metadata(&data);
 
+    // A cursor gets the default "rerun with --cursor" action; otherwise point at
+    // the next useful command.
+    let has_next_page = data
+        .pointer("/meta/page/next_cursor")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|cursor| !cursor.is_empty());
     let meta = formatter::Metadata {
-        count,
-        truncated,
-        command: Some(format!("idp find {query}")),
-        next_action: next_action.or_else(|| {
-            Some("Use `pup idp assist <entity>` for full context on a specific entity".into())
-        }),
+        next_action: (!has_next_page)
+            .then(|| "Use `pup idp assist <entity>` for full context on a specific entity".into()),
+        ..Default::default()
     };
-
-    formatter::format_and_print(
-        &data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output_with_meta(cfg, &data, &meta)
 }
 
 /// Resolve owner, team, and on-call context for an entity.
@@ -689,20 +675,7 @@ pub async fn owner(cfg: &Config, entity: &str) -> Result<()> {
         response["warnings"] = serde_json::to_value(warnings)?;
     }
 
-    let meta = formatter::Metadata {
-        count: Some(1),
-        truncated: false,
-        command: Some(format!("idp owner {entity}")),
-        next_action: None,
-    };
-
-    formatter::format_and_print(
-        &response,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::format_and_print(&response, &cfg.output_format, cfg.jq.as_deref())
 }
 
 /// Show dependency and relationship context for an entity.
@@ -712,30 +685,21 @@ pub async fn deps(cfg: &Config, entity: &str) -> Result<()> {
         raw_client::raw_get(cfg, &entity_path, &[("fields[service]", "name")]).await?;
     let primary = first_entity(&entity_data, entity)?;
     let dependencies = extract_runtime_dependencies(primary);
-    let dependency_count = dependencies.upstream.len() + dependencies.downstream.len();
+    let meta = formatter::Metadata {
+        count: Some(dependencies.upstream.len() + dependencies.downstream.len()),
+        next_action: Some(
+            "Use `pup idp entities query` for a different lookback or broader dependency relations"
+                .to_string(),
+        ),
+        ..Default::default()
+    };
 
     let response = serde_json::json!({
         "entity": entity,
         "dependencies": dependencies,
     });
 
-    let meta = formatter::Metadata {
-        count: Some(dependency_count),
-        truncated: false,
-        command: Some(format!("idp deps {entity}")),
-        next_action: Some(
-            "Use `pup idp entities query` for a different lookback or broader dependency relations"
-                .to_string(),
-        ),
-    };
-
-    formatter::format_and_print(
-        &response,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output_with_meta(cfg, &response, &meta)
 }
 
 /// Register one or more Catalog entities from a YAML or JSON file.
@@ -770,18 +734,10 @@ pub async fn register(cfg: &Config, file: &str) -> Result<()> {
     let data = serde_json::from_slice::<serde_json::Value>(&response.bytes)
         .map_err(|e| anyhow::anyhow!("Catalog API returned invalid JSON for {file}: {e}"))?;
 
-    let meta = registration_metadata(&data, file);
-
-    formatter::format_and_print(
-        &data,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output_with_meta(cfg, &data, &registration_metadata(&data))
 }
 
-fn registration_metadata(data: &serde_json::Value, file: &str) -> formatter::Metadata {
+fn registration_metadata(data: &serde_json::Value) -> formatter::Metadata {
     let count = data
         .pointer("/meta/count")
         .and_then(serde_json::Value::as_u64)
@@ -834,9 +790,8 @@ fn registration_metadata(data: &serde_json::Value, file: &str) -> formatter::Met
 
     formatter::Metadata {
         count,
-        truncated: false,
-        command: Some(format!("idp register {file}")),
         next_action,
+        ..Default::default()
     }
 }
 
@@ -950,15 +905,6 @@ mod tests {
     }
 
     #[test]
-    fn test_entity_query_url_appends_include() {
-        let url = entity_query_url("svc", "owner_teams");
-        assert!(
-            url.contains("&include=owner_teams"),
-            "include param missing: {url}"
-        );
-    }
-
-    #[test]
     fn test_registration_metadata_uses_response_count_and_first_ref() {
         let response = serde_json::json!({
             "data": [{
@@ -971,7 +917,7 @@ mod tests {
             "meta": {"count": 2}
         });
 
-        let metadata = registration_metadata(&response, "entities.yaml");
+        let metadata = registration_metadata(&response);
 
         assert_eq!(metadata.count, Some(2));
         assert_eq!(
@@ -979,19 +925,6 @@ mod tests {
             Some(
                 "Use `pup --read-only software-catalog entities list --filter-ref 'datastore:payments/orders'` to verify the first registered entity"
             )
-        );
-    }
-
-    #[test]
-    fn test_extract_runtime_dependencies_normalizes_service_refs() {
-        let dependencies = extract_runtime_dependencies(&service_with_runtime_dependencies());
-
-        assert_eq!(
-            dependencies,
-            DependencySummary {
-                upstream: vec!["api".into(), "web".into()],
-                downstream: vec!["cache".into(), "database".into()],
-            }
         );
     }
 
@@ -1024,13 +957,35 @@ mod tests {
             "meta": {"count": 1}
         });
 
-        let metadata = registration_metadata(&response, "service.datadog.yaml");
+        let metadata = registration_metadata(&response);
 
         assert_eq!(
             metadata.next_action.as_deref(),
             Some(
                 "Review 2 schema warning(s) in `included[].attributes.schema.metadata.managed.status.warnings`; then use `pup --read-only software-catalog entities list --filter-ref 'service:default/checkout'` to verify the registered entity"
             )
+        );
+    }
+
+    #[test]
+    fn test_entity_query_url_appends_include() {
+        let url = entity_query_url("svc", "owner_teams");
+        assert!(
+            url.contains("&include=owner_teams"),
+            "include param missing: {url}"
+        );
+    }
+
+    #[test]
+    fn test_extract_runtime_dependencies_normalizes_service_refs() {
+        let dependencies = extract_runtime_dependencies(&service_with_runtime_dependencies());
+
+        assert_eq!(
+            dependencies,
+            DependencySummary {
+                upstream: vec!["api".into(), "web".into()],
+                downstream: vec!["cache".into(), "database".into()],
+            }
         );
     }
 

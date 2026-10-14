@@ -11,5 +11,27 @@
     },
     "type": "str"
   },
+  "included": [
+    "<list>",
+    {
+      "attributes": {
+        "*": "<...>"
+      },
+      "id": "<uuid>",
+      "relationships": {
+        "*": {
+          "data": [
+            "<list>",
+            "<...>"
+          ]
+        }
+      },
+      "type": "str"
+    }
+  ],
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

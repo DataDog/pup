@@ -135,13 +135,7 @@ pub async fn upload(cfg: &Config, file: &str, format: Option<&str>) -> Result<()
         "img_format": img_format,
         "content_url": content_url,
     });
-    formatter::format_and_print(
-        &payload,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-    )
+    formatter::format_and_print(&payload, &cfg.output_format, cfg.jq.as_deref())
 }
 
 /// Downloads an image previously uploaded via [`upload`] to a local file.
@@ -163,13 +157,7 @@ pub async fn download(cfg: &Config, image_ref: &str, out: &str) -> Result<()> {
         "bytes_written": resp.bytes.len(),
         "content_type": resp.content_type,
     });
-    formatter::format_and_print(
-        &payload,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-    )
+    formatter::format_and_print(&payload, &cfg.output_format, cfg.jq.as_deref())
 }
 
 #[cfg(test)]

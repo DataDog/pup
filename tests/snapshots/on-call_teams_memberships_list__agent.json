@@ -17,5 +17,37 @@
       "type": "str"
     }
   ],
+  "included": [
+    "<list>",
+    {
+      "attributes": {
+        "*": "<...>"
+      },
+      "id": "<uuid>",
+      "type": "str"
+    }
+  ],
+  "links": {
+    "first": "<url>",
+    "last": "<url>",
+    "self": "<url>"
+  },
+  "meta": {
+    "*": {
+      "first_number": "int",
+      "last_number": "int",
+      "next_number": "NoneType",
+      "number": "int",
+      "prev_number": "NoneType",
+      "size": "int",
+      "total": "int",
+      "type": "str"
+    }
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
+  },
   "status": "str"
 }

@@ -19,5 +19,27 @@
       "type": "str"
     }
   ],
+  "links": {
+    "first": "<url>",
+    "last": "<url>",
+    "next": "<url>",
+    "self": "<url>"
+  },
+  "meta": {
+    "*": {
+      "first_offset": "int",
+      "last_offset": "int",
+      "limit": "int",
+      "next_offset": "int",
+      "offset": "int",
+      "total": "int",
+      "type": "str"
+    }
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
+  },
   "status": "str"
 }

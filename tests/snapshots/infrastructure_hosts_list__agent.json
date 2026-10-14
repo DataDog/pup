@@ -13,17 +13,11 @@
           "str"
         ],
         "aws_id": "str",
-        "aws_name": "str",
         "host_name": "str",
         "id": "int",
         "is_muted": "bool",
         "last_reported_time": "int",
-        "meta": {
-          "*": [
-            "<list>",
-            "<...>"
-          ]
-        },
+        "meta": {},
         "metrics": {
           "*": "float"
         },
@@ -39,11 +33,16 @@
             "<...>"
           ]
         },
-        "up": "bool"
+        "up": "bool",
+        "aws_name": "str"
       }
     ],
     "total_matching": "int",
     "total_returned": "int"
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
   },
   "status": "str"
 }

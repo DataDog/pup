@@ -192,6 +192,24 @@ list of commands as built.
 
 ## Installation
 
+### Install Script (macOS/Linux/Windows)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DataDog/pup/main/install.sh | sh
+```
+
+On macOS with Homebrew installed, the script runs `brew install datadog-labs/pack/pup`, unless `PUP_VERSION` or `PUP_INSTALL_DIR` is set. Otherwise (Linux, macOS without Homebrew, and Windows via Git Bash, MSYS2, or Cygwin) it downloads the release archive, verifies its SHA-256 checksum, and installs the binary to `~/.local/bin`. Environment variables override the defaults:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUP_VERSION` | latest release | Version to install (e.g. `1.27.0`) |
+| `PUP_INSTALL_DIR` | `~/.local/bin` | Directory to install the binary into |
+| `PUP_NO_BREW` | unset | Set to `1` on macOS to skip Homebrew and download directly |
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DataDog/pup/main/install.sh | PUP_VERSION=1.27.0 PUP_INSTALL_DIR=/usr/local/bin sh
+```
+
 ### Homebrew (macOS/Linux)
 
 ```bash

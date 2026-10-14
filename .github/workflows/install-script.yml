@@ -1,0 +1,88 @@
+name: Install Script
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - install.sh
+      - .github/workflows/install-script.yml
+  pull_request:
+    paths:
+      - install.sh
+      - .github/workflows/install-script.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-script-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Shellcheck
+        run: shellcheck --shell=sh install.sh
+
+  install:
+    name: Install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PUP_INSTALL_DIR: ${{ github.workspace }}/pup-bin
+      PUP_NO_BREW: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install latest via pipe
+        run: sh < install.sh
+      - name: Verify latest version
+        run: |
+          latest="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/DataDog/pup/releases/latest)"
+          latest="${latest##*/tag/v}"
+          "$PUP_INSTALL_DIR/pup" --version | tee version.txt
+          grep -F "$latest" version.txt
+      - name: Install pinned version with v prefix
+        run: PUP_VERSION=v1.27.0 sh install.sh
+      - name: Verify pinned version
+        run: |
+          "$PUP_INSTALL_DIR/pup" --version | tee version.txt
+          grep -F "1.27.0" version.txt
+      - name: Nonexistent version fails
+        run: |
+          if PUP_VERSION=0.0.0 sh install.sh; then
+            echo "expected install of a nonexistent version to fail"
+            exit 1
+          fi
+
+  install-brew:
+    name: Install via Homebrew (macOS)
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install via pipe
+        run: sh < install.sh 2>&1 | tee install.log
+      - name: Verify Homebrew was used
+        run: |
+          grep -F "Homebrew detected" install.log
+          brew list --formula pup
+          pup --version
+      - name: Overrides skip Homebrew
+        run: |
+          PUP_VERSION=1.27.0 PUP_INSTALL_DIR="$RUNNER_TEMP/pup-bin" sh install.sh 2>&1 | tee override.log
+          if grep -F "Homebrew detected" override.log; then
+            echo "expected PUP_VERSION/PUP_INSTALL_DIR to bypass Homebrew"
+            exit 1
+          fi
+          "$RUNNER_TEMP/pup-bin/pup" --version | grep -F "1.27.0"

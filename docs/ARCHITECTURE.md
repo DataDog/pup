@@ -67,9 +67,10 @@ pup/
 ├── src/                    # Rust source code
 │   ├── main.rs            # Entry point + clap command registration
 │   ├── client.rs          # Datadog API client wrapper
-│   ├── config.rs          # Configuration management
+│   ├── config.rs          # Generator-owned configuration contract
 │   ├── formatter.rs       # Generator-owned formatting contract
 │   ├── output.rs          # Hand-maintained output rendering and printing
+│   ├── settings.rs        # Hand-maintained configuration loading, precedence, and storage paths
 │   ├── util.rs            # Time parsing, validation
 │   ├── useragent.rs       # User agent + AI agent detection
 │   ├── version.rs         # Version information
@@ -96,6 +97,7 @@ pup/
 - `src/commands/` contains clap command definitions (thin layer)
 - `src/client.rs`, `src/auth/`, etc. contain business logic (testable)
 - `src/formatter.rs` exposes the narrow contract used by generated commands; output behavior and tests live in `src/output.rs`
+- `src/config.rs` re-exports only `Config` and `OutputFormat` for generated code; configuration loading, precedence, storage paths and their tests live in `src/settings.rs`
 - `#[cfg(test)]` modules co-located with source for unit tests
 
 ## Authentication Architecture

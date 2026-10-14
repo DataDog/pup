@@ -16,7 +16,7 @@ Every PR is evaluated against the following criteria. A failure in any **MUST** 
   - `src/util.rs` — time parsing, validation helpers
   - `src/output.rs` — hand-maintained output rendering and printing (JSON, YAML, table, agent envelope); keep `src/formatter.rs` limited to the generator-owned contract
   - `src/client.rs` — API client construction and request helpers
-  - `src/config.rs` — configuration loading and precedence
+  - `src/settings.rs` — hand-maintained configuration loading and precedence; keep `src/config.rs` limited to the generator-owned contract
 - **No duplicate code.** If two or more call sites need the same logic, extract it into a shared function in the appropriate module. Three identical lines is the threshold — extract on the third occurrence.
 - **No reimplementation of standard library or dependency features.** Use `anyhow`, `serde`, `clap`, and other existing dependencies rather than hand-rolling equivalents.
 

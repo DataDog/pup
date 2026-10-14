@@ -3,7 +3,8 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/DataDog/pup/main/install.sh | sh
 #
-# On macOS with Homebrew available, installs via `brew install datadog-labs/pack/pup`.
+# On macOS with Homebrew available, installs via `brew install datadog-labs/pack/pup`
+# unless PUP_VERSION or PUP_INSTALL_DIR is set, since Homebrew cannot honor them.
 # Everywhere else (Linux, macOS without Homebrew, Windows via Git Bash/MSYS2/Cygwin),
 # downloads the release archive, verifies its SHA-256 checksum, and installs the binary.
 #
@@ -154,7 +155,9 @@ install_direct() {
 main() {
   need uname
   os="$(detect_os)"
-  if [ "$os" = Darwin ] && [ "${PUP_NO_BREW:-0}" != 1 ] && command -v brew >/dev/null 2>&1; then
+  if [ "$os" = Darwin ] && [ "${PUP_NO_BREW:-0}" != 1 ] &&
+    [ -z "${PUP_VERSION:-}" ] && [ -z "${PUP_INSTALL_DIR:-}" ] &&
+    command -v brew >/dev/null 2>&1; then
     install_with_brew
     return
   fi

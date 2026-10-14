@@ -78,3 +78,11 @@ jobs:
           grep -F "Homebrew detected" install.log
           brew list --formula pup
           pup --version
+      - name: Overrides skip Homebrew
+        run: |
+          PUP_VERSION=1.27.0 PUP_INSTALL_DIR="$RUNNER_TEMP/pup-bin" sh install.sh 2>&1 | tee override.log
+          if grep -F "Homebrew detected" override.log; then
+            echo "expected PUP_VERSION/PUP_INSTALL_DIR to bypass Homebrew"
+            exit 1
+          fi
+          "$RUNNER_TEMP/pup-bin/pup" --version | grep -F "1.27.0"

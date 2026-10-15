@@ -6,7 +6,7 @@ use crate::config::Config;
 
 /// Returns the runbooks directory: ~/.config/pup/runbooks/
 pub fn runbooks_dir(_cfg: &Config) -> Option<PathBuf> {
-    crate::config::config_dir().map(|d| d.join("runbooks"))
+    crate::settings::config_dir().map(|d| d.join("runbooks"))
 }
 
 /// Returns the templates directory: ~/.config/pup/runbooks/_templates/

@@ -285,9 +285,9 @@ pub async fn login(
 /// is an ownership allowlist, mirroring the shape check applied to `dd_oid`.
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_effective_site<'a>(site: &'a str, callback_domain: Option<&'a str>) -> &'a str {
-    if crate::config::uses_datadog_subdomains(site) {
+    if crate::settings::uses_datadog_subdomains(site) {
         callback_domain
-            .filter(|d| crate::config::is_datadog_owned_host(d))
+            .filter(|d| crate::settings::is_datadog_owned_host(d))
             .unwrap_or(site)
     } else {
         site

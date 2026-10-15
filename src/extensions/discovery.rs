@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 use super::manifest::Manifest;
-use crate::config;
+use crate::settings;
 
 /// Information about an installed extension, for display.
 pub struct ExtensionInfo {
@@ -15,7 +15,7 @@ pub struct ExtensionInfo {
 
 /// Return the base extensions directory: config_dir()/extensions/
 pub fn extension_dir() -> Option<PathBuf> {
-    let dir = config::config_dir()?;
+    let dir = settings::config_dir()?;
     Some(dir.join("extensions"))
 }
 

@@ -24,6 +24,8 @@ mod formatter;
 #[cfg(feature = "browser")]
 mod output;
 #[cfg(feature = "browser")]
+mod settings;
+#[cfg(feature = "browser")]
 mod version;
 
 #[cfg(feature = "browser")]

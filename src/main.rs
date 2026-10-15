@@ -15,6 +15,7 @@ mod rate_limit;
 mod raw_client;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
+mod settings;
 #[cfg(not(target_arch = "wasm32"))]
 mod skills;
 #[cfg(not(target_arch = "wasm32"))]
@@ -14773,11 +14774,11 @@ fn resolve_login_scopes(
     use crate::auth::types::{default_scopes, read_only_scopes};
 
     if let Some(raw) = cli_scopes {
-        return crate::config::parse_scopes(raw);
+        return crate::settings::parse_scopes(raw);
     }
 
     // Load from config file (per-org profile, then top-level scopes)
-    let mut base = if let Some(configured) = crate::config::load_configured_scopes(org) {
+    let mut base = if let Some(configured) = crate::settings::load_configured_scopes(org) {
         if read_only {
             configured
                 .into_iter()
@@ -14794,7 +14795,7 @@ fn resolve_login_scopes(
     };
 
     if let Some(raw) = extra_scopes {
-        for scope in crate::config::parse_scopes(raw) {
+        for scope in crate::settings::parse_scopes(raw) {
             if !base.contains(&scope) {
                 base.push(scope);
             }
@@ -15084,7 +15085,7 @@ mod resolve_callback_port_tests {
 
     #[test]
     fn site_flag_accepts_valid_hosts() {
-        use crate::config::validate_site;
+        use crate::settings::validate_site;
         for good in [
             "datadoghq.com",
             "us3.datadoghq.com",
@@ -15099,7 +15100,7 @@ mod resolve_callback_port_tests {
 
     #[test]
     fn site_flag_rejects_url_smuggling_attempts() {
-        use crate::config::validate_site;
+        use crate::settings::validate_site;
         // These values would redirect API or OAuth calls to an attacker-controlled
         // host if allowed through URL construction unchecked.
         for bad in [
@@ -15281,7 +15282,7 @@ async fn main_inner() -> anyhow::Result<()> {
                     #[cfg(not(feature = "browser"))]
                     {
                         let interactive = std::io::stdin().is_terminal() && !cfg.agent_mode;
-                        let trusted_sites = config::configured_trusted_sites();
+                        let trusted_sites = settings::configured_trusted_sites();
                         cfg.ensure_site_trusted(
                             parsed.globals.trust_site,
                             interactive,
@@ -15364,7 +15365,7 @@ async fn main_inner() -> anyhow::Result<()> {
     // Site for this org and access token are also resolved here.
     if let Some(org) = cli.org {
         #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
-        config::apply_org_override(&mut cfg, org)?;
+        settings::apply_org_override(&mut cfg, org)?;
         #[cfg(any(feature = "browser", target_arch = "wasm32"))]
         {
             cfg.org = Some(org);
@@ -15403,7 +15404,7 @@ async fn main_inner() -> anyhow::Result<()> {
 
     // Durable trust allowlist from the config file, sourced once for all gate calls.
     #[cfg(not(feature = "browser"))]
-    let trusted_sites = config::configured_trusted_sites();
+    let trusted_sites = settings::configured_trusted_sites();
 
     // Gate credential dispatch to non-Datadog hosts before any command dispatches.
     // Auth subcommands resolve their own site late (after --site is applied in-arm),

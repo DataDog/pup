@@ -410,5 +410,5 @@ Error responses in agent mode:
 | `src/commands/agent.rs` | Schema generation, `pup agent schema`, `pup agent guide` |
 | `src/formatter.rs` | Generator-owned formatting contract |
 | `src/output.rs` | Agent envelope, structured errors, and output rendering and printing |
-| `src/config.rs` | `agent_mode` field on Config |
+| `src/settings.rs` | `agent_mode` field on Config (re-exported to generated code via `src/config.rs`) |
 | `src/main.rs` | `--agent` flag, help interception, output formatting |

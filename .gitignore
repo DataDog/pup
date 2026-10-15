@@ -42,3 +42,4 @@ tests/gen_commands_bin
 
 # worktrees
 .claude/worktrees/
+dist-bundled/

@@ -13,6 +13,7 @@ before:
     # Verify Cargo.toml version matches git tag
     - >-
       sh -c 'CARGO_VER=$(grep "^version" Cargo.toml | head -1 | sed "s/.*\"\(.*\)\"/\1/"); TAG_VER=$(git describe --tags --exact-match 2>/dev/null | sed "s/^v//"); if [ "$CARGO_VER" != "$TAG_VER" ]; then echo "ERROR: Cargo.toml version ($CARGO_VER) does not match git tag ($TAG_VER)"; exit 1; fi'
+    - bash scripts/fetch-bundled-extensions.sh dist-bundled
 
 builds:
   - id: linux
@@ -39,6 +40,11 @@ archives:
       - LICENSE
       - LICENSE-3rdparty.csv
       - README.md
+      - src: "dist-bundled/{{ .Os }}-{{ .Arch }}/pup-setup"
+        dst: libexec/pup-extensions
+        strip_parent: true
+        info:
+          mode: 0755
 
 sboms:
   - artifacts: archive

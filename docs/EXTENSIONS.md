@@ -390,6 +390,10 @@ The config directory location depends on your platform:
 
 Override with `PUP_CONFIG_DIR` environment variable.
 
+### Bundled extensions
+
+Release archives can ship first-party extensions in `libexec/pup-extensions/`, either next to the `pup` binary or one level up (Homebrew's `bin/` + `libexec/` layout). Pup dispatches to these without `pup extension install`. A user-installed extension with the same name takes precedence.
+
 ## Exit Codes
 
 Pup propagates the extension's exit code. If the extension exits with code 1, pup exits with code 1. On Unix, if the extension is killed by a signal, pup exits with 128 + signal number (standard convention).

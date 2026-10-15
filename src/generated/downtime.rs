@@ -165,21 +165,12 @@ pub async fn list(
         .await
         .map_err(|e| anyhow::anyhow!("failed to list_downtimes: {:?}", e))?;
     let count = resp.data.as_ref().map_or(0, |d| d.len());
-    let truncated = false;
-    let next_action: Option<String> = None;
     let meta = formatter::Metadata {
         count: Some(count),
-        truncated,
         command: Some("downtime list".to_string()),
-        next_action,
+        ..Default::default()
     };
-    formatter::format_and_print(
-        &resp,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+    formatter::output_with_meta(cfg, &resp, &meta)
 }
 
 #[cfg(test)]

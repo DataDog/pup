@@ -5,7 +5,7 @@ use datadog_api_client::datadogV2::api_ci_visibility_pipelines::{
 use datadog_api_client::datadogV2::api_ci_visibility_tests::{
     CIVisibilityTestsAPI, ListCIAppTestEventsOptionalParams, SearchCIAppTestEventsOptionalParams,
 };
-use datadog_api_client::datadogV2::api_dora_metrics::DORAMetricsAPI;
+use datadog_api_client::datadogV2::api_delivery_performance::DeliveryPerformanceAPI;
 use datadog_api_client::datadogV2::api_test_optimization::{
     SearchFlakyTestsOptionalParams, TestOptimizationAPI,
 };
@@ -263,7 +263,7 @@ pub async fn pipelines_get(cfg: &Config, pipeline_id: &str) -> Result<()> {
 // ---- DORA Metrics ----
 
 pub async fn dora_patch_deployment(cfg: &Config, deployment_id: &str, file: &str) -> Result<()> {
-    let api = crate::make_api!(DORAMetricsAPI, cfg);
+    let api = crate::make_api!(DeliveryPerformanceAPI, cfg);
     let body: DORADeploymentPatchRequest = crate::util::read_json_file(file)?;
     api.patch_dora_deployment(deployment_id.to_string(), body)
         .await

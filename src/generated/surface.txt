@@ -4,3 +4,4 @@ downtime
 downtime.cancel
 downtime.create
 downtime.get
+downtime.list

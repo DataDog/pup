@@ -1,13 +1,16 @@
 {
   "data": [
-    "<list>",
-    {
-      "attributes": {
-        "*": "<...>"
-      },
-      "id": "str",
-      "type": "str"
-    }
+    "<empty_list>"
   ],
+  "meta": {
+    "*": {
+      "total_filtered_count": "int"
+    }
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
+  },
   "status": "str"
 }

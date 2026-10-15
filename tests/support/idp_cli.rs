@@ -14,6 +14,7 @@ pub fn pup(server: &Server, args: &[&str]) -> Output {
         .env("PUP_MOCK_SERVER", server.url())
         .env("DD_ACCESS_TOKEN", "local-fixture-token")
         .env("DD_SITE", "datadoghq.com")
+        .env("DD_TOKEN_STORAGE", "file")
         .env(
             "PUP_CONFIG_DIR",
             std::env::temp_dir().join(format!(
@@ -22,6 +23,7 @@ pub fn pup(server: &Server, args: &[&str]) -> Output {
             )),
         )
         .env_remove("PUP_FILTER")
+        .env_remove("PUP_NO_ENVELOPE")
         .env_remove("DD_ORG")
         .env_remove("DD_API_KEY")
         .env_remove("DD_APP_KEY")

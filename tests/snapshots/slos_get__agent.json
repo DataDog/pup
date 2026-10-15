@@ -33,5 +33,10 @@
     "type": "str",
     "type_id": "int"
   },
+  "error": "NoneType",
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

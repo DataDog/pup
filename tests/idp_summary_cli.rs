@@ -27,7 +27,7 @@ fn facets_preserve_null_counts_and_continuation() {
     let result = payload(pup(
         &server,
         &[
-            "--no-agent",
+            "--no-envelope",
             "idp",
             "entities",
             "facets",
@@ -69,7 +69,7 @@ fn facets_bound_provider_responses_without_fabricating_a_cursor() {
         "--limit",
         "1",
     ];
-    let result = payload(pup(&server, &[&["--agent"][..], &args].concat()));
+    let result = payload(pup(&server, &args));
     let data = &result["data"];
     assert_eq!(data["results"][0]["values"].as_array().unwrap().len(), 1);
     assert_eq!(data["results"][0]["values_returned"], 2);
@@ -83,7 +83,7 @@ fn facets_bound_provider_responses_without_fabricating_a_cursor() {
         .contains("sampled locally"));
     let raw = payload(pup(
         &server,
-        &[&["--no-agent"][..], &args, &["--raw"]].concat(),
+        &[&["--no-envelope"][..], &args, &["--raw"]].concat(),
     ));
     assert_eq!(raw, response);
     request.assert();
@@ -101,7 +101,7 @@ fn facets_reject_malformed_values_instead_of_reporting_empty_vocabulary() {
     let output = pup(
         &server,
         &[
-            "--no-agent",
+            "--no-envelope",
             "idp",
             "entities",
             "facets",
@@ -116,7 +116,7 @@ fn facets_reject_malformed_values_instead_of_reporting_empty_vocabulary() {
 }
 
 #[test]
-fn grouped_counts_use_jsonapi_and_work_in_read_only_agent_mode() {
+fn grouped_counts_use_jsonapi_and_ignore_the_legacy_agent_flag() {
     let mut server = Server::new();
     let request = server.mock("POST", "/api/v2/idp/entity_graph/aggregate")
         .match_header("content-type", "application/json")
@@ -166,7 +166,7 @@ fn unsupported_summary_provider_is_an_error_not_an_empty_inventory() {
     let output = pup(
         &server,
         &[
-            "--no-agent",
+            "--no-envelope",
             "idp",
             "entities",
             "facets",

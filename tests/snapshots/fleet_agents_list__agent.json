@@ -6,5 +6,12 @@
     "id": "str",
     "type": "str"
   },
+  "meta": {
+    "*": "int"
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

@@ -1,17 +1,24 @@
 {
-  "dashboards": [
-    "<list>",
-    {
-      "author_handle": "str",
-      "created_at": "<timestamp>",
-      "deleted_at": "NoneType",
-      "description": "str",
-      "id": "str",
-      "is_read_only": "bool",
-      "layout_type": "str",
-      "modified_at": "<timestamp>",
-      "title": "str",
-      "url": "str"
-    }
-  ]
+  "data": {
+    "dashboards": [
+      "<list>",
+      {
+        "author_handle": "str",
+        "created_at": "<timestamp>",
+        "deleted_at": "NoneType",
+        "description": "str",
+        "id": "str",
+        "is_read_only": "bool",
+        "layout_type": "str",
+        "modified_at": "<timestamp>",
+        "title": "str",
+        "url": "str"
+      }
+    ]
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

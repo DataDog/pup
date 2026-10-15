@@ -1,22 +1,29 @@
 {
-  "error": "str",
-  "from_date": "int",
-  "group_by": [
-    "<empty_list>"
-  ],
-  "message": "str",
-  "query": "str",
-  "res_type": "str",
-  "resp_version": "int",
-  "series": [
-    "<empty_list>"
-  ],
-  "status": "str",
-  "times": [
-    "<empty_list>"
-  ],
-  "to_date": "int",
-  "values": [
-    "<empty_list>"
-  ]
+  "data": {
+    "error": "str",
+    "from_date": "int",
+    "group_by": [
+      "<empty_list>"
+    ],
+    "message": "str",
+    "query": "str",
+    "res_type": "str",
+    "resp_version": "int",
+    "series": [
+      "<empty_list>"
+    ],
+    "status": "str",
+    "times": [
+      "<empty_list>"
+    ],
+    "to_date": "int",
+    "values": [
+      "<empty_list>"
+    ]
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

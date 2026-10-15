@@ -9,5 +9,9 @@
       "<empty_list>"
     ]
   },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

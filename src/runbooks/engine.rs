@@ -140,7 +140,11 @@ pub async fn run(cfg: &Config, runbook: &Runbook, vars: HashMap<String, String>)
         let elapsed = step_start.elapsed();
 
         match result {
-            Ok(output) => {
+            Ok(StepOutput {
+                output,
+                captured,
+                notes,
+            }) => {
                 // Print step output, labeled
                 if !output.trim().is_empty() {
                     eprintln!("  stdout:");
@@ -150,8 +154,12 @@ pub async fn run(cfg: &Config, runbook: &Runbook, vars: HashMap<String, String>)
                     }
                 }
 
+                for note in &notes {
+                    eprintln!("{note}");
+                }
                 if let Some(capture_var) = &step.capture {
-                    step_vars.insert(capture_var.clone(), output.trim().to_string());
+                    let value = captured.unwrap_or_else(|| output.trim().to_string());
+                    step_vars.insert(capture_var.clone(), value);
                 }
                 last_failed = false;
                 steps_ok += 1;
@@ -213,13 +221,39 @@ pub async fn run(cfg: &Config, runbook: &Runbook, vars: HashMap<String, String>)
 
 // ── Step dispatching ──────────────────────────────────────────────────────────
 
-async fn execute_step(cfg: &Config, step: &Step, vars: &HashMap<String, String>) -> Result<String> {
+/// What a step printed, and what `capture:` stores when that differs.
+struct StepOutput {
+    output: String,
+    /// For pup steps, the raw payload (as `--no-envelope` prints it) rather
+    /// than the possibly enveloped display output.
+    captured: Option<String>,
+    /// Metadata lines for stderr (table/CSV/TSV display).
+    notes: Vec<String>,
+}
+
+impl From<String> for StepOutput {
+    fn from(output: String) -> Self {
+        Self {
+            output,
+            captured: None,
+            notes: Vec::new(),
+        }
+    }
+}
+
+async fn execute_step(
+    cfg: &Config,
+    step: &Step,
+    vars: &HashMap<String, String>,
+) -> Result<StepOutput> {
     match step.kind.as_str() {
         "pup" => execute_pup(cfg, step, vars).await,
-        "shell" => execute_shell(step, vars).await,
-        "datadog-workflow" => execute_datadog_workflow(cfg, step, vars).await,
-        "confirm" => execute_confirm(cfg, step, vars),
-        "http" => execute_http(cfg, step, vars).await,
+        "shell" => execute_shell(step, vars).await.map(Into::into),
+        "datadog-workflow" => execute_datadog_workflow(cfg, step, vars)
+            .await
+            .map(Into::into),
+        "confirm" => execute_confirm(cfg, step, vars).map(Into::into),
+        "http" => execute_http(cfg, step, vars).await.map(Into::into),
         other => anyhow::bail!(
             "unknown step kind '{}' (expected pup, shell, datadog-workflow, confirm, http)",
             other
@@ -229,7 +263,62 @@ async fn execute_step(cfg: &Config, step: &Step, vars: &HashMap<String, String>)
 
 // ── Kind implementations ──────────────────────────────────────────────────────
 
-async fn execute_pup(cfg: &Config, step: &Step, vars: &HashMap<String, String>) -> Result<String> {
+/// Extra arguments for a pup step's subprocess: it prints the raw payload as
+/// JSON, which `until` conditions and `capture:` use directly; the parent then
+/// renders it for display in the user's format and envelope choice.
+fn raw_output_args() -> [&'static str; 3] {
+    ["--output", "json", "--no-envelope"]
+}
+
+async fn run_raw(exe: &std::path::Path, parts: &[String]) -> Result<std::process::Output> {
+    tokio::process::Command::new(exe)
+        .args(parts)
+        .args(raw_output_args())
+        .output()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to run pup: {e}"))
+}
+
+/// The command path of a pup step (`monitors list --tags=x` -> `monitors list`).
+fn command_path(parts: &[String]) -> String {
+    parts
+        .iter()
+        .take_while(|part| !part.starts_with('-'))
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Display and capture for a pup step's raw stdout. Non-JSON output (a
+/// plain-text command, or no output) is shown and captured unchanged.
+fn step_output(
+    stdout: String,
+    parts: &[String],
+    format: &crate::config::OutputFormat,
+) -> StepOutput {
+    let Ok(payload) = serde_json::from_str::<serde_json::Value>(stdout.trim()) else {
+        return stdout.into();
+    };
+    let filtered = parts.iter().any(|p| p == "--jq" || p.starts_with("--jq="));
+    let meta = crate::output::Metadata {
+        command: Some(command_path(parts)),
+        ..Default::default()
+    };
+    match crate::output::render_payload(payload.clone(), format, Some(&meta), filtered) {
+        Ok((output, notes)) => StepOutput {
+            output,
+            captured: captured_payload(&payload, format),
+            notes,
+        },
+        Err(_) => stdout.into(),
+    }
+}
+
+async fn execute_pup(
+    cfg: &Config,
+    step: &Step,
+    vars: &HashMap<String, String>,
+) -> Result<StepOutput> {
     let run = step
         .run
         .as_ref()
@@ -252,17 +341,11 @@ async fn execute_pup(cfg: &Config, step: &Step, vars: &HashMap<String, String>) 
                 anyhow::bail!("poll timeout after {}s", timeout.as_secs());
             }
 
-            let out = tokio::process::Command::new(&exe)
-                .args(&parts)
-                .args(["--output", "json"])
-                .output()
-                .await
-                .map_err(|e| anyhow::anyhow!("failed to run pup: {e}"))?;
-
+            let out = run_raw(&exe, &parts).await?;
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
 
             if out.status.success() && eval_condition(&stdout, &until, &mut baseline)? {
-                return Ok(stdout);
+                return Ok(step_output(stdout, &parts, &cfg.output_format));
             }
 
             let elapsed = fmt_elapsed(start.elapsed());
@@ -270,19 +353,13 @@ async fn execute_pup(cfg: &Config, step: &Step, vars: &HashMap<String, String>) 
             tokio::time::sleep(interval).await;
         }
     } else {
-        let out = tokio::process::Command::new(&exe)
-            .args(&parts)
-            .args(["--output", &cfg.output_format.to_string()])
-            .output()
-            .await
-            .map_err(|e| anyhow::anyhow!("failed to run pup: {e}"))?;
-
+        let out = run_raw(&exe, &parts).await?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
             anyhow::bail!("{}", stderr.trim());
         }
-
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        Ok(step_output(stdout, &parts, &cfg.output_format))
     }
 }
 
@@ -359,24 +436,6 @@ async fn execute_datadog_workflow(
         .map(String::from)
         .unwrap_or_default();
 
-    // Emit agent-mode metadata hint to stderr
-    if cfg.agent_mode || instance_id.is_empty() {
-        let meta = serde_json::json!({
-            "metadata": {
-                "kind": "datadog-workflow",
-                "workflow_id": workflow_id,
-                "instance_id": instance_id,
-                "watch_command": format!(
-                    "pup workflows instances get --workflow-id={workflow_id} --instance-id={instance_id}"
-                )
-            }
-        });
-        eprintln!(
-            "  [agent hint] {}",
-            serde_json::to_string(&meta).unwrap_or_default()
-        );
-    }
-
     if instance_id.is_empty() {
         return Ok(serde_json::to_string_pretty(&trigger_resp).unwrap_or_default());
     }
@@ -432,7 +491,7 @@ fn execute_confirm(cfg: &Config, step: &Step, vars: &HashMap<String, String>) ->
 
     if cfg.auto_approve {
         eprintln!("  {rendered}");
-        eprintln!("  [auto-approved via --yes]");
+        eprintln!("  [auto-approved: --yes, DD_AUTO_APPROVE, or a detected AI agent]");
         return Ok(String::new());
     }
 
@@ -624,6 +683,22 @@ fn decode_http_response(
     })
 }
 
+/// The text `capture:` stores for a pup step's raw payload: the payload in the
+/// step's JSON or YAML format, exactly as `--no-envelope` prints it. For
+/// table, CSV, and TSV the displayed rows are captured instead.
+fn captured_payload(
+    payload: &serde_json::Value,
+    format: &crate::config::OutputFormat,
+) -> Option<String> {
+    use crate::config::OutputFormat;
+    if !matches!(format, OutputFormat::Json | OutputFormat::Yaml) {
+        return None;
+    }
+    crate::output::format_value_to_string(payload, format)
+        .ok()
+        .map(|text| text.trim().to_string())
+}
+
 // ── Poll condition evaluator ──────────────────────────────────────────────────
 
 fn eval_condition(output: &str, condition: &str, baseline: &mut Option<f64>) -> Result<bool> {
@@ -692,4 +767,128 @@ fn prompt_continue(cfg: &Config) -> Result<bool> {
     let mut line = String::new();
     stdin.lock().read_line(&mut line)?;
     Ok(matches!(line.trim().to_lowercase().as_str(), "y" | "yes"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::OutputFormat;
+
+    /// What a default (enveloped) child would print for a jq result.
+    fn enveloped(data: &str) -> String {
+        format!(r#"{{"data":{data},"metadata":{{"truncated":false}},"status":"success"}}"#)
+    }
+
+    #[test]
+    fn test_step_subprocess_prints_the_raw_payload() {
+        assert_eq!(raw_output_args(), ["--output", "json", "--no-envelope"]);
+    }
+
+    fn parts(run: &str) -> Vec<String> {
+        run.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn test_step_output_renders_json_display_and_captures_raw_payload() {
+        let out = step_output(
+            r#"[{"id":1}]"#.into(),
+            &parts("monitors list"),
+            &OutputFormat::Json,
+        );
+        let display: serde_json::Value = serde_json::from_str(&out.output).unwrap();
+        assert_eq!(display["status"], "success");
+        assert_eq!(display["data"][0]["id"], 1);
+        assert_eq!(display["metadata"]["command"], "monitors list");
+        assert_eq!(
+            out.captured.as_deref(),
+            Some("[\n  {\n    \"id\": 1\n  }\n]")
+        );
+        assert!(out.notes.is_empty());
+    }
+
+    #[test]
+    fn test_step_output_renders_table_rows_with_metadata_notes() {
+        let out = step_output(
+            r#"{"data":[{"id":"a"}],"meta":{"page":{"after":"c2"}}}"#.into(),
+            &parts("logs search --query=*"),
+            &OutputFormat::Table,
+        );
+        assert!(out.output.contains("| a "), "{}", out.output);
+        assert!(!out.output.contains("status"), "{}", out.output);
+        assert!(out.captured.is_none(), "table captures the displayed rows");
+        assert!(
+            out.notes[0].starts_with(
+                r#"metadata: command="logs search" count=1 truncated=true next_cursor="c2""#
+            ),
+            "{:?}",
+            out.notes
+        );
+    }
+
+    #[test]
+    fn test_step_output_wraps_a_jq_result_whole() {
+        let out = step_output(
+            r#"{"data":[1]}"#.into(),
+            &parts("format --jq {data:.}"),
+            &OutputFormat::Json,
+        );
+        let display: serde_json::Value = serde_json::from_str(&out.output).unwrap();
+        assert_eq!(display["data"], serde_json::json!({"data": [1]}));
+    }
+
+    #[test]
+    fn test_step_output_passes_plain_text_through() {
+        let out = step_output(
+            "Probe 1 deleted.\n".into(),
+            &parts("debugger probes delete 1"),
+            &OutputFormat::Json,
+        );
+        assert_eq!(out.output, "Probe 1 deleted.\n");
+        assert!(out.captured.is_none() && out.notes.is_empty());
+    }
+
+    #[test]
+    fn test_value_condition_matches_raw_payload_but_not_an_envelope() {
+        let mut baseline = None;
+        assert!(eval_condition("3\n", "value < 5", &mut baseline).unwrap());
+        assert!(!eval_condition("7\n", "value < 5", &mut baseline).unwrap());
+        // An enveloped `--jq length` result is an object, so it never matches;
+        // this is why poll steps pass --no-envelope.
+        assert!(!eval_condition(&enveloped("3"), "value < 5", &mut baseline).unwrap());
+    }
+
+    #[test]
+    fn test_empty_condition_on_raw_payload() {
+        let mut baseline = None;
+        assert!(eval_condition("[]", "empty", &mut baseline).unwrap());
+        assert!(!eval_condition("[1]", "empty", &mut baseline).unwrap());
+        assert!(!eval_condition(&enveloped("[]"), "empty", &mut baseline).unwrap());
+    }
+
+    #[test]
+    fn test_decreasing_condition_on_raw_payload() {
+        let mut baseline = None;
+        assert!(!eval_condition("5", "decreasing", &mut baseline).unwrap());
+        assert!(eval_condition("3", "decreasing", &mut baseline).unwrap());
+        assert!(!eval_condition("4", "decreasing", &mut baseline).unwrap());
+    }
+
+    #[test]
+    fn test_captured_payload_follows_the_step_format() {
+        let json = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
+        assert_eq!(
+            captured_payload(&json(r#""cpu""#), &OutputFormat::Json).as_deref(),
+            Some(r#""cpu""#)
+        );
+        assert_eq!(
+            captured_payload(&json(r#"{"data":[1]}"#), &OutputFormat::Json).as_deref(),
+            Some("{\n  \"data\": [\n    1\n  ]\n}")
+        );
+        assert_eq!(
+            captured_payload(&json(r#"{"b":1}"#), &OutputFormat::Yaml).as_deref(),
+            Some("b: 1")
+        );
+        // Table/CSV/TSV capture the displayed rows instead.
+        assert!(captured_payload(&json("[1]"), &OutputFormat::Csv).is_none());
+    }
 }

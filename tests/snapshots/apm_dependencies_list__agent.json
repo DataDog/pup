@@ -108,12 +108,7 @@
     "acr-lifecycle-datadogprod": {},
     "acr-lifecycle-datadogprod-worker": {},
     "acr-lifecycle-datadogprodanalytics": {},
-    "acr-lifecycle-datadogprodanalytics-worker": {
-      "calls": [
-        "<list>",
-        "str"
-      ]
-    },
+    "acr-lifecycle-datadogprodanalytics-worker": {},
     "acr-lifecycle-ddstaging": {},
     "acr-lifecycle-ddstaging-worker": {
       "calls": [
@@ -7193,12 +7188,7 @@
     },
     "delancie-redis-backends-fd-logs-01": {},
     "delancie-redis-backends-fd-logs-02": {},
-    "delancie-redis-backends-fd-workflow-01": {
-      "calls": [
-        "<list>",
-        "str"
-      ]
-    },
+    "delancie-redis-backends-fd-workflow-01": {},
     "delancie-reporting": {
       "calls": [
         "<list>",
@@ -12455,12 +12445,7 @@
         "str"
       ]
     },
-    "ephemera-mass-read-cache": {
-      "calls": [
-        "<list>",
-        "str"
-      ]
-    },
+    "ephemera-mass-read-cache": {},
     "ephemera-mass-read-cache-kv": {
       "calls": [
         "<list>",
@@ -18041,12 +18026,7 @@
         "str"
       ]
     },
-    "lip-model-smoke-testing-global-main": {
-      "calls": [
-        "<list>",
-        "str"
-      ]
-    },
+    "lip-model-smoke-testing-global-main": {},
     "lip-ray-model-smoke-testing-global-main": {
       "calls": [
         "<list>",
@@ -19045,12 +19025,7 @@
       ]
     },
     "master-db": {},
-    "maze": {
-      "calls": [
-        "<list>",
-        "str"
-      ]
-    },
+    "maze": {},
     "maze-api": {
       "calls": [
         "<list>",
@@ -26251,12 +26226,7 @@
         "str"
       ]
     },
-    "runtime-dna-actions": {
-      "calls": [
-        "<list>",
-        "str"
-      ]
-    },
+    "runtime-dna-actions": {},
     "runtime-metadata-service": {
       "calls": [
         "<list>",
@@ -30553,11 +30523,11 @@
         "str"
       ]
     },
-    "elastic-cloud-ccm-api": {},
-    "gcp.container": {},
-    "icanhazoverride": {},
-    "onelogin-api": {},
     "shopify-admin-api": {}
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
   },
   "status": "str"
 }

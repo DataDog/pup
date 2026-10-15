@@ -732,5 +732,9 @@
     "vuln_management_host_count_top99p_sum": "int",
     "workflow_executions_usage_agg_sum": "int"
   },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

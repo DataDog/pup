@@ -486,51 +486,54 @@ pup skills install --name dd-idp
 - `DD_AUTO_APPROVE`: Auto-approve destructive operations (true/false)
 - `DD_TOKEN_STORAGE`: Token storage backend (`keychain` (default) or `file`). Can also be set as `token_storage` in the config file.
 
-## Agent Mode
+## AI Agents
 
-When pup is invoked by an AI coding agent, it automatically switches to **agent mode** which returns structured JSON responses optimized for machine consumption (including metadata, error details, and hints). Agent mode also auto-approves confirmation prompts.
+Pup behaves the same whether a person or an AI coding agent runs it: JSON output is always wrapped in the same envelope, and `--help` is always standard text help.
 
-Agent mode is **auto-detected** when any of these environment variables is set to `1` or `true`:
-
-| Variable | Agent |
-|----------|-------|
-| `CLAUDE_CODE` or `CLAUDECODE` | Claude Code |
-| `CURSOR_AGENT` | Cursor |
-| `CODEX` or `OPENAI_CODEX` | OpenAI Codex |
-| `AIDER` | Aider |
-| `CLINE` | Cline |
-| `WINDSURF_AGENT` | Windsurf |
-| `GITHUB_COPILOT` or `COPILOT_CLI` | GitHub Copilot |
-| `AMAZON_Q` or `AWS_Q_DEVELOPER` | Amazon Q |
-| `GEMINI_CODE_ASSIST` | Gemini Code Assist |
-| `GEMINI_CLI` | Gemini CLI |
-| `SRC_CODY` | Sourcegraph Cody |
-| `PI_CODING_AGENT` | pi.dev |
-| `FORCE_AGENT_MODE` | Any agent (manual override) |
-
-It is also auto-detected when any of these harness-injected variables is present and non-empty:
-
-| Variable | Agent |
-|----------|-------|
-| `CODEX_SESSION_ID`, `CODEX_THREAD_ID`, `CODEX_VERSION`, `CODEX_SANDBOX`, or `CODEX_CI` | OpenAI Codex |
-| `COPILOT_AGENT_SESSION_ID` | GitHub Copilot |
-| `CURSOR_TRACE_ID` | Cursor |
-| `DEVIN_SESSION_ID` | Devin |
-
-You can also enable it explicitly with the `--agent` flag or by setting `FORCE_AGENT_MODE=1`:
-
-```bash
-# Auto-detected (e.g., running inside Claude Code)
-pup monitors list
-
-# Explicit flag
-pup monitors list --agent
-
-# Environment variable override
-FORCE_AGENT_MODE=1 pup monitors list
+```json
+{
+  "status": "success",
+  "data": [ ... ],
+  "meta": { "page": { "after": "eyJ..." } },
+  "metadata": {
+    "command": "logs search",
+    "count": 50,
+    "truncated": true,
+    "next_cursor": "eyJ...",
+    "next_action": "More results available. Use --cursor=\"eyJ...\" ..."
+  }
+}
 ```
 
-If you are integrating pup into an AI agent workflow, make sure the appropriate environment variable is set so responses are optimized for your agent. Without it, pup defaults to human-friendly output.
+- `data` is the command payload. When the API response has a top-level `data`, it stays in place and the response's other keys (`meta`, `links`, `included`) are kept next to it; any other response becomes `data`.
+- `metadata` is always present. `truncated` says whether pup knows more results exist, and `next_cursor` / `next_offset` say where the next page starts, even after `--jq`. `next_action` names the command's own cursor flag.
+- `--jq` runs on the raw API response; its result becomes `data`.
+- JSON and YAML output carry the envelope. Table, CSV, and TSV print only the result rows on stdout (so CSV/TSV stay parseable) and always print the metadata to stderr as one block:
+
+  ```text
+  metadata: command="monitors search" count=30 truncated=true next_page=1
+  next_action: More results available; rerun with --page=1
+  warning: <only when there are warnings>
+  ```
+
+  The `metadata:` line always appears, with `key=value` pairs in a fixed order (command, count, truncated, next_cursor, next_offset, next_page; absent keys omitted, strings JSON-quoted). With `--no-envelope`, only `warning:` lines are printed.
+- `--no-envelope` (or `PUP_NO_ENVELOPE=1`) prints the raw API response instead. The legacy `--no-agent` flag does the same and also turns off agent auto-approval.
+
+Pup detects common AI coding agents (Claude Code, Cursor, Codex, Gemini CLI, and others) from their environment variables to add an `ai-agent <name>` token to the User-Agent header for telemetry and to auto-approve CLI prompts. Detection changes nothing else: output and help are the same as for humans.
+
+For agents and scripts:
+
+```bash
+# Machine-readable command reference (JSON)
+pup agent schema
+pup agent schema --compact
+pup agent schema logs aggregate   # One command, including its response shape
+
+# Skip confirmation prompts for write operations
+pup monitors delete 12345 --yes
+```
+
+When pup detects an AI agent, it auto-approves CLI prompts, as it does with `--yes` or `DD_AUTO_APPROVE=true`; pass `--no-agent` to keep the prompts. Agents should still get the user's explicit authorization before any remote change. The legacy `--agent` flag is accepted and ignored.
 
 ## WASM
 
@@ -609,8 +612,8 @@ pup runbooks validate ./my-runbook.yaml
 - **HTTP steps**: Full method support (GET/POST/PUT/PATCH/DELETE) with `body`, `headers`, `content_type`, and `body_file`
 - **Failure handling**: `on_failure: fail|warn|ignore` and `optional: true` per step
 - **Conditional execution**: `when: on_success|on_failure|always`
-- **Polling**: `poll.interval`, `poll.timeout`, `poll.until` for long-running operations
-- **Output capture**: `capture: VAR_NAME` stores stdout for use in later steps
+- **Polling**: `poll.interval`, `poll.timeout`, `poll.until` for long-running operations; `until` is evaluated against the raw payload (as `--no-envelope` prints it)
+- **Output capture**: `capture: VAR_NAME` stores a pup step's raw payload (as `--no-envelope` prints it, in JSON or YAML) for use in later steps; the step's displayed output still follows your format and envelope choice
 - **Timestamped output**: Every step shows start time, elapsed duration, and labeled stdout/stderr
 
 See `docs/examples/runbooks/` for ready-to-use examples and [docs/EXAMPLES.md](docs/EXAMPLES.md) for full reference.

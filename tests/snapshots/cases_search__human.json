@@ -33,5 +33,11 @@
       "size": "int",
       "total": "int"
     }
-  }
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
+  },
+  "status": "str"
 }

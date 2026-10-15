@@ -7,5 +7,9 @@
     "total_matching": "int",
     "total_returned": "int"
   },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

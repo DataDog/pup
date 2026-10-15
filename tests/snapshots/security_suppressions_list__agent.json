@@ -9,5 +9,17 @@
       "type": "str"
     }
   ],
+  "meta": {
+    "*": {
+      "pageNumber": "int",
+      "pageSize": "int",
+      "totalCount": "int"
+    }
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
+  },
   "status": "str"
 }

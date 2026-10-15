@@ -1,61 +1,27 @@
 # LLM Agent Guide for Pup CLI
 
-This guide helps AI coding agents understand and effectively use the Pup CLI tool. It covers the agent operability system, discovery commands, query syntax, and common workflows.
+This guide helps AI coding agents understand and effectively use the Pup CLI tool. It covers output behavior, discovery commands, query syntax, and common workflows.
 
 For the machine-readable runtime reference (embedded in the binary), run `pup agent schema` (JSON).
 
-## Agent Mode
+## Output Is the Same for Agents and Humans
 
-Pup auto-detects AI coding agents and switches to **agent mode**, which changes how the CLI behaves. Agent mode is triggered by any of:
+Pup has no separate agent mode. Whether a person or an AI coding agent runs it:
 
-| Method | Example |
-|--------|---------|
-| Auto-detect | `CLAUDECODE=1`, `CLAUDE_CODE=1`, `CURSOR_AGENT=1`, `CODEX=1`, `OPENAI_CODEX=1`, `OPENCODE=1`, `AIDER=1`, `CLINE=1`, `WINDSURF_AGENT=1`, `GITHUB_COPILOT=1`, `COPILOT_CLI=1`, `AMAZON_Q=1`, `AWS_Q_DEVELOPER=1`, `GEMINI_CODE_ASSIST=1`, `GEMINI_CLI=1`, `SRC_CODY=1`, `PI_CODING_AGENT=1`, `AGENT=1`, or non-empty `CODEX_SESSION_ID`/`CODEX_THREAD_ID`/`CODEX_VERSION`/`CODEX_SANDBOX`/`CODEX_CI`/`COPILOT_AGENT_SESSION_ID`/`CURSOR_TRACE_ID`/`DEVIN_SESSION_ID` |
-| Explicit flag | `pup --agent <command>` |
-| Environment override | `FORCE_AGENT_MODE=1` |
+- JSON output (the default) is wrapped in a `{status, data, metadata}` envelope (see [Output Envelope](#output-envelope)).
+- `--jq` filters the raw API response; its result becomes the envelope's `data`.
+- `--no-envelope` (or `PUP_NO_ENVELOPE=1`) prints the raw API response instead. The legacy `--no-agent` flag does the same and also turns off agent auto-approval.
+- `--help` prints standard text help.
+- Errors print `Error: <message>` to stderr, nothing to stdout, and exit non-zero.
+- Destructive operations prompt for confirmation unless `--yes` (or `DD_AUTO_APPROVE=true`) is set, or pup detects an AI agent: pup auto-approves CLI prompts when it detects one. When stdin is not a terminal, prompts such as the untrusted-site gate fail closed instead of waiting.
 
-### What changes in agent mode
+Apart from auto-approval, commands you run in an agent session behave exactly like the ones the user runs in their own shell or CI, so scripts you write see the same envelope.
 
-| Behavior | Human Mode | Agent Mode |
-|----------|-----------|------------|
-| `--help` output | Standard text help | Structured JSON schema |
-| Confirmation prompts | Interactive stdin | Auto-approved (no hangs) |
-| Error format | Human text with suggestions | Structured JSON with error codes |
-| API response wrapping | Raw API response | Envelope with metadata (count, truncation, warnings) |
-
-### Verifying agent mode
-
-```bash
-# This should return JSON schema (not text) when agent is detected
-pup --help
-
-# Force agent mode for testing
-FORCE_AGENT_MODE=1 pup --help
-
-# Subtree schema (only logs commands + logs query syntax)
-FORCE_AGENT_MODE=1 pup logs --help
-```
+Pup detects AI coding agents (`CLAUDECODE`, `CLAUDE_CODE`, `CURSOR_AGENT`, `CODEX`, `GEMINI_CLI`, `AGENT`, and others) to add an `ai-agent <name>` token to the User-Agent header and to auto-approve CLI prompts. It changes nothing else. The legacy `--agent` flag is accepted and ignored.
 
 ## Discovery Commands (Recommended First Steps)
 
-### 1. Get full command schema
-
-In agent mode, `--help` returns the complete JSON schema with all commands, flags, query syntax, workflows, best practices, and anti-patterns in a single call:
-
-```bash
-pup --help
-# Returns: { version, auth, global_flags, commands[], query_syntax, time_formats, workflows, best_practices, anti_patterns }
-```
-
-### 2. Get domain-specific schema
-
-```bash
-pup logs --help      # Only logs commands + logs query syntax
-pup monitors --help  # Only monitors commands
-pup metrics --help   # Only metrics commands
-```
-
-### 3. Explicit schema commands (work regardless of agent mode)
+Use `pup agent schema` for a machine-readable command reference:
 
 ```bash
 pup agent schema              # Full JSON schema
@@ -65,17 +31,21 @@ pup agent schema logs             # One domain, with a response shape for each s
 pup agent schema --search cache   # Find leaf commands by path or description
 ```
 
+The full schema contains `version`, `auth`, `global_flags`, `commands`, `envelope`, `query_syntax`, `time_formats`, `workflows`, `best_practices`, and `anti_patterns`.
+
 A path lookup prints minified JSON with:
 
-- `envelope`: the agent-mode `{status, data, metadata}` contract, including how
-  `data` is hoisted, what `--no-agent` and `--jq` see, and how errors are reported.
+- `envelope`: the default `{status, data, metadata}` contract — which response
+  keys are kept, where cursors live, what `--jq` sees, `--no-envelope`, how
+  errors are reported, and which commands print non-JSON text.
 - `returns` on each leaf command: `documented` (`true` when the shape is
-  hand-verified), a JSON Schema for `data`, the `metadata` keys present, a
-  `jq_root` expression for `--jq`, and, for single-command lookups, a worked `example`.
+  hand-verified), a JSON Schema for the envelope's `data`, a `jq_root`
+  expression for `--jq` (which runs on the raw response), and, for
+  single-command lookups, a worked `example`.
   Commands with `documented: false` pass the Datadog API body through and do
   not publish a shape yet.
 
-The no-argument and `--compact` forms are unchanged.
+For human-readable help on any command, use `--help` (for example, `pup logs aggregate --help`).
 
 ## Authentication
 
@@ -94,7 +64,6 @@ export DD_SITE="datadoghq.com"
 
 - OAuth2 tokens are stored in the OS keychain and refresh automatically
 - Some endpoints require API keys even with OAuth2 (e.g., logs search v1)
-- In agent mode, if auth fails, the error JSON includes `suggestions` with remediation steps
 
 ## Command Patterns
 
@@ -293,54 +262,46 @@ pup monitors list --tags="team:<team_name>"
 pup incidents list --query="status:active"
 ```
 
-## Agent Envelope (Agent Mode Output)
+## Output Envelope
 
-In agent mode, command output is wrapped in a metadata envelope:
+JSON output is wrapped in an envelope:
 
 ```json
 {
   "status": "success",
-  "data": [ ... ],
+  "data": [{"id": "AQAAAY...", "type": "log", "attributes": {"message": "upstream timeout"}}],
+  "meta": {"page": {"after": "eyJ..."}},
   "metadata": {
-    "count": 42,
-    "truncated": false,
-    "command": "monitors list",
-    "warnings": [],
-    "note": "This envelope (status/data/metadata) only appears in agent mode. If you are writing a script the user will run outside this agent session, append --no-agent so the output format matches what they will see."
+    "command": "logs search",
+    "count": 1,
+    "truncated": true,
+    "next_cursor": "eyJ...",
+    "next_action": "More results available. Use --cursor=\"eyJ...\" to fetch the next page in the current --sort order, change the limit with --limit, or narrow the --query"
   }
 }
 ```
 
-### Authoring scripts the user will run
+- `data`: the payload. A response with a top-level `data` keeps it in place, along with its other keys (`meta`, `links`, `included`). Any other response (for example a v1 array or the metrics query body) becomes `data` as a whole.
+- `metadata.truncated`: always present. `true` means more results exist; never treat such a result as complete. `false` means pup knows of no more results: not every API reports truncation, so check the command's own paging fields when completeness matters.
+- `metadata.next_cursor` / `metadata.next_offset`: where the next page starts, when pup recognizes the response's paging fields. Pass the cursor back with the command's cursor flag (`--cursor` for most commands; `next_action` names the right one, such as `--page-token`) and the offset with `--offset`. They are present even when `--jq` filters out the response's own paging fields.
+- `metadata.next_action`: the suggested next command, when there is one.
+- `metadata.count`: number of items in `data` when it is a list (or a command-specific count).
+- `metadata.warnings`: non-fatal problems, such as a rate-limited partial lookup.
 
-**The envelope only exists in agent mode.** If you write a script, alias, or runbook that the user (or CI) will run outside this agent session, those callers will not have an agent env var set — so pup will emit the raw payload, not the `{status, data, metadata}` wrapper. A script of yours that does `pup ... | jq '.data[]'` will break when the user runs it.
-
-Append `--no-agent` whenever you produce pup commands the user will execute later:
+`--jq` runs on the raw API response (before wrapping), and its result becomes `data`:
 
 ```bash
-# Interactive (agent mode auto-detected — envelope wrapped):
-pup monitors list --tag='env:prod'
-
-# In a script you're handing to the user (raw output, parity with their shell):
-pup --no-agent monitors list --tag='env:prod' | jq '.[].name'
+pup monitors list --tag='env:prod' --jq '.[].name'   # data: ["cpu high", ...]
+pup logs search --query='status:error' --jq '.data[].attributes.message'
 ```
 
-This is also surfaced in the agent schema under the `script_authoring` key (run `pup agent schema | jq '.script_authoring'`) and called out in `anti_patterns`.
+YAML output carries the same envelope. Table, CSV, and TSV print only the result rows on stdout and always print the metadata to stderr as one block: a `metadata: key=value ...` line (command, count, truncated, next_cursor, next_offset, next_page; strings JSON-quoted), then `next_action: ...` and `warning: ...` lines when set. Read stderr for continuation when you use those formats. A response that already has its own `status` or `metadata` key (for example `monitors search`, whose `metadata` is API pagination) is wrapped whole, so those keys stay under `data`. Use `--no-envelope` (or `PUP_NO_ENVELOPE=1`) when you need the raw API response, for example in a script that predates the envelope.
 
-Error responses in agent mode:
+Run `pup agent schema <command>` to see the `data` shape and `jq_root` for a command.
 
-```json
-{
-  "status": "error",
-  "error_code": 401,
-  "error_message": "Authentication failed",
-  "operation": "list monitors",
-  "suggestions": [
-    "Run 'pup auth login' to re-authenticate",
-    "Or set DD_API_KEY and DD_APP_KEY environment variables"
-  ]
-}
-```
+## Errors
+
+Errors go to stderr as `Error: <message>`, with nothing on stdout and a non-zero exit code. A few APIs report errors in the response body with exit 0; `returns.notes` in `pup agent schema <command>` calls these out.
 
 ## Best Practices
 
@@ -349,7 +310,7 @@ Error responses in agent mode:
 3. **Filter at the API level** — use `--tags`, `--query`, `--name` instead of fetching everything and parsing locally
 4. **Use `aggregate` for counts** — don't fetch all logs and count them yourself
 5. **APM durations are in nanoseconds** — 1s = 1,000,000,000
-6. **Use `--yes` for automation** — or rely on agent mode auto-approval
+6. **Get approval before writes** — pup auto-approves CLI prompts when it detects an agent, so it will not stop to ask; obtain the user's explicit authorization before any remote change
 7. **Check `pup agent schema`** when unsure about a command's flags
 8. **Chain queries** — aggregate first to find patterns, then search for specifics
 
@@ -379,8 +340,8 @@ Error responses in agent mode:
 
 - Implementation: `src/useragent.rs`
 - Table-driven detector registry; first match wins
-- `is_agent_mode()` checks `FORCE_AGENT_MODE` first, then agent env vars
 - `detect_agent_info()` returns agent name and detection status
+- Used to add `ai-agent <name>` to the User-Agent header and to auto-approve CLI prompts (`agent_auto_approves`; the legacy `--no-agent` flag opts out); it changes nothing else
 
 ### Schema generation
 
@@ -389,26 +350,19 @@ Error responses in agent mode:
 - Schema stays in sync automatically as commands are added
 - Subtree schemas filter to a single domain + relevant query syntax
 
-### Output envelope
+### Output rendering
 
 - Implementation: `src/output.rs` (`src/formatter.rs` exposes the generator-owned contract)
-- Agent envelope wraps responses with metadata (count, truncation, warnings)
-- Structured error formatting for agent consumption
-- Only activated when agent mode is true
-
-### Help interception
-
-- `src/main.rs` intercepts `--help`/`-h` before clap processes args
-- When agent mode is detected, outputs structured JSON schema instead of text help
-- Extracts the domain name for subtree schemas
+- Wraps JSON output in the default envelope (`build_envelope`) and derives metadata from the response
+- JSON and YAML carry the envelope; table, CSV, and TSV render only the rows (the command's `TableOptions`, or the `--jq` result as-is) with the metadata block on stderr (`stderr_block`); `--no-envelope` prints the raw response and only `warning:` lines
 
 ## File Map
 
 | File | Purpose |
 |------|---------|
-| `src/useragent.rs` | Agent detection (table-driven registry + FORCE_AGENT_MODE) |
+| `src/useragent.rs` | Agent detection for the User-Agent header and prompt auto-approval (table-driven registry) |
 | `src/commands/agent.rs` | Schema generation, `pup agent schema`, `pup agent guide` |
 | `src/formatter.rs` | Generator-owned formatting contract |
-| `src/output.rs` | Agent envelope, structured errors, and output rendering and printing |
-| `src/settings.rs` | `agent_mode` field on Config (re-exported to generated code via `src/config.rs`) |
-| `src/main.rs` | `--agent` flag, help interception, output formatting |
+| `src/output.rs` | JSON envelope and metadata, output rendering and printing |
+| `src/settings.rs` | Configuration loading, precedence, and storage paths (re-exported to generated code via `src/config.rs`) |
+| `src/main.rs` | CLI entry point, command routing, output formatting |

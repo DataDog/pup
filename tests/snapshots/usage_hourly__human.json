@@ -1,10 +1,17 @@
 {
-  "metadata": {
-    "pagination": {
-      "next_record_id": "NoneType"
-    }
+  "data": {
+    "metadata": {
+      "pagination": {
+        "next_record_id": "NoneType"
+      }
+    },
+    "usage": [
+      "<empty_list>"
+    ]
   },
-  "usage": [
-    "<empty_list>"
-  ]
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

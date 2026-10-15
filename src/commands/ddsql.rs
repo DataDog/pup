@@ -208,26 +208,21 @@ fn is_rate_limited(err: &anyhow::Error) -> bool {
     err.to_string().contains("HTTP 429 Too Many Requests")
 }
 
-fn output_items<T: Serialize>(
-    cfg: &Config,
-    items: &T,
-    count: usize,
+/// Envelope metadata for one page of schema results. `next_offset` is set
+/// only when more results exist and no warning (such as a rate-limited
+/// reference search) makes the offset unreliable; pass it back with `--offset`.
+fn page_metadata(
+    returned: usize,
+    offset: usize,
     truncated: bool,
-    next_action: Option<String>,
-) -> Result<()> {
-    let meta = formatter::Metadata {
-        count: Some(count),
+    warnings: &[&str],
+) -> formatter::Metadata {
+    formatter::Metadata {
         truncated,
-        command: None,
-        next_action,
-    };
-    formatter::format_and_print(
-        items,
-        &cfg.output_format,
-        cfg.agent_mode,
-        Some(&meta),
-        cfg.jq.as_deref(),
-    )
+        next_offset: (truncated && warnings.is_empty()).then(|| offset.saturating_add(returned)),
+        warnings: warnings.iter().map(|w| (*w).to_string()).collect(),
+        ..Default::default()
+    }
 }
 
 fn parse_ddsql_docs(resp: Value) -> Result<DdsqlDocsResponse> {
@@ -370,9 +365,14 @@ async fn search_reference_tables(
     let page_limit = target.clamp(25, 100);
 
     loop {
+        // Sort server-side by name: the loop stops early, so only a name-ordered
+        // walk makes the fetched set the true alphabetical prefix. Otherwise a
+        // table on a later API page can sort into an earlier `--offset` window
+        // and shift results between pages.
         let mut params: Vec<(String, String)> = vec![
             ("page[limit]".to_string(), page_limit.to_string()),
             ("page[offset]".to_string(), page_offset.to_string()),
+            ("sort".to_string(), "table_name".to_string()),
         ];
         if let Some(query) = query {
             params.push(("filter[table_name_contains]".to_string(), query.to_string()));
@@ -470,8 +470,7 @@ pub async fn schema_tables(
                 Vec::new(),
                 true,
                 Some(
-                    "reference table search hit rate limit; rerun later or use `pup reference-tables list`"
-                        .to_string(),
+                    "reference table search hit rate limit; rerun later or use `pup reference-tables list`",
                 ),
             ),
             Err(err) => return Err(err),
@@ -482,10 +481,9 @@ pub async fn schema_tables(
     let total = items.len();
     let paged: Vec<DdsqlSchemaTable> = items.into_iter().skip(offset).take(limit).collect();
     let truncated = references_truncated || offset.saturating_add(paged.len()) < total;
-    let next_action = rate_limit_note.unwrap_or_else(|| {
-        "use `pup ddsql schema columns --table-id <id>` for column details".to_string()
-    });
-    output_items(cfg, &paged, paged.len(), truncated, Some(next_action))
+    let warnings: Vec<&str> = rate_limit_note.into_iter().collect();
+    let meta = page_metadata(paged.len(), offset, truncated, &warnings);
+    formatter::output_with_meta(cfg, &paged, &meta)
 }
 
 pub async fn schema_columns(
@@ -510,12 +508,10 @@ pub async fn schema_columns(
     let total = columns.len();
     let paged: Vec<DdsqlSchemaColumn> = columns.into_iter().skip(offset).take(limit).collect();
     let truncated = offset.saturating_add(paged.len()) < total;
-    output_items(
+    formatter::output_with_meta(
         cfg,
         &paged,
-        paged.len(),
-        truncated,
-        Some("rerun with `--offset <n>` to inspect additional columns".to_string()),
+        &page_metadata(paged.len(), offset, truncated, &[]),
     )
 }
 
@@ -835,6 +831,25 @@ fn columnar_to_rows(resp: &Value) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::test_support::{cleanup_env, lock_env, test_config};
+
+    #[test]
+    fn test_page_metadata_sets_next_offset_when_truncated() {
+        let meta = page_metadata(2, 10, true, &[]);
+        assert!(meta.truncated);
+        assert_eq!(meta.next_offset, Some(12));
+        assert!(meta.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_page_metadata_withholds_next_offset_with_warnings_or_on_last_page() {
+        let meta = page_metadata(1, 0, true, &["rate limited"]);
+        assert!(meta.truncated);
+        assert_eq!(meta.next_offset, None);
+        assert_eq!(meta.warnings, ["rate limited"]);
+        let meta = page_metadata(1, 0, false, &[]);
+        assert!(!meta.truncated);
+        assert_eq!(meta.next_offset, None);
+    }
 
     #[test]
     fn test_build_advanced_table_with_limit() {
@@ -1483,6 +1498,79 @@ mod tests {
                 },
             ]
         );
+    }
+
+    fn reference_table(name: &str) -> Value {
+        json!({"attributes": {
+            "description": "", "row_count": 1, "source": "LOCAL_FILE", "status": "DONE",
+            "table_name": name, "schema": {"primary_keys": [], "fields": []}
+        }})
+    }
+
+    #[tokio::test]
+    async fn test_search_reference_tables_requests_name_order() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let request = server
+            .mock("GET", REFERENCE_TABLES_PATH)
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("sort".into(), "table_name".into()),
+                mockito::Matcher::UrlEncoded("page[offset]".into(), "0".into()),
+            ]))
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({"data": [reference_table("b_ref"), reference_table("a_ref")]}).to_string(),
+            )
+            .create_async()
+            .await;
+
+        let (items, truncated) = search_reference_tables(&cfg, None, 5).await.unwrap();
+
+        request.assert_async().await;
+        cleanup_env();
+        assert!(!truncated);
+        let names: Vec<_> = items.iter().map(|item| item.name.as_str()).collect();
+        assert_eq!(names, ["a_ref", "b_ref"]);
+    }
+
+    #[tokio::test]
+    async fn test_search_reference_tables_stops_early_and_reports_truncation() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        // A next page exists, but the first page already exceeds the target, so
+        // the loop must stop without requesting it.
+        let first = server
+            .mock("GET", REFERENCE_TABLES_PATH)
+            .match_query(mockito::Matcher::UrlEncoded("page[offset]".into(), "0".into()))
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "data": [reference_table("a_ref"), reference_table("b_ref"), reference_table("c_ref")],
+                    "meta": {"page": {"next_offset": 3}}
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let second = server
+            .mock("GET", REFERENCE_TABLES_PATH)
+            .match_query(mockito::Matcher::UrlEncoded(
+                "page[offset]".into(),
+                "3".into(),
+            ))
+            .expect(0)
+            .create_async()
+            .await;
+
+        let (items, truncated) = search_reference_tables(&cfg, None, 2).await.unwrap();
+
+        first.assert_async().await;
+        second.assert_async().await;
+        cleanup_env();
+        assert!(truncated);
+        assert_eq!(items.len(), 3);
     }
 
     #[test]

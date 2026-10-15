@@ -6,5 +6,11 @@
     "*": {
       "total_filtered_count": "int"
     }
-  }
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool",
+    "count": "int"
+  },
+  "status": "str"
 }

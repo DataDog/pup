@@ -111,15 +111,15 @@ Extensions receive pup's auth credentials via environment variables. This means 
 | `DD_ORG` | Org is specified | Named org session |
 | `PUP_OUTPUT` | Always | Output format (`json`, `table`, `yaml`, `csv`, `tsv`) |
 | `PUP_FILTER` | `--jq` flag is set | The jq expression, verbatim |
-| `PUP_AUTO_APPROVE` | `--yes` flag or agent mode | `true` |
+| `PUP_AUTO_APPROVE` | `--yes` flag, `DD_AUTO_APPROVE`, or a detected AI agent | `true` |
 | `PUP_READ_ONLY` | Read-only mode | `true` |
-| `PUP_AGENT_MODE` | Agent mode | `true` |
+| `PUP_NO_ENVELOPE` | `--no-envelope` flag or `PUP_NO_ENVELOPE` | `true` |
 
 Pup refreshes the OAuth2 token if needed before passing it to the extension, so extensions always receive a valid token.
 
 Variables not active in the current session are explicitly removed from the child environment to prevent stale credentials from leaking through the parent shell.
 
-The `PUP_OUTPUT`, `PUP_FILTER`, `PUP_AGENT_MODE`, `PUP_READ_ONLY`, and `PUP_AUTO_APPROVE` variables are read back by a child `pup` process. So if your extension shells out to `pup` (see below), those nested calls automatically inherit the format, `--jq` filter, and mode the user selected on the parent command. An extension that prints its own JSON directly — rather than delegating to a nested `pup` call — still needs to read `PUP_FILTER` itself and apply the jq expression if it wants to honor `--jq`.
+The `PUP_OUTPUT`, `PUP_FILTER`, `PUP_READ_ONLY`, `PUP_AUTO_APPROVE`, and `PUP_NO_ENVELOPE` variables are read back by a child `pup` process. So if your extension shells out to `pup` (see below), those nested calls automatically inherit the format, `--jq` filter, and mode the user selected on the parent command. An extension that prints its own JSON directly — rather than delegating to a nested `pup` call — still needs to read `PUP_FILTER` itself and apply the jq expression if it wants to honor `--jq`.
 
 ### Example: using auth in a Python extension
 
@@ -155,8 +155,8 @@ The examples above hand-roll HTTP and auth. You usually don't need to. Because p
 
 ```bash
 #!/bin/bash
-# GET as JSON, then extract fields. --silent suppresses pup's own rendering.
-pup api v2/monitors --silent | jq -r '.[].name'
+# GET the raw response body, then extract fields.
+pup api v1/monitor --no-envelope | jq -r '.[].name'
 
 # POST a typed body (-F coerces ints/bools/null; -f keeps raw strings).
 pup api v2/tags/hosts/myhost -X POST -F source=web
@@ -164,7 +164,7 @@ pup api v2/tags/hosts/myhost -X POST -F source=web
 
 ### Render output with `pup format`
 
-`pup format` (alias `fmt`) reads a JSON document from stdin (or `--input FILE`) and prints it using the caller's output format and agent mode — the same JSON / YAML / table / CSV / TSV rendering and agent envelope every built-in command uses. Because pup forwards `PUP_OUTPUT` and a child `pup` reads it back, your extension inherits the format the user originally requested.
+`pup format` (alias `fmt`) reads a JSON document from stdin (or `--input FILE`) and prints it using the caller's output format — the same JSON envelope and YAML / table / CSV / TSV rendering every built-in command uses. Input that is already a pup envelope (for example `pup api` output) is re-rendered rather than wrapped twice, and its metadata is kept. `--count`, `--command`, and `--next-action` override the envelope's `metadata` fields. Because pup forwards `PUP_OUTPUT` and a child `pup` reads it back, your extension inherits the format the user originally requested.
 
 ```bash
 #!/bin/bash
@@ -175,16 +175,14 @@ echo "$results" | pup format
 
 # Or force a specific format.
 echo "$results" | pup format --output table
-
-# Populate the agent-mode envelope metadata.
-echo "$results" | pup format --count 2 --command "foo list"
 ```
 
 Extensions can also tell the table formatter where the result rows live and which
 columns are useful. `--rows-at` accepts an RFC 6901 JSON Pointer into the response,
 and `--row-at` optionally selects a value within every result row. `--columns`
 accepts a comma-separated or repeated list of flattened field names. These hints
-only affect table output; JSON, YAML, CSV, and TSV retain the complete response.
+select the rows and columns for table, CSV, and TSV output; JSON and YAML retain the
+complete response.
 
 ```bash
 pup api v1/monitor/search --silent |
@@ -200,12 +198,12 @@ A fully consistent extension that adds zero auth or formatting code:
 
 ```bash
 #!/bin/bash
-pup api v2/monitors --silent | pup format
+pup api v2/monitors | pup format
 ```
 
 ## Global Flags
 
-Pup's global flags (`--output`, `--yes`, `--agent`, `--read-only`, `--org`) are parsed by pup before dispatching to the extension. They are NOT passed as CLI arguments to the extension - instead, they are forwarded as environment variables (see the table above).
+Pup's global flags (`--output`, `--yes`, `--read-only`, `--org`) are parsed by pup before dispatching to the extension. They are NOT passed as CLI arguments to the extension - instead, they are forwarded as environment variables (see the table above).
 
 ```bash
 # --output table is consumed by pup, extension receives PUP_OUTPUT=table
@@ -484,5 +482,4 @@ To extract an existing pup feature into an extension:
 ## Limitations
 
 - **Source must be a regular file**: `pup extension install --local` requires the source path to be a regular file, not a directory.
-- **Agent-mode help**: `pup --agent <ext-name> --help` prints pup's top-level schema, not the extension's help. In normal mode, `--help` is passed through to the extension.
 - **No signing**: Downloaded binaries are not signed. If a release includes `checksums.txt`, pup verifies the selected archive checksum before installing. Only install extensions from trusted sources.

@@ -1,7 +1,15 @@
-[
-  "<list>",
-  {
+{
+  "data": [
+    "<list>",
+    {
+      "command": "str",
+      "name": "str"
+    }
+  ],
+  "metadata": {
     "command": "str",
-    "name": "str"
-  }
-]
+    "truncated": "bool",
+    "count": "int"
+  },
+  "status": "str"
+}

@@ -1,56 +1,59 @@
 {
-  "tests": [
-    "<list>",
-    {
-      "config": {
-        "assertions": [
-          "<list>",
-          {
-            "operator": "<...>",
-            "target": "<...>",
-            "type": "<...>"
+  "data": {
+    "tests": [
+      "<list>",
+      {
+        "config": {
+          "assertions": [
+            "<list>",
+            "<...>"
+          ],
+          "request": {
+            "method": "<...>",
+            "timeout": "<...>",
+            "url": "<...>"
           }
+        },
+        "created_at": "<timestamp>",
+        "creator": {
+          "email": "str",
+          "handle": "str",
+          "name": "str"
+        },
+        "locations": [
+          "<list>",
+          "str"
         ],
-        "request": {
-          "method": "str",
-          "timeout": "float",
-          "url": "<url>"
-        }
-      },
-      "created_at": "<timestamp>",
-      "creator": {
-        "email": "str",
-        "handle": "str",
-        "name": "str"
-      },
-      "locations": [
-        "<list>",
-        "str"
-      ],
-      "message": "str",
-      "modified_at": "<timestamp>",
-      "monitor_id": "int",
-      "name": "str",
-      "options": {
-        "downtime_ids": [
+        "message": "str",
+        "modified_at": "<timestamp>",
+        "monitor_id": "int",
+        "name": "str",
+        "options": {
+          "downtime_ids": [
+            "<empty_list>"
+          ],
+          "httpVersion": "str",
+          "min_failure_duration": "int",
+          "min_location_failed": "int",
+          "monitor_options": {
+            "renotify_interval": "<...>"
+          },
+          "tick_every": "int"
+        },
+        "public_id": "str",
+        "status": "str",
+        "subtype": "str",
+        "tags": [
           "<empty_list>"
         ],
-        "httpVersion": "str",
-        "min_failure_duration": "int",
-        "min_location_failed": "int",
-        "monitor_options": {
-          "renotify_interval": "int"
-        },
-        "tick_every": "int"
-      },
-      "public_id": "str",
-      "status": "str",
-      "subtype": "str",
-      "tags": [
-        "<empty_list>"
-      ],
-      "type": "str"
-    }
-  ],
-  "total": "int"
+        "type": "str"
+      }
+    ],
+    "total": "int"
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

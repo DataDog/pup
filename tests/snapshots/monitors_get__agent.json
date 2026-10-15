@@ -44,7 +44,8 @@
     "type": "str"
   },
   "metadata": {
-    "command": "str"
+    "command": "str",
+    "truncated": "bool"
   },
   "status": "str"
 }

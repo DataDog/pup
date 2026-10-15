@@ -162,10 +162,10 @@ def safe_mark_monitor_for_deletion(monitor_id: str, client) -> bool:
 
 ```bash
 # Find monitors without owners
-pup monitors list | jq '.[] | select(.tags | contains(["team:"]) | not) | {id, name}'
+pup monitors list | jq '.data[] | select(.tags | contains(["team:"]) | not) | {id, name}'
 
 # Find noisy monitors (high alert count)
-pup monitors list | jq 'sort_by(.overall_state_modified) | .[:10] | .[] | {id, name, status: .overall_state}'
+pup monitors list | jq '.data | sort_by(.overall_state_modified) | .[:10] | .[] | {id, name, status: .overall_state}'
 ```
 
 ## Downtime vs Muting

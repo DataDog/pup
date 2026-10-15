@@ -30,7 +30,6 @@ pub fn run(cfg: &Config) -> Result<()> {
     }
 
     println!("Output: {}", cfg.output_format);
-    println!("Agent mode: {}", cfg.agent_mode);
 
     Ok(())
 }

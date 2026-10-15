@@ -47,7 +47,7 @@ fn service_schema(server: &mut Server) -> mockito::Mock {
 }
 
 #[test]
-fn query_preserves_evidence_in_human_agent_jq_and_raw_modes() {
+fn query_preserves_evidence_in_raw_enveloped_jq_and_raw_modes() {
     let mut server = Server::new();
     let _schema = service_schema(&mut server);
     let response = service_response();
@@ -69,7 +69,7 @@ fn query_preserves_evidence_in_human_agent_jq_and_raw_modes() {
         "--field",
         "name,display_name,active_incidents_count",
     ];
-    let human = payload(pup(&server, &[&["--no-agent"][..], &args].concat()));
+    let human = payload(pup(&server, &[&["--no-envelope"][..], &args].concat()));
     assert_eq!(human["results"][0]["fields"]["name"], "checkout");
     assert_eq!(
         human["results"][0]["fields"]["display_name"],
@@ -82,12 +82,14 @@ fn query_preserves_evidence_in_human_agent_jq_and_raw_modes() {
         42
     );
     assert_eq!(human["server_warnings"], response["meta"]["warnings"]);
-    let agent = payload(pup(&server, &[&["--agent"][..], &args].concat()));
-    assert_eq!(agent["data"], human);
+    // The default output is the envelope around the same payload.
+    let enveloped = payload(pup(&server, &args));
+    assert_eq!(enveloped["status"], "success");
+    assert_eq!(enveloped["data"], human);
     let filtered = payload(pup(
         &server,
         &[
-            &["--no-agent", "--jq", ".results[0].fields.name"][..],
+            &["--no-envelope", "--jq", ".results[0].fields.name"][..],
             &args,
         ]
         .concat(),
@@ -95,7 +97,7 @@ fn query_preserves_evidence_in_human_agent_jq_and_raw_modes() {
     assert_eq!(filtered, "checkout");
     let raw = payload(pup(
         &server,
-        &[&["--no-agent"][..], &args, &["--raw"]].concat(),
+        &[&["--no-envelope"][..], &args, &["--raw"]].concat(),
     ));
     assert_eq!(raw, response);
     request.assert();
@@ -136,7 +138,7 @@ fn related_fields_and_edge_measurements_use_the_ueg_wire_contract() {
                 &["idp", "entities"][..],
                 *command,
                 &[
-                    "--no-agent",
+                    "--no-envelope",
                     "--field",
                     "name,owner",
                     "--include",
@@ -173,7 +175,7 @@ fn field_typos_fail_before_querying_entities() {
             &[
                 &["idp", "entities"][..],
                 *command,
-                &["--no-agent", "--field", "owenr"][..],
+                &["--no-envelope", "--field", "owenr"][..],
             ]
             .concat(),
         );
@@ -195,7 +197,7 @@ fn malformed_entity_response_exits_unsuccessfully() {
         .create();
     let output = pup(
         &server,
-        &["--no-agent", "idp", "entities", "query", "kind:service"],
+        &["--no-envelope", "idp", "entities", "query", "kind:service"],
     );
     assert!(!output.status.success());
     let error = String::from_utf8_lossy(&output.stderr);
@@ -232,7 +234,7 @@ fn continuation_replays_projections_absolute_time_scope_and_sorting() {
                 &["idp", "entities"][..],
                 *command,
                 &[
-                    "--no-agent",
+                    "--no-envelope",
                     "--org",
                     "fixture-org",
                     "--field",
@@ -268,7 +270,7 @@ fn continuation_replays_projections_absolute_time_scope_and_sorting() {
             .with_header("content-type", "application/json")
             .with_body("{\"data\":[]}")
             .create();
-        let mut args = vec!["--no-agent"];
+        let mut args = vec!["--no-envelope"];
         args.extend(
             result["next_request"]["args"]
                 .as_array()
@@ -290,7 +292,7 @@ fn undeclared_scope_is_rejected_before_the_entity_request() {
     let output = pup(
         &server,
         &[
-            "--no-agent",
+            "--no-envelope",
             "idp",
             "entities",
             "query",
@@ -334,7 +336,7 @@ fn bounded_query(server: &Server, budget: &str) -> Output {
     pup(
         server,
         &[
-            "--no-agent",
+            "--no-envelope",
             "idp",
             "entities",
             "query",
@@ -371,7 +373,7 @@ fn bounded_inventory_sizes_the_last_request_and_replays_its_continuation() {
     second.assert();
 
     let third = entity_page(&mut server, "third", 2, &["d"], "");
-    let mut args = vec!["--no-agent"];
+    let mut args = vec!["--no-envelope"];
     args.extend(
         result["next_request"]["args"]
             .as_array()
@@ -384,6 +386,67 @@ fn bounded_inventory_sizes_the_last_request_and_replays_its_continuation() {
     assert_eq!(continued["page"]["max_results"], 3);
     assert_eq!(continued["count"], 1);
     third.assert();
+}
+
+#[test]
+fn jq_filtered_query_keeps_continuation_in_metadata() {
+    let mut server = Server::new();
+    let _schema = service_schema(&mut server);
+    let page = entity_page(&mut server, "start", 2, &["a", "b"], "second");
+    let result = payload(pup(
+        &server,
+        &[
+            "--jq",
+            ".results",
+            "idp",
+            "entities",
+            "query",
+            "kind:service",
+            "--field",
+            "name",
+            "--cursor",
+            "start",
+            "--limit",
+            "2",
+        ],
+    ));
+    // --jq dropped page.next_cursor and next_request from data...
+    assert_eq!(result["data"].as_array().unwrap().len(), 2);
+    // ...but the envelope's metadata still says the inventory is partial.
+    assert_eq!(result["metadata"]["truncated"], true);
+    assert_eq!(result["metadata"]["next_cursor"], "second");
+    let action = result["metadata"]["next_action"].as_str().unwrap();
+    assert!(action.starts_with("Continue with: pup "), "{action}");
+    assert!(action.contains("second"), "{action}");
+    page.assert();
+}
+
+#[test]
+fn final_query_page_is_not_marked_truncated() {
+    let mut server = Server::new();
+    let _schema = service_schema(&mut server);
+    let page = entity_page(&mut server, "start", 2, &["a"], "");
+    let result = payload(pup(
+        &server,
+        &[
+            "--jq",
+            ".results",
+            "idp",
+            "entities",
+            "query",
+            "kind:service",
+            "--field",
+            "name",
+            "--cursor",
+            "start",
+            "--limit",
+            "2",
+        ],
+    ));
+    assert_eq!(result["metadata"]["truncated"], false);
+    assert!(result["metadata"].get("next_cursor").is_none());
+    assert!(result["metadata"].get("next_action").is_none());
+    page.assert();
 }
 
 #[test]
@@ -490,7 +553,7 @@ fn bare_text_modes_preserve_the_query_and_warn_about_empty_fuzzy_results() {
         let result = payload(pup(
             &server,
             &[
-                "--no-agent",
+                "--no-envelope",
                 "idp",
                 "entities",
                 "query",

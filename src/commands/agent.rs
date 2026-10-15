@@ -31,11 +31,11 @@ pub fn guide() -> Result<()> {
 
 // ---- Response contracts for `pup agent schema <command>` ----
 
-/// Describes the agent-mode output envelope shared by every command. Mirrors
-/// `output::build_agent_envelope_with_order`; keep the two in sync.
+/// Describes the default JSON envelope shared by every command. Mirrors
+/// `output::build_envelope`; keep the two in sync.
 pub fn envelope_contract() -> serde_json::Value {
     serde_json::json!({
-        "agent_mode": {
+        "default": {
             "type": "object",
             "required": ["status", "data", "metadata"],
             "properties": {
@@ -43,20 +43,25 @@ pub fn envelope_contract() -> serde_json::Value {
                 "data": {"description": "Command payload; see each command's returns.data"},
                 "metadata": {
                     "type": "object",
-                    "required": ["note"],
+                    "required": ["truncated"],
                     "properties": {
-                        "note": {"type": "string"},
+                        "count": {"type": "integer", "description": "Items in data when it is a list"},
+                        "truncated": {"type": "boolean", "description": "More results exist; false means none known"},
                         "command": {"type": "string"},
-                        "count": {"type": "integer"},
-                        "truncated": {"type": "boolean", "description": "Omitted when false"},
-                        "next_action": {"type": "string"}
+                        "next_cursor": {"type": "string", "description": "Pass back with the cursor flag named in next_action"},
+                        "next_offset": {"type": "integer", "description": "Pass back with --offset"},
+                        "next_page": {"type": "integer", "description": "Pass back with the page flag named in next_action"},
+                        "next_action": {"type": "string"},
+                        "warnings": {"type": "array", "items": {"type": "string"}}
                     }
                 }
             }
         },
-        "hoisting": "When the API body has a top-level `data` key, envelope `data` is that inner value and sibling keys (meta, links, included) are dropped.",
-        "no_agent": "With --no-agent the raw API body is printed with no envelope and no hoisting.",
-        "jq": "--jq runs on the raw API body (before hoisting); the filtered result becomes envelope `data`. See each command's returns.jq_root.",
+        "siblings": "A body with top-level `data` keeps it and its siblings (meta, links, included), plus `status` and `metadata`. Any other body, or one with its own `status`/`metadata` key (e.g. monitors search pagination), becomes envelope `data` whole.",
+        "cursors": "metadata.next_cursor / next_offset / next_page give the next page when pup recognizes the paging fields, even after --jq. Absent means none known.",
+        "raw": "--no-envelope (PUP_NO_ENVELOPE=1, legacy --no-agent) prints the raw body.",
+        "jq": "--jq runs on the raw API body; its result becomes envelope `data` and metadata is kept. See each command's returns.jq_root.",
+        "formats": "JSON and YAML are enveloped. Table/CSV/TSV print only rows on stdout and the metadata on stderr: a `metadata: key=value ...` line, then `next_action:` and `warning:` lines when set (only `warning:` with --no-envelope).",
         "errors": "Failed calls print `Error: <message>` to stderr, print nothing to stdout, and exit non-zero. A few APIs report errors in the response body with exit 0; see the command's returns.notes.",
         "non_json": "A few commands print plain text instead of JSON in some modes; their returns.notes say so."
     })
@@ -79,7 +84,7 @@ pub fn returns_for(full_path: &str) -> serde_json::Value {
 fn generic_returns() -> serde_json::Value {
     serde_json::json!({
         "documented": false,
-        "data": {"description": "Datadog API response body (see envelope.hoisting); shape not published"}
+        "data": {"description": "Datadog API response payload inside the envelope; shape not published"}
     })
 }
 
@@ -102,14 +107,14 @@ fn logs_aggregate_returns() -> serde_json::Value {
                 }
             }
         },
-        "metadata": ["note"],
         "jq_root": ".data.buckets[]",
         "example": {
             "invocation": "pup logs aggregate --query='service:web' --from=1h --compute=count --group-by=status",
             "response": {
                 "status": "success",
                 "data": {"buckets": [{"by": {"status": "error"}, "computes": {"c0": 42}}]},
-                "metadata": {"note": "..."}
+                "meta": {"status": "done"},
+                "metadata": {"command": "logs aggregate", "truncated": false}
             }
         }
     })
@@ -141,8 +146,8 @@ fn logs_search_returns() -> serde_json::Value {
                 }
             }
         },
-        "metadata": ["note", "command", "count", "truncated", "next_action"],
         "jq_root": ".data[]",
+        "notes": ["When more results exist, metadata.next_cursor (also the response's meta.page.after) holds the cursor; pass it back with --cursor."],
         "example": {
             "invocation": "pup logs search --query='status:error' --from=1h --limit=1",
             "response": {
@@ -158,7 +163,8 @@ fn logs_search_returns() -> serde_json::Value {
                         "attributes": {"http": {"status_code": 504}}
                     }
                 }],
-                "metadata": {"command": "logs search", "count": 1, "note": "..."}
+                "meta": {"page": {"after": "eyJ..."}},
+                "metadata": {"command": "logs search", "count": 1, "truncated": true, "next_cursor": "eyJ...", "next_action": "More results available. Use --cursor=\"eyJ...\" to fetch the next page in the current --sort order, change the limit with --limit, or narrow the --query"}
             }
         }
     })
@@ -185,7 +191,6 @@ fn traces_aggregate_returns() -> serde_json::Value {
                 }
             }
         },
-        "metadata": ["note", "command"],
         "jq_root": ".data[].attributes",
         "notes": ["Durations (@duration) are in nanoseconds."],
         "example": {
@@ -193,7 +198,8 @@ fn traces_aggregate_returns() -> serde_json::Value {
             "response": {
                 "status": "success",
                 "data": [{"id": "f8527b82-...", "type": "bucket", "attributes": {"by": {"resource_name": "GET /"}, "compute": {"c0": 2378}}}],
-                "metadata": {"command": "traces aggregate", "note": "..."}
+                "meta": {"status": "done"},
+                "metadata": {"command": "traces aggregate", "count": 1, "truncated": false}
             }
         }
     })
@@ -230,9 +236,11 @@ fn traces_search_returns() -> serde_json::Value {
                 }
             }
         },
-        "metadata": ["note", "command", "count", "truncated", "next_action"],
         "jq_root": ".data[]",
-        "notes": ["Field names differ from logs search: start_timestamp (not timestamp), resource_name."]
+        "notes": [
+            "Field names differ from logs search: start_timestamp (not timestamp), resource_name.",
+            "When more results exist, metadata.next_cursor (also the response's meta.page.after) holds the cursor; pass it back with --cursor."
+        ]
     })
 }
 
@@ -261,10 +269,9 @@ fn metrics_query_returns() -> serde_json::Value {
                 }
             }
         },
-        "metadata": ["note"],
         "jq_root": ".series[]",
         "notes": [
-            "Not hoisted: the v1 body has no top-level `data`, so the envelope path is .data.series[] while --jq uses .series[].",
+            "The v1 body has no top-level `data`, so it becomes envelope data: the envelope path is .data.series[] while --jq uses .series[].",
             "An invalid query exits 0 with data.status == \"error\" and the reason in data.error; check data.status."
         ],
         "example": {
@@ -272,7 +279,7 @@ fn metrics_query_returns() -> serde_json::Value {
             "response": {
                 "status": "success",
                 "data": {"status": "ok", "query": "avg:system.cpu.user{env:prod} by {host}", "series": [{"metric": "system.cpu.user", "scope": "env:prod,host:web-1", "pointlist": [[1767225600000.0, 12.5]]}]},
-                "metadata": {"note": "..."}
+                "metadata": {"command": "metrics query", "truncated": false}
             }
         }
     })
@@ -294,17 +301,16 @@ fn findings_schema_returns() -> serde_json::Value {
                 }
             }
         },
-        "metadata": ["note"],
         "jq_root": ".[]",
         "notes": [
-            "Without --search or --section this command prints the full reference (~200 KB) as plain markdown on stdout: not JSON and no envelope. Pass a filter to get the structured shape above."
+            "Without --search or --section this command prints the full reference (~200 KB) as plain markdown on stdout, not JSON. Pass a filter to get the structured shape above."
         ],
         "example": {
             "invocation": "pup security findings schema --search cve",
             "response": {
                 "status": "success",
                 "data": [{"path": "@advisory.cve", "type": "string", "section": "Advisory", "description": "Primary globally recognized identifier for a security vulnerability"}],
-                "metadata": {"note": "..."}
+                "metadata": {"command": "security findings schema", "count": 1, "truncated": false}
             }
         }
     })

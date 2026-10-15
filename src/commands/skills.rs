@@ -72,18 +72,11 @@ pub fn list(cfg: &crate::config::Config, entry_type: Option<String>) -> Result<(
 
     let items: Vec<serde_json::Value> = entries.iter().map(|entry| list_item(entry)).collect();
 
-    crate::formatter::format_and_print(
-        &items,
-        &cfg.output_format,
-        cfg.agent_mode,
-        None,
-        cfg.jq.as_deref(),
-    )?;
+    crate::formatter::format_and_print(&items, &cfg.output_format, cfg.jq.as_deref())?;
     Ok(())
 }
 
 pub fn install(
-    cfg: &crate::config::Config,
     platform: Option<String>,
     name: Option<String>,
     dir: Option<String>,
@@ -248,32 +241,15 @@ pub fn install(
     }
 
     let installed_entries = entry_hits.len();
-    if cfg.agent_mode {
-        let directories: Vec<_> = dirs_used.into_iter().collect();
-        let result = serde_json::json!({
-            "installed": installed_entries,
-            "files": installed_files,
-            "directories": directories,
-            "platforms": platforms_hit.iter().collect::<Vec<_>>(),
-        });
-        crate::formatter::format_and_print(
-            &result,
-            &cfg.output_format,
-            cfg.agent_mode,
-            None,
-            cfg.jq.as_deref(),
-        )?;
-    } else {
-        for d in &dirs_used {
-            println!("  {d}");
-        }
-        println!(
-            "Installed {} entry(ies), {} file(s) across {} platform(s)",
-            installed_entries,
-            installed_files,
-            platforms_hit.len(),
-        );
+    for d in &dirs_used {
+        println!("  {d}");
     }
+    println!(
+        "Installed {} entry(ies), {} file(s) across {} platform(s)",
+        installed_entries,
+        installed_files,
+        platforms_hit.len(),
+    );
 
     Ok(())
 }
@@ -307,24 +283,7 @@ pub fn path(platform: Option<String>, project: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
     use crate::test_support::TempDir;
-
-    fn base_cfg() -> Config {
-        Config {
-            api_key: None,
-            app_key: None,
-            access_token: None,
-            site: "datadoghq.com".to_string(),
-            site_explicit: false,
-            org: None,
-            output_format: crate::config::OutputFormat::Json,
-            auto_approve: false,
-            agent_mode: false,
-            read_only: false,
-            jq: None,
-        }
-    }
 
     #[test]
     fn resolve_or_bail_normalizes_alias() {
@@ -359,9 +318,7 @@ mod tests {
     #[test]
     fn install_dir_override_writes_named_skill() {
         let tmp = TempDir::new("install_dir_named");
-        let cfg = base_cfg();
         install(
-            &cfg,
             Some("claude".to_string()),
             Some("dd-pup".to_string()),
             Some(tmp.path().to_str().unwrap().to_string()),
@@ -390,9 +347,7 @@ mod tests {
     #[test]
     fn install_dir_override_writes_complete_dd_idp_bundle() {
         let tmp = TempDir::new("install_dir_dd_idp");
-        let cfg = base_cfg();
         install(
-            &cfg,
             Some("codex".to_string()),
             Some("dd-idp".to_string()),
             Some(tmp.path().to_str().unwrap().to_string()),
@@ -416,11 +371,9 @@ mod tests {
 
     #[test]
     fn install_bails_when_named_entry_does_not_apply_to_platform() {
-        let cfg = base_cfg();
         // dd-pup-pi is a pi-only extension. Trying to install it on claude
         // (without --dir) must error rather than silently succeed.
         let err = install(
-            &cfg,
             Some("claude".to_string()),
             Some("dd-pup-pi".to_string()),
             None,
@@ -438,9 +391,7 @@ mod tests {
         // Regression test for https://github.com/DataDog/pup/issues/562 — pi
         // supports skills; installing dd-apm on pi must succeed.
         let tmp = TempDir::new("install_pi_skill");
-        let cfg = base_cfg();
         install(
-            &cfg,
             Some("pi".to_string()),
             Some("dd-apm".to_string()),
             Some(tmp.path().to_str().unwrap().to_string()),
@@ -457,9 +408,7 @@ mod tests {
     #[test]
     fn install_pi_type_skill_succeeds() {
         let tmp = TempDir::new("install_pi_type_skill");
-        let cfg = base_cfg();
         install(
-            &cfg,
             Some("pi".to_string()),
             None,
             Some(tmp.path().to_str().unwrap().to_string()),
@@ -476,12 +425,10 @@ mod tests {
 
     #[test]
     fn install_extension_on_wrong_platform_gives_generic_error_not_hint() {
-        let cfg = base_cfg();
         // dd-pup-pi is a pi extension; installing it on claude must give the
         // generic error (not the extension-only hint, since claude is not
         // extension-only).
         let err = install(
-            &cfg,
             Some("claude".to_string()),
             Some("dd-pup-pi".to_string()),
             None,
@@ -497,12 +444,10 @@ mod tests {
     #[test]
     fn install_all_with_named_skill_also_installs_pi_extension() {
         let tmp = TempDir::new("install_all_pi");
-        let cfg = base_cfg();
         // --name dd-apm would normally skip pi (it's a skill, not an extension),
         // but `all` means "full experience everywhere", so dd-pup-pi must also
         // be installed for pi.
         install(
-            &cfg,
             Some("all".to_string()),
             Some("dd-apm".to_string()),
             Some(tmp.path().to_str().unwrap().to_string()),
@@ -538,10 +483,8 @@ mod tests {
     #[test]
     fn install_all_with_type_filter_also_installs_pi_extension() {
         let tmp = TempDir::new("install_all_type_pi");
-        let cfg = base_cfg();
         // --type skill would normally skip pi, but `all` forces dd-pup-pi.
         install(
-            &cfg,
             Some("all".to_string()),
             None,
             Some(tmp.path().to_str().unwrap().to_string()),
@@ -557,9 +500,7 @@ mod tests {
 
     #[test]
     fn install_bails_when_named_entry_does_not_exist() {
-        let cfg = base_cfg();
         let err = install(
-            &cfg,
             Some("claude".to_string()),
             Some("nonexistent-skill".to_string()),
             None,

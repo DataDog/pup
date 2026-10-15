@@ -1,7 +1,14 @@
 {
-  "from": "<unix_ts>",
-  "metrics": [
-    "<list>",
-    "str"
-  ]
+  "data": {
+    "from": "<unix_ts>",
+    "metrics": [
+      "<list>",
+      "str"
+    ]
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

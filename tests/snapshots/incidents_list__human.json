@@ -39,5 +39,10 @@
       "offset": "int",
       "size": "int"
     }
-  }
+  },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
+  "status": "str"
 }

@@ -25,7 +25,7 @@ pub(crate) struct ParsedArgs {
 pub(crate) struct PreParsedGlobals {
     pub output: Option<String>,
     pub yes: bool,
-    pub agent: bool,
+    pub no_envelope: bool,
     pub read_only: bool,
     pub org: Option<String>,
     pub jq: Option<String>,
@@ -38,7 +38,7 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
     let mut globals = PreParsedGlobals {
         output: None,
         yes: false,
-        agent: false,
+        no_envelope: false,
         read_only: false,
         org: None,
         jq: None,
@@ -74,7 +74,7 @@ pub(crate) fn parse_extension_args(args: &[String]) -> ParsedArgs {
             }
             // Boolean flags
             "--yes" | "-y" => globals.yes = true,
-            "--agent" => globals.agent = true,
+            "--no-envelope" | "--no-agent" => globals.no_envelope = true,
             "--read-only" => globals.read_only = true,
             "--trust-site" => globals.trust_site = true,
             // Equals-syntax value flags: --output=table, --org=prod
@@ -129,13 +129,12 @@ impl PreParsedGlobals {
                 .parse()
                 .map_err(|e| anyhow::anyhow!("invalid --output value {:?}: {}", fmt, e))?;
         }
-        if self.yes {
+        // Like the main path, but `--no-agent` is not pre-parsed separately here,
+        // so a detected agent always auto-approves (as before agent mode was removed).
+        if self.yes || useragent::agent_auto_approves(false) {
             cfg.auto_approve = true;
         }
-        cfg.agent_mode = self.agent || useragent::is_agent_mode();
-        if cfg.agent_mode {
-            cfg.auto_approve = true;
-        }
+        crate::output::set_raw_output(crate::output::raw_output_requested(self.no_envelope));
         if self.read_only {
             cfg.read_only = true;
         }
@@ -160,6 +159,35 @@ mod tests {
 
     fn args(s: &str) -> Vec<String> {
         s.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn test_apply_to_auto_approves_when_an_agent_is_detected() {
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        useragent::clear_all_agent_vars();
+        std::env::set_var("CLAUDECODE", "1");
+        let mut cfg = crate::test_support::test_config("http://unused.local");
+        parse_extension_args(&args("pup terraform plan"))
+            .globals
+            .apply_to(&mut cfg)
+            .unwrap();
+        std::env::remove_var("CLAUDECODE");
+        crate::test_support::cleanup_env();
+        // exec_extension then passes PUP_AUTO_APPROVE to the child.
+        assert!(cfg.auto_approve);
+    }
+
+    #[test]
+    fn test_apply_to_does_not_auto_approve_without_an_agent() {
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        useragent::clear_all_agent_vars();
+        let mut cfg = crate::test_support::test_config("http://unused.local");
+        parse_extension_args(&args("pup terraform plan"))
+            .globals
+            .apply_to(&mut cfg)
+            .unwrap();
+        crate::test_support::cleanup_env();
+        assert!(!cfg.auto_approve);
     }
 
     #[test]
@@ -217,7 +245,6 @@ mod tests {
         let parsed = parse_extension_args(&args("pup --yes --agent --read-only terraform"));
         assert_eq!(parsed.candidate.as_deref(), Some("terraform"));
         assert!(parsed.globals.yes);
-        assert!(parsed.globals.agent);
         assert!(parsed.globals.read_only);
     }
 

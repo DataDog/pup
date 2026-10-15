@@ -141,12 +141,11 @@ pub fn detect_agent_info() -> AgentInfo {
     }
 }
 
-pub fn is_agent_mode() -> bool {
-    // `PUP_AGENT_MODE` is injected into extension subprocesses so a child `pup`
-    // call inherits the parent's agent mode.
-    is_env_truthy("FORCE_AGENT_MODE")
-        || is_env_truthy("PUP_AGENT_MODE")
-        || detect_agent_info().detected
+/// Auto-approve CLI prompts when an AI agent is detected, unless the caller
+/// opted out (the legacy `--no-agent` flag). Detection affects only this and
+/// the User-Agent token.
+pub fn agent_auto_approves(opt_out: bool) -> bool {
+    !opt_out && detect_agent_info().detected
 }
 
 #[allow(dead_code)]
@@ -206,23 +205,21 @@ pub fn get_with_command(command: Option<&str>) -> String {
     }
 }
 
+/// Remove every agent marker variable so a test starts from "no agent".
+/// Callers must hold `test_utils::ENV_LOCK`.
+#[cfg(test)]
+pub(crate) fn clear_all_agent_vars() {
+    for det in AGENT_DETECTORS {
+        for var in det.truthy_vars.iter().chain(det.presence_vars) {
+            std::env::remove_var(var);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::ENV_LOCK;
-
-    fn clear_all_agent_vars() {
-        for det in AGENT_DETECTORS {
-            for var in det.truthy_vars {
-                std::env::remove_var(var);
-            }
-            for var in det.presence_vars {
-                std::env::remove_var(var);
-            }
-        }
-        std::env::remove_var("FORCE_AGENT_MODE");
-        std::env::remove_var("PUP_AGENT_MODE");
-    }
 
     #[test]
     fn test_is_env_truthy() {
@@ -358,39 +355,24 @@ mod tests {
     }
 
     #[test]
-    fn test_is_agent_mode_force() {
+    fn test_agent_auto_approves_when_an_agent_is_detected() {
         let _guard = ENV_LOCK.blocking_lock();
         clear_all_agent_vars();
-        std::env::set_var("FORCE_AGENT_MODE", "1");
-        assert!(is_agent_mode());
-        std::env::remove_var("FORCE_AGENT_MODE");
+        std::env::set_var("CLAUDECODE", "1");
+        assert!(agent_auto_approves(false));
+        // The legacy --no-agent flag opts out.
+        assert!(!agent_auto_approves(true));
+        std::env::remove_var("CLAUDECODE");
     }
 
     #[test]
-    fn test_is_agent_mode_via_pup_env() {
-        // PUP_AGENT_MODE is injected into extension subprocesses so a child `pup`
-        // call inherits the parent's agent mode.
+    fn test_agent_auto_approves_is_off_without_an_agent() {
         let _guard = ENV_LOCK.blocking_lock();
         clear_all_agent_vars();
-        std::env::set_var("PUP_AGENT_MODE", "true");
-        assert!(is_agent_mode());
-        std::env::remove_var("PUP_AGENT_MODE");
-    }
-
-    #[test]
-    fn test_is_agent_mode_via_detector() {
-        let _guard = ENV_LOCK.blocking_lock();
-        clear_all_agent_vars();
-        std::env::set_var("CLAUDE_CODE", "true");
-        assert!(is_agent_mode());
-        std::env::remove_var("CLAUDE_CODE");
-    }
-
-    #[test]
-    fn test_is_agent_mode_false() {
-        let _guard = ENV_LOCK.blocking_lock();
-        clear_all_agent_vars();
-        assert!(!is_agent_mode());
+        assert!(!agent_auto_approves(false));
+        std::env::set_var("CLAUDECODE", "0");
+        assert!(!agent_auto_approves(false));
+        std::env::remove_var("CLAUDECODE");
     }
 
     #[test]

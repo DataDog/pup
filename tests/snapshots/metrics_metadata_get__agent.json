@@ -7,5 +7,9 @@
     "type": "str",
     "unit": "str"
   },
+  "metadata": {
+    "command": "str",
+    "truncated": "bool"
+  },
   "status": "str"
 }

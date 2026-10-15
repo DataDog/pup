@@ -129,7 +129,7 @@ pup obs-pipelines create --file pipeline.json
 
 ```bash
 # Find noisiest log sources
-pup logs search --query="*" --from="1h" | jq 'group_by(.service) | map({service: .[0].service, count: length}) | sort_by(-.count)[:10]'
+pup logs search --query="*" --from="1h" | jq '.data | group_by(.attributes.service) | map({service: .[0].attributes.service, count: length}) | sort_by(-.count)[:10]'
 ```
 
 | Exclude | Query |

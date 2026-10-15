@@ -1661,7 +1661,7 @@ READ_COMMANDS: list[dict] = [
     {
         "label": "dashboards get",
         "args": ["dashboards", "get", "{id}"],
-        "id_from": {"args": ["dashboards", "list"], "json_path": ["dashboards", 0, "id"]},
+        "id_from": {"args": ["dashboards", "list"], "json_path": ["data", "dashboards", 0, "id"]},
         "category": "auth_required",
         "expect_json": True,
     },
@@ -1688,7 +1688,7 @@ READ_COMMANDS: list[dict] = [
     {
         "label": "events get",
         "args": ["events", "get", "{id}"],
-        "id_from": {"args": ["events", "list", "--from=1h"], "json_path": ["data", 0, "id"]},
+        "id_from": {"args": ["events", "list", "--from=1h"], "json_path": ["data", "events", 0, "id"]},
         "category": "auth_required",
         "expect_json": True,
     },
@@ -1719,14 +1719,14 @@ READ_COMMANDS: list[dict] = [
     {
         "label": "incidents get",
         "args": ["incidents", "get", "{id}"],
-        "id_from": {"args": ["incidents", "list"], "json_path": ["data", 0, "id"]},
+        "id_from": {"args": ["incidents", "list"], "json_path": ["data", "attributes", "incidents", 0, "data", "id"]},
         "category": "auth_required",
         "expect_json": True,
     },
     {
         "label": "incidents attachments list",
         "args": ["incidents", "attachments", "list", "{id}"],
-        "id_from": {"args": ["incidents", "list"], "json_path": ["data", 0, "id"]},
+        "id_from": {"args": ["incidents", "list"], "json_path": ["data", "attributes", "incidents", 0, "data", "id"]},
         "category": "auth_required",
         "expect_json": True,
     },
@@ -1744,7 +1744,7 @@ READ_COMMANDS: list[dict] = [
     {
         "label": "infrastructure hosts get",
         "args": ["infrastructure", "hosts", "get", "{id}"],
-        "id_from": {"args": ["infrastructure", "hosts", "list"], "json_path": ["host_list", 0, "id"]},
+        "id_from": {"args": ["infrastructure", "hosts", "list"], "json_path": ["data", "host_list", 0, "id"]},
         "category": "auth_required",
         "expect_json": True,
     },
@@ -1839,10 +1839,10 @@ READ_COMMANDS: list[dict] = [
     {
         "label": "monitors get",
         "args": ["monitors", "get", "{id}"],
-        "id_from": {"args": ["monitors", "list"], "json_path": [0, "id"]},
+        "id_from": {"args": ["monitors", "list"], "json_path": ["data", 0, "id"]},
         "category": "auth_required",
         "expect_json": True,
-        "note": "monitors list returns a raw JSON array (not wrapped in data:); json_path indexes directly into the list.",
+        "note": "monitors list returns a bare JSON array, which the default envelope puts under data.",
     },
     # ── network device commands ───────────────────────────────────────────
     {
@@ -1978,14 +1978,14 @@ READ_COMMANDS: list[dict] = [
     {
         "label": "slos get",
         "args": ["slos", "get", "{id}"],
-        "id_from": {"args": ["slos", "list"], "json_path": ["data", 0, "id"]},
+        "id_from": {"args": ["slos", "list"], "json_path": ["data", "data", 0, "id"]},
         "category": "auth_required",
         "expect_json": True,
     },
     {
         "label": "slos status",
         "args": ["slos", "status", "--from=1h", "--to=now", "{id}"],
-        "id_from": {"args": ["slos", "list"], "json_path": ["data", 0, "id"]},
+        "id_from": {"args": ["slos", "list"], "json_path": ["data", "data", 0, "id"]},
         "category": "auth_required",
         "expect_json": True,
     },
@@ -2062,14 +2062,14 @@ READ_COMMANDS: list[dict] = [
     {
         "label": "synthetics suites get",
         "args": ["synthetics", "suites", "get", "{id}"],
-        "id_from": {"args": ["synthetics", "suites", "list", "--query=*"], "json_path": ["data", 0, "id"]},
+        "id_from": {"args": ["synthetics", "suites", "list", "--query=*"], "json_path": ["data", "attributes", "suites", 0, "public_id"]},
         "category": "auth_required",
         "expect_json": True,
     },
     {
         "label": "synthetics tests get",
         "args": ["synthetics", "tests", "get", "{id}"],
-        "id_from": {"args": ["synthetics", "tests", "list"], "json_path": ["tests", 0, "public_id"]},
+        "id_from": {"args": ["synthetics", "tests", "list"], "json_path": ["data", "tests", 0, "public_id"]},
         "category": "auth_required",
         "expect_json": True,
     },
@@ -2235,7 +2235,8 @@ def build_clean_env(dd_vars: dict[str, str], agent_mode: bool = False) -> dict[s
       - DD_TOKEN_STORAGE=file (prevents macOS keychain prompts)
       - All DD_* variables from the outer environment
       - All variables supplied via dd_vars (override outer DD_* vars)
-      - FORCE_AGENT_MODE=1 when agent_mode=True
+      - CLAUDECODE=1 when agent_mode=True, so pup detects an AI agent the
+        same way it does under Claude Code (only the User-Agent changes)
 
     No other outer-environment variables are forwarded, ensuring test
     reproducibility and preventing accidental credential leakage.
@@ -2253,11 +2254,11 @@ def build_clean_env(dd_vars: dict[str, str], agent_mode: bool = False) -> dict[s
             env[k] = v
     # Apply dd-auth / caller-supplied vars (highest priority)
     env.update(dd_vars)
-    # Explicitly control agent mode — never leak it from the outer environment
+    # Explicitly control agent detection — never leak it from the outer environment
     if agent_mode:
-        env["FORCE_AGENT_MODE"] = "1"
+        env["CLAUDECODE"] = "1"
     else:
-        env.pop("FORCE_AGENT_MODE", None)
+        env.pop("CLAUDECODE", None)
     return env
 
 
@@ -2312,6 +2313,10 @@ def run_command(
 
 # ── dynamic ID resolution ─────────────────────────────────────────────────────
 
+class IdPathError(Exception):
+    """An id_from json_path that does not match the list command's output."""
+
+
 def resolve_id(
     id_from: dict,
     env: dict[str, str],
@@ -2326,14 +2331,18 @@ def resolve_id(
     id_from schema:
       {
         "args":      ["monitors", "list"],     # pup args to run
-        "json_path": [0, "id"],                # key/index path into parsed JSON
+        "json_path": ["data", 0, "id"],        # key/index path into the enveloped JSON
       }
 
-    Returns the ID as a string, or None if the command fails, returns no data,
-    or the path cannot be traversed.
+    Returns the ID as a string, or None if the command fails or returns an
+    empty list (a legitimate skip). Raises IdPathError when the output does
+    not have the shape json_path expects, so a stale path is reported as a
+    defect instead of silently skipping the dependent test.
     """
     key = tuple(id_from["args"])
     if key in cache:
+        if isinstance(cache[key], IdPathError):
+            raise cache[key]
         return cache[key]
 
     exit_code, stdout, _, _ = run_command(BINARY, list(id_from["args"]), timeout, env)
@@ -2345,12 +2354,19 @@ def resolve_id(
         obj: Any = json.loads(stdout.strip())
         for step in id_from["json_path"]:
             obj = obj[step]
-        result = str(obj)
-        cache[key] = result
-        return result
-    except Exception:
+    except IndexError:
         cache[key] = None
         return None
+    except (KeyError, TypeError, ValueError) as exc:
+        error = IdPathError(
+            f"id_from: json_path {id_from['json_path']} does not match "
+            f"'{' '.join(id_from['args'])}' output ({type(exc).__name__}: {exc})"
+        )
+        cache[key] = error
+        raise error
+    result = str(obj)
+    cache[key] = result
+    return result
 
 
 # ── untested command discovery ────────────────────────────────────────────────
@@ -2359,16 +2375,15 @@ def get_untested_commands(
     test_env: dict[str, str],
 ) -> tuple[list[str], list[str]]:
     """
-    Run `FORCE_AGENT_MODE=1 pup --help` to get the complete command schema and
+    Run `pup agent schema` to get the complete command schema and
     return two lists:
       - uncovered_read_only: read_only=True commands not in the test catalog
       - write_commands:      read_only=False leaf commands (intentionally skipped)
     """
     env = dict(test_env)
-    env["FORCE_AGENT_MODE"] = "1"
     try:
         proc = subprocess.run(
-            [str(BINARY), "--help"],
+            [str(BINARY), "agent", "schema"],
             capture_output=True, text=True, timeout=15,
             env=env, cwd=REPO_ROOT,
         )
@@ -2999,7 +3014,7 @@ def main() -> int:
 
     auth_info = " | ".join(auth_info_parts) if auth_info_parts else "outer environment only"
 
-    # Build mode-specific environments (human has no FORCE_AGENT_MODE)
+    # Build mode-specific environments (human has no agent marker)
     human_env = build_clean_env(dd_auth_vars, agent_mode=False)
     agent_env = build_clean_env(dd_auth_vars, agent_mode=True)
 
@@ -3040,7 +3055,18 @@ def main() -> int:
             test_args = list(tc["args"])
             id_from_spec = tc.get("id_from")
             if id_from_spec and any("{id}" in a for a in test_args):
-                resolved = resolve_id(id_from_spec, human_env, id_cache, cmd_timeout)
+                try:
+                    resolved = resolve_id(id_from_spec, human_env, id_cache, cmd_timeout)
+                except IdPathError as exc:
+                    result = TestResult(
+                        label=label, args=test_args, category=category,
+                        exit_code=0, stdout="", stderr="", duration_ms=0,
+                        note=note, mode=mode,
+                    )
+                    result.defects.append(str(exc))
+                    print(f"✗ ({exc})")
+                    results.append(result)
+                    continue
                 if resolved is None:
                     skip_msg = f"id_from: no ID from '{' '.join(id_from_spec['args'])}'"
                     result = TestResult(

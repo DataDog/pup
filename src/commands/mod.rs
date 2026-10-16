@@ -34,6 +34,7 @@ pub mod ddsql;
 pub mod debugger;
 pub mod deployment_gates;
 pub mod docs;
+pub mod docs_api;
 #[cfg(not(all(
     generated_op = "downtime.list",
     generated_op = "downtime.get",

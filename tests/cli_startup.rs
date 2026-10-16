@@ -36,6 +36,53 @@ fn invalid_command_reports_a_cli_error() {
 }
 
 #[test]
+fn api_help_points_to_live_documentation() {
+    let output = run(&["api", "--help"]);
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("pup docs api monitors create-a-monitor")
+    );
+}
+
+#[test]
+fn docs_api_help_explains_live_discovery_without_auth() {
+    let output = run(&["docs", "api", "--help"]);
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("--list"));
+    assert!(help.contains("No authentication"));
+    assert!(help.contains("Markdown"));
+}
+
+#[test]
+fn docs_api_rejects_topic_with_list() {
+    let output = run(&["docs", "api", "monitors", "--list"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be used with"));
+}
+
+#[test]
+fn docs_api_operation_flags_require_topic_and_conflict_with_fetch() {
+    for args in [
+        vec!["docs", "api", "--operations"],
+        vec![
+            "docs",
+            "api",
+            "monitors",
+            "create-a-monitor",
+            "--operations",
+        ],
+        vec!["docs", "api", "monitors", "create-a-monitor", "--list"],
+    ] {
+        assert_eq!(run(&args).status.code(), Some(2));
+    }
+    let output = run(&["docs", "api", "--help"]);
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("--operations"));
+    assert!(help.contains("create-a-monitor"));
+}
+
+#[test]
 fn agent_surface_dispatches_versioned_projection() {
     let output = run(&["agent", "surface"]);
     assert!(

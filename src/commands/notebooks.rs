@@ -171,12 +171,24 @@ fn split_yaml_frontmatter(content: &str) -> Option<(String, String)> {
     None
 }
 
+fn is_top_level_yaml_title_key(line: &str) -> bool {
+    let line = line.trim_end_matches(['\r', '\n']);
+    // Nested mappings and block-scalar lines are indented; do not treat those
+    // `title:` occurrences as the notebook name.
+    if line.starts_with(' ') || line.starts_with('\t') {
+        return false;
+    }
+    let Some(rest) = line.strip_prefix("title:") else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with([' ', '\t'])
+}
+
 fn upsert_yaml_title(frontmatter: &str, quoted_title: &str) -> String {
     let mut replaced = false;
     let mut out = String::new();
     for line in frontmatter.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        if !replaced && trimmed.starts_with("title:") {
+        if !replaced && is_top_level_yaml_title_key(line) {
             let newline = if line.ends_with('\n') { "\n" } else { "" };
             out.push_str("title: ");
             out.push_str(quoted_title);
@@ -985,6 +997,27 @@ mod tests {
         };
         assert!(markdown);
         assert_eq!(name.as_deref(), Some("Incident notes"));
+    }
+
+    #[test]
+    fn test_markdown_create_preserves_nested_and_block_scalar_title_keys() {
+        let nested = "---\nmeta:\n  title: nested\n---\n\n# From heading\n";
+        assert_eq!(
+            super::markdown_create_document(nested, Some("From flag")),
+            "---\nmeta:\n  title: nested\ntitle: \"From flag\"\n---\n\n# From heading\n"
+        );
+
+        let block = "---\nnote: |\n  title: inside block\n---\n\n# From heading\n";
+        assert_eq!(
+            super::markdown_create_document(block, Some("From flag")),
+            "---\nnote: |\n  title: inside block\ntitle: \"From flag\"\n---\n\n# From heading\n"
+        );
+
+        let top_level = "---\ntitle: old\nstatus: published\n---\n\nHello\n";
+        assert_eq!(
+            super::markdown_create_document(top_level, Some("From flag")),
+            "---\ntitle: \"From flag\"\nstatus: published\n---\n\nHello\n"
+        );
     }
 
     #[tokio::test]

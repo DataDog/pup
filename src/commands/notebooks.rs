@@ -110,6 +110,128 @@ fn decode_markdown_response(resp: raw_client::HttpResponse) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("notebook Markdown response was not valid UTF-8: {e}"))
 }
 
+/// First ATX heading (`#`–`######`) outside fenced code, used as the default
+/// notebook name for Markdown create. Setext headings are ignored.
+fn first_atx_heading(content: &str) -> Option<String> {
+    let mut in_fence = false;
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        let hashes = trimmed.chars().take_while(|c| *c == '#').count();
+        if !(1..=6).contains(&hashes) {
+            continue;
+        }
+        let rest = &trimmed[hashes..];
+        let rest = rest.strip_prefix(' ').or_else(|| rest.strip_prefix('\t'));
+        let Some(rest) = rest else {
+            continue;
+        };
+        let text = rest.trim().trim_end_matches('#').trim();
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+    None
+}
+
+fn yaml_double_quoted(value: &str) -> String {
+    let mut out = String::from("\"");
+    for c in value.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn split_yaml_frontmatter(content: &str) -> Option<(String, String)> {
+    let content = content.trim_start_matches('\u{feff}');
+    let rest = content
+        .strip_prefix("---\n")
+        .or_else(|| content.strip_prefix("---\r\n"))?;
+    let mut frontmatter = String::new();
+    let mut lines = rest.split_inclusive('\n');
+    for line in lines.by_ref() {
+        if line.trim_end_matches(['\r', '\n']) == "---" {
+            return Some((frontmatter, lines.collect()));
+        }
+        frontmatter.push_str(line);
+    }
+    None
+}
+
+fn is_top_level_yaml_title_key(line: &str) -> bool {
+    let line = line.trim_end_matches(['\r', '\n']);
+    // Nested mappings and block-scalar lines are indented; do not treat those
+    // `title:` occurrences as the notebook name.
+    if line.starts_with(' ') || line.starts_with('\t') {
+        return false;
+    }
+    let Some(rest) = line.strip_prefix("title:") else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with([' ', '\t'])
+}
+
+fn upsert_yaml_title(frontmatter: &str, quoted_title: &str) -> String {
+    let mut replaced = false;
+    let mut out = String::new();
+    for line in frontmatter.split_inclusive('\n') {
+        if !replaced && is_top_level_yaml_title_key(line) {
+            let newline = if line.ends_with('\n') { "\n" } else { "" };
+            out.push_str("title: ");
+            out.push_str(quoted_title);
+            out.push_str(newline);
+            replaced = true;
+        } else {
+            out.push_str(line);
+        }
+    }
+    if !replaced {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("title: ");
+        out.push_str(quoted_title);
+        out.push('\n');
+    }
+    out
+}
+
+/// YAML `title` is how `/api/unstable/notebooks` round-trips the notebook name
+/// (see Markdown GET). `--name` wins; otherwise the first ATX heading is used.
+/// No heading leaves the document unchanged so the API still stores `name: ""`.
+fn markdown_create_document(content: &str, name: Option<&str>) -> String {
+    let title = name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| first_atx_heading(content));
+    let Some(title) = title else {
+        return content.to_string();
+    };
+    let quoted = yaml_double_quoted(&title);
+    if let Some((frontmatter, body)) = split_yaml_frontmatter(content) {
+        format!(
+            "---\n{}---\n{body}",
+            upsert_yaml_title(&frontmatter, &quoted)
+        )
+    } else {
+        format!("---\ntitle: {quoted}\n---\n\n{content}")
+    }
+}
+
 fn read_markdown_file(file: &str) -> Result<String> {
     // The endpoints take a JSON file verbatim as prose, so catch it here.
     let content =
@@ -274,9 +396,12 @@ pub async fn delete(cfg: &Config, notebook_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn create(cfg: &Config, file: &str, markdown: bool) -> Result<()> {
+pub async fn create(cfg: &Config, file: &str, markdown: bool, name: Option<&str>) -> Result<()> {
+    if name.is_some() && !markdown {
+        anyhow::bail!("--name can only be used with --markdown");
+    }
     if markdown {
-        let content = read_markdown_file(file)?;
+        let content = markdown_create_document(&read_markdown_file(file)?, name);
         let resp = markdown_request(
             cfg,
             "POST",
@@ -513,7 +638,7 @@ mod tests {
             .mock("POST", "/api/unstable/notebooks")
             .match_header("content-type", "text/markdown")
             .match_header("accept", "application/vnd.api+json")
-            .match_body("## created\n")
+            .match_body("---\ntitle: \"created\"\n---\n\n## created\n")
             .with_status(201)
             .with_header("content-type", "application/vnd.api+json")
             .with_body(r###"{"data":{"id":"987654","attributes":{"markdown":"## created\n"}}}"###)
@@ -521,7 +646,7 @@ mod tests {
             .await;
 
         let path = write_temp_json("pup_nb_create_id.md", "## created\n");
-        let result = super::create(&cfg, path.to_str().unwrap(), true).await;
+        let result = super::create(&cfg, path.to_str().unwrap(), true, None).await;
         let _ = std::fs::remove_file(path);
 
         assert!(result.is_ok(), "create failed: {:?}", result.err());
@@ -690,7 +815,7 @@ mod tests {
             .mock("POST", "/api/unstable/notebooks")
             .match_header("content-type", "text/markdown")
             .match_header("accept", "application/vnd.api+json")
-            .match_body("## new notebook\n")
+            .match_body("---\ntitle: \"new notebook\"\n---\n\n## new notebook\n")
             .with_status(201)
             .with_header("content-type", "application/vnd.api+json")
             .with_body(r###"{"data":{"id":"1","attributes":{"markdown":"## new notebook\n"}}}"###)
@@ -698,12 +823,201 @@ mod tests {
             .await;
 
         let path = write_temp_json("pup_nb_create_md.md", "## new notebook\n");
-        let result = super::create(&cfg, path.to_str().unwrap(), true).await;
+        let result = super::create(&cfg, path.to_str().unwrap(), true, None).await;
         let _ = std::fs::remove_file(path);
 
         assert!(result.is_ok(), "create failed: {:?}", result.err());
         mock.assert_async().await;
         cleanup_env();
+    }
+
+    #[test]
+    fn test_markdown_create_name_from_explicit_flag() {
+        assert_eq!(
+            super::markdown_create_document("# Heading in file\n\nHello\n", Some("From flag")),
+            "---\ntitle: \"From flag\"\n---\n\n# Heading in file\n\nHello\n"
+        );
+    }
+
+    #[test]
+    fn test_markdown_create_name_from_first_atx_heading() {
+        assert_eq!(
+            super::markdown_create_document("# Test notebook\n\nHello world!\n", None),
+            "---\ntitle: \"Test notebook\"\n---\n\n# Test notebook\n\nHello world!\n"
+        );
+        assert_eq!(
+            super::first_atx_heading("intro\n\n## Secondary title\n"),
+            Some("Secondary title".into()),
+            "any ATX level, not only #"
+        );
+        assert_eq!(
+            super::first_atx_heading("```\n# fenced\n```\n# real\n"),
+            Some("real".into())
+        );
+    }
+
+    #[test]
+    fn test_markdown_create_name_without_heading_leaves_document_unchanged() {
+        let body = "Hello world!\nNo heading here.\n";
+        assert_eq!(super::markdown_create_document(body, None), body);
+        assert_eq!(super::first_atx_heading(body), None);
+        assert_eq!(
+            super::markdown_create_document(body, Some("   ")),
+            body,
+            "blank --name is treated as unset"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_create_markdown_uses_name_flag() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/unstable/notebooks")
+            .match_header("content-type", "text/markdown")
+            .match_body("---\ntitle: \"From flag\"\n---\n\n# Test notebook\n\nHello world!\n")
+            .with_status(201)
+            .with_header("content-type", "application/vnd.api+json")
+            .with_body(r###"{"data":{"id":"1"}}"###)
+            .create_async()
+            .await;
+
+        let path = write_temp_json(
+            "pup_nb_create_name_flag.md",
+            "# Test notebook\n\nHello world!\n",
+        );
+        let result = super::create(&cfg, path.to_str().unwrap(), true, Some("From flag")).await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok(), "create failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_create_markdown_defaults_name_from_first_heading() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/unstable/notebooks")
+            .match_header("content-type", "text/markdown")
+            .match_body("---\ntitle: \"Test notebook\"\n---\n\n# Test notebook\n\nHello world!\n")
+            .with_status(201)
+            .with_header("content-type", "application/vnd.api+json")
+            .with_body(r###"{"data":{"id":"1"}}"###)
+            .create_async()
+            .await;
+
+        let path = write_temp_json(
+            "pup_nb_create_name_heading.md",
+            "# Test notebook\n\nHello world!\n",
+        );
+        let result = super::create(&cfg, path.to_str().unwrap(), true, None).await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok(), "create failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_create_markdown_without_heading_posts_body_unchanged() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/unstable/notebooks")
+            .match_header("content-type", "text/markdown")
+            .match_body("Hello world!\n")
+            .with_status(201)
+            .with_header("content-type", "application/vnd.api+json")
+            .with_body(r###"{"data":{"id":"1"}}"###)
+            .create_async()
+            .await;
+
+        let path = write_temp_json("pup_nb_create_name_none.md", "Hello world!\n");
+        let result = super::create(&cfg, path.to_str().unwrap(), true, None).await;
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.is_ok(), "create failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_notebooks_create_rejects_name_without_markdown() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        let err = super::create(&cfg, "/nonexistent.json", false, Some("x"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("--name can only be used with --markdown"),
+            "{err}"
+        );
+        cleanup_env();
+    }
+
+    #[test]
+    fn test_notebooks_create_name_flag_requires_markdown() {
+        use clap::Parser;
+        let result = crate::Cli::try_parse_from([
+            "pup",
+            "notebooks",
+            "create",
+            "--file",
+            "doc.md",
+            "--name",
+            "Only with markdown",
+        ]);
+        assert!(
+            result.is_err(),
+            "--name without --markdown must be rejected"
+        );
+
+        let cli = crate::Cli::try_parse_from([
+            "pup",
+            "notebooks",
+            "create",
+            "--markdown",
+            "--file",
+            "doc.md",
+            "--name",
+            "Incident notes",
+        ])
+        .expect("create --markdown --name should parse");
+        let crate::Commands::Notebooks { action } = cli.command else {
+            panic!("expected notebooks");
+        };
+        let crate::NotebookActions::Create { markdown, name, .. } = action else {
+            panic!("expected create");
+        };
+        assert!(markdown);
+        assert_eq!(name.as_deref(), Some("Incident notes"));
+    }
+
+    #[test]
+    fn test_markdown_create_preserves_nested_and_block_scalar_title_keys() {
+        let nested = "---\nmeta:\n  title: nested\n---\n\n# From heading\n";
+        assert_eq!(
+            super::markdown_create_document(nested, Some("From flag")),
+            "---\nmeta:\n  title: nested\ntitle: \"From flag\"\n---\n\n# From heading\n"
+        );
+
+        let block = "---\nnote: |\n  title: inside block\n---\n\n# From heading\n";
+        assert_eq!(
+            super::markdown_create_document(block, Some("From flag")),
+            "---\nnote: |\n  title: inside block\ntitle: \"From flag\"\n---\n\n# From heading\n"
+        );
+
+        let top_level = "---\ntitle: old\nstatus: published\n---\n\nHello\n";
+        assert_eq!(
+            super::markdown_create_document(top_level, Some("From flag")),
+            "---\ntitle: \"From flag\"\nstatus: published\n---\n\nHello\n"
+        );
     }
 
     #[tokio::test]
@@ -768,7 +1082,7 @@ mod tests {
             .await;
 
         let path = write_temp_json("pup_nb_wrong_flag.json", r#"{"data":{"id":"1"}}"#);
-        let result = super::create(&cfg, path.to_str().unwrap(), true).await;
+        let result = super::create(&cfg, path.to_str().unwrap(), true, None).await;
         let _ = std::fs::remove_file(path);
 
         assert!(result.is_err());

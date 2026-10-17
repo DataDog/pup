@@ -2251,6 +2251,10 @@ enum Commands {
     ///   # Create a notebook from file
     ///   pup notebooks create --file notebook.json
     ///
+    ///   # Create from Markdown (name from --name, else the first ATX heading)
+    ///   pup notebooks create --markdown --file notebook.md
+    ///   pup notebooks create --markdown --file notebook.md --name "Incident notes"
+    ///
     ///   # Update a notebook
     ///   pup notebooks update 12345 --file updated.json
     ///
@@ -7315,6 +7319,16 @@ enum NotebookActions {
                     Prints the new notebook id; use 'get --markdown' to read the document back"
         )]
         markdown: bool,
+        #[arg(
+            long,
+            requires = "markdown",
+            help = "Notebook name for Markdown create (maps to YAML frontmatter `title`, \
+                    the Markdown projection of data.attributes.name). Defaults to the text \
+                    of the first ATX heading (`#`–`######`, any level; setext headings are \
+                    ignored). If neither --name nor a heading is present, the name is left \
+                    empty to match previous Markdown create behavior"
+        )]
+        name: Option<String>,
     },
     /// Update a notebook (full replace)
     Update {
@@ -16989,9 +17003,13 @@ async fn main_inner() -> anyhow::Result<()> {
                     reject_jq_with_markdown(jq_flag_passed, markdown)?;
                     commands::notebooks::get(&cfg, notebook_id, markdown).await?;
                 }
-                NotebookActions::Create { file, markdown } => {
+                NotebookActions::Create {
+                    file,
+                    markdown,
+                    name,
+                } => {
                     reject_jq_with_markdown(jq_flag_passed, markdown)?;
-                    commands::notebooks::create(&cfg, &file, markdown).await?;
+                    commands::notebooks::create(&cfg, &file, markdown, name.as_deref()).await?;
                 }
                 NotebookActions::Update {
                     notebook_id,

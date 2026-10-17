@@ -338,7 +338,11 @@ notebook as a Markdown document instead of a JSON cells array. These call
 `/api/v2`; the path and response contract may still change.
 
 - `get --markdown` — print the notebook as Markdown (YAML frontmatter + body)
-- `create --markdown --file doc.md` — create from a Markdown file; prints the new id
+- `create --markdown --file doc.md` — create from a Markdown file; prints the new id.
+  Optional `--name` sets the notebook name (YAML frontmatter `title`, the Markdown
+  form of `data.attributes.name`). Without `--name`, the first ATX heading
+  (`#`–`######`, any level; setext headings are ignored) is used. If there is no
+  heading either, the name is left empty.
 - `update --markdown --file doc.md` — replace the whole document
 - `edit --markdown --file fragment.md` — append the fragment server-side
 
@@ -346,6 +350,7 @@ notebook as a Markdown document instead of a JSON cells array. These call
 
 ```bash
 ID=$(pup notebooks create --markdown --file doc.md)
+# or: pup notebooks create --markdown --file doc.md --name "Weekly review"
 pup notebooks get "$ID" --markdown
 ```
 

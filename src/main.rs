@@ -103,6 +103,10 @@ fn sort_subcommands_by_name(command: clap::Command) -> clap::Command {
 pub(crate) fn cli_command() -> clap::Command {
     #[allow(unused_mut)]
     let mut cmd = sort_subcommands_by_name(Cli::command());
+    #[cfg(generated_tag = "authn-mappings")]
+    {
+        cmd = cmd.mut_subcommand("authn-mappings", sort_subcommands_by_name);
+    }
     #[cfg(generated_tag = "downtime")]
     {
         cmd = cmd.mut_subcommand("downtime", sort_subcommands_by_name);
@@ -6380,22 +6384,30 @@ enum SecuritySuppressionActions {
 #[derive(Subcommand)]
 enum AuthnMappingsActions {
     /// List all AuthN mappings
+    #[cfg(not(generated_op = "authn-mappings.list"))]
     List,
     /// Get an AuthN mapping
+    #[cfg(not(generated_op = "authn-mappings.get"))]
     Get { mapping_id: String },
     /// Create an AuthN mapping from JSON
+    #[cfg(not(generated_op = "authn-mappings.create"))]
     Create {
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
     },
     /// Update an AuthN mapping
+    #[cfg(not(generated_op = "authn-mappings.update"))]
     Update {
         mapping_id: String,
         #[arg(long, help = "JSON file with request body (required)")]
         file: String,
     },
     /// Delete an AuthN mapping
+    #[cfg(not(generated_op = "authn-mappings.delete"))]
     Delete { mapping_id: String },
+    #[cfg(generated_tag = "authn-mappings")]
+    #[command(flatten)]
+    Generated(crate::generated::authn_mappings::Command),
 }
 
 // ---- Seats ----
@@ -16424,20 +16436,29 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::AuthnMappings { action } => {
             cfg.validate_auth()?;
             match action {
+                #[cfg(not(generated_op = "authn-mappings.list"))]
                 AuthnMappingsActions::List => {
                     commands::authn_mappings::list(&cfg).await?;
                 }
+                #[cfg(not(generated_op = "authn-mappings.get"))]
                 AuthnMappingsActions::Get { mapping_id } => {
                     commands::authn_mappings::get(&cfg, &mapping_id).await?;
                 }
+                #[cfg(not(generated_op = "authn-mappings.create"))]
                 AuthnMappingsActions::Create { file } => {
                     commands::authn_mappings::create(&cfg, &file).await?;
                 }
+                #[cfg(not(generated_op = "authn-mappings.update"))]
                 AuthnMappingsActions::Update { mapping_id, file } => {
                     commands::authn_mappings::update(&cfg, &mapping_id, &file).await?;
                 }
+                #[cfg(not(generated_op = "authn-mappings.delete"))]
                 AuthnMappingsActions::Delete { mapping_id } => {
                     commands::authn_mappings::delete(&cfg, &mapping_id).await?;
+                }
+                #[cfg(generated_tag = "authn-mappings")]
+                AuthnMappingsActions::Generated(action) => {
+                    crate::generated::authn_mappings::run(&cfg, action).await?
                 }
             }
         }

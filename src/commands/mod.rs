@@ -10,6 +10,13 @@ pub mod app_builder;
 pub mod app_keys;
 pub mod audit_logs;
 pub mod auth;
+#[cfg(not(all(
+    generated_op = "authn-mappings.list",
+    generated_op = "authn-mappings.get",
+    generated_op = "authn-mappings.create",
+    generated_op = "authn-mappings.update",
+    generated_op = "authn-mappings.delete"
+)))]
 pub mod authn_mappings;
 pub mod bits;
 pub mod cases;

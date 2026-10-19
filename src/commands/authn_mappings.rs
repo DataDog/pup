@@ -1,13 +1,21 @@
 use anyhow::Result;
-use datadog_api_client::datadogV2::api_authn_mappings::{
-    AuthNMappingsAPI, ListAuthNMappingsOptionalParams,
-};
-use datadog_api_client::datadogV2::model::{AuthNMappingCreateRequest, AuthNMappingUpdateRequest};
+use datadog_api_client::datadogV2::api_authn_mappings::AuthNMappingsAPI;
+#[cfg(not(generated_op = "authn-mappings.list"))]
+use datadog_api_client::datadogV2::api_authn_mappings::ListAuthNMappingsOptionalParams;
+#[cfg(not(generated_op = "authn-mappings.create"))]
+use datadog_api_client::datadogV2::model::AuthNMappingCreateRequest;
+#[cfg(not(generated_op = "authn-mappings.update"))]
+use datadog_api_client::datadogV2::model::AuthNMappingUpdateRequest;
 
 use crate::config::Config;
 use crate::formatter;
+#[cfg(not(all(
+    generated_op = "authn-mappings.create",
+    generated_op = "authn-mappings.update"
+)))]
 use crate::util;
 
+#[cfg(not(generated_op = "authn-mappings.list"))]
 pub async fn list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(AuthNMappingsAPI, cfg);
     let resp = api
@@ -17,6 +25,7 @@ pub async fn list(cfg: &Config) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "authn-mappings.get"))]
 pub async fn get(cfg: &Config, mapping_id: &str) -> Result<()> {
     let api = crate::make_api!(AuthNMappingsAPI, cfg);
     let resp = api
@@ -26,6 +35,7 @@ pub async fn get(cfg: &Config, mapping_id: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "authn-mappings.create"))]
 pub async fn create(cfg: &Config, file: &str) -> Result<()> {
     let body: AuthNMappingCreateRequest = util::read_json_file(file)?;
     let api = crate::make_api!(AuthNMappingsAPI, cfg);
@@ -36,6 +46,7 @@ pub async fn create(cfg: &Config, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "authn-mappings.update"))]
 pub async fn update(cfg: &Config, mapping_id: &str, file: &str) -> Result<()> {
     let body: AuthNMappingUpdateRequest = util::read_json_file(file)?;
     let api = crate::make_api!(AuthNMappingsAPI, cfg);
@@ -46,6 +57,7 @@ pub async fn update(cfg: &Config, mapping_id: &str, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "authn-mappings.delete"))]
 pub async fn delete(cfg: &Config, mapping_id: &str) -> Result<()> {
     let api = crate::make_api!(AuthNMappingsAPI, cfg);
     api.delete_authn_mapping(mapping_id.to_string())
@@ -62,6 +74,7 @@ mod tests {
 
     /// Sample create-request body matching the AuthNMappingCreateRequest schema.
     /// Used by create-path tests to exercise the JSON parser in `util::read_json_file`.
+    #[cfg(not(generated_op = "authn-mappings.create"))]
     const SAMPLE_CREATE_JSON: &str = r#"{
       "data": {
         "type": "authn_mappings",
@@ -78,6 +91,7 @@ mod tests {
     }"#;
 
     /// Sample update-request body matching the AuthNMappingUpdateRequest schema.
+    #[cfg(not(generated_op = "authn-mappings.update"))]
     const SAMPLE_UPDATE_JSON: &str = r#"{
       "data": {
         "type": "authn_mappings",
@@ -98,6 +112,7 @@ mod tests {
     // list()
     // -----------------------------------------------------------------------
 
+    #[cfg(not(generated_op = "authn-mappings.list"))]
     #[tokio::test]
     async fn test_authn_mappings_list_success() {
         let _lock = lock_env().await;
@@ -115,6 +130,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "authn-mappings.list"))]
     #[tokio::test]
     async fn test_authn_mappings_list_accepts_oauth_bearer_token() {
         let _lock = lock_env().await;
@@ -147,6 +163,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "authn-mappings.list"))]
     #[tokio::test]
     async fn test_authn_mappings_list_error() {
         let _lock = lock_env().await;
@@ -174,6 +191,7 @@ mod tests {
     // get()
     // -----------------------------------------------------------------------
 
+    #[cfg(not(generated_op = "authn-mappings.get"))]
     #[tokio::test]
     async fn test_authn_mappings_get_success() {
         let _lock = lock_env().await;
@@ -196,6 +214,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "authn-mappings.get"))]
     #[tokio::test]
     async fn test_authn_mappings_get_error_404() {
         let _lock = lock_env().await;
@@ -223,6 +242,7 @@ mod tests {
     // create()
     // -----------------------------------------------------------------------
 
+    #[cfg(not(generated_op = "authn-mappings.create"))]
     #[tokio::test]
     async fn test_authn_mappings_create_success() {
         let _lock = lock_env().await;
@@ -249,6 +269,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "authn-mappings.create"))]
     #[tokio::test]
     async fn test_authn_mappings_create_missing_file() {
         let _lock = lock_env().await;
@@ -267,6 +288,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "authn-mappings.create"))]
     #[tokio::test]
     async fn test_authn_mappings_create_invalid_json() {
         let _lock = lock_env().await;
@@ -288,6 +310,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "authn-mappings.create"))]
     #[tokio::test]
     async fn test_authn_mappings_create_api_error() {
         let _lock = lock_env().await;
@@ -319,6 +342,7 @@ mod tests {
     // update()
     // -----------------------------------------------------------------------
 
+    #[cfg(not(generated_op = "authn-mappings.update"))]
     #[tokio::test]
     async fn test_authn_mappings_update_success() {
         let _lock = lock_env().await;
@@ -345,6 +369,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "authn-mappings.update"))]
     #[tokio::test]
     async fn test_authn_mappings_update_missing_file() {
         let _lock = lock_env().await;
@@ -361,6 +386,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "authn-mappings.update"))]
     #[tokio::test]
     async fn test_authn_mappings_update_api_error() {
         let _lock = lock_env().await;
@@ -392,6 +418,7 @@ mod tests {
     // delete()
     // -----------------------------------------------------------------------
 
+    #[cfg(not(generated_op = "authn-mappings.delete"))]
     #[tokio::test]
     async fn test_authn_mappings_delete_success() {
         let _lock = lock_env().await;
@@ -409,6 +436,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "authn-mappings.delete"))]
     #[tokio::test]
     async fn test_authn_mappings_delete_error_404() {
         let _lock = lock_env().await;

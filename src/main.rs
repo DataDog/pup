@@ -258,6 +258,13 @@ enum Commands {
     /// absolute path (/api/v2/monitors). Relative paths are automatically
     /// prefixed with /api/.
     ///
+    /// API DOCUMENTATION:
+    ///   pup docs api             List API documentation topics from the live docs site
+    ///   pup docs api monitors    Read the Monitors API reference as Markdown
+    ///   pup docs api monitors --operations    List documented monitor operations
+    ///   pup docs api monitors create-a-monitor    Read request/response documentation
+    ///   Documentation commands require no authentication.
+    ///
     /// EXAMPLES:
     ///   # GET a list of monitors
     ///   pup api v2/monitors
@@ -1268,12 +1275,14 @@ enum Commands {
         #[command(subcommand)]
         action: DeploymentGatesActions,
     },
-    /// Ask the Datadog Docs AI a question
+    /// Read live API documentation or ask the Datadog Docs AI a question
     ///
-    /// Sends a natural-language question to the Datadog Docs AI assistant
-    /// and streams the response to stdout. No authentication required.
+    /// Fetch API reference Markdown with 'api', or send a natural-language
+    /// question to the Docs AI assistant with 'ask'. No authentication required.
     ///
     /// EXAMPLES:
+    ///   pup docs api
+    ///   pup docs api monitors
     ///   pup docs ask "how do I set up log collection?"
     ///   pup docs ask "what is the difference between a monitor and an SLO?"
     #[command(verbatim_doc_comment)]
@@ -5969,9 +5978,41 @@ enum AuditLogActions {
     },
 }
 
-// ---- Docs AI ----
+// ---- Documentation ----
 #[derive(Subcommand)]
 enum DocsActions {
+    /// List live API documentation topics or fetch a topic as Markdown
+    ///
+    /// With no topic (or --list), list available topic names and titles.
+    /// Topics are discovered from the live Datadog docs index on every call,
+    /// so new API topics appear without updating Pup. Requires network access.
+    /// No authentication required.
+    ///
+    /// Use --operations with a topic to discover its operation names, then pass
+    /// an operation name to read its request/response documentation.
+    /// Pages print raw Markdown; listings print tab-separated names and titles.
+    /// Global output formatting and --jq do not transform this output.
+    ///
+    /// EXAMPLES:
+    ///   pup docs api
+    ///   pup docs api --list
+    ///   pup docs api monitors
+    ///   pup docs api monitors --operations
+    ///   pup docs api monitors create-a-monitor
+    #[command(verbatim_doc_comment)]
+    Api {
+        /// Topic name from 'pup docs api' (omit to list all topics)
+        topic: Option<String>,
+        /// Operation name from 'pup docs api <topic> --operations'
+        #[arg(requires = "topic")]
+        operation: Option<String>,
+        /// List the topic's operations from the live API docs index
+        #[arg(long, requires = "topic", conflicts_with_all = ["operation", "list"])]
+        operations: bool,
+        /// List available topics from the live API docs index
+        #[arg(long, conflicts_with_all = ["topic", "operation"])]
+        list: bool,
+    },
     /// Ask the Datadog Docs AI a natural-language question
     Ask {
         /// The question to ask
@@ -14988,6 +15029,20 @@ async fn main_inner() -> anyhow::Result<()> {
     }
     if let Commands::Docs { action } = cli.command {
         match action {
+            DocsActions::Api {
+                topic,
+                operation,
+                operations,
+                ..
+            } => {
+                commands::docs_api::run(
+                    topic.as_deref(),
+                    operation.as_deref(),
+                    operations,
+                    &mut std::io::stdout(),
+                )
+                .await?;
+            }
             DocsActions::Ask { question } => {
                 commands::docs::ask(&question, &mut std::io::stdout()).await?;
             }

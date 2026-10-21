@@ -1,19 +1,30 @@
 use anyhow::Result;
 use datadog_api_client::datadogV2::api_case_management::{
-    CaseManagementAPI, SearchCasesOptionalParams,
+    CaseManagementAPI, CountCasesOptionalParams, ListCaseLinksOptionalParams,
+    SearchCasesOptionalParams,
 };
+use datadog_api_client::datadogV2::api_case_management_attribute::CaseManagementAttributeAPI;
+use datadog_api_client::datadogV2::api_case_management_type::CaseManagementTypeAPI;
 use datadog_api_client::datadogV2::model::{
-    CaseAssign, CaseAssignAttributes, CaseAssignRequest, CaseComment, CaseCommentAttributes,
-    CaseCommentRequest, CaseCreate, CaseCreateAttributes, CaseCreateRelationships,
-    CaseCreateRequest, CaseEmpty, CaseEmptyRequest, CaseNotificationRuleCreateRequest,
-    CaseNotificationRuleUpdateRequest, CasePriority, CaseResourceType, CaseStatus,
-    CaseUpdateDescription, CaseUpdateDescriptionAttributes, CaseUpdateDescriptionRequest,
-    CaseUpdatePriority, CaseUpdatePriorityAttributes, CaseUpdatePriorityRequest, CaseUpdateStatus,
+    AutomationRuleCreateRequest, AutomationRuleUpdateRequest, CaseAggregateRequest, CaseAssign,
+    CaseAssignAttributes, CaseAssignRequest, CaseBulkUpdateRequest, CaseComment,
+    CaseCommentAttributes, CaseCommentRequest, CaseCreate, CaseCreateAttributes,
+    CaseCreateRelationships, CaseCreateRequest, CaseEmpty, CaseEmptyRequest, CaseInsightsRequest,
+    CaseLinkAttributes, CaseLinkCreate, CaseLinkCreateRequest, CaseLinkResourceType,
+    CaseNotificationRuleCreateRequest, CaseNotificationRuleUpdateRequest, CasePriority,
+    CaseResourceType, CaseStatus, CaseTypeCreateRequest, CaseTypeUpdateRequest,
+    CaseUpdateAttributesRequest, CaseUpdateCustomAttributeRequest, CaseUpdateDescription,
+    CaseUpdateDescriptionAttributes, CaseUpdateDescriptionRequest, CaseUpdateDueDate,
+    CaseUpdateDueDateAttributes, CaseUpdateDueDateRequest, CaseUpdatePriority,
+    CaseUpdatePriorityAttributes, CaseUpdatePriorityRequest, CaseUpdateResolvedReason,
+    CaseUpdateResolvedReasonAttributes, CaseUpdateResolvedReasonRequest, CaseUpdateStatus,
     CaseUpdateStatusAttributes, CaseUpdateStatusRequest, CaseUpdateTitle,
-    CaseUpdateTitleAttributes, CaseUpdateTitleRequest, JiraIssueCreateRequest,
-    JiraIssueLinkRequest, ProjectCreate, ProjectCreateAttributes, ProjectCreateRequest,
+    CaseUpdateTitleAttributes, CaseUpdateTitleRequest, CaseViewCreateRequest,
+    CaseViewUpdateRequest, CustomAttributeConfigCreateRequest, CustomAttributeConfigUpdateRequest,
+    IncidentRelationshipData, IncidentResourceType, JiraIssueCreateRequest, JiraIssueLinkRequest,
+    NotebookCreateRequest, ProjectCreate, ProjectCreateAttributes, ProjectCreateRequest,
     ProjectRelationship, ProjectRelationshipData, ProjectResourceType, ProjectUpdateRequest,
-    ServiceNowTicketCreateRequest,
+    RelationshipToIncidentRequest, ServiceNowTicketCreateRequest,
 };
 
 use crate::config::Config;
@@ -521,6 +532,548 @@ pub async fn projects_update(cfg: &Config, project_id: &str, file: &str) -> Resu
     formatter::output(cfg, &resp)
 }
 
+// ---------------------------------------------------------------------------
+// Count / Aggregate / Bulk update
+// ---------------------------------------------------------------------------
+
+pub async fn count(
+    cfg: &Config,
+    query: Option<String>,
+    group_by: Option<String>,
+    limit: Option<i64>,
+) -> Result<()> {
+    let api = make_api(cfg);
+    let mut params = CountCasesOptionalParams::default();
+    if let Some(q) = query {
+        params = params.query_filter(q);
+    }
+    if let Some(g) = group_by {
+        params = params.group_bys(g);
+    }
+    if let Some(l) = limit {
+        params = params.limit(l);
+    }
+    let resp = api
+        .count_cases(params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to count cases: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn aggregate(cfg: &Config, file: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body: CaseAggregateRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .aggregate_cases(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to aggregate cases: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn bulk_update(cfg: &Config, file: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body: CaseBulkUpdateRequest = crate::util::read_json_file(file)?;
+    api.bulk_update_cases(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to bulk update cases: {e:?}"))?;
+    println!("Cases updated.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Unassign / Attributes / Due date / Resolved reason / Custom attributes
+// ---------------------------------------------------------------------------
+
+pub async fn unassign(cfg: &Config, case_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body = CaseEmptyRequest::new(CaseEmpty::new(CaseResourceType::CASE));
+    let resp = api
+        .unassign_case(case_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to unassign case: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn update_attributes(cfg: &Config, case_id: &str, file: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body: CaseUpdateAttributesRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .update_attributes(case_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update case attributes: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn update_due_date(cfg: &Config, case_id: &str, due_date: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body = CaseUpdateDueDateRequest::new(CaseUpdateDueDate::new(
+        CaseUpdateDueDateAttributes::new(due_date.to_string()),
+        CaseResourceType::CASE,
+    ));
+    let resp = api
+        .update_case_due_date(case_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update case due date: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn update_resolved_reason(cfg: &Config, case_id: &str, reason: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body = CaseUpdateResolvedReasonRequest::new(CaseUpdateResolvedReason::new(
+        CaseUpdateResolvedReasonAttributes::new(reason.to_string()),
+        CaseResourceType::CASE,
+    ));
+    let resp = api
+        .update_case_resolved_reason(case_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update case resolved reason: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn update_custom_attribute(
+    cfg: &Config,
+    case_id: &str,
+    key: &str,
+    file: &str,
+) -> Result<()> {
+    let api = make_api(cfg);
+    let body: CaseUpdateCustomAttributeRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .update_case_custom_attribute(case_id.to_string(), key.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update case custom attribute: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn delete_custom_attribute(cfg: &Config, case_id: &str, key: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .delete_case_custom_attribute(case_id.to_string(), key.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete case custom attribute: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+// ---------------------------------------------------------------------------
+// Watchers
+// ---------------------------------------------------------------------------
+
+pub async fn watchers_list(cfg: &Config, case_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .list_case_watchers(case_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list case watchers: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn watchers_add(cfg: &Config, case_id: &str, user_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    api.watch_case(case_id.to_string(), user_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to add case watcher: {e:?}"))?;
+    println!("User {user_id} is now watching case {case_id}.");
+    Ok(())
+}
+
+pub async fn watchers_remove(cfg: &Config, case_id: &str, user_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    api.unwatch_case(case_id.to_string(), user_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to remove case watcher: {e:?}"))?;
+    println!("User {user_id} is no longer watching case {case_id}.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Insights
+// ---------------------------------------------------------------------------
+
+pub async fn insights_add(cfg: &Config, case_id: &str, file: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body: CaseInsightsRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .add_case_insights(case_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to add case insights: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn insights_remove(cfg: &Config, case_id: &str, file: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body: CaseInsightsRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .remove_case_insights(case_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to remove case insights: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+// ---------------------------------------------------------------------------
+// Incident / Notebook relationships
+// ---------------------------------------------------------------------------
+
+pub async fn incidents_link(cfg: &Config, case_id: &str, incident_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body = RelationshipToIncidentRequest::new(IncidentRelationshipData::new(
+        incident_id.to_string(),
+        IncidentResourceType::INCIDENTS,
+    ));
+    let resp = api
+        .link_incident(case_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to link incident to case: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn notebooks_create(cfg: &Config, case_id: &str, file: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body: NotebookCreateRequest = crate::util::read_json_file(file)?;
+    api.create_case_notebook(case_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create notebook for case: {e:?}"))?;
+    println!("Notebook created for case '{case_id}'.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Links
+// ---------------------------------------------------------------------------
+
+pub async fn links_list(
+    cfg: &Config,
+    entity_type: &str,
+    entity_id: &str,
+    relationship: Option<String>,
+) -> Result<()> {
+    let api = make_api(cfg);
+    let mut params = ListCaseLinksOptionalParams::default();
+    if let Some(r) = relationship {
+        params = params.relationship(r);
+    }
+    let resp = api
+        .list_case_links(entity_type.to_string(), entity_id.to_string(), params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list case links: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn links_create(
+    cfg: &Config,
+    parent_type: &str,
+    parent_id: &str,
+    child_type: &str,
+    child_id: &str,
+    relationship: &str,
+) -> Result<()> {
+    let api = make_api(cfg);
+    let attrs = CaseLinkAttributes::new(
+        child_id.to_string(),
+        child_type.to_string(),
+        parent_id.to_string(),
+        parent_type.to_string(),
+        relationship.to_string(),
+    );
+    let body = CaseLinkCreateRequest::new(CaseLinkCreate::new(attrs, CaseLinkResourceType::LINK));
+    let resp = api
+        .create_case_link(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create case link: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn links_delete(cfg: &Config, link_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    api.delete_case_link(link_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete case link: {e:?}"))?;
+    println!("Case link {link_id} deleted.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Views
+// ---------------------------------------------------------------------------
+
+pub async fn views_list(cfg: &Config, project_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .list_case_views(project_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list case views: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn views_get(cfg: &Config, view_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .get_case_view(view_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get case view: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn views_create(cfg: &Config, file: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body: CaseViewCreateRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .create_case_view(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create case view: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn views_update(cfg: &Config, view_id: &str, file: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let body: CaseViewUpdateRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .update_case_view(view_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update case view: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn views_delete(cfg: &Config, view_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    api.delete_case_view(view_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete case view: {e:?}"))?;
+    println!("Case view {view_id} deleted.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Project favorites
+// ---------------------------------------------------------------------------
+
+pub async fn projects_favorites_list(cfg: &Config) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .list_user_case_project_favorites()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list favorite projects: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn projects_favorites_add(cfg: &Config, project_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    api.favorite_case_project(project_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to favorite project: {e:?}"))?;
+    println!("Project {project_id} added to favorites.");
+    Ok(())
+}
+
+pub async fn projects_favorites_remove(cfg: &Config, project_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    api.unfavorite_case_project(project_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to unfavorite project: {e:?}"))?;
+    println!("Project {project_id} removed from favorites.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Project automation rules
+// ---------------------------------------------------------------------------
+
+pub async fn projects_automation_rules_list(cfg: &Config, project_id: &str) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .list_case_automation_rules(project_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list automation rules: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn projects_automation_rules_get(
+    cfg: &Config,
+    project_id: &str,
+    rule_id: &str,
+) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .get_case_automation_rule(project_id.to_string(), rule_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get automation rule: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn projects_automation_rules_create(
+    cfg: &Config,
+    project_id: &str,
+    file: &str,
+) -> Result<()> {
+    let api = make_api(cfg);
+    let body: AutomationRuleCreateRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .create_case_automation_rule(project_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create automation rule: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn projects_automation_rules_update(
+    cfg: &Config,
+    project_id: &str,
+    rule_id: &str,
+    file: &str,
+) -> Result<()> {
+    let api = make_api(cfg);
+    let body: AutomationRuleUpdateRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .update_case_automation_rule(project_id.to_string(), rule_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update automation rule: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn projects_automation_rules_delete(
+    cfg: &Config,
+    project_id: &str,
+    rule_id: &str,
+) -> Result<()> {
+    let api = make_api(cfg);
+    api.delete_case_automation_rule(project_id.to_string(), rule_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete automation rule: {e:?}"))?;
+    println!("Automation rule '{rule_id}' deleted.");
+    Ok(())
+}
+
+pub async fn projects_automation_rules_enable(
+    cfg: &Config,
+    project_id: &str,
+    rule_id: &str,
+) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .enable_case_automation_rule(project_id.to_string(), rule_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to enable automation rule: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn projects_automation_rules_disable(
+    cfg: &Config,
+    project_id: &str,
+    rule_id: &str,
+) -> Result<()> {
+    let api = make_api(cfg);
+    let resp = api
+        .disable_case_automation_rule(project_id.to_string(), rule_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to disable automation rule: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+// ---------------------------------------------------------------------------
+// Case types
+// ---------------------------------------------------------------------------
+
+fn make_type_api(cfg: &Config) -> CaseManagementTypeAPI {
+    crate::make_api!(CaseManagementTypeAPI, cfg)
+}
+
+pub async fn types_list(cfg: &Config) -> Result<()> {
+    let api = make_type_api(cfg);
+    let resp = api
+        .get_all_case_types()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list case types: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn types_create(cfg: &Config, file: &str) -> Result<()> {
+    let api = make_type_api(cfg);
+    let body: CaseTypeCreateRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .create_case_type(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create case type: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn types_update(cfg: &Config, type_id: &str, file: &str) -> Result<()> {
+    let api = make_type_api(cfg);
+    let body: CaseTypeUpdateRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .update_case_type(type_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update case type: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn types_delete(cfg: &Config, type_id: &str) -> Result<()> {
+    let api = make_type_api(cfg);
+    api.delete_case_type(type_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete case type: {e:?}"))?;
+    println!("Case type {type_id} deleted.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Custom attribute configs
+// ---------------------------------------------------------------------------
+
+fn make_attribute_api(cfg: &Config) -> CaseManagementAttributeAPI {
+    crate::make_api!(CaseManagementAttributeAPI, cfg)
+}
+
+pub async fn custom_attributes_list(cfg: &Config, type_id: Option<&str>) -> Result<()> {
+    let api = make_attribute_api(cfg);
+    let resp = match type_id {
+        Some(t) => api
+            .get_all_custom_attribute_configs_by_case_type(t.to_string())
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to list custom attributes: {e:?}"))?,
+        None => api
+            .get_all_custom_attributes()
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to list custom attributes: {e:?}"))?,
+    };
+    formatter::output(cfg, &resp)
+}
+
+pub async fn custom_attributes_create(cfg: &Config, type_id: &str, file: &str) -> Result<()> {
+    let api = make_attribute_api(cfg);
+    let body: CustomAttributeConfigCreateRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .create_custom_attribute_config(type_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to create custom attribute: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn custom_attributes_update(
+    cfg: &Config,
+    type_id: &str,
+    attribute_id: &str,
+    file: &str,
+) -> Result<()> {
+    let api = make_attribute_api(cfg);
+    let body: CustomAttributeConfigUpdateRequest = crate::util::read_json_file(file)?;
+    let resp = api
+        .update_custom_attribute_config(type_id.to_string(), attribute_id.to_string(), body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to update custom attribute: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn custom_attributes_delete(
+    cfg: &Config,
+    type_id: &str,
+    attribute_id: &str,
+) -> Result<()> {
+    let api = make_attribute_api(cfg);
+    api.delete_custom_attribute_config(type_id.to_string(), attribute_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete custom attribute: {e:?}"))?;
+    println!("Custom attribute {attribute_id} deleted.");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -762,6 +1315,587 @@ mod tests {
             "expected 'not found' in error, got: {err}"
         );
         cleanup_env();
+    }
+
+    const CASE_RESP: &str = r#"{"data": {"id": "case1", "type": "case", "attributes": {}}}"#;
+    const VIEW: &str = r#"{"id": "view1", "type": "view", "attributes": {"created_at": "2026-01-01T00:00:00Z", "name": "Open bugs", "query": "status:open"}}"#;
+    const RULE: &str = r#"{"id": "r1", "type": "rule", "attributes": {"action": {"data": {"handle": "wf"}, "type": "EXECUTE_WORKFLOW"}, "created_at": "2026-01-01T00:00:00Z", "name": "Auto-assign", "state": "ENABLED", "trigger": {"type": "CASE_CREATED"}}}"#;
+    const LINK: &str = r#"{"id": "link1", "type": "link", "attributes": {"parent_entity_type": "CASE", "parent_entity_id": "case1", "child_entity_type": "CASE", "child_entity_id": "case2", "relationship": "BLOCKS"}}"#;
+    const CASE_TYPE: &str =
+        r#"{"id": "t1", "type": "case_type", "attributes": {"name": "Investigation"}}"#;
+    const ATTRIBUTE: &str = r#"{"id": "a1", "type": "custom_attribute", "attributes": {"case_type_id": "t1", "display_name": "Region", "is_multi": true, "key": "region", "type": "TEXT"}}"#;
+
+    fn one(item: &str) -> String {
+        format!(r#"{{"data": {item}}}"#)
+    }
+
+    fn many(item: &str) -> String {
+        format!(r#"{{"data": [{item}]}}"#)
+    }
+
+    async fn expect_call(
+        s: &mut mockito::Server,
+        method: &str,
+        path: &str,
+        body: Option<serde_json::Value>,
+        response: &str,
+    ) -> mockito::Mock {
+        let mut m = s
+            .mock(method, path)
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(response);
+        if let Some(b) = body {
+            m = m.match_body(mockito::Matcher::PartialJson(b));
+        }
+        m.create_async().await
+    }
+
+    /// Writes `body` to a temp file and returns its path alongside the parsed
+    /// JSON, so file-backed tests can assert the file is forwarded verbatim.
+    fn body_file(name: &str, body: &str) -> (std::path::PathBuf, serde_json::Value) {
+        let path =
+            std::env::temp_dir().join(format!("pup-cases-{name}-{}.json", std::process::id()));
+        std::fs::write(&path, body).unwrap();
+        (path, serde_json::from_str(body).unwrap())
+    }
+
+    #[tokio::test]
+    async fn test_cases_count_sends_filters() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let m = s
+            .mock("GET", "/api/v2/cases/count")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("query_filter".into(), "status:open".into()),
+                mockito::Matcher::UrlEncoded("group_bys".into(), "priority".into()),
+                mockito::Matcher::UrlEncoded("limit".into(), "5".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"data": {"id": "count", "type": "count", "attributes": {"groups": []}}}"#,
+            )
+            .create_async()
+            .await;
+        let result = super::count(
+            &cfg,
+            Some("status:open".into()),
+            Some("priority".into()),
+            Some(5),
+        )
+        .await;
+        cleanup_env();
+        result.expect("count should succeed");
+        m.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_cases_flag_built_requests() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let mocks = vec![
+            expect_call(&mut s, "POST", "/api/v2/cases/case1/unassign", None, CASE_RESP).await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/due_date",
+                Some(serde_json::json!({
+                    "data": {"type": "case", "attributes": {"due_date": "2026-11-01"}}
+                })),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/resolved_reason",
+                Some(serde_json::json!({
+                    "data": {"type": "case", "attributes": {"security_resolved_reason": "FALSE_POSITIVE"}}
+                })),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "DELETE",
+                "/api/v2/cases/case1/custom_attributes/region",
+                None,
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/relationships/incidents",
+                Some(serde_json::json!({"data": {"id": "inc1", "type": "incidents"}})),
+                CASE_RESP,
+            )
+            .await,
+        ];
+        let results = [
+            super::unassign(&cfg, "case1").await,
+            super::update_due_date(&cfg, "case1", "2026-11-01").await,
+            super::update_resolved_reason(&cfg, "case1", "FALSE_POSITIVE").await,
+            super::delete_custom_attribute(&cfg, "case1", "region").await,
+            super::incidents_link(&cfg, "case1", "inc1").await,
+        ];
+        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cases_file_backed_requests() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let fixtures = [
+            (
+                "aggregate",
+                r#"{"data": {"attributes": {"group_by": {"groups": ["status"], "limit": 14}, "query_filter": "status:open"}, "type": "aggregate"}}"#,
+            ),
+            (
+                "bulk",
+                r#"{"data": {"attributes": {"case_ids": ["case1"], "payload": {"priority": "P1"}, "type": "priority"}, "type": "bulk"}}"#,
+            ),
+            (
+                "attrs",
+                r#"{"data": {"attributes": {"attributes": {"env": ["prod"]}}, "type": "case"}}"#,
+            ),
+            (
+                "custom",
+                r#"{"data": {"attributes": {"type": "TEXT", "is_multi": true, "value": ["us-east-1"]}, "type": "case"}}"#,
+            ),
+            (
+                "insights",
+                r#"{"data": {"attributes": {"insights": [{"ref": "/monitors/12345", "resource_id": "12345", "type": "SECURITY_SIGNAL"}]}, "type": "case"}}"#,
+            ),
+            ("notebook", r#"{"data": {"type": "notebook"}}"#),
+            (
+                "view",
+                r#"{"data": {"attributes": {"name": "Open bugs", "project_id": "proj1", "query": "status:open"}, "type": "view"}}"#,
+            ),
+            (
+                "rule",
+                r#"{"data": {"attributes": {"action": {"data": {"handle": "wf"}, "type": "EXECUTE_WORKFLOW"}, "name": "Auto-assign", "state": "ENABLED", "trigger": {"data": {}, "type": "CASE_CREATED"}}, "type": "rule"}}"#,
+            ),
+            (
+                "type",
+                r#"{"data": {"attributes": {"description": "Investigations", "name": "Investigation"}, "type": "case_type"}}"#,
+            ),
+            (
+                "attr_cfg",
+                r#"{"data": {"attributes": {"display_name": "Region", "is_multi": true, "key": "region", "type": "TEXT"}, "type": "custom_attribute"}}"#,
+            ),
+        ];
+        let mut files = std::collections::HashMap::new();
+        for (name, body) in fixtures {
+            files.insert(name, body_file(name, body));
+        }
+        let f = |name: &str| files[name].0.to_str().unwrap().to_string();
+        let b = |name: &str| Some(files[name].1.clone());
+        let agg = r#"{"data": {"id": "agg", "type": "aggregate", "attributes": {"groups": [], "total": 0}}}"#;
+        let (view, rule) = (one(VIEW), one(RULE));
+        let (case_type, attribute) = (one(CASE_TYPE), one(ATTRIBUTE));
+        let rules = "/api/v2/cases/projects/proj1/rules";
+        let attrs = "/api/v2/cases/types/t1/custom_attributes";
+        let mocks = vec![
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/aggregate",
+                b("aggregate"),
+                agg,
+            )
+            .await,
+            expect_call(&mut s, "POST", "/api/v2/cases/bulk", b("bulk"), "").await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/attributes",
+                b("attrs"),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/custom_attributes/region",
+                b("custom"),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "PUT",
+                "/api/v2/cases/case1/insights",
+                b("insights"),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "DELETE",
+                "/api/v2/cases/case1/insights",
+                b("insights"),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/relationships/notebook",
+                b("notebook"),
+                "",
+            )
+            .await,
+            expect_call(&mut s, "POST", "/api/v2/cases/views", b("view"), &view).await,
+            expect_call(&mut s, "PUT", "/api/v2/cases/views/view1", b("view"), &view).await,
+            expect_call(&mut s, "POST", rules, b("rule"), &rule).await,
+            expect_call(&mut s, "PUT", &format!("{rules}/r1"), b("rule"), &rule).await,
+            expect_call(&mut s, "POST", "/api/v2/cases/types", b("type"), &case_type).await,
+            expect_call(
+                &mut s,
+                "PUT",
+                "/api/v2/cases/types/t1",
+                b("type"),
+                &case_type,
+            )
+            .await,
+            expect_call(&mut s, "POST", attrs, b("attr_cfg"), &attribute).await,
+            expect_call(
+                &mut s,
+                "PUT",
+                &format!("{attrs}/a1"),
+                b("attr_cfg"),
+                &attribute,
+            )
+            .await,
+        ];
+        let results = [
+            super::aggregate(&cfg, &f("aggregate")).await,
+            super::bulk_update(&cfg, &f("bulk")).await,
+            super::update_attributes(&cfg, "case1", &f("attrs")).await,
+            super::update_custom_attribute(&cfg, "case1", "region", &f("custom")).await,
+            super::insights_add(&cfg, "case1", &f("insights")).await,
+            super::insights_remove(&cfg, "case1", &f("insights")).await,
+            super::notebooks_create(&cfg, "case1", &f("notebook")).await,
+            super::views_create(&cfg, &f("view")).await,
+            super::views_update(&cfg, "view1", &f("view")).await,
+            super::projects_automation_rules_create(&cfg, "proj1", &f("rule")).await,
+            super::projects_automation_rules_update(&cfg, "proj1", "r1", &f("rule")).await,
+            super::types_create(&cfg, &f("type")).await,
+            super::types_update(&cfg, "t1", &f("type")).await,
+            super::custom_attributes_create(&cfg, "t1", &f("attr_cfg")).await,
+            super::custom_attributes_update(&cfg, "t1", "a1", &f("attr_cfg")).await,
+        ];
+        cleanup_env();
+        for (path, _) in files.values() {
+            let _ = std::fs::remove_file(path);
+        }
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cases_watchers() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let watchers = r#"{"data": [{"id": "user1", "type": "watcher", "relationships": {"user": {"data": {"id": "user1", "type": "user"}}}}]}"#;
+        let base = "/api/v2/cases/case1/watchers";
+        let mocks = vec![
+            expect_call(&mut s, "GET", base, None, watchers).await,
+            expect_call(&mut s, "POST", &format!("{base}/user1"), None, "").await,
+            expect_call(&mut s, "DELETE", &format!("{base}/user1"), None, "").await,
+        ];
+        let results = [
+            super::watchers_list(&cfg, "case1").await,
+            super::watchers_add(&cfg, "case1", "user1").await,
+            super::watchers_remove(&cfg, "case1", "user1").await,
+        ];
+        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cases_links() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let list = s
+            .mock("GET", "/api/v2/cases/link")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("entity_type".into(), "CASE".into()),
+                mockito::Matcher::UrlEncoded("entity_id".into(), "case1".into()),
+                mockito::Matcher::UrlEncoded("relationship".into(), "BLOCKS".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(many(LINK))
+            .create_async()
+            .await;
+        let create = expect_call(
+            &mut s,
+            "POST",
+            "/api/v2/cases/link",
+            Some(serde_json::json!({
+                "data": {
+                    "type": "link",
+                    "attributes": {
+                        "parent_entity_type": "CASE",
+                        "parent_entity_id": "case1",
+                        "child_entity_type": "CASE",
+                        "child_entity_id": "case2",
+                        "relationship": "BLOCKS"
+                    }
+                }
+            })),
+            &one(LINK),
+        )
+        .await;
+        let del = expect_call(&mut s, "DELETE", "/api/v2/cases/link/link1", None, "").await;
+        let results = [
+            super::links_list(&cfg, "CASE", "case1", Some("BLOCKS".into())).await,
+            super::links_create(&cfg, "CASE", "case1", "CASE", "case2", "BLOCKS").await,
+            super::links_delete(&cfg, "link1").await,
+        ];
+        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in [list, create, del] {
+            m.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cases_views_read_and_delete() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let list = s
+            .mock("GET", "/api/v2/cases/views")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "project_id".into(),
+                "proj1".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(many(VIEW))
+            .create_async()
+            .await;
+        let get = expect_call(&mut s, "GET", "/api/v2/cases/views/view1", None, &one(VIEW)).await;
+        let del = expect_call(&mut s, "DELETE", "/api/v2/cases/views/view1", None, "").await;
+        let results = [
+            super::views_list(&cfg, "proj1").await,
+            super::views_get(&cfg, "view1").await,
+            super::views_delete(&cfg, "view1").await,
+        ];
+        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in [list, get, del] {
+            m.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cases_projects_favorites() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let favorites = r#"{"data": [{"id": "proj1", "type": "project_favorite"}]}"#;
+        let fav = "/api/v2/cases/projects/proj1/favorites";
+        let mocks = vec![
+            expect_call(
+                &mut s,
+                "GET",
+                "/api/v2/cases/projects/favorites",
+                None,
+                favorites,
+            )
+            .await,
+            expect_call(&mut s, "POST", fav, None, "").await,
+            expect_call(&mut s, "DELETE", fav, None, "").await,
+        ];
+        let results = [
+            super::projects_favorites_list(&cfg).await,
+            super::projects_favorites_add(&cfg, "proj1").await,
+            super::projects_favorites_remove(&cfg, "proj1").await,
+        ];
+        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cases_projects_automation_rules_actions() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let base = "/api/v2/cases/projects/proj1/rules";
+        let rule = one(RULE);
+        let mocks = vec![
+            expect_call(&mut s, "GET", base, None, &many(RULE)).await,
+            expect_call(&mut s, "GET", &format!("{base}/r1"), None, &rule).await,
+            expect_call(&mut s, "DELETE", &format!("{base}/r1"), None, "").await,
+            expect_call(&mut s, "POST", &format!("{base}/r1/enable"), None, &rule).await,
+            expect_call(&mut s, "POST", &format!("{base}/r1/disable"), None, &rule).await,
+        ];
+        let results = [
+            super::projects_automation_rules_list(&cfg, "proj1").await,
+            super::projects_automation_rules_get(&cfg, "proj1", "r1").await,
+            super::projects_automation_rules_delete(&cfg, "proj1", "r1").await,
+            super::projects_automation_rules_enable(&cfg, "proj1", "r1").await,
+            super::projects_automation_rules_disable(&cfg, "proj1", "r1").await,
+        ];
+        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cases_types_and_custom_attributes_read_and_delete() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let attrs = many(ATTRIBUTE);
+        let mocks = vec![
+            expect_call(&mut s, "GET", "/api/v2/cases/types", None, &many(CASE_TYPE)).await,
+            expect_call(&mut s, "DELETE", "/api/v2/cases/types/t1", None, "").await,
+            expect_call(
+                &mut s,
+                "GET",
+                "/api/v2/cases/types/custom_attributes",
+                None,
+                &attrs,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "GET",
+                "/api/v2/cases/types/t1/custom_attributes",
+                None,
+                &attrs,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "DELETE",
+                "/api/v2/cases/types/t1/custom_attributes/a1",
+                None,
+                "",
+            )
+            .await,
+        ];
+        let results = [
+            super::types_list(&cfg).await,
+            super::types_delete(&cfg, "t1").await,
+            super::custom_attributes_list(&cfg, None).await,
+            super::custom_attributes_list(&cfg, Some("t1")).await,
+            super::custom_attributes_delete(&cfg, "t1", "a1").await,
+        ];
+        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cases_file_commands_reject_missing_file() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://nowhere.invalid");
+        let f = "/nonexistent/body.json";
+        let results = [
+            super::aggregate(&cfg, f).await,
+            super::bulk_update(&cfg, f).await,
+            super::update_attributes(&cfg, "c", f).await,
+            super::update_custom_attribute(&cfg, "c", "k", f).await,
+            super::insights_add(&cfg, "c", f).await,
+            super::insights_remove(&cfg, "c", f).await,
+            super::notebooks_create(&cfg, "c", f).await,
+            super::views_create(&cfg, f).await,
+            super::views_update(&cfg, "v", f).await,
+            super::projects_automation_rules_create(&cfg, "p", f).await,
+            super::projects_automation_rules_update(&cfg, "p", "r", f).await,
+            super::types_create(&cfg, f).await,
+            super::types_update(&cfg, "t", f).await,
+            super::custom_attributes_create(&cfg, "t", f).await,
+            super::custom_attributes_update(&cfg, "t", "a", f).await,
+        ];
+        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            let err = r.expect_err(&format!("command #{i} should fail on missing file"));
+            assert!(
+                err.to_string().contains("failed to read file"),
+                "command #{i}: unexpected error {err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cases_api_errors_propagate() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        for method in ["GET", "POST", "DELETE"] {
+            s.mock(method, mockito::Matcher::Any)
+                .match_query(mockito::Matcher::Any)
+                .with_status(404)
+                .with_header("content-type", "application/json")
+                .with_body(r#"{"errors": ["not found"]}"#)
+                .create_async()
+                .await;
+        }
+        let checks = [
+            (
+                super::watchers_add(&cfg, "c", "u").await,
+                "add case watcher",
+            ),
+            (super::links_delete(&cfg, "l").await, "delete case link"),
+            (super::types_delete(&cfg, "t").await, "delete case type"),
+            (super::unassign(&cfg, "c").await, "unassign case"),
+            (
+                super::projects_automation_rules_enable(&cfg, "p", "r").await,
+                "enable automation rule",
+            ),
+            (super::count(&cfg, None, None, None).await, "count cases"),
+        ];
+        cleanup_env();
+        for (r, ctx) in checks {
+            let err = r.expect_err(&format!("{ctx} should fail on 404"));
+            assert!(err.to_string().contains(ctx), "expected '{ctx}' in: {err}");
+        }
     }
 
     #[test]

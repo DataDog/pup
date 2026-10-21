@@ -745,8 +745,9 @@ enum Commands {
     ///   • Search and filter cases
     ///   • Assign cases to users
     ///   • Archive/unarchive cases
-    ///   • Manage projects
-    ///   • Add comments and track timelines
+    ///   • Manage projects, views, automation and notification rules
+    ///   • Manage case types and custom attribute configs
+    ///   • Add comments, watchers, links, and track timelines
     ///
     /// CASE PRIORITIES:
     ///   • NOT_DEFINED: No priority set
@@ -768,6 +769,13 @@ enum Commands {
     ///
     ///   # List projects
     ///   pup cases projects list
+    ///
+    ///   # Count open cases grouped by priority
+    ///   pup cases count --query="status:open" --group-by=priority
+    ///
+    ///   # List case types and their custom attributes
+    ///   pup cases types list
+    ///   pup cases custom-attributes list --type-id="type-uuid"
     ///
     /// AUTHENTICATION:
     ///   Requires either OAuth2 authentication (pup auth login) or API keys.
@@ -6961,6 +6969,262 @@ enum CaseActions {
         #[command(subcommand)]
         action: CaseServicenowActions,
     },
+    /// Count cases, optionally grouped by fields
+    Count {
+        #[arg(long, help = "Search query to filter cases")]
+        query: Option<String>,
+        #[arg(
+            long,
+            name = "group-by",
+            help = "Comma-separated fields to group by (e.g. status,priority)"
+        )]
+        group_by: Option<String>,
+        #[arg(long, help = "Maximum number of facet values per group")]
+        limit: Option<i64>,
+    },
+    /// Aggregate cases (group-by counts over a query)
+    Aggregate {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update multiple cases at once
+    #[command(name = "update-bulk")]
+    UpdateBulk {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Unassign a case
+    Unassign { case_id: String },
+    /// Update case attributes (key/value tags)
+    #[command(name = "update-attributes")]
+    UpdateAttributes {
+        case_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update case due date
+    #[command(name = "update-due-date")]
+    UpdateDueDate {
+        case_id: String,
+        #[arg(long, name = "due-date", help = "Due date, YYYY-MM-DD (required)")]
+        due_date: String,
+    },
+    /// Update case resolved reason
+    #[command(name = "update-resolved-reason")]
+    UpdateResolvedReason {
+        case_id: String,
+        #[arg(long, help = "Resolved reason (required)")]
+        reason: String,
+    },
+    /// Set a custom attribute value on a case
+    #[command(name = "update-custom-attribute")]
+    UpdateCustomAttribute {
+        case_id: String,
+        #[arg(long, help = "Custom attribute key (required)")]
+        key: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Remove a custom attribute value from a case
+    #[command(name = "delete-custom-attribute")]
+    DeleteCustomAttribute {
+        case_id: String,
+        #[arg(long, help = "Custom attribute key (required)")]
+        key: String,
+    },
+    /// Manage case watchers
+    Watchers {
+        #[command(subcommand)]
+        action: CaseWatcherActions,
+    },
+    /// Manage case insights
+    Insights {
+        #[command(subcommand)]
+        action: CaseInsightActions,
+    },
+    /// Manage incident relationships for cases
+    Incidents {
+        #[command(subcommand)]
+        action: CaseIncidentActions,
+    },
+    /// Manage notebooks attached to cases
+    Notebooks {
+        #[command(subcommand)]
+        action: CaseNotebookActions,
+    },
+    /// Manage links between cases and other entities
+    Links {
+        #[command(subcommand)]
+        action: CaseLinkActions,
+    },
+    /// Manage saved case views
+    Views {
+        #[command(subcommand)]
+        action: CaseViewActions,
+    },
+    /// Manage case types
+    Types {
+        #[command(subcommand)]
+        action: CaseTypeActions,
+    },
+    /// Manage custom attribute configs for case types
+    #[command(name = "custom-attributes")]
+    CustomAttributes {
+        #[command(subcommand)]
+        action: CaseCustomAttributeActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaseWatcherActions {
+    /// List watchers of a case
+    List { case_id: String },
+    /// Add a watcher to a case
+    Add {
+        case_id: String,
+        #[arg(long, help = "User UUID (required)")]
+        user_id: String,
+    },
+    /// Remove a watcher from a case
+    Remove {
+        case_id: String,
+        #[arg(long, help = "User UUID (required)")]
+        user_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaseInsightActions {
+    /// Add insights to a case
+    Add {
+        case_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Remove insights from a case
+    Remove {
+        case_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaseIncidentActions {
+    /// Link an incident to a case
+    Link {
+        case_id: String,
+        #[arg(long, help = "Incident ID (required)")]
+        incident_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaseNotebookActions {
+    /// Create a notebook attached to a case
+    Create {
+        case_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaseLinkActions {
+    /// List links for an entity
+    List {
+        #[arg(long, help = "Entity type, e.g. CASE (required)")]
+        entity_type: String,
+        #[arg(long, help = "Entity ID (required)")]
+        entity_id: String,
+        #[arg(long, help = "Filter by relationship type")]
+        relationship: Option<String>,
+    },
+    /// Create a link between two entities
+    Create {
+        #[arg(long, help = "Parent entity type, e.g. CASE (required)")]
+        parent_type: String,
+        #[arg(long, help = "Parent entity ID (required)")]
+        parent_id: String,
+        #[arg(long, help = "Child entity type, e.g. CASE (required)")]
+        child_type: String,
+        #[arg(long, help = "Child entity ID (required)")]
+        child_id: String,
+        #[arg(long, help = "Relationship type, e.g. BLOCKS (required)")]
+        relationship: String,
+    },
+    /// Delete a link
+    Delete { link_id: String },
+}
+
+#[derive(Subcommand)]
+enum CaseViewActions {
+    /// List views for a project
+    List {
+        #[arg(long, help = "Project UUID (required)")]
+        project_id: String,
+    },
+    /// Get view details
+    Get { view_id: String },
+    /// Create a view
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update a view
+    Update {
+        view_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete a view
+    Delete { view_id: String },
+}
+
+#[derive(Subcommand)]
+enum CaseTypeActions {
+    /// List all case types
+    List,
+    /// Create a case type
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update a case type
+    Update {
+        type_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete a case type
+    Delete { type_id: String },
+}
+
+#[derive(Subcommand)]
+enum CaseCustomAttributeActions {
+    /// List custom attribute configs (all, or for one case type)
+    List {
+        #[arg(long, name = "type-id", help = "Case type UUID to filter by")]
+        type_id: Option<String>,
+    },
+    /// Create a custom attribute config for a case type
+    Create {
+        type_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update a custom attribute config
+    Update {
+        type_id: String,
+        attribute_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete a custom attribute config
+    Delete {
+        type_id: String,
+        attribute_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -7022,6 +7286,54 @@ enum CaseProjectActions {
         #[command(subcommand)]
         action: CaseNotificationRuleActions,
     },
+    /// Manage project automation rules
+    #[command(name = "automation-rules")]
+    AutomationRules {
+        #[command(subcommand)]
+        action: CaseAutomationRuleActions,
+    },
+    /// Manage your favorite projects
+    Favorites {
+        #[command(subcommand)]
+        action: CaseProjectFavoriteActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaseAutomationRuleActions {
+    /// List automation rules for a project
+    List { project_id: String },
+    /// Get an automation rule
+    Get { project_id: String, rule_id: String },
+    /// Create an automation rule
+    Create {
+        project_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update an automation rule
+    Update {
+        project_id: String,
+        rule_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete an automation rule
+    Delete { project_id: String, rule_id: String },
+    /// Enable an automation rule
+    Enable { project_id: String, rule_id: String },
+    /// Disable an automation rule
+    Disable { project_id: String, rule_id: String },
+}
+
+#[derive(Subcommand)]
+enum CaseProjectFavoriteActions {
+    /// List your favorite projects
+    List,
+    /// Add a project to your favorites
+    Add { project_id: String },
+    /// Remove a project from your favorites
+    Remove { project_id: String },
 }
 
 #[derive(Subcommand)]
@@ -17190,6 +17502,88 @@ async fn main_inner() -> anyhow::Result<()> {
                             .await?;
                         }
                     },
+                    CaseProjectActions::AutomationRules { action } => match action {
+                        CaseAutomationRuleActions::List { project_id } => {
+                            commands::cases::projects_automation_rules_list(&cfg, &project_id)
+                                .await?;
+                        }
+                        CaseAutomationRuleActions::Get {
+                            project_id,
+                            rule_id,
+                        } => {
+                            commands::cases::projects_automation_rules_get(
+                                &cfg,
+                                &project_id,
+                                &rule_id,
+                            )
+                            .await?;
+                        }
+                        CaseAutomationRuleActions::Create { project_id, file } => {
+                            commands::cases::projects_automation_rules_create(
+                                &cfg,
+                                &project_id,
+                                &file,
+                            )
+                            .await?;
+                        }
+                        CaseAutomationRuleActions::Update {
+                            project_id,
+                            rule_id,
+                            file,
+                        } => {
+                            commands::cases::projects_automation_rules_update(
+                                &cfg,
+                                &project_id,
+                                &rule_id,
+                                &file,
+                            )
+                            .await?;
+                        }
+                        CaseAutomationRuleActions::Delete {
+                            project_id,
+                            rule_id,
+                        } => {
+                            commands::cases::projects_automation_rules_delete(
+                                &cfg,
+                                &project_id,
+                                &rule_id,
+                            )
+                            .await?;
+                        }
+                        CaseAutomationRuleActions::Enable {
+                            project_id,
+                            rule_id,
+                        } => {
+                            commands::cases::projects_automation_rules_enable(
+                                &cfg,
+                                &project_id,
+                                &rule_id,
+                            )
+                            .await?;
+                        }
+                        CaseAutomationRuleActions::Disable {
+                            project_id,
+                            rule_id,
+                        } => {
+                            commands::cases::projects_automation_rules_disable(
+                                &cfg,
+                                &project_id,
+                                &rule_id,
+                            )
+                            .await?;
+                        }
+                    },
+                    CaseProjectActions::Favorites { action } => match action {
+                        CaseProjectFavoriteActions::List => {
+                            commands::cases::projects_favorites_list(&cfg).await?;
+                        }
+                        CaseProjectFavoriteActions::Add { project_id } => {
+                            commands::cases::projects_favorites_add(&cfg, &project_id).await?;
+                        }
+                        CaseProjectFavoriteActions::Remove { project_id } => {
+                            commands::cases::projects_favorites_remove(&cfg, &project_id).await?;
+                        }
+                    },
                 },
                 CaseActions::Jira { action } => match action {
                     CaseJiraActions::CreateIssue { case_id, file } => {
@@ -17205,6 +17599,156 @@ async fn main_inner() -> anyhow::Result<()> {
                 CaseActions::Servicenow { action } => match action {
                     CaseServicenowActions::CreateTicket { case_id, file } => {
                         commands::cases::servicenow_create_ticket(&cfg, &case_id, &file).await?;
+                    }
+                },
+                CaseActions::Count {
+                    query,
+                    group_by,
+                    limit,
+                } => {
+                    commands::cases::count(&cfg, query, group_by, limit).await?;
+                }
+                CaseActions::Aggregate { file } => {
+                    commands::cases::aggregate(&cfg, &file).await?;
+                }
+                CaseActions::UpdateBulk { file } => {
+                    commands::cases::bulk_update(&cfg, &file).await?;
+                }
+                CaseActions::Unassign { case_id } => {
+                    commands::cases::unassign(&cfg, &case_id).await?;
+                }
+                CaseActions::UpdateAttributes { case_id, file } => {
+                    commands::cases::update_attributes(&cfg, &case_id, &file).await?;
+                }
+                CaseActions::UpdateDueDate { case_id, due_date } => {
+                    commands::cases::update_due_date(&cfg, &case_id, &due_date).await?;
+                }
+                CaseActions::UpdateResolvedReason { case_id, reason } => {
+                    commands::cases::update_resolved_reason(&cfg, &case_id, &reason).await?;
+                }
+                CaseActions::UpdateCustomAttribute { case_id, key, file } => {
+                    commands::cases::update_custom_attribute(&cfg, &case_id, &key, &file).await?;
+                }
+                CaseActions::DeleteCustomAttribute { case_id, key } => {
+                    commands::cases::delete_custom_attribute(&cfg, &case_id, &key).await?;
+                }
+                CaseActions::Watchers { action } => match action {
+                    CaseWatcherActions::List { case_id } => {
+                        commands::cases::watchers_list(&cfg, &case_id).await?;
+                    }
+                    CaseWatcherActions::Add { case_id, user_id } => {
+                        commands::cases::watchers_add(&cfg, &case_id, &user_id).await?;
+                    }
+                    CaseWatcherActions::Remove { case_id, user_id } => {
+                        commands::cases::watchers_remove(&cfg, &case_id, &user_id).await?;
+                    }
+                },
+                CaseActions::Insights { action } => match action {
+                    CaseInsightActions::Add { case_id, file } => {
+                        commands::cases::insights_add(&cfg, &case_id, &file).await?;
+                    }
+                    CaseInsightActions::Remove { case_id, file } => {
+                        commands::cases::insights_remove(&cfg, &case_id, &file).await?;
+                    }
+                },
+                CaseActions::Incidents { action } => match action {
+                    CaseIncidentActions::Link {
+                        case_id,
+                        incident_id,
+                    } => {
+                        commands::cases::incidents_link(&cfg, &case_id, &incident_id).await?;
+                    }
+                },
+                CaseActions::Notebooks { action } => match action {
+                    CaseNotebookActions::Create { case_id, file } => {
+                        commands::cases::notebooks_create(&cfg, &case_id, &file).await?;
+                    }
+                },
+                CaseActions::Links { action } => match action {
+                    CaseLinkActions::List {
+                        entity_type,
+                        entity_id,
+                        relationship,
+                    } => {
+                        commands::cases::links_list(&cfg, &entity_type, &entity_id, relationship)
+                            .await?;
+                    }
+                    CaseLinkActions::Create {
+                        parent_type,
+                        parent_id,
+                        child_type,
+                        child_id,
+                        relationship,
+                    } => {
+                        commands::cases::links_create(
+                            &cfg,
+                            &parent_type,
+                            &parent_id,
+                            &child_type,
+                            &child_id,
+                            &relationship,
+                        )
+                        .await?;
+                    }
+                    CaseLinkActions::Delete { link_id } => {
+                        commands::cases::links_delete(&cfg, &link_id).await?;
+                    }
+                },
+                CaseActions::Views { action } => match action {
+                    CaseViewActions::List { project_id } => {
+                        commands::cases::views_list(&cfg, &project_id).await?;
+                    }
+                    CaseViewActions::Get { view_id } => {
+                        commands::cases::views_get(&cfg, &view_id).await?;
+                    }
+                    CaseViewActions::Create { file } => {
+                        commands::cases::views_create(&cfg, &file).await?;
+                    }
+                    CaseViewActions::Update { view_id, file } => {
+                        commands::cases::views_update(&cfg, &view_id, &file).await?;
+                    }
+                    CaseViewActions::Delete { view_id } => {
+                        commands::cases::views_delete(&cfg, &view_id).await?;
+                    }
+                },
+                CaseActions::Types { action } => match action {
+                    CaseTypeActions::List => commands::cases::types_list(&cfg).await?,
+                    CaseTypeActions::Create { file } => {
+                        commands::cases::types_create(&cfg, &file).await?;
+                    }
+                    CaseTypeActions::Update { type_id, file } => {
+                        commands::cases::types_update(&cfg, &type_id, &file).await?;
+                    }
+                    CaseTypeActions::Delete { type_id } => {
+                        commands::cases::types_delete(&cfg, &type_id).await?;
+                    }
+                },
+                CaseActions::CustomAttributes { action } => match action {
+                    CaseCustomAttributeActions::List { type_id } => {
+                        commands::cases::custom_attributes_list(&cfg, type_id.as_deref()).await?;
+                    }
+                    CaseCustomAttributeActions::Create { type_id, file } => {
+                        commands::cases::custom_attributes_create(&cfg, &type_id, &file).await?;
+                    }
+                    CaseCustomAttributeActions::Update {
+                        type_id,
+                        attribute_id,
+                        file,
+                    } => {
+                        commands::cases::custom_attributes_update(
+                            &cfg,
+                            &type_id,
+                            &attribute_id,
+                            &file,
+                        )
+                        .await?;
+                    }
+                    CaseCustomAttributeActions::Delete {
+                        type_id,
+                        attribute_id,
+                    } => {
+                        commands::cases::custom_attributes_delete(&cfg, &type_id, &attribute_id)
+                            .await?;
                     }
                 },
             }

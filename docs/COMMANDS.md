@@ -74,7 +74,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | cloud | aws, gcp, azure, oci | src/commands/cloud.rs | ✅ |
 | integrations | slack, pagerduty, webhooks, jira, servicenow | src/commands/integrations.rs | ✅ |
 | misc | ip-ranges, status | src/commands/misc.rs | ✅ |
-| cases | create, get, search, assign, archive, projects, jira, servicenow, move | src/commands/cases.rs | ✅ |
+| cases | create, get, search, count, aggregate, assign, unassign, archive, update-*, comments, watchers, links, views, types, custom-attributes, projects (automation-rules, notification-rules, favorites), jira, servicenow, incidents, notebooks, insights, move | src/commands/cases.rs | ✅ |
 | status-pages | pages, components, degradations | src/commands/status_pages.rs | ✅ |
 | code-coverage | branch-summary, commit-summary | src/commands/code_coverage.rs | ✅ |
 | hamr | connections (get, create) | src/commands/hamr.rs | ✅ |
@@ -257,7 +257,7 @@ pup infrastructure hosts list
 ### Operations & Incident Response
 - **incidents** - Incident management (list, get, attachments, settings, handles, postmortem-templates)
 - **on-call** - Team management (create, update, delete teams; manage memberships with roles) and pages (newest-first list, get, create)
-- **cases** - Case management (create, search, assign, archive, unarchive, update, projects, jira, servicenow, move)
+- **cases** - Case management (create, search, count, aggregate, assign, archive, update, comments, watchers, links, views, types, custom attributes, projects, automation rules, jira, servicenow, incidents, notebooks, move)
 - **hamr** - High Availability Multi-Region connections
 - **fleet** - Fleet Automation (agents, deployments, schedules, tracers, clusters, instrumented-pods)
 - **runbooks** - Local runbook execution engine (list, describe, run, import, validate)

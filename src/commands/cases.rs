@@ -1317,22 +1317,48 @@ mod tests {
         cleanup_env();
     }
 
+    const CASE_RESP: &str = r#"{"data": {"id": "case1", "type": "case", "attributes": {}}}"#;
+    const VIEW: &str = r#"{"id": "view1", "type": "view", "attributes": {"created_at": "2026-01-01T00:00:00Z", "name": "Open bugs", "query": "status:open"}}"#;
+    const RULE: &str = r#"{"id": "r1", "type": "rule", "attributes": {"action": {"data": {"handle": "wf"}, "type": "EXECUTE_WORKFLOW"}, "created_at": "2026-01-01T00:00:00Z", "name": "Auto-assign", "state": "ENABLED", "trigger": {"type": "CASE_CREATED"}}}"#;
+    const LINK: &str = r#"{"id": "link1", "type": "link", "attributes": {"parent_entity_type": "CASE", "parent_entity_id": "case1", "child_entity_type": "CASE", "child_entity_id": "case2", "relationship": "BLOCKS"}}"#;
+    const CASE_TYPE: &str =
+        r#"{"id": "t1", "type": "case_type", "attributes": {"name": "Investigation"}}"#;
+    const ATTRIBUTE: &str = r#"{"id": "a1", "type": "custom_attribute", "attributes": {"case_type_id": "t1", "display_name": "Region", "is_multi": true, "key": "region", "type": "TEXT"}}"#;
+
+    fn one(item: &str) -> String {
+        format!(r#"{{"data": {item}}}"#)
+    }
+
+    fn many(item: &str) -> String {
+        format!(r#"{{"data": [{item}]}}"#)
+    }
+
     async fn expect_call(
         s: &mut mockito::Server,
         method: &str,
         path: &str,
         body: Option<serde_json::Value>,
+        response: &str,
     ) -> mockito::Mock {
         let mut m = s
             .mock(method, path)
             .match_query(mockito::Matcher::Any)
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": []}"#);
+            .with_body(response);
         if let Some(b) = body {
             m = m.match_body(mockito::Matcher::PartialJson(b));
         }
         m.create_async().await
+    }
+
+    /// Writes `body` to a temp file and returns its path alongside the parsed
+    /// JSON, so file-backed tests can assert the file is forwarded verbatim.
+    fn body_file(name: &str, body: &str) -> (std::path::PathBuf, serde_json::Value) {
+        let path =
+            std::env::temp_dir().join(format!("pup-cases-{name}-{}.json", std::process::id()));
+        std::fs::write(&path, body).unwrap();
+        (path, serde_json::from_str(body).unwrap())
     }
 
     #[tokio::test]
@@ -1349,84 +1375,238 @@ mod tests {
             ]))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": {}}"#)
+            .with_body(
+                r#"{"data": {"id": "count", "type": "count", "attributes": {"groups": []}}}"#,
+            )
             .create_async()
             .await;
-        let _ = super::count(
+        let result = super::count(
             &cfg,
             Some("status:open".into()),
             Some("priority".into()),
             Some(5),
         )
         .await;
-        m.assert_async().await;
         cleanup_env();
+        result.expect("count should succeed");
+        m.assert_async().await;
     }
 
     #[tokio::test]
-    async fn test_cases_unassign() {
+    async fn test_cases_flag_built_requests() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        let m = expect_call(&mut s, "POST", "/api/v2/cases/case1/unassign", None).await;
-        let _ = super::unassign(&cfg, "case1").await;
-        m.assert_async().await;
+        let mocks = vec![
+            expect_call(&mut s, "POST", "/api/v2/cases/case1/unassign", None, CASE_RESP).await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/due_date",
+                Some(serde_json::json!({
+                    "data": {"type": "case", "attributes": {"due_date": "2026-11-01"}}
+                })),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/resolved_reason",
+                Some(serde_json::json!({
+                    "data": {"type": "case", "attributes": {"security_resolved_reason": "FALSE_POSITIVE"}}
+                })),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "DELETE",
+                "/api/v2/cases/case1/custom_attributes/region",
+                None,
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/relationships/incidents",
+                Some(serde_json::json!({"data": {"id": "inc1", "type": "incidents"}})),
+                CASE_RESP,
+            )
+            .await,
+        ];
+        let results = [
+            super::unassign(&cfg, "case1").await,
+            super::update_due_date(&cfg, "case1", "2026-11-01").await,
+            super::update_resolved_reason(&cfg, "case1", "FALSE_POSITIVE").await,
+            super::delete_custom_attribute(&cfg, "case1", "region").await,
+            super::incidents_link(&cfg, "case1", "inc1").await,
+        ];
         cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
     }
 
     #[tokio::test]
-    async fn test_cases_update_due_date_body() {
+    async fn test_cases_file_backed_requests() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        let m = expect_call(
-            &mut s,
-            "POST",
-            "/api/v2/cases/case1/due_date",
-            Some(serde_json::json!({
-                "data": {"type": "case", "attributes": {"due_date": "2026-11-01"}}
-            })),
-        )
-        .await;
-        let _ = super::update_due_date(&cfg, "case1", "2026-11-01").await;
-        m.assert_async().await;
+        let fixtures = [
+            (
+                "aggregate",
+                r#"{"data": {"attributes": {"group_by": {"groups": ["status"], "limit": 14}, "query_filter": "status:open"}, "type": "aggregate"}}"#,
+            ),
+            (
+                "bulk",
+                r#"{"data": {"attributes": {"case_ids": ["case1"], "payload": {"priority": "P1"}, "type": "priority"}, "type": "bulk"}}"#,
+            ),
+            (
+                "attrs",
+                r#"{"data": {"attributes": {"attributes": {"env": ["prod"]}}, "type": "case"}}"#,
+            ),
+            (
+                "custom",
+                r#"{"data": {"attributes": {"type": "TEXT", "is_multi": true, "value": ["us-east-1"]}, "type": "case"}}"#,
+            ),
+            (
+                "insights",
+                r#"{"data": {"attributes": {"insights": [{"ref": "/monitors/12345", "resource_id": "12345", "type": "SECURITY_SIGNAL"}]}, "type": "case"}}"#,
+            ),
+            ("notebook", r#"{"data": {"type": "notebook"}}"#),
+            (
+                "view",
+                r#"{"data": {"attributes": {"name": "Open bugs", "project_id": "proj1", "query": "status:open"}, "type": "view"}}"#,
+            ),
+            (
+                "rule",
+                r#"{"data": {"attributes": {"action": {"data": {"handle": "wf"}, "type": "EXECUTE_WORKFLOW"}, "name": "Auto-assign", "state": "ENABLED", "trigger": {"data": {}, "type": "CASE_CREATED"}}, "type": "rule"}}"#,
+            ),
+            (
+                "type",
+                r#"{"data": {"attributes": {"description": "Investigations", "name": "Investigation"}, "type": "case_type"}}"#,
+            ),
+            (
+                "attr_cfg",
+                r#"{"data": {"attributes": {"display_name": "Region", "is_multi": true, "key": "region", "type": "TEXT"}, "type": "custom_attribute"}}"#,
+            ),
+        ];
+        let mut files = std::collections::HashMap::new();
+        for (name, body) in fixtures {
+            files.insert(name, body_file(name, body));
+        }
+        let f = |name: &str| files[name].0.to_str().unwrap().to_string();
+        let b = |name: &str| Some(files[name].1.clone());
+        let agg = r#"{"data": {"id": "agg", "type": "aggregate", "attributes": {"groups": [], "total": 0}}}"#;
+        let (view, rule) = (one(VIEW), one(RULE));
+        let (case_type, attribute) = (one(CASE_TYPE), one(ATTRIBUTE));
+        let rules = "/api/v2/cases/projects/proj1/rules";
+        let attrs = "/api/v2/cases/types/t1/custom_attributes";
+        let mocks = vec![
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/aggregate",
+                b("aggregate"),
+                agg,
+            )
+            .await,
+            expect_call(&mut s, "POST", "/api/v2/cases/bulk", b("bulk"), "").await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/attributes",
+                b("attrs"),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/custom_attributes/region",
+                b("custom"),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "PUT",
+                "/api/v2/cases/case1/insights",
+                b("insights"),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "DELETE",
+                "/api/v2/cases/case1/insights",
+                b("insights"),
+                CASE_RESP,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "POST",
+                "/api/v2/cases/case1/relationships/notebook",
+                b("notebook"),
+                "",
+            )
+            .await,
+            expect_call(&mut s, "POST", "/api/v2/cases/views", b("view"), &view).await,
+            expect_call(&mut s, "PUT", "/api/v2/cases/views/view1", b("view"), &view).await,
+            expect_call(&mut s, "POST", rules, b("rule"), &rule).await,
+            expect_call(&mut s, "PUT", &format!("{rules}/r1"), b("rule"), &rule).await,
+            expect_call(&mut s, "POST", "/api/v2/cases/types", b("type"), &case_type).await,
+            expect_call(
+                &mut s,
+                "PUT",
+                "/api/v2/cases/types/t1",
+                b("type"),
+                &case_type,
+            )
+            .await,
+            expect_call(&mut s, "POST", attrs, b("attr_cfg"), &attribute).await,
+            expect_call(
+                &mut s,
+                "PUT",
+                &format!("{attrs}/a1"),
+                b("attr_cfg"),
+                &attribute,
+            )
+            .await,
+        ];
+        let results = [
+            super::aggregate(&cfg, &f("aggregate")).await,
+            super::bulk_update(&cfg, &f("bulk")).await,
+            super::update_attributes(&cfg, "case1", &f("attrs")).await,
+            super::update_custom_attribute(&cfg, "case1", "region", &f("custom")).await,
+            super::insights_add(&cfg, "case1", &f("insights")).await,
+            super::insights_remove(&cfg, "case1", &f("insights")).await,
+            super::notebooks_create(&cfg, "case1", &f("notebook")).await,
+            super::views_create(&cfg, &f("view")).await,
+            super::views_update(&cfg, "view1", &f("view")).await,
+            super::projects_automation_rules_create(&cfg, "proj1", &f("rule")).await,
+            super::projects_automation_rules_update(&cfg, "proj1", "r1", &f("rule")).await,
+            super::types_create(&cfg, &f("type")).await,
+            super::types_update(&cfg, "t1", &f("type")).await,
+            super::custom_attributes_create(&cfg, "t1", &f("attr_cfg")).await,
+            super::custom_attributes_update(&cfg, "t1", "a1", &f("attr_cfg")).await,
+        ];
         cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_cases_update_resolved_reason_body() {
-        let _lock = lock_env().await;
-        let mut s = mockito::Server::new_async().await;
-        let cfg = test_config(&s.url());
-        let m = expect_call(
-            &mut s,
-            "POST",
-            "/api/v2/cases/case1/resolved_reason",
-            Some(serde_json::json!({
-                "data": {"type": "case", "attributes": {"security_resolved_reason": "FALSE_POSITIVE"}}
-            })),
-        )
-        .await;
-        let _ = super::update_resolved_reason(&cfg, "case1", "FALSE_POSITIVE").await;
-        m.assert_async().await;
-        cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_cases_delete_custom_attribute() {
-        let _lock = lock_env().await;
-        let mut s = mockito::Server::new_async().await;
-        let cfg = test_config(&s.url());
-        let m = expect_call(
-            &mut s,
-            "DELETE",
-            "/api/v2/cases/case1/custom_attributes/team",
-            None,
-        )
-        .await;
-        let _ = super::delete_custom_attribute(&cfg, "case1", "team").await;
-        m.assert_async().await;
-        cleanup_env();
+        for (path, _) in files.values() {
+            let _ = std::fs::remove_file(path);
+        }
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
     }
 
     #[tokio::test]
@@ -1434,37 +1614,25 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        let list = expect_call(&mut s, "GET", "/api/v2/cases/case1/watchers", None).await;
-        let add = expect_call(&mut s, "POST", "/api/v2/cases/case1/watchers/user1", None).await;
-        let rm = expect_call(&mut s, "DELETE", "/api/v2/cases/case1/watchers/user1", None).await;
-        let _ = super::watchers_list(&cfg, "case1").await;
-        super::watchers_add(&cfg, "case1", "user1")
-            .await
-            .expect("watch should succeed");
-        super::watchers_remove(&cfg, "case1", "user1")
-            .await
-            .expect("unwatch should succeed");
-        list.assert_async().await;
-        add.assert_async().await;
-        rm.assert_async().await;
+        let watchers = r#"{"data": [{"id": "user1", "type": "watcher", "relationships": {"user": {"data": {"id": "user1", "type": "user"}}}}]}"#;
+        let base = "/api/v2/cases/case1/watchers";
+        let mocks = vec![
+            expect_call(&mut s, "GET", base, None, watchers).await,
+            expect_call(&mut s, "POST", &format!("{base}/user1"), None, "").await,
+            expect_call(&mut s, "DELETE", &format!("{base}/user1"), None, "").await,
+        ];
+        let results = [
+            super::watchers_list(&cfg, "case1").await,
+            super::watchers_add(&cfg, "case1", "user1").await,
+            super::watchers_remove(&cfg, "case1", "user1").await,
+        ];
         cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_cases_incidents_link_body() {
-        let _lock = lock_env().await;
-        let mut s = mockito::Server::new_async().await;
-        let cfg = test_config(&s.url());
-        let m = expect_call(
-            &mut s,
-            "POST",
-            "/api/v2/cases/case1/relationships/incidents",
-            Some(serde_json::json!({"data": {"id": "inc1", "type": "incidents"}})),
-        )
-        .await;
-        let _ = super::incidents_link(&cfg, "case1", "inc1").await;
-        m.assert_async().await;
-        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
     }
 
     #[tokio::test]
@@ -1481,7 +1649,7 @@ mod tests {
             ]))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": []}"#)
+            .with_body(many(LINK))
             .create_async()
             .await;
         let create = expect_call(
@@ -1500,22 +1668,26 @@ mod tests {
                     }
                 }
             })),
+            &one(LINK),
         )
         .await;
-        let del = expect_call(&mut s, "DELETE", "/api/v2/cases/link/link1", None).await;
-        let _ = super::links_list(&cfg, "CASE", "case1", Some("BLOCKS".into())).await;
-        let _ = super::links_create(&cfg, "CASE", "case1", "CASE", "case2", "BLOCKS").await;
-        super::links_delete(&cfg, "link1")
-            .await
-            .expect("delete link should succeed");
-        list.assert_async().await;
-        create.assert_async().await;
-        del.assert_async().await;
+        let del = expect_call(&mut s, "DELETE", "/api/v2/cases/link/link1", None, "").await;
+        let results = [
+            super::links_list(&cfg, "CASE", "case1", Some("BLOCKS".into())).await,
+            super::links_create(&cfg, "CASE", "case1", "CASE", "case2", "BLOCKS").await,
+            super::links_delete(&cfg, "link1").await,
+        ];
         cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in [list, create, del] {
+            m.assert_async().await;
+        }
     }
 
     #[tokio::test]
-    async fn test_cases_views_paths() {
+    async fn test_cases_views_read_and_delete() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
@@ -1527,20 +1699,23 @@ mod tests {
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"data": []}"#)
+            .with_body(many(VIEW))
             .create_async()
             .await;
-        let get = expect_call(&mut s, "GET", "/api/v2/cases/views/view1", None).await;
-        let del = expect_call(&mut s, "DELETE", "/api/v2/cases/views/view1", None).await;
-        let _ = super::views_list(&cfg, "proj1").await;
-        let _ = super::views_get(&cfg, "view1").await;
-        super::views_delete(&cfg, "view1")
-            .await
-            .expect("delete view should succeed");
-        list.assert_async().await;
-        get.assert_async().await;
-        del.assert_async().await;
+        let get = expect_call(&mut s, "GET", "/api/v2/cases/views/view1", None, &one(VIEW)).await;
+        let del = expect_call(&mut s, "DELETE", "/api/v2/cases/views/view1", None, "").await;
+        let results = [
+            super::views_list(&cfg, "proj1").await,
+            super::views_get(&cfg, "view1").await,
+            super::views_delete(&cfg, "view1").await,
+        ];
         cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in [list, get, del] {
+            m.assert_async().await;
+        }
     }
 
     #[tokio::test]
@@ -1548,128 +1723,112 @@ mod tests {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        let list = expect_call(&mut s, "GET", "/api/v2/cases/projects/favorites", None).await;
-        let add = expect_call(
-            &mut s,
-            "POST",
-            "/api/v2/cases/projects/proj1/favorites",
-            None,
-        )
-        .await;
-        let rm = expect_call(
-            &mut s,
-            "DELETE",
-            "/api/v2/cases/projects/proj1/favorites",
-            None,
-        )
-        .await;
-        let _ = super::projects_favorites_list(&cfg).await;
-        super::projects_favorites_add(&cfg, "proj1")
-            .await
-            .expect("favorite should succeed");
-        super::projects_favorites_remove(&cfg, "proj1")
-            .await
-            .expect("unfavorite should succeed");
-        list.assert_async().await;
-        add.assert_async().await;
-        rm.assert_async().await;
+        let favorites = r#"{"data": [{"id": "proj1", "type": "project_favorite"}]}"#;
+        let fav = "/api/v2/cases/projects/proj1/favorites";
+        let mocks = vec![
+            expect_call(
+                &mut s,
+                "GET",
+                "/api/v2/cases/projects/favorites",
+                None,
+                favorites,
+            )
+            .await,
+            expect_call(&mut s, "POST", fav, None, "").await,
+            expect_call(&mut s, "DELETE", fav, None, "").await,
+        ];
+        let results = [
+            super::projects_favorites_list(&cfg).await,
+            super::projects_favorites_add(&cfg, "proj1").await,
+            super::projects_favorites_remove(&cfg, "proj1").await,
+        ];
         cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
     }
 
     #[tokio::test]
-    async fn test_cases_projects_automation_rules_paths() {
+    async fn test_cases_projects_automation_rules_actions() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
         let base = "/api/v2/cases/projects/proj1/rules";
-        let list = expect_call(&mut s, "GET", base, None).await;
-        let get = expect_call(&mut s, "GET", &format!("{base}/r1"), None).await;
-        let del = expect_call(&mut s, "DELETE", &format!("{base}/r1"), None).await;
-        let enable = expect_call(&mut s, "POST", &format!("{base}/r1/enable"), None).await;
-        let disable = expect_call(&mut s, "POST", &format!("{base}/r1/disable"), None).await;
-        let _ = super::projects_automation_rules_list(&cfg, "proj1").await;
-        let _ = super::projects_automation_rules_get(&cfg, "proj1", "r1").await;
-        super::projects_automation_rules_delete(&cfg, "proj1", "r1")
-            .await
-            .expect("delete rule should succeed");
-        let _ = super::projects_automation_rules_enable(&cfg, "proj1", "r1").await;
-        let _ = super::projects_automation_rules_disable(&cfg, "proj1", "r1").await;
-        for m in [list, get, del, enable, disable] {
+        let rule = one(RULE);
+        let mocks = vec![
+            expect_call(&mut s, "GET", base, None, &many(RULE)).await,
+            expect_call(&mut s, "GET", &format!("{base}/r1"), None, &rule).await,
+            expect_call(&mut s, "DELETE", &format!("{base}/r1"), None, "").await,
+            expect_call(&mut s, "POST", &format!("{base}/r1/enable"), None, &rule).await,
+            expect_call(&mut s, "POST", &format!("{base}/r1/disable"), None, &rule).await,
+        ];
+        let results = [
+            super::projects_automation_rules_list(&cfg, "proj1").await,
+            super::projects_automation_rules_get(&cfg, "proj1", "r1").await,
+            super::projects_automation_rules_delete(&cfg, "proj1", "r1").await,
+            super::projects_automation_rules_enable(&cfg, "proj1", "r1").await,
+            super::projects_automation_rules_disable(&cfg, "proj1", "r1").await,
+        ];
+        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
             m.assert_async().await;
         }
-        cleanup_env();
     }
 
     #[tokio::test]
-    async fn test_cases_types_paths() {
+    async fn test_cases_types_and_custom_attributes_read_and_delete() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;
         let cfg = test_config(&s.url());
-        let list = expect_call(&mut s, "GET", "/api/v2/cases/types", None).await;
-        let del = expect_call(&mut s, "DELETE", "/api/v2/cases/types/t1", None).await;
-        let _ = super::types_list(&cfg).await;
-        super::types_delete(&cfg, "t1")
-            .await
-            .expect("delete case type should succeed");
-        list.assert_async().await;
-        del.assert_async().await;
+        let attrs = many(ATTRIBUTE);
+        let mocks = vec![
+            expect_call(&mut s, "GET", "/api/v2/cases/types", None, &many(CASE_TYPE)).await,
+            expect_call(&mut s, "DELETE", "/api/v2/cases/types/t1", None, "").await,
+            expect_call(
+                &mut s,
+                "GET",
+                "/api/v2/cases/types/custom_attributes",
+                None,
+                &attrs,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "GET",
+                "/api/v2/cases/types/t1/custom_attributes",
+                None,
+                &attrs,
+            )
+            .await,
+            expect_call(
+                &mut s,
+                "DELETE",
+                "/api/v2/cases/types/t1/custom_attributes/a1",
+                None,
+                "",
+            )
+            .await,
+        ];
+        let results = [
+            super::types_list(&cfg).await,
+            super::types_delete(&cfg, "t1").await,
+            super::custom_attributes_list(&cfg, None).await,
+            super::custom_attributes_list(&cfg, Some("t1")).await,
+            super::custom_attributes_delete(&cfg, "t1", "a1").await,
+        ];
         cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_cases_custom_attributes_list_routes_by_type() {
-        let _lock = lock_env().await;
-        let mut s = mockito::Server::new_async().await;
-        let cfg = test_config(&s.url());
-        let all = expect_call(&mut s, "GET", "/api/v2/cases/types/custom_attributes", None).await;
-        let by_type = expect_call(
-            &mut s,
-            "GET",
-            "/api/v2/cases/types/t1/custom_attributes",
-            None,
-        )
-        .await;
-        let del = expect_call(
-            &mut s,
-            "DELETE",
-            "/api/v2/cases/types/t1/custom_attributes/a1",
-            None,
-        )
-        .await;
-        let _ = super::custom_attributes_list(&cfg, None).await;
-        let _ = super::custom_attributes_list(&cfg, Some("t1")).await;
-        super::custom_attributes_delete(&cfg, "t1", "a1")
-            .await
-            .expect("delete custom attribute should succeed");
-        all.assert_async().await;
-        by_type.assert_async().await;
-        del.assert_async().await;
-        cleanup_env();
-    }
-
-    #[tokio::test]
-    async fn test_cases_update_bulk_from_file() {
-        let _lock = lock_env().await;
-        let mut s = mockito::Server::new_async().await;
-        let cfg = test_config(&s.url());
-        let path = std::env::temp_dir().join(format!("pup-cases-bulk-{}.json", std::process::id()));
-        std::fs::write(
-            &path,
-            r#"{"data": {"type": "case", "attributes": {"case_ids": ["case1"], "type": "priority", "payload": {"priority": "P1"}}}}"#,
-        )
-        .unwrap();
-        let m = expect_call(
-            &mut s,
-            "POST",
-            "/api/v2/cases/bulk",
-            Some(serde_json::json!({"data": {"attributes": {"case_ids": ["case1"]}}})),
-        )
-        .await;
-        let result = super::bulk_update(&cfg, path.to_str().unwrap()).await;
-        let _ = std::fs::remove_file(&path);
-        result.expect("bulk update should succeed");
-        m.assert_async().await;
-        cleanup_env();
+        for (i, r) in results.into_iter().enumerate() {
+            r.unwrap_or_else(|e| panic!("call #{i} should succeed: {e}"));
+        }
+        for m in mocks {
+            m.assert_async().await;
+        }
     }
 
     #[tokio::test]

@@ -219,6 +219,10 @@ jobs:
     name: Publish Release
     needs: [build-linux, build-macos, build-wasm, build-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write  # cosign keyless signing
+      actions: write   # dispatch npm-publish.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -327,5 +331,13 @@ jobs:
             --notes-file release-notes.md \
             --generate-notes \
             release-assets/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Dispatched rather than called with workflow_call so npm's trusted
+      # publisher still sees npm-publish.yml, and from main because the
+      # npm-publish environment only allows protected branches.
+      - name: Publish to npm
+        run: gh workflow run npm-publish.yml --ref main -f tag="$GITHUB_REF_NAME" -f dry_run=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

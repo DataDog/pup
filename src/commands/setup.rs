@@ -422,6 +422,8 @@ fn has_flag(args: &[String], flag: &str) -> bool {
 fn build_command(npx: &Path, args: &[String], cfg: &Config) -> Command {
     let mut cmd = Command::new(npx);
     cmd.args(args);
+    cmd.env("AI_SETUP_CLI_LAUNCHED_BY", "pup");
+    cmd.env("AI_SETUP_CLI_LAUNCHER_VERSION", crate::version::VERSION);
     exec::inject_auth_env(&mut cmd, cfg);
     if cfg.access_token.is_some() || !has_credentials(cfg) {
         cmd.env_remove("DD_API_KEY");
@@ -722,6 +724,22 @@ mod tests {
         assert_eq!(
             env_value(&cmd, "DD_SITE"),
             Some(Some("datadoghq.com".into()))
+        );
+        cleanup_env();
+    }
+
+    #[test]
+    fn build_command_tells_ai_setup_it_was_launched_by_pup() {
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        let cfg = test_config("http://unused");
+        let cmd = build_command(Path::new("/usr/bin/npx"), &[], &cfg);
+        assert_eq!(
+            env_value(&cmd, "AI_SETUP_CLI_LAUNCHED_BY"),
+            Some(Some("pup".into()))
+        );
+        assert_eq!(
+            env_value(&cmd, "AI_SETUP_CLI_LAUNCHER_VERSION"),
+            Some(Some(crate::version::VERSION.into()))
         );
         cleanup_env();
     }

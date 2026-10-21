@@ -15,7 +15,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write  # npm provenance
+  id-token: write  # npm trusted publishing and provenance
 
 concurrency:
   group: npm-publish
@@ -31,18 +31,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-
-      - name: Require npm token for real publishes
-        if: ${{ !inputs.dry_run }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN secret is not configured" >&2
-            exit 1
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          node-version: 24
 
       - name: Download release assets
         run: |
@@ -127,4 +116,3 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run }}
           TAG: ${{ inputs.tag }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -371,8 +371,7 @@ Constraints worth knowing before relying on these:
   modify one section in place.
 - `--jq` is rejected with `--markdown`, since the output is not JSON.
 - `--output` has no effect under `--markdown`: the document is printed as-is,
-  with no format conversion. This matches
-  `skills remote get`, the other command that emits raw Markdown.
+  with no format conversion.
 
 ### v1.13.x — Session Replay API Support (#182)
 

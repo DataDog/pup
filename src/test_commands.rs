@@ -345,49 +345,6 @@ fn test_read_only_exempts_local_skills_install() {
     assert!(crate::is_read_only_exempt(&matches));
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn test_read_only_blocks_skills_remote_sessions_create() {
-    // `skills remote sessions create` writes to the onboarding API, so it must
-    // NOT be exempt, and its leaf verb must classify as a write.
-    let matches = crate::Cli::command()
-        .try_get_matches_from([
-            "pup",
-            "skills",
-            "remote",
-            "sessions",
-            "create",
-            "--session-id",
-            "run-1",
-            "--skill-id",
-            "aws-integration-setup",
-            "--summary",
-            "s",
-            "--status",
-            "completed",
-        ])
-        .unwrap();
-    assert!(!crate::is_read_only_exempt(&matches));
-    let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
-    assert!(crate::is_write_command_name(&leaf));
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn test_read_only_allows_skills_remote_reads() {
-    // `skills remote list`/`get` are reads: not exempt, but not write verbs, so
-    // the guard lets them through.
-    for args in [
-        vec!["pup", "skills", "remote", "list"],
-        vec!["pup", "skills", "remote", "get", "orchestrator"],
-    ] {
-        let matches = crate::Cli::command().try_get_matches_from(args).unwrap();
-        assert!(!crate::is_read_only_exempt(&matches));
-        let leaf = crate::get_leaf_subcommand_name(&matches).unwrap();
-        assert!(!crate::is_write_command_name(&leaf));
-    }
-}
-
 // -------------------------------------------------------------------------
 // Auth status --site flag
 // -------------------------------------------------------------------------

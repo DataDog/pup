@@ -1,3 +1,9 @@
+authn-mappings
+authn-mappings.create
+authn-mappings.delete
+authn-mappings.get
+authn-mappings.list
+authn-mappings.update
 domain-allowlist
 domain-allowlist.get
 downtime

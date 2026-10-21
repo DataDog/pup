@@ -1196,6 +1196,20 @@ pub async fn patterns_runs_status(cfg: &Config, config_id: &str) -> Result<()> {
     .await
 }
 
+/// Triggers an on-demand run in two steps. Without `approval_token` the server
+/// only returns a cost estimate and a token; passing that token back starts the run.
+pub async fn patterns_runs_trigger(
+    cfg: &Config,
+    config_id: &str,
+    approval_token: Option<String>,
+) -> Result<()> {
+    let mut body = serde_json::json!({ "config_id": config_id });
+    if let Some(t) = approval_token {
+        body["approval_token"] = serde_json::json!(t);
+    }
+    patterns_post(cfg, "run/trigger", body, "trigger pattern run").await
+}
+
 pub async fn patterns_topics(cfg: &Config, config_id: &str, run_id: Option<String>) -> Result<()> {
     let mut body = serde_json::json!({ "config_id": config_id });
     if let Some(r) = run_id {
@@ -4735,6 +4749,86 @@ mod tests {
         let result = super::patterns_runs_status(&cfg, "cfg-1").await;
         assert!(result.is_err(), "should fail on 500");
         assert!(result.unwrap_err().to_string().contains("500"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_runs_trigger_estimate() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/run/trigger",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"status":"approval_required","config_id":"cfg-1","approval_token":"tok-1"}"#,
+            )
+            .create_async()
+            .await;
+
+        let result = super::patterns_runs_trigger(&cfg, "cfg-1", None).await;
+        assert!(
+            result.is_ok(),
+            "patterns_runs_trigger estimate failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_runs_trigger_approved() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = server
+            .mock(
+                "POST",
+                "/api/unstable/llm-obs-mcp/v1/topic-discovery/run/trigger",
+            )
+            .match_body(mockito::Matcher::Json(
+                serde_json::json!({"config_id": "cfg-1", "approval_token": "tok-1"}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"triggered","config_id":"cfg-1","run":{"id":"run-1"}}"#)
+            .create_async()
+            .await;
+
+        let result = super::patterns_runs_trigger(&cfg, "cfg-1", Some("tok-1".into())).await;
+        assert!(
+            result.is_ok(),
+            "patterns_runs_trigger approved failed: {:?}",
+            result.err()
+        );
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_llm_obs_patterns_runs_trigger_stale_token_400() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let _mock = mock_post(
+            &mut server,
+            "/api/unstable/llm-obs-mcp/v1/topic-discovery/run/trigger",
+            400,
+            r#"{"errors":["approval_token does not match the config's current cost estimate"]}"#,
+        )
+        .await;
+
+        let result = super::patterns_runs_trigger(&cfg, "cfg-1", Some("stale".into())).await;
+        assert!(result.is_err(), "should fail on 400");
+        assert!(result.unwrap_err().to_string().contains("400"));
         cleanup_env();
     }
 

@@ -11386,6 +11386,19 @@ enum LlmObsPatternRunsActions {
         #[arg(long, help = "Pattern config ID (required)")]
         config_id: String,
     },
+    /// Trigger an on-demand run (two steps: get a cost estimate, then approve it)
+    ///
+    /// Without --approval-token, returns the run's cost estimate and an approval
+    /// token; nothing is started. Re-run with that token to start the run.
+    Trigger {
+        #[arg(long, help = "Pattern config ID (required)")]
+        config_id: String,
+        #[arg(
+            long,
+            help = "Approval token from a prior call without it; starts the run"
+        )]
+        approval_token: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -21267,6 +21280,17 @@ async fn main_inner() -> anyhow::Result<()> {
                         }
                         LlmObsPatternRunsActions::Status { config_id } => {
                             commands::llm_obs::patterns_runs_status(&cfg, &config_id).await?;
+                        }
+                        LlmObsPatternRunsActions::Trigger {
+                            config_id,
+                            approval_token,
+                        } => {
+                            commands::llm_obs::patterns_runs_trigger(
+                                &cfg,
+                                &config_id,
+                                approval_token,
+                            )
+                            .await?;
                         }
                     },
                     LlmObsPatternsActions::Topics { config_id, run_id } => {

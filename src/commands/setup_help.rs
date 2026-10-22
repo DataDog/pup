@@ -5,8 +5,12 @@ use serde::Deserialize;
 const PUP_MANAGED_FLAGS: &[&str] = &["--site", "--headless"];
 const USAGE: &str = "pup setup --product <PRODUCT> [OPTIONS] [PRODUCT FLAGS]";
 const JSON_USAGE: &str = "pup setup --product <product> [product flags]";
+const PRODUCTS_UNAVAILABLE: &str = "Products:
+  Could not load the product list from AI Setup. Check your network connection,
+  then rerun `pup setup --help`.
+";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct AiSetupHelp {
     global_flags: Vec<HelpFlag>,
     products: Vec<HelpProduct>,
@@ -55,14 +59,23 @@ pub fn to_pup_json(json: &[u8]) -> Option<serde_json::Value> {
     Some(help)
 }
 
-pub fn print(help: &AiSetupHelp) -> Result<()> {
+/// Prints `pup setup` help, listing products when AI Setup's help loaded.
+/// Without it, pup still prints its own help rather than AI Setup's.
+pub fn print(help: Option<&AiSetupHelp>) -> Result<()> {
     let mut root = crate::cli_command();
     root.build();
     let base = root
         .find_subcommand("setup")
         .ok_or_else(|| anyhow::anyhow!("setup command is not registered"))?;
-    help_command(base, help).print_long_help()?;
+    setup_help_command(base, help).print_long_help()?;
     Ok(())
+}
+
+fn setup_help_command(base: &clap::Command, help: Option<&AiSetupHelp>) -> clap::Command {
+    match help {
+        Some(help) => help_command(base, help),
+        None => help_command(base, &AiSetupHelp::default()).after_long_help(PRODUCTS_UNAVAILABLE),
+    }
 }
 
 fn help_command(base: &clap::Command, help: &AiSetupHelp) -> clap::Command {
@@ -165,10 +178,24 @@ mod tests {
         parse(SAMPLE.as_bytes()).expect("sample help parses")
     }
 
-    fn built_setup() -> clap::Command {
+    fn built_setup_with(help: Option<&AiSetupHelp>) -> clap::Command {
         let mut root = crate::cli_command();
         root.build();
-        help_command(root.find_subcommand("setup").unwrap(), &sample())
+        setup_help_command(root.find_subcommand("setup").unwrap(), help)
+    }
+
+    fn built_setup() -> clap::Command {
+        built_setup_with(Some(&sample()))
+    }
+
+    #[test]
+    fn text_help_without_ai_setup_help_is_still_pup_help() {
+        let mut cmd = built_setup_with(None);
+        let text = cmd.render_long_help().to_string();
+        assert!(text.contains(&format!("Usage: {USAGE}")), "{text}");
+        assert!(text.contains("--read-only"), "{text}");
+        assert!(text.contains("Could not load the product list"), "{text}");
+        assert!(!text.contains("ai-setup-cli"), "{text}");
     }
 
     #[test]

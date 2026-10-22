@@ -79,17 +79,17 @@ pub async fn run(
     };
     let package = package_spec(std::env::var(AI_SETUP_PACKAGE_ENV).ok().as_deref())?;
     if asks_for_help(args) {
-        if let Some(raw) = fetch_ai_setup_help(&npx, &package, cfg) {
-            if has_flag(args, "--json") {
-                if let Some(help) = setup_help::to_pup_json(&raw) {
-                    println!("{help}");
-                    return Ok(0);
-                }
-            } else if let Some(help) = setup_help::parse(&raw) {
-                setup_help::print(&help)?;
-                return Ok(0);
-            }
+        let raw = fetch_ai_setup_help(&npx, &package, cfg);
+        if has_flag(args, "--json") {
+            let help = raw
+                .as_deref()
+                .and_then(setup_help::to_pup_json)
+                .ok_or_else(|| anyhow::anyhow!("could not load AI Setup's help from {package}"))?;
+            println!("{help}");
+        } else {
+            setup_help::print(raw.as_deref().and_then(setup_help::parse).as_ref())?;
         }
+        return Ok(0);
     }
     let headless = asks_for_headless(args)
         || wants_headless(

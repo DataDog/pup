@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 const PUP_MANAGED_FLAGS: &[&str] = &["--site", "--headless"];
 const USAGE: &str = "pup setup --product <PRODUCT> [OPTIONS] [PRODUCT FLAGS]";
+const JSON_USAGE: &str = "pup setup --product <product> [product flags]";
 
 #[derive(Debug, Deserialize)]
 pub struct AiSetupHelp {
@@ -33,6 +34,25 @@ struct HelpProduct {
 
 pub fn parse(json: &[u8]) -> Option<AiSetupHelp> {
     serde_json::from_slice(json).ok()
+}
+
+/// AI Setup's `--help --json`, described as `pup setup` so agents call pup
+/// rather than AI Setup directly.
+pub fn to_pup_json(json: &[u8]) -> Option<serde_json::Value> {
+    let mut help: serde_json::Value = serde_json::from_slice(json).ok()?;
+    let fields = help.as_object_mut()?;
+    fields.insert("name".into(), "pup setup".into());
+    fields.insert("version".into(), crate::version::VERSION.into());
+    fields.insert("usage".into(), JSON_USAGE.into());
+    fields
+        .get_mut("global_flags")?
+        .as_array_mut()?
+        .retain(|flag| {
+            !flag["name"]
+                .as_str()
+                .is_some_and(|name| PUP_MANAGED_FLAGS.contains(&name))
+        });
+    Some(help)
 }
 
 pub fn print(help: &AiSetupHelp) -> Result<()> {
@@ -149,6 +169,45 @@ mod tests {
         let mut root = crate::cli_command();
         root.build();
         help_command(root.find_subcommand("setup").unwrap(), &sample())
+    }
+
+    #[test]
+    fn json_help_describes_pup_setup() {
+        let help = to_pup_json(SAMPLE.as_bytes()).expect("sample help converts");
+        assert_eq!(help["name"], "pup setup");
+        assert_eq!(help["version"], crate::version::VERSION);
+        assert_eq!(help["usage"], JSON_USAGE);
+        assert!(!help.to_string().contains("ai-setup-cli"), "{help}");
+    }
+
+    #[test]
+    fn json_help_drops_flags_pup_sets_itself() {
+        let help = to_pup_json(SAMPLE.as_bytes()).unwrap();
+        let names: Vec<&str> = help["global_flags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|flag| flag["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["--product", "--auto-approve"]);
+    }
+
+    #[test]
+    fn json_help_keeps_products_and_unknown_fields() {
+        let mut sample: serde_json::Value = serde_json::from_str(SAMPLE).unwrap();
+        sample["new_field"] = "kept".into();
+        let help = to_pup_json(sample.to_string().as_bytes()).unwrap();
+        assert_eq!(help["new_field"], "kept");
+        assert_eq!(help["products"][0]["name"], "linux");
+        assert_eq!(help["products"][0]["flags"][0]["name"], "--env");
+    }
+
+    #[test]
+    fn json_help_rejects_unexpected_shapes() {
+        assert!(to_pup_json(b"Interactive tool for Datadog setup").is_none());
+        assert!(to_pup_json(b"[]").is_none());
+        assert!(to_pup_json(br#"{"name": "ai-setup-cli"}"#).is_none());
+        assert!(to_pup_json(br#"{"global_flags": {}}"#).is_none());
     }
 
     #[test]

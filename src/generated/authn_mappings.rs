@@ -40,7 +40,7 @@ pub enum Command {
     },
     /// List all AuthN Mappings
     ///
-    /// List all AuthN Mappings in the org.
+    /// List all AuthN Mappings in the organization.
     List {
         /// Number of items to return per page. The maximum allowed value is 100.
         #[arg(long = "page-size")]
@@ -128,7 +128,7 @@ pub async fn get(cfg: &Config, authn_mapping_id: String) -> Result<()> {
 
 /// List all AuthN Mappings
 ///
-/// List all AuthN Mappings in the org.
+/// List all AuthN Mappings in the organization.
 pub async fn list(
     cfg: &Config,
     page_size: Option<i64>,

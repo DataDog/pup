@@ -1029,7 +1029,8 @@ pub fn migrate_all(text: &str) -> anyhow::Result<Vec<serde_json::Value>> {
 const SCHEMA_BASE_URL: &str =
     "https://raw.githubusercontent.com/DataDog/schema/main/service-catalog/v3/";
 
-/// All v3 schema filenames to pre-fetch (used for $ref resolution)
+/// v3 schema filenames to pre-fetch. Sub-schemas referenced via `$ref` (e.g.
+/// new `integration_*` schemas) are discovered and fetched automatically.
 const V3_SCHEMA_FILES: &[&str] = &[
     "api",
     "application",
@@ -1085,22 +1086,81 @@ impl jsonschema::Retrieve for SchemaRegistry {
     }
 }
 
+/// Resolve a `$ref` found in the schema identified by `base_url` to an absolute
+/// v3 schema URL. Returns `None` for in-document refs (`#/...`) and for refs
+/// pointing outside the v3 schema directory.
+fn resolve_schema_ref(reference: &str, base_url: &str) -> Option<String> {
+    let target = reference.split('#').next().unwrap_or_default();
+    if target.is_empty() {
+        return None;
+    }
+    let absolute = if target.contains("://") {
+        target.to_string()
+    } else {
+        let (dir, _) = base_url.rsplit_once('/')?;
+        format!("{dir}/{target}")
+    };
+    absolute.starts_with(SCHEMA_BASE_URL).then_some(absolute)
+}
+
+/// Collect every external v3 `$ref` URL in `value` (resolved against `base_url`).
+fn collect_schema_refs(value: &serde_json::Value, base_url: &str, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, v) in map {
+                match (key.as_str(), v.as_str()) {
+                    ("$ref", Some(reference)) => {
+                        out.extend(resolve_schema_ref(reference, base_url))
+                    }
+                    _ => collect_schema_refs(v, base_url, out),
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                collect_schema_refs(v, base_url, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Pre-fetch all v3 schemas from GitHub, returning a URL → schema map.
+///
+/// Starts from `V3_SCHEMA_FILES` and follows `$ref`s transitively, so
+/// sub-schemas added upstream are resolvable without a pup release.
 async fn fetch_all_schemas() -> anyhow::Result<std::collections::HashMap<String, serde_json::Value>>
 {
     let client = reqwest::Client::new();
     let mut map = std::collections::HashMap::new();
-    for name in V3_SCHEMA_FILES {
-        let url = format!("{SCHEMA_BASE_URL}{name}.schema.json");
+    let mut seen = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<(String, bool)> = V3_SCHEMA_FILES
+        .iter()
+        .map(|name| (format!("{SCHEMA_BASE_URL}{name}.schema.json"), true))
+        .collect();
+
+    while let Some((url, is_seed)) = queue.pop_front() {
+        if !seen.insert(url.clone()) {
+            continue;
+        }
         match fetch_schema_by_url(&client, &url).await {
             Ok(schema) => {
+                let base_url = schema
+                    .get("$id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&url)
+                    .to_string();
+                let mut refs = Vec::new();
+                collect_schema_refs(&schema, &base_url, &mut refs);
+                queue.extend(refs.into_iter().map(|r| (r, false)));
                 map.insert(url, schema);
             }
-            Err(e) => {
-                eprintln!(
-                    "{ANSI_YELLOW}WARNING: Could not fetch schema '{name}': {e}.{ANSI_RESET}"
-                );
+            // Missing discovered refs are reported by the validator if a
+            // document actually needs them; only warn for the seed list.
+            Err(e) if is_seed => {
+                eprintln!("{ANSI_YELLOW}WARNING: Could not fetch schema '{url}': {e}.{ANSI_RESET}");
             }
+            Err(_) => {}
         }
     }
     Ok(map)
@@ -2076,5 +2136,158 @@ integrations:
     fn test_detect_no_version_no_info() {
         let doc = parse("some-key: some-value\n");
         assert_eq!(detect_version(&doc), "unknown");
+    }
+
+    // --- schema $ref discovery ---
+
+    fn v3_url(name: &str) -> String {
+        format!("{SCHEMA_BASE_URL}{name}.schema.json")
+    }
+
+    #[test]
+    fn test_resolve_schema_ref_absolute() {
+        let base = v3_url("integrations");
+        let r = v3_url("integration_jsm_ops");
+        assert_eq!(resolve_schema_ref(&r, &base), Some(r.clone()));
+    }
+
+    #[test]
+    fn test_resolve_schema_ref_relative() {
+        let base = v3_url("repository");
+        assert_eq!(
+            resolve_schema_ref("entity.schema.json", &base),
+            Some(v3_url("entity"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_schema_ref_strips_fragment() {
+        let base = v3_url("service");
+        let r = format!("{}#/properties/spec", v3_url("entity"));
+        assert_eq!(resolve_schema_ref(&r, &base), Some(v3_url("entity")));
+    }
+
+    #[test]
+    fn test_resolve_schema_ref_ignores_local_ref() {
+        let base = v3_url("service");
+        assert_eq!(resolve_schema_ref("#/definitions/foo", &base), None);
+        assert_eq!(resolve_schema_ref("", &base), None);
+    }
+
+    #[test]
+    fn test_resolve_schema_ref_ignores_foreign_url() {
+        let base = v3_url("service");
+        assert_eq!(
+            resolve_schema_ref("https://example.com/evil.schema.json", &base),
+            None
+        );
+        assert_eq!(
+            resolve_schema_ref(
+                "https://raw.githubusercontent.com/DataDog/schema/main/service-catalog/v2.2/schema.json",
+                &base
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn test_collect_schema_refs_nested() {
+        let base = v3_url("integrations");
+        let schema = serde_json::json!({
+            "properties": {
+                "pagerduty": {"$ref": v3_url("integration_pagerduty")},
+                "jiraServiceManagementOps": {"$ref": v3_url("integration_jsm_ops")},
+                "local": {"$ref": "#/definitions/local"},
+                "external": {"$ref": "https://example.com/x.schema.json"}
+            },
+            "allOf": [{"$ref": "metadata.schema.json"}]
+        });
+        let mut refs = Vec::new();
+        collect_schema_refs(&schema, &base, &mut refs);
+        refs.sort();
+        let mut expected = vec![
+            v3_url("integration_jsm_ops"),
+            v3_url("integration_pagerduty"),
+            v3_url("metadata"),
+        ];
+        expected.sort();
+        assert_eq!(refs, expected);
+    }
+
+    #[test]
+    fn test_collect_schema_refs_none() {
+        let schema = serde_json::json!({"type": "object", "properties": {"a": {"type": "string"}}});
+        let mut refs = Vec::new();
+        collect_schema_refs(&schema, &v3_url("service"), &mut refs);
+        assert!(refs.is_empty());
+    }
+
+    // --- schema validation with sub-schema refs ---
+
+    fn service_schemas(
+        include_sub_schema: bool,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            v3_url("service"),
+            serde_json::json!({
+                "$id": v3_url("service"),
+                "type": "object",
+                "properties": {
+                    "integrations": {
+                        "type": "object",
+                        "properties": {
+                            "jiraServiceManagementOps": {"$ref": v3_url("integration_jsm_ops")}
+                        }
+                    }
+                }
+            }),
+        );
+        if include_sub_schema {
+            map.insert(
+                v3_url("integration_jsm_ops"),
+                serde_json::json!({
+                    "$id": v3_url("integration_jsm_ops"),
+                    "type": "object",
+                    "required": ["teamURL"],
+                    "additionalProperties": false,
+                    "properties": {"teamURL": {"type": "string", "minLength": 1}}
+                }),
+            );
+        }
+        map
+    }
+
+    fn jsm_doc(integration: &str) -> serde_json::Value {
+        parse(&format!(
+            "apiVersion: v3\nkind: service\nmetadata:\n  name: svc\nintegrations:\n  jiraServiceManagementOps:\n    {integration}\n"
+        ))
+    }
+
+    #[test]
+    fn test_validate_docs_with_sub_schema_valid() {
+        let doc = jsm_doc("teamURL: https://example.atlassian.net/jira/ops/teams/abc");
+        let warnings = validate_docs(&[doc], &service_schemas(true)).unwrap();
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn test_validate_docs_with_sub_schema_invalid() {
+        let doc = jsm_doc("bogus: 1");
+        let warnings = validate_docs(&[doc], &service_schemas(true)).unwrap();
+        assert!(
+            warnings.iter().any(|w| w.contains("teamURL")),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_docs_missing_sub_schema_errors() {
+        let doc = jsm_doc("teamURL: x");
+        let err = validate_docs(&[doc], &service_schemas(false)).unwrap_err();
+        assert!(
+            err.to_string().contains("integration_jsm_ops"),
+            "unexpected error: {err}"
+        );
     }
 }

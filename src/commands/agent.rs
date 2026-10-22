@@ -88,6 +88,7 @@ fn setup_returns() -> serde_json::Value {
         "data": {"description": "No envelope and no API body: AI Setup's output is passed through to stdout and stderr."},
         "notes": [
             "Headless runs (an AI agent is detected, or there is no terminal) print AI_SETUP_PROGRESS lines and end with one AI_SETUP_RESULT line: `status=success product=<product> code=0 url=<next step>` or `status=error product=<product> code=<n> reason=\"<message>\"`.",
+            "When an AI agent runs `pup setup` without --product, pup adds --recommend-only: AI Setup scans the working directory and prints one JSON document ({recommendations: [{product, display_name, priority, reason, evidence}], detections, requires_project_path, projects}) without changing anything. Rerun with --product=<product> to set one up.",
             "The exit code is AI Setup's: 0 on success, non-zero on failure.",
             "Needs Node.js 22+ and npx; without them pup prints how to install them and exits 1."
         ]

@@ -101,7 +101,11 @@ pub async fn run(
             .await?;
         }
     }
-    let launch = Launch { package, headless };
+    let launch = Launch {
+        package,
+        headless,
+        recommend_only: agent && wants_recommendations(args),
+    };
     let cmd = build_command(&npx, &build_args(args, &cfg.site, &launch), cfg);
     let exit_code = exec::run_inherited(cmd, "npx")?;
     if should_offer_pup_login(headless, had_session, args, exit_code) {
@@ -203,6 +207,7 @@ fn signup_hint(site: &str) -> String {
 struct Launch {
     package: String,
     headless: bool,
+    recommend_only: bool,
 }
 
 async fn report_missing_node(cfg: &Config, status: &NodeStatus) -> i32 {
@@ -367,6 +372,12 @@ fn wants_headless(agent: bool, stdin_tty: bool, stdout_tty: bool) -> bool {
     agent || !stdin_tty || !stdout_tty
 }
 
+/// An agent that names no product gets AI Setup's recommendations back to
+/// choose from, rather than AI Setup installing its top pick on its own.
+fn wants_recommendations(args: &[String]) -> bool {
+    !has_flag(args, "--product") && !has_flag(args, "--recommend-only") && !asks_for_help(args)
+}
+
 fn package_spec(override_value: Option<&str>) -> Result<String> {
     let Some(value) = override_value.map(str::trim).filter(|v| !v.is_empty()) else {
         return Ok(format!("{AI_SETUP_PACKAGE}@{AI_SETUP_DEFAULT_VERSION}"));
@@ -394,6 +405,9 @@ fn build_args(user_args: &[String], site: &str, launch: &Launch) -> Vec<String> 
     ];
     if launch.headless {
         args.push("--headless".to_string());
+    }
+    if launch.recommend_only {
+        args.push("--recommend-only".to_string());
     }
     args.push("--site".to_string());
     args.push(site.to_string());
@@ -515,7 +529,42 @@ mod tests {
         Launch {
             package: package_spec(None).unwrap(),
             headless,
+            recommend_only: false,
         }
+    }
+
+    #[test]
+    fn agents_without_a_product_ask_for_recommendations() {
+        assert!(wants_recommendations(&args(&[])));
+        assert!(wants_recommendations(&args(&["--auto-approve"])));
+    }
+
+    #[test]
+    fn a_product_help_or_explicit_flag_skips_recommendations() {
+        assert!(!wants_recommendations(&args(&["--product", "rum"])));
+        assert!(!wants_recommendations(&args(&["--product=rum"])));
+        assert!(!wants_recommendations(&args(&["--recommend-only"])));
+        assert!(!wants_recommendations(&args(&["--help"])));
+        assert!(!wants_recommendations(&args(&["-h"])));
+    }
+
+    #[test]
+    fn build_args_adds_recommend_only_after_headless() {
+        let launch = Launch {
+            recommend_only: true,
+            ..launch(true)
+        };
+        let built = build_args(&[], "datadoghq.com", &launch);
+        assert_eq!(
+            built[4..],
+            args(&["--headless", "--recommend-only", "--site", "datadoghq.com"])
+        );
+    }
+
+    #[test]
+    fn build_args_omits_recommend_only_by_default() {
+        let built = build_args(&[], "datadoghq.com", &launch(true));
+        assert!(!built.contains(&"--recommend-only".to_string()));
     }
 
     #[test]

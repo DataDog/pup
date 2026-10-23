@@ -153,7 +153,9 @@ pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddl
         let mut builder = ClientBuilder::new(reqwest_client)
             .with(UserAgentMiddleware)
             .with(RateLimitCaptureMiddleware);
-        if send_bearer {
+        if let Some(auth) = &cfg.aws_auth {
+            builder = builder.with(auth.middleware(cfg.api_base_url(), send_bearer));
+        } else if send_bearer {
             if let Some(token) = cfg.access_token.as_ref() {
                 builder = builder.with(BearerAuthMiddleware {
                     token: token.clone(),
@@ -430,6 +432,8 @@ mod tests {
 
     fn test_cfg() -> Config {
         Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_auth: None,
             api_key: Some("test".into()),
             app_key: Some("test".into()),
             access_token: None,

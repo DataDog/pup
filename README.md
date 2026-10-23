@@ -273,6 +273,46 @@ pup auth token
 pup auth logout
 ```
 
+#### AWS workload identity federation
+
+Native builds can obtain a short-lived delegated token using your AWS identity:
+
+```bash
+export DD_AUTH_PROVIDER=aws
+export DD_ORG_UUID="11111111-2222-3333-4444-555555555555"
+export DD_SITE=datadoghq.com
+# Optional: select an AWS profile; workload roles are discovered automatically.
+export AWS_PROFILE=my-profile
+pup monitors list
+```
+
+First configure the Datadog AWS integration and an AWS identity mapping to a
+Datadog user or service account, as described in the
+[WIF documentation](https://docs.datadoghq.com/account_management/workload_identity_federation/).
+This uses the Web API delegated-token flow, not the Agent intake-credential flow.
+No `DD_ACCESS_TOKEN`, API key, application key, or browser login is needed.
+
+Pup uses the AWS SDK credential chain (environment, profiles/SSO, web identity,
+container credentials, and instance roles). The SDK region chain defaults to
+`us-east-1`. AWS credentials sign an STS `GetCallerIdentity` proof bound to
+`DD_ORG_UUID`; Pup exchanges it at `/api/v2/delegated-token` and sends the returned
+token as a bearer credential. Tokens are cached only for the current process
+and re-exchanged before expiry, including during pagination and polling.
+
+Explicit AWS mode ignores saved OAuth credentials and Datadog API keys and fails
+without falling back if AWS authentication fails. `--org` / `DD_ORG` select OAuth
+sessions and cannot be combined with AWS mode; use `DD_ORG_UUID` and `DD_SITE`.
+You can also set `auth_provider: aws`, `org_uuid`, and `site` in `config.yaml`.
+Unset `DD_AUTH_PROVIDER` and remove `auth_provider` from the config to return to
+OAuth or API-key authentication.
+
+`pup auth status` reports the local AWS configuration without making an exchange.
+`pup auth token` explicitly exports a newly acquired or cached delegated token
+for credential-command integrations. Normal command output never includes it.
+OAuth session-management commands, `pup setup`, and endpoints requiring API keys
+are unavailable in AWS mode. WASM builds can consume an externally acquired
+delegated token through `DD_ACCESS_TOKEN`, but cannot acquire AWS credentials.
+
 #### Multiple sites and orgs
 
 Pup persists each login as a separate session, so you can authenticate against multiple Datadog sites and orgs and switch between them with `--org <name>` (or `DD_ORG=<name>`) on any subcommand.
@@ -491,7 +531,9 @@ pup skills install --name dd-idp
 
 ## Environment Variables
 
-- `DD_ACCESS_TOKEN`: Bearer token for stateless auth (highest priority)
+- `DD_AUTH_PROVIDER`: Set to `aws` to use AWS workload identity federation (native builds)
+- `DD_ORG_UUID`: Datadog organization UUID required for AWS authentication
+- `DD_ACCESS_TOKEN`: Bearer token for stateless auth (highest priority unless AWS auth is explicitly selected)
 - `DD_API_KEY`: Datadog API key (optional if using OAuth2 or DD_ACCESS_TOKEN)
 - `DD_APP_KEY`: Datadog Application key (optional if using OAuth2 or DD_ACCESS_TOKEN)
 - `DD_SITE`: Datadog site (default: datadoghq.com)

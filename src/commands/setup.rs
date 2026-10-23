@@ -91,6 +91,11 @@ pub async fn run(
         }
         return Ok(0);
     }
+    if cfg.has_aws_auth() {
+        anyhow::bail!(
+            "pup setup does not support AWS workload identity; use OAuth or API keys for setup"
+        );
+    }
     let headless = asks_for_headless(args)
         || wants_headless(
             agent,

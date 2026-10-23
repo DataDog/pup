@@ -22,6 +22,30 @@ pup auth token
 pup auth logout
 ```
 
+### AWS Workload Identity Federation
+
+Configure your AWS integration and identity mapping in Datadog first. Then use
+an AWS profile or the workload's IAM role; no static Datadog credentials are needed:
+
+```bash
+export DD_AUTH_PROVIDER=aws
+export DD_ORG_UUID="11111111-2222-3333-4444-555555555555"
+export DD_SITE=datadoghq.com
+export AWS_PROFILE=my-profile  # omit on workloads with an IAM role
+
+# Show configuration without acquiring credentials
+pup auth status
+
+# Exchange an AWS proof and query using the delegated token
+pup monitors list
+pup logs search --query="service:api status:error" --from="1h"
+```
+
+Long-running API operations renew the in-memory token before expiry. Explicit
+AWS mode ignores other Datadog credentials and never falls back to them. Use
+`DD_ORG_UUID` rather than OAuth's `--org` session name. See the README for limits
+and config-file options.
+
 ### API Key Authentication (Legacy)
 ```bash
 export DD_API_KEY="your-api-key"

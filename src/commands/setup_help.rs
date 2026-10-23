@@ -3,8 +3,8 @@ use clap::{Arg, ArgAction};
 use serde::Deserialize;
 
 const PUP_MANAGED_FLAGS: &[&str] = &["--site", "--headless"];
-const USAGE: &str = "pup setup --product <PRODUCT> [OPTIONS] [PRODUCT FLAGS]";
-const JSON_USAGE: &str = "pup setup --product <product> [product flags]";
+const USAGE: &str = "pup setup [--product <PRODUCT>] [OPTIONS] [PRODUCT FLAGS]";
+const JSON_USAGE: &str = "pup setup [--product <product>] [product flags]";
 const PRODUCTS_UNAVAILABLE: &str = "Products:
   Could not load the product list from AI Setup. Check your network connection,
   then rerun `pup setup --help`.

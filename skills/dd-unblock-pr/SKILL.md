@@ -48,8 +48,7 @@ git symbolic-ref refs/remotes/origin/HEAD
 **Pipeline failures (job level):**
 ```bash
 pup cicd events search \
-  --query "@ci.status:error @git.branch:<branch> @git.repository.id_v2:\"<repo>\"" \
-  --level job \
+  --query "ci_level:job @ci.status:error @git.branch:<branch> @git.repository.id_v2:\"<repo>\"" \
   --from 24h \
   --limit 50
 ```
@@ -89,7 +88,7 @@ For each failing job where classification is still needed, run both checks in pa
 **Default branch check** — was this job already failing before this PR?
 ```bash
 pup cicd events aggregate \
-  --query "@ci.status:error @ci.job.name:\"<job>\" @git.branch:<default-branch> @git.repository.id_v2:\"<repo>\"" \
+  --query "ci_level:job @ci.status:error @ci.job.name:\"<job>\" @git.branch:<default-branch> @git.repository.id_v2:\"<repo>\"" \
   --compute count \
   --from 24h
 ```
@@ -97,7 +96,7 @@ pup cicd events aggregate \
 **Blast radius check** — is this job failing on other branches too?
 ```bash
 pup cicd events aggregate \
-  --query "@ci.status:error @ci.job.name:\"<job>\" @git.repository.id_v2:\"<repo>\"" \
+  --query "ci_level:job @ci.status:error @ci.job.name:\"<job>\" @git.repository.id_v2:\"<repo>\"" \
   --compute count \
   --group-by "@git.branch" \
   --from 24h

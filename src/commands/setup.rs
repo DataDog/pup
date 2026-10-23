@@ -78,11 +78,18 @@ pub async fn run(
         return Ok(report_missing_node(cfg, &status).await);
     };
     let package = package_spec(std::env::var(AI_SETUP_PACKAGE_ENV).ok().as_deref())?;
-    if asks_for_help(args) && !has_flag(args, "--json") {
-        if let Some(help) = fetch_ai_setup_help(&npx, &package, cfg) {
-            setup_help::print(&help)?;
-            return Ok(0);
+    if asks_for_help(args) {
+        let raw = fetch_ai_setup_help(&npx, &package, cfg);
+        if has_flag(args, "--json") {
+            let help = raw
+                .as_deref()
+                .and_then(setup_help::to_pup_json)
+                .ok_or_else(|| anyhow::anyhow!("could not load AI Setup's help from {package}"))?;
+            println!("{help}");
+        } else {
+            setup_help::print(raw.as_deref().and_then(setup_help::parse).as_ref())?;
         }
+        return Ok(0);
     }
     let headless = asks_for_headless(args)
         || wants_headless(
@@ -280,16 +287,13 @@ fn normalize_help_args(args: &[String]) -> Vec<String> {
     args
 }
 
-fn fetch_ai_setup_help(npx: &Path, package: &str, cfg: &Config) -> Option<setup_help::AiSetupHelp> {
+fn fetch_ai_setup_help(npx: &Path, package: &str, cfg: &Config) -> Option<Vec<u8>> {
     let args = ["-y", "--package", package, AI_SETUP_BIN, "--help", "--json"].map(String::from);
     let output = build_command(npx, &args, cfg)
         .stdin(std::process::Stdio::null())
         .output()
         .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    setup_help::parse(&output.stdout)
+    output.status.success().then_some(output.stdout)
 }
 
 fn asks_for_help(args: &[String]) -> bool {

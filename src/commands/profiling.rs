@@ -404,7 +404,7 @@ mod tests {
     fn no_auth_config() -> Config {
         Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,

@@ -419,7 +419,7 @@ pub async fn logout(_cfg: &Config) -> Result<()> {
 
 pub fn status(cfg: &Config) -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(auth) = &cfg.aws_auth {
+    if let Some(auth) = &cfg.aws_wif_auth {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
@@ -543,7 +543,7 @@ fn build_non_oauth_status(cfg: &Config) -> serde_json::Value {
 /// and refreshed an expired stored token when possible.
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn token(cfg: &Config) -> Result<()> {
-    if cfg.has_aws_auth() {
+    if cfg.has_aws_wif_auth() {
         if let Some(token) = cfg.bearer_token().await? {
             println!("{token}");
         }
@@ -704,7 +704,7 @@ mod tests {
     fn base_config() -> Config {
         Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,

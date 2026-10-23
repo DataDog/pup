@@ -333,7 +333,7 @@ mod tests {
     ) -> Config {
         Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: api_key.map(String::from),
             app_key: app_key.map(String::from),
             access_token: access_token.map(String::from),
@@ -767,7 +767,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: Some("token".into()),

@@ -19,7 +19,7 @@ const STS_BODY: &str = "Action=GetCallerIdentity&Version=2011-06-15";
 const REFRESH_BUFFER: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
-pub struct AwsAuth(Arc<State>);
+pub struct AwsWifAuth(Arc<State>);
 
 struct State {
     org_uuid: String,
@@ -33,7 +33,7 @@ struct CachedToken {
     expires: SystemTime,
 }
 
-impl AwsAuth {
+impl AwsWifAuth {
     pub fn new(org_uuid: &str) -> Result<Self> {
         let org_uuid = uuid::Uuid::parse_str(org_uuid).context(
             "AWS authentication requires a valid DD_ORG_UUID (Datadog organization UUID)",
@@ -97,8 +97,8 @@ impl AwsAuth {
         Ok(result)
     }
 
-    pub fn middleware(&self, api_base: String, send_bearer: bool) -> AwsMiddleware {
-        AwsMiddleware {
+    pub fn middleware(&self, api_base: String, send_bearer: bool) -> AwsWifMiddleware {
+        AwsWifMiddleware {
             auth: self.clone(),
             api_base,
             send_bearer,
@@ -243,14 +243,14 @@ async fn exchange(api_base: &str, proof: &str) -> Result<CachedToken> {
     })
 }
 
-pub struct AwsMiddleware {
-    auth: AwsAuth,
+pub struct AwsWifMiddleware {
+    auth: AwsWifAuth,
     api_base: String,
     send_bearer: bool,
 }
 
 #[async_trait::async_trait]
-impl reqwest_middleware::Middleware for AwsMiddleware {
+impl reqwest_middleware::Middleware for AwsWifMiddleware {
     async fn handle(
         &self,
         mut req: reqwest::Request,
@@ -294,12 +294,12 @@ mod tests {
         )
     }
 
-    fn provider() -> AwsAuth {
+    fn provider() -> AwsWifAuth {
         provider_with(SharedCredentialsProvider::new(credentials()))
     }
 
-    fn provider_with(credentials: SharedCredentialsProvider) -> AwsAuth {
-        let auth = AwsAuth::new(ORG).unwrap();
+    fn provider_with(credentials: SharedCredentialsProvider) -> AwsWifAuth {
+        let auth = AwsWifAuth::new(ORG).unwrap();
         let sdk = aws_config::SdkConfig::builder()
             .credentials_provider(credentials)
             .region(aws_config::Region::new("us-east-1"))
@@ -355,8 +355,8 @@ mod tests {
 
     #[test]
     fn rejects_invalid_configuration_and_region() {
-        assert!(AwsAuth::new("not-a-uuid").is_err());
-        assert!(AwsAuth::new("00000000-0000-0000-0000-000000000000").is_err());
+        assert!(AwsWifAuth::new("not-a-uuid").is_err());
+        assert!(AwsWifAuth::new("00000000-0000-0000-0000-000000000000").is_err());
         for region in ["", "us-east-1/evil", "us-east-1.evil.example"] {
             assert!(signed_proof(&credentials(), region, ORG, SystemTime::now()).is_err());
         }
@@ -575,7 +575,7 @@ mod tests {
         cfg.api_key = None;
         cfg.app_key = None;
         let auth = provider();
-        cfg.aws_auth = Some(auth.clone());
+        cfg.aws_wif_auth = Some(auth.clone());
         cfg.validate_auth().unwrap();
         let exchange = server
             .mock("POST", "/api/v2/delegated-token")

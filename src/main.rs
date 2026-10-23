@@ -15678,7 +15678,7 @@ async fn main_inner() -> anyhow::Result<()> {
         cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
     }
 
-    if cfg.has_aws_auth()
+    if cfg.has_aws_wif_auth()
         && matches!(&cli.command, Commands::Auth { action }
             if !matches!(action, AuthActions::Status { .. } | AuthActions::Test))
     {
@@ -20563,7 +20563,7 @@ async fn main_inner() -> anyhow::Result<()> {
             }
             #[cfg(not(target_arch = "wasm32"))]
             AuthActions::Token => {
-                if cfg.has_aws_auth() {
+                if cfg.has_aws_wif_auth() {
                     cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
                 }
                 commands::auth::token(&cfg).await?

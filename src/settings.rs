@@ -11,7 +11,7 @@ use std::path::PathBuf;
 #[derive(Clone)]
 pub struct Config {
     #[cfg(not(target_arch = "wasm32"))]
-    pub aws_auth: Option<crate::auth::aws::AwsAuth>,
+    pub aws_wif_auth: Option<crate::auth::aws_wif::AwsWifAuth>,
     pub api_key: Option<String>,
     pub app_key: Option<String>,
     pub access_token: Option<String>,
@@ -115,11 +115,11 @@ impl Config {
             bail!("AWS workload identity authentication requires a native build; use DD_ACCESS_TOKEN in WASM");
         }
         #[cfg(not(target_arch = "wasm32"))]
-        let aws_auth = if aws_mode {
+        let aws_wif_auth = if aws_mode {
             let org_uuid = env_or("DD_ORG_UUID", file_cfg.org_uuid).ok_or_else(|| {
                 anyhow::anyhow!("AWS authentication requires DD_ORG_UUID or org_uuid in config")
             })?;
-            Some(crate::auth::aws::AwsAuth::new(&org_uuid)?)
+            Some(crate::auth::aws_wif::AwsWifAuth::new(&org_uuid)?)
         } else {
             None
         };
@@ -207,7 +207,7 @@ impl Config {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth,
+            aws_wif_auth,
             api_key: if aws_mode {
                 None
             } else {
@@ -387,7 +387,7 @@ impl Config {
 
     /// Validate that sufficient auth credentials are configured.
     pub fn validate_auth(&self) -> Result<()> {
-        if self.has_aws_auth() {
+        if self.has_aws_wif_auth() {
             return Ok(());
         }
         if self.access_token.is_none() && (self.api_key.is_none() || self.app_key.is_none()) {
@@ -423,13 +423,13 @@ impl Config {
     }
 
     pub fn has_bearer_token(&self) -> bool {
-        self.access_token.is_some() || self.has_aws_auth()
+        self.access_token.is_some() || self.has_aws_wif_auth()
     }
 
-    pub fn has_aws_auth(&self) -> bool {
+    pub fn has_aws_wif_auth(&self) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.aws_auth.is_some()
+            self.aws_wif_auth.is_some()
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -440,7 +440,7 @@ impl Config {
     /// Resolve the current bearer credential immediately before a request.
     pub async fn bearer_token(&self) -> Result<Option<String>> {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(auth) = &self.aws_auth {
+        if let Some(auth) = &self.aws_wif_auth {
             // AWS credential discovery has a large future. Keep it off the CLI
             // dispatch stack, including on Windows' smaller main-thread stack.
             return Box::pin(auth.token(&self.api_base_url())).await.map(Some);
@@ -679,7 +679,7 @@ pub fn parse_scopes(s: &str) -> Vec<String> {
 /// one resolution path.
 #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
 pub fn apply_org_override(cfg: &mut Config, org: String) -> Result<()> {
-    if cfg.has_aws_auth() {
+    if cfg.has_aws_wif_auth() {
         bail!("AWS authentication uses DD_ORG_UUID; --org selects an OAuth session and cannot be combined with it");
     }
     cfg.org = Some(org);
@@ -1059,7 +1059,7 @@ mod tests {
     fn make_cfg(api_key: Option<&str>, app_key: Option<&str>, token: Option<&str>) -> Config {
         Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: api_key.map(String::from),
             app_key: app_key.map(String::from),
             access_token: token.map(String::from),
@@ -2056,7 +2056,7 @@ mod tests {
         // the registry (site_explicit=false because the user did not set DD_SITE).
         let mut cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2102,7 +2102,7 @@ mod tests {
 
         let mut cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2141,7 +2141,7 @@ mod tests {
 
         let mut cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2185,7 +2185,7 @@ mod tests {
         // Simulate from_env having adopted the no-org default session's site.
         let mut cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2225,7 +2225,7 @@ mod tests {
 
         let mut cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: Some("env-supplied-token".into()),
@@ -2273,7 +2273,7 @@ mod tests {
 
         let mut cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2305,7 +2305,7 @@ mod tests {
     fn test_set_site_explicit_marks_site_as_user_provided() {
         let mut cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2328,7 +2328,7 @@ mod tests {
     fn test_set_site_explicit_rejects_smuggling_value() {
         let mut cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2350,7 +2350,7 @@ mod tests {
     fn test_set_site_explicit_rejects_empty_string() {
         let mut cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,

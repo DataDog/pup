@@ -28,6 +28,14 @@ fn pup(server: &Server) -> Command {
         .env("DD_ACCESS_TOKEN", "unwanted-bearer")
         .env("DD_API_KEY", "unwanted-api-key")
         .env("DD_APP_KEY", "unwanted-app-key");
+    // Windows needs its system directory to load networking providers even
+    // when the subprocess otherwise has an isolated credential environment.
+    #[cfg(windows)]
+    for name in ["SystemRoot", "WINDIR"] {
+        if let Some(value) = std::env::var_os(name) {
+            cmd.env(name, value);
+        }
+    }
     cmd
 }
 

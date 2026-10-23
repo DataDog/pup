@@ -126,7 +126,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -163,7 +163,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -204,7 +204,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -240,7 +240,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -276,7 +276,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -312,7 +312,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -347,7 +347,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -383,7 +383,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: Some("test-bearer-token".into()),
@@ -417,7 +417,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -447,7 +447,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -483,7 +483,7 @@ mod tests {
 
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,

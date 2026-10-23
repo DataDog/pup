@@ -962,7 +962,7 @@ mod tests {
         std::env::remove_var("PUP_MOCK_SERVER");
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("k".into()),
             app_key: Some("a".into()),
             access_token: None,
@@ -1032,7 +1032,7 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test-api-key".into()),
             app_key: Some("test-app-key".into()),
             access_token: Some("bearer-token".into()),
@@ -1088,7 +1088,7 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: Some("bearer-token".into()),

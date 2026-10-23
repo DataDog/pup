@@ -42,7 +42,7 @@ pub(crate) fn run_inherited(mut cmd: std::process::Command, label: &str) -> Resu
 /// Variables not active in the current config are explicitly removed to prevent
 /// stale credentials from leaking through the parent environment.
 pub(crate) fn inject_auth_env(cmd: &mut std::process::Command, cfg: &Config) {
-    if let Some(auth) = &cfg.aws_auth {
+    if let Some(auth) = &cfg.aws_wif_auth {
         cmd.env("DD_AUTH_PROVIDER", "aws");
         cmd.env("DD_ORG_UUID", auth.org_uuid());
     } else {
@@ -130,7 +130,7 @@ mod tests {
     fn test_config() -> Config {
         Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,

@@ -12,28 +12,6 @@ use reqwest_middleware::{Middleware, Next};
 use crate::config::Config;
 
 #[cfg(not(target_arch = "wasm32"))]
-struct BearerAuthMiddleware {
-    token: String,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[async_trait]
-impl Middleware for BearerAuthMiddleware {
-    async fn handle(
-        &self,
-        mut req: reqwest_middleware::reqwest::Request,
-        extensions: &mut Extensions,
-        next: Next<'_>,
-    ) -> reqwest_middleware::Result<reqwest_middleware::reqwest::Response> {
-        req.headers_mut().insert(
-            reqwest_middleware::reqwest::header::AUTHORIZATION,
-            format!("Bearer {}", self.token).parse().unwrap(),
-        );
-        next.run(req, extensions).await
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 struct RateLimitCaptureMiddleware;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -137,11 +115,10 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
 
 /// Builds a reqwest middleware client for SDK API calls. Always installs
 /// `UserAgentMiddleware` so requests carry pup's branded `User-Agent`
-/// instead of the SDK's `datadog-api-client-rust/...` default. When
-/// `send_bearer` is true and the config has an access token, also installs
-/// `BearerAuthMiddleware`. OAuth-incompatible endpoints (see
-/// `raw_client::OAUTH_EXCLUDED_ENDPOINTS`) pass `false` so the SDK falls back
-/// to API key headers from the `Configuration`.
+/// instead of the SDK's `datadog-api-client-rust/...` default. Authentication
+/// is configured by the hand-maintained runtime through `Config::configure_auth`.
+/// Endpoints requiring API keys pass `send_bearer = false`; the runtime decides
+/// whether the selected authentication mode can satisfy that requirement.
 ///
 /// Returns `None` on WASM targets; callers use the SDK default client there.
 pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddleware> {
@@ -150,19 +127,10 @@ pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddl
         let reqwest_client = reqwest_middleware::reqwest::Client::builder()
             .build()
             .expect("failed to build reqwest client");
-        let mut builder = ClientBuilder::new(reqwest_client)
+        let builder = ClientBuilder::new(reqwest_client)
             .with(UserAgentMiddleware)
             .with(RateLimitCaptureMiddleware);
-        if let Some(auth) = &cfg.aws_auth {
-            builder = builder.with(auth.middleware(cfg.api_base_url(), send_bearer));
-        } else if send_bearer {
-            if let Some(token) = cfg.access_token.as_ref() {
-                builder = builder.with(BearerAuthMiddleware {
-                    token: token.clone(),
-                });
-            }
-        }
-        return Some(builder.build());
+        return Some(cfg.configure_auth(builder, send_bearer).build());
     }
     #[allow(unreachable_code)]
     {
@@ -433,7 +401,7 @@ mod tests {
     fn test_cfg() -> Config {
         Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test".into()),
             app_key: Some("test".into()),
             access_token: None,

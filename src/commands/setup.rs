@@ -91,7 +91,7 @@ pub async fn run(
         }
         return Ok(0);
     }
-    if cfg.has_aws_auth() {
+    if cfg.has_aws_wif_auth() {
         anyhow::bail!(
             "pup setup does not support AWS workload identity; use OAuth or API keys for setup"
         );

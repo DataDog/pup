@@ -550,7 +550,7 @@ mod tests {
     fn test_cfg() -> Config {
         Config {
             #[cfg(not(target_arch = "wasm32"))]
-            aws_auth: None,
+            aws_wif_auth: None,
             api_key: Some("test".into()),
             app_key: Some("test".into()),
             access_token: None,

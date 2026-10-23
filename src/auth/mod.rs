@@ -1,5 +1,9 @@
+#[cfg(not(target_arch = "wasm32"))]
+pub mod aws_wif;
 pub mod callback;
 pub mod dcr;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod middleware;
 pub mod pkce;
 pub mod storage;
 pub mod types;

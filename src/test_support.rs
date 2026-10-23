@@ -22,6 +22,8 @@ pub(crate) fn test_config(mock_url: &str) -> Config {
     std::env::set_var("DD_APP_KEY", "test-app-key");
 
     Config {
+        #[cfg(not(target_arch = "wasm32"))]
+        aws_wif_auth: None,
         api_key: Some("test-api-key".into()),
         app_key: Some("test-app-key".into()),
         access_token: None,

@@ -15678,6 +15678,21 @@ async fn main_inner() -> anyhow::Result<()> {
         cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
     }
 
+    if cfg.has_aws_wif_auth()
+        && matches!(&cli.command, Commands::Auth { action }
+            if !matches!(action, AuthActions::Status { .. } | AuthActions::Test))
+    {
+        #[cfg(not(target_arch = "wasm32"))]
+        if !matches!(
+            &cli.command,
+            Commands::Auth {
+                action: AuthActions::Token
+            }
+        ) {
+            anyhow::bail!("AWS authentication has no stored OAuth session; unset DD_AUTH_PROVIDER / auth_provider to manage OAuth sessions");
+        }
+    }
+
     match cli.command {
         // --- Monitors ---
         Commands::Monitors { action } => {
@@ -20547,7 +20562,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 commands::auth::status(&cfg)?
             }
             #[cfg(not(target_arch = "wasm32"))]
-            AuthActions::Token => commands::auth::token(&cfg)?,
+            AuthActions::Token => {
+                if cfg.has_aws_wif_auth() {
+                    cfg.ensure_site_trusted(cli.trust_site, interactive, &trusted_sites)?;
+                }
+                commands::auth::token(&cfg).await?
+            }
             AuthActions::Refresh => {
                 // Refresh POSTs the stored refresh token to cfg.site; gate it like
                 // login/status (the pre-match gate skips all Auth subcommands).

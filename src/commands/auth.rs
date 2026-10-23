@@ -418,6 +418,20 @@ pub async fn logout(_cfg: &Config) -> Result<()> {
 }
 
 pub fn status(cfg: &Config) -> Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(auth) = &cfg.aws_wif_auth {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "auth_method": "aws_workload_identity",
+                "site": cfg.site,
+                "org_uuid": auth.org_uuid(),
+                "status": "configured",
+                "status_message": "AWS workload identity configured; credentials and mapping are verified on the next API request",
+            }))?
+        );
+        return Ok(());
+    }
     let site = &cfg.site;
     let org = cfg.org.as_deref();
 
@@ -528,7 +542,13 @@ fn build_non_oauth_status(cfg: &Config) -> serde_json::Value {
 /// integration. Config loading has already applied environment/session precedence
 /// and refreshed an expired stored token when possible.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn token(cfg: &Config) -> Result<()> {
+pub async fn token(cfg: &Config) -> Result<()> {
+    if cfg.has_aws_wif_auth() {
+        if let Some(token) = cfg.bearer_token().await? {
+            println!("{token}");
+        }
+        return Ok(());
+    }
     if let Some(token) = &cfg.access_token {
         println!("{token}");
         return Ok(());
@@ -683,6 +703,8 @@ mod tests {
 
     fn base_config() -> Config {
         Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -717,25 +739,25 @@ mod tests {
     // touches the global STORAGE singleton. Hermetic.
     // ------------------------------------------------------------------
 
-    #[test]
-    fn test_token_prints_access_token_from_config() {
+    #[tokio::test]
+    async fn test_token_prints_access_token_from_config() {
         let mut cfg = base_config();
         cfg.access_token = Some("oauth-access-token-from-cfg".into());
         // Positive path: cfg.access_token is Some → returns Ok without
         // touching storage. We only assert the Result; capturing stdout
         // would require redirecting std::io::stdout and is not necessary
         // to verify the bypass branch runs.
-        assert!(token(&cfg).is_ok());
+        assert!(token(&cfg).await.is_ok());
     }
 
-    #[test]
-    fn test_token_empty_string_still_bypasses_storage() {
+    #[tokio::test]
+    async fn test_token_empty_string_still_bypasses_storage() {
         // An empty-string access_token is still Some(_) — the guard uses
         // `if let Some(token)` and does not check for empty. Pin this
         // behaviour so future refactors are intentional.
         let mut cfg = base_config();
         cfg.access_token = Some(String::new());
-        assert!(token(&cfg).is_ok());
+        assert!(token(&cfg).await.is_ok());
     }
 
     // ------------------------------------------------------------------

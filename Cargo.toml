@@ -2,7 +2,7 @@
 name = "pup"
 version = "2.3.0"
 edition = "2021"
-rust-version = "1.93.1"
+rust-version = "1.94.1"
 publish = false
 
 [lib]
@@ -13,6 +13,9 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = ["native"]
 native = [
+    "dep:aws-config",
+    "dep:aws-credential-types",
+    "dep:aws-sigv4",
     "dep:datadog-api-client",
     "datadog-api-client/rustls-tls",
     "datadog-api-client/zstd",
@@ -172,6 +175,11 @@ jaq-json = { version = "2.0.1", features = ["serde"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = ">=0.13, <0.13.3", features = ["stream"] }
 gethostname = "1"
+# AWS SDK credential chain and SigV4 signing for workload identity federation.
+aws-config = { version = "1.13", optional = true }
+aws-credential-types = { version = "1.3", optional = true }
+aws-sigv4 = { version = "1.6.3", optional = true }
+
 
 # SIGPIPE reset so piping output to `head`/`tail` exits quietly instead of panicking
 [target.'cfg(unix)'.dependencies]

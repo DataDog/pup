@@ -203,7 +203,7 @@ pub async fn raw_request(
         req = req.query(query);
     }
 
-    req = apply_auth(req, cfg, &method_name, path)?;
+    req = apply_auth(req, cfg, &method_name, path).await?;
 
     req = req
         .header("Accept", accept)
@@ -261,7 +261,7 @@ pub async fn raw_get(
     let client = reqwest::Client::new();
     let mut req = client.get(&url);
 
-    req = apply_auth(req, cfg, "GET", path)?;
+    req = apply_auth(req, cfg, "GET", path).await?;
 
     if !query.is_empty() {
         req = req.query(query);
@@ -293,7 +293,7 @@ pub async fn raw_patch(
     let client = reqwest::Client::new();
     let mut req = client.patch(&url);
 
-    req = apply_auth(req, cfg, "PATCH", path)?;
+    req = apply_auth(req, cfg, "PATCH", path).await?;
 
     let resp = req
         .header("Content-Type", "application/json")
@@ -356,7 +356,7 @@ async fn raw_post_impl(
     let client = reqwest::Client::new();
     let mut req = client.post(url);
 
-    req = apply_auth(req, cfg, "POST", path)?;
+    req = apply_auth(req, cfg, "POST", path).await?;
 
     req = req
         .header("Content-Type", "application/json")
@@ -383,7 +383,7 @@ async fn raw_post_impl(
 /// endpoints require both API and application keys except for the V1 event
 /// intake endpoint, which requires only the API key. Exposed so the generic
 /// `pup api` passthrough reuses the same auth routing as the typed clients.
-pub fn apply_auth(
+pub async fn apply_auth(
     mut req: reqwest::RequestBuilder,
     cfg: &Config,
     method: &str,
@@ -414,7 +414,7 @@ pub fn apply_auth(
         );
     }
 
-    if let Some(token) = &cfg.access_token {
+    if let Some(token) = cfg.bearer_token().await? {
         req = req.header("Authorization", format!("Bearer {token}"));
         return Ok(req);
     }
@@ -444,7 +444,7 @@ pub async fn raw_post_jsonapi(
     });
     let client = reqwest::Client::new();
     let mut req = client.post(&url);
-    req = apply_auth(req, cfg, "POST", path)?;
+    req = apply_auth(req, cfg, "POST", path).await?;
     let resp = req
         .header("Content-Type", "application/vnd.api+json")
         .header("Accept", "application/vnd.api+json")
@@ -468,7 +468,7 @@ pub async fn raw_put(
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let req = client.put(&url);
-    let req = apply_auth(req, cfg, "PUT", path)?;
+    let req = apply_auth(req, cfg, "PUT", path).await?;
     let resp = req
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
@@ -498,7 +498,7 @@ pub async fn raw_post_lenient(
     let client = reqwest::Client::new();
     let mut req = client.post(&url);
 
-    if let Some(token) = &cfg.access_token {
+    if let Some(token) = cfg.bearer_token().await? {
         req = req.header("Authorization", format!("Bearer {token}"));
     } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
         req = req
@@ -525,7 +525,7 @@ pub async fn raw_delete(cfg: &Config, path: &str) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
     let mut req = client.delete(&url);
 
-    req = apply_auth(req, cfg, "DELETE", path)?;
+    req = apply_auth(req, cfg, "DELETE", path).await?;
 
     let resp = req
         .header("Accept", "application/json")
@@ -549,6 +549,8 @@ mod tests {
 
     fn test_cfg() -> Config {
         Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test".into()),
             app_key: Some("test".into()),
             access_token: None,
@@ -769,14 +771,14 @@ mod tests {
         cleanup_env();
     }
 
-    #[test]
-    fn test_other_oauth_excluded_endpoints_still_require_both_keys() {
+    #[tokio::test]
+    async fn test_other_oauth_excluded_endpoints_still_require_both_keys() {
         // Uses the indefinitely-exempt validate_keys entry as the example.
         let mut cfg = test_cfg();
         cfg.app_key = None;
         let req = reqwest::Client::new().get("https://api.datadoghq.com/api/v2/validate_keys");
 
-        let err = match apply_auth(req, &cfg, "GET", "/api/v2/validate_keys") {
+        let err = match apply_auth(req, &cfg, "GET", "/api/v2/validate_keys").await {
             Ok(_) => panic!("excluded endpoint should require both keys"),
             Err(err) => err,
         };

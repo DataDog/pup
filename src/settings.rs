@@ -8,7 +8,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 /// Runtime configuration with precedence: flag > env > file > default.
+#[derive(Clone)]
 pub struct Config {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub aws_wif_auth: Option<crate::auth::aws_wif::AwsWifAuth>,
     pub api_key: Option<String>,
     pub app_key: Option<String>,
     pub access_token: Option<String>,
@@ -73,6 +76,8 @@ struct ProfileConfig {
 #[cfg(not(feature = "browser"))]
 #[derive(Deserialize, Default)]
 struct FileConfig {
+    auth_provider: Option<String>,
+    org_uuid: Option<String>,
     api_key: Option<String>,
     app_key: Option<String>,
     access_token: Option<String>,
@@ -99,10 +104,33 @@ impl Config {
     pub fn from_env() -> Result<Self> {
         let file_cfg = load_config_file().unwrap_or_default();
 
+        let auth_provider = env_or("DD_AUTH_PROVIDER", file_cfg.auth_provider);
+        let aws_mode = match auth_provider.as_deref() {
+            None => false,
+            Some("aws") => true,
+            Some(_) => bail!("unsupported DD_AUTH_PROVIDER / auth_provider (expected aws)"),
+        };
+        #[cfg(target_arch = "wasm32")]
+        if aws_mode {
+            bail!("AWS workload identity authentication requires a native build; use DD_ACCESS_TOKEN in WASM");
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let aws_wif_auth = if aws_mode {
+            let org_uuid = env_or("DD_ORG_UUID", file_cfg.org_uuid).ok_or_else(|| {
+                anyhow::anyhow!("AWS authentication requires DD_ORG_UUID or org_uuid in config")
+            })?;
+            Some(crate::auth::aws_wif::AwsWifAuth::new(&org_uuid)?)
+        } else {
+            None
+        };
+
         let access_token = env_or("DD_ACCESS_TOKEN", file_cfg.access_token);
         let explicit_site = env_or("DD_SITE", file_cfg.site);
         let site_explicit = explicit_site.is_some();
         let org = env_or("DD_ORG", file_cfg.org); // flag override applied in main_inner
+        if aws_mode && org.is_some() {
+            bail!("AWS authentication uses DD_ORG_UUID, not a named OAuth session; unset DD_ORG / org");
+        }
 
         // Reject a whitespace-only explicit site before normalize_site can silently
         // convert it to "datadoghq.com". `env_or` filters empty strings but not
@@ -120,6 +148,9 @@ impl Config {
         // bare `--org foo` (or DD_ORG=foo) should pick up that site automatically.
         let raw_site = explicit_site
             .or_else(|| {
+                if aws_mode {
+                    return None;
+                }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     org.as_deref()
@@ -131,6 +162,9 @@ impl Config {
                 }
             })
             .or_else(|| {
+                if aws_mode {
+                    return None;
+                }
                 // When no org is set and no explicit site was given, fall back to
                 // the single no-org ("default") session's site. This fixes bare
                 // commands after a datacenter-switched login (e.g. datadoghq.eu):
@@ -165,11 +199,25 @@ impl Config {
 
         // If no token from env/file, try loading from keychain/storage (where `pup auth login` saves)
         #[cfg(not(target_arch = "wasm32"))]
-        let access_token = access_token.or_else(|| load_token_from_storage(&site, org.as_deref()));
+        let access_token = if aws_mode {
+            None
+        } else {
+            access_token.or_else(|| load_token_from_storage(&site, org.as_deref()))
+        };
 
         let cfg = Config {
-            api_key: env_or("DD_API_KEY", file_cfg.api_key),
-            app_key: env_or("DD_APP_KEY", file_cfg.app_key),
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth,
+            api_key: if aws_mode {
+                None
+            } else {
+                env_or("DD_API_KEY", file_cfg.api_key)
+            },
+            app_key: if aws_mode {
+                None
+            } else {
+                env_or("DD_APP_KEY", file_cfg.app_key)
+            },
             access_token,
             site,
             site_explicit,
@@ -339,6 +387,9 @@ impl Config {
 
     /// Validate that sufficient auth credentials are configured.
     pub fn validate_auth(&self) -> Result<()> {
+        if self.has_aws_wif_auth() {
+            return Ok(());
+        }
         if self.access_token.is_none() && (self.api_key.is_none() || self.app_key.is_none()) {
             #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
             if has_stored_refresh_token(&self.site, self.org.as_deref()) {
@@ -372,7 +423,29 @@ impl Config {
     }
 
     pub fn has_bearer_token(&self) -> bool {
-        self.access_token.is_some()
+        self.access_token.is_some() || self.has_aws_wif_auth()
+    }
+
+    pub fn has_aws_wif_auth(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.aws_wif_auth.is_some()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
+    }
+
+    /// Resolve the current bearer credential immediately before a request.
+    pub async fn bearer_token(&self) -> Result<Option<String>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(auth) = &self.aws_wif_auth {
+            // AWS credential discovery has a large future. Keep it off the CLI
+            // dispatch stack, including on Windows' smaller main-thread stack.
+            return Box::pin(auth.token(&self.api_base_url())).await.map(Some);
+        }
+        Ok(self.access_token.clone())
     }
 
     /// Returns the API host (e.g., `api.datadoghq.com`).
@@ -606,6 +679,9 @@ pub fn parse_scopes(s: &str) -> Vec<String> {
 /// one resolution path.
 #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
 pub fn apply_org_override(cfg: &mut Config, org: String) -> Result<()> {
+    if cfg.has_aws_wif_auth() {
+        bail!("AWS authentication uses DD_ORG_UUID; --org selects an OAuth session and cannot be combined with it");
+    }
     cfg.org = Some(org);
     if !cfg.site_explicit {
         if let Some(saved_site) = cfg
@@ -982,6 +1058,8 @@ mod tests {
 
     fn make_cfg(api_key: Option<&str>, app_key: Option<&str>, token: Option<&str>) -> Config {
         Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: api_key.map(String::from),
             app_key: app_key.map(String::from),
             access_token: token.map(String::from),
@@ -1977,6 +2055,8 @@ mod tests {
         // Simulate the post-from_env state where we resolved org-a's site via
         // the registry (site_explicit=false because the user did not set DD_SITE).
         let mut cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2021,6 +2101,8 @@ mod tests {
         .unwrap();
 
         let mut cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2058,6 +2140,8 @@ mod tests {
         std::env::set_var("PUP_CONFIG_DIR", &tmp);
 
         let mut cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2100,6 +2184,8 @@ mod tests {
 
         // Simulate from_env having adopted the no-org default session's site.
         let mut cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2138,6 +2224,8 @@ mod tests {
         std::env::set_var("DD_ACCESS_TOKEN", "env-supplied-token");
 
         let mut cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: Some("env-supplied-token".into()),
@@ -2184,6 +2272,8 @@ mod tests {
         .unwrap();
 
         let mut cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2214,6 +2304,8 @@ mod tests {
     #[test]
     fn test_set_site_explicit_marks_site_as_user_provided() {
         let mut cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2235,6 +2327,8 @@ mod tests {
     #[test]
     fn test_set_site_explicit_rejects_smuggling_value() {
         let mut cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2255,6 +2349,8 @@ mod tests {
     #[test]
     fn test_set_site_explicit_rejects_empty_string() {
         let mut cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,

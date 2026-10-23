@@ -94,7 +94,7 @@ pub async fn attachments_delete(
     let client = reqwest::Client::new();
     let mut req = client.delete(&url);
 
-    if let Some(token) = &cfg.access_token {
+    if let Some(token) = cfg.bearer_token().await? {
         req = req.header("Authorization", format!("Bearer {token}"));
     } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
         req = req

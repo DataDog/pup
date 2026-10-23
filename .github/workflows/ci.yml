@@ -34,7 +34,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: cargo-ubuntu-check-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-ubuntu-
+          restore-keys: cargo-ubuntu-check-
       - name: Cache cargo-llvm-cov
         id: cache-llvm-cov
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -62,8 +62,12 @@ jobs:
           name: coverage-report
           path: lcov.info
 
+  # Generated client-bump PRs only change platform-independent API client code, which
+  # the host build above already compiles. They skip the cross-compile jobs; main still
+  # builds every target on push.
   cross-compile-linux:
     name: Cross Compile (Linux)
+    if: ${{ !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "-C target-feature=+crt-static"
@@ -138,6 +142,7 @@ jobs:
 
   cross-compile-macos:
     name: Cross Compile (macOS)
+    if: ${{ !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -181,6 +186,7 @@ jobs:
 
   cross-compile-windows:
     name: Cross Compile (Windows)
+    if: ${{ !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
     runs-on: windows-latest
     defaults:
       run:
@@ -240,7 +246,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: cargo-ubuntu-wasm-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-ubuntu-
+          restore-keys: cargo-ubuntu-wasm-
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
@@ -291,5 +297,7 @@ jobs:
           owner: ddoghq
           repo: datadog-api-spec
           # A cancelled run was superseded by a newer push to the generated branch.
-          status: ${{ contains(needs.*.result, 'cancelled') && 'pending' || (contains(needs.*.result, 'failure') || contains(needs.*.result, 'skipped')) && 'failure' || 'success' }}
+          # The cross-compile jobs are skipped on generated branches, so only the
+          # host check and WASM jobs must succeed.
+          status: ${{ contains(needs.*.result, 'cancelled') && 'pending' || (contains(needs.*.result, 'failure') || needs.check-test-coverage.result != 'success' || needs.wasm.result != 'success') && 'failure' || 'success' }}
           context: main/unit

@@ -14,6 +14,11 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Release builds of pup take 3-4x longer than debug ones. The cross-compile
+  # jobs only build release on release PRs, to catch release-only breakage
+  # before release.yml runs on the tag; every other run builds debug.
+  BUILD_FLAGS: ${{ startsWith(github.head_ref, 'release/') && '--release' || '' }}
+  BUILD_DIR: ${{ startsWith(github.head_ref, 'release/') && 'release' || 'debug' }}
 
 jobs:
   check-test-coverage:
@@ -76,15 +81,16 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: cargo-ubuntu-cross-linux-musl-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-ubuntu-
+          key: cargo-ubuntu-cross-linux-musl-${{ env.BUILD_DIR }}-${{ hashFiles('**/Cargo.lock') }}
+          # Release PRs fall back to main's debug cache for the registry and git deps.
+          restore-keys: cargo-ubuntu-cross-linux-musl-debug-
       - uses: ./.github/actions/install-musl-toolchain
       - name: Build x86_64 musl
-        run: cargo build --release --target x86_64-unknown-linux-musl --features vendored-openssl
+        run: cargo build $BUILD_FLAGS --target x86_64-unknown-linux-musl --features vendored-openssl
       - name: Smoke test auth token credential command
         run: |
           set -euo pipefail
-          bin=target/x86_64-unknown-linux-musl/release/pup
+          bin=target/x86_64-unknown-linux-musl/$BUILD_DIR/pup
           expected_token=pup-ci-placeholder-token
           config_dir="$(mktemp -d)"
           trap 'rm -rf "$config_dir"' EXIT
@@ -111,24 +117,24 @@ jobs:
           grep -q 'no token available' "$config_dir/stderr"
       - name: Verify x86_64 static linkage
         run: |
-          file target/x86_64-unknown-linux-musl/release/pup
-          if readelf -d target/x86_64-unknown-linux-musl/release/pup | grep -q "(NEEDED)"; then
+          file target/x86_64-unknown-linux-musl/$BUILD_DIR/pup
+          if readelf -d target/x86_64-unknown-linux-musl/$BUILD_DIR/pup | grep -q "(NEEDED)"; then
             echo "ERROR: binary has dynamic NEEDED entries"
             exit 1
           fi
       - name: Build aarch64 musl
-        run: cargo build --release --target aarch64-unknown-linux-musl --features vendored-openssl
+        run: cargo build $BUILD_FLAGS --target aarch64-unknown-linux-musl --features vendored-openssl
       - name: Verify aarch64 static linkage
         run: |
-          file target/aarch64-unknown-linux-musl/release/pup
-          if readelf -d target/aarch64-unknown-linux-musl/release/pup | grep -q "(NEEDED)"; then
+          file target/aarch64-unknown-linux-musl/$BUILD_DIR/pup
+          if readelf -d target/aarch64-unknown-linux-musl/$BUILD_DIR/pup | grep -q "(NEEDED)"; then
             echo "ERROR: binary has dynamic NEEDED entries"
             exit 1
           fi
       - name: Report sizes
         run: |
-          ls -lh target/x86_64-unknown-linux-musl/release/pup
-          ls -lh target/aarch64-unknown-linux-musl/release/pup
+          ls -lh target/x86_64-unknown-linux-musl/$BUILD_DIR/pup
+          ls -lh target/aarch64-unknown-linux-musl/$BUILD_DIR/pup
 
   cross-compile-macos:
     name: Cross Compile (macOS)
@@ -142,8 +148,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: cargo-cross-macos-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-cross-macos-
+          key: cargo-cross-macos-${{ env.BUILD_DIR }}-${{ hashFiles('**/Cargo.lock') }}
+          # Release PRs fall back to main's debug cache for the registry and git deps.
+          restore-keys: cargo-cross-macos-debug-
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
@@ -155,7 +162,7 @@ jobs:
           for target in x86_64-apple-darwin aarch64-apple-darwin; do
             (set -o pipefail
              echo "==> Starting ${target}"
-             cargo build --release --target "${target}" 2>&1 \
+             cargo build $BUILD_FLAGS --target "${target}" 2>&1 \
                | tee "/tmp/${target}.log"
             ) &
             PIDS+=($!)
@@ -169,7 +176,7 @@ jobs:
         run: |
           for target in x86_64-apple-darwin aarch64-apple-darwin; do
             echo "${target}:"
-            ls -lh "target/${target}/release/pup"
+            ls -lh "target/${target}/${BUILD_DIR}/pup"
           done
 
   cross-compile-windows:
@@ -187,8 +194,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: cargo-windows-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-windows-
+          key: cargo-windows-${{ env.BUILD_DIR }}-${{ hashFiles('**/Cargo.lock') }}
+          # Release PRs fall back to main's debug cache, which also warms the test build.
+          restore-keys: cargo-windows-debug-
       - name: Enable long paths
         run: git config --global core.longpaths true
       - name: Install NASM
@@ -199,12 +207,14 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+      # Debug runs get the binary from `cargo test`, which builds it for the CLI tests.
       - name: Build
+        if: env.BUILD_DIR == 'release'
         run: cargo build --release
       - name: Run tests
         run: cargo test --verbose -- --test-threads=1
       - name: Report binary size
-        run: ls -lh target/release/pup.exe
+        run: ls -lh "target/${BUILD_DIR}/pup.exe"
 
   npm-packaging:
     name: npm Packaging

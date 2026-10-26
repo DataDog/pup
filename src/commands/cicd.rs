@@ -373,6 +373,44 @@ mod tests {
     use crate::test_support::*;
 
     #[tokio::test]
+    async fn test_cicd_search_decodes_gzip_responses() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        // gzip-compressed {"data":[]} exercises decoding before SDK deserialization.
+        let body = vec![
+            31, 139, 8, 0, 0, 0, 0, 0, 2, 255, 171, 86, 74, 73, 44, 73, 84, 178, 138, 142, 173, 5,
+            0, 148, 100, 178, 94, 11, 0, 0, 0,
+        ];
+        let response = s
+            .mock(
+                "POST",
+                mockito::Matcher::Regex("^/api/v2/ci/(pipelines|tests)/events/search$".into()),
+            )
+            .with_header("content-type", "application/json")
+            .with_header("content-encoding", "gzip")
+            .with_body(body)
+            .expect(2)
+            .create_async()
+            .await;
+        let events = super::events_search(
+            &cfg,
+            "*".into(),
+            "1h".into(),
+            "now".into(),
+            1,
+            "desc".into(),
+            "pipeline".into(),
+        )
+        .await;
+        let tests = super::tests_search(&cfg, "*".into(), "1h".into(), "now".into(), 1).await;
+        cleanup_env();
+        events.expect("pipeline search should decode gzip JSON");
+        tests.expect("test search should decode gzip JSON");
+        response.assert_async().await;
+    }
+
+    #[tokio::test]
     async fn test_cicd_pipelines_list() {
         let _lock = lock_env().await;
         let mut s = mockito::Server::new_async().await;

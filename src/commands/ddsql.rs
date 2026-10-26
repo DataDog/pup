@@ -412,7 +412,9 @@ async fn get_reference_table_columns(
         let params = [
             ("page[limit]", "100"),
             ("page[offset]", offset_param.as_str()),
-            ("filter[table_name_contains]", table_name),
+            // Use the API's exact-name filter so column discovery doesn't scan
+            // the organization's entire table catalog (and exhaust its rate limit).
+            ("filter[table_name][exact]", table_name),
         ];
         let resp = raw_client::raw_get(cfg, REFERENCE_TABLES_PATH, &params).await?;
         let (tables, next_offset) = parse_reference_tables(resp)?;
@@ -1505,6 +1507,75 @@ mod tests {
             "description": "", "row_count": 1, "source": "LOCAL_FILE", "status": "DONE",
             "table_name": name, "schema": {"primary_keys": [], "fields": []}
         }})
+    }
+
+    #[tokio::test]
+    async fn test_reference_columns_uses_api_exact_filter() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mut table = reference_table("inventory_hosts");
+        table["attributes"]["schema"] = json!({
+            "primary_keys": ["host_id"],
+            "fields": [{"name": "host_id", "type": "STRING"}]
+        });
+        let request = server
+            .mock("GET", REFERENCE_TABLES_PATH)
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded(
+                    "filter[table_name][exact]".into(),
+                    "inventory_hosts".into(),
+                ),
+                mockito::Matcher::UrlEncoded("page[offset]".into(), "0".into()),
+            ]))
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({"data": [table], "meta": {"page": {"next_offset": null}}}).to_string(),
+            )
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = get_reference_table_columns(&cfg, "inventory_hosts").await;
+
+        request.assert_async().await;
+        cleanup_env();
+        assert_eq!(
+            result.unwrap(),
+            vec![DdsqlSchemaColumn {
+                name: "host_id".into(),
+                ty: "VARCHAR".into(),
+                raw_type: "STRING".into(),
+                primary_key: true,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reference_columns_missing_table_stops_after_filtered_page() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let request = server
+            .mock("GET", REFERENCE_TABLES_PATH)
+            .match_query(mockito::Matcher::UrlEncoded(
+                "filter[table_name][exact]".into(),
+                "missing_table".into(),
+            ))
+            .with_header("content-type", "application/json")
+            .with_body(json!({"data": [], "meta": {"page": {"next_offset": null}}}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = get_reference_table_columns(&cfg, "missing_table").await;
+
+        request.assert_async().await;
+        cleanup_env();
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "reference table `missing_table` not found"
+        );
     }
 
     #[tokio::test]

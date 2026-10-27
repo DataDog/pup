@@ -15,7 +15,7 @@ fn resolve_or_bail(input: Option<&str>) -> Result<Vec<String>> {
     if platforms.iter().any(|p| p.is_empty()) {
         bail!(
             "could not auto-detect AI assistant. Specify a platform: claude, \
-             cursor, codex, opencode, windsurf, gemini, pi, devin, or `all`."
+             cursor, codex, opencode, windsurf, gemini, pi, devin, hermes, or `all`."
         );
     }
     for p in &platforms {
@@ -24,12 +24,12 @@ fn resolve_or_bail(input: Option<&str>) -> Result<Vec<String>> {
                 bail!(
                     "auto-detected '{p}' is not a supported platform. Specify \
                      one explicitly: claude, cursor, codex, opencode, windsurf, \
-                     gemini, pi, devin, or `all`."
+                     gemini, pi, devin, hermes, or `all`."
                 );
             }
             bail!(
                 "unknown platform: '{p}'. Supported: claude, cursor, codex, \
-                 opencode, windsurf, gemini, pi, devin, or `all`."
+                 opencode, windsurf, gemini, pi, devin, hermes, or `all`."
             );
         }
     }
@@ -295,7 +295,15 @@ mod tests {
     fn resolve_or_bail_expands_all() {
         let p = resolve_or_bail(Some("all")).unwrap();
         // All known platforms — must include each canonical name.
-        for expected in ["claude-code", "cursor", "codex", "opencode", "pi"] {
+        for expected in [
+            "claude-code",
+            "cursor",
+            "codex",
+            "opencode",
+            "pi",
+            "devin",
+            "hermes",
+        ] {
             assert!(p.iter().any(|x| x == expected), "missing {expected}");
         }
     }

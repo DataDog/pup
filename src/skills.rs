@@ -678,6 +678,17 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         user_extensions: "",
         uses_agent_md: false,
     },
+    PlatformSpec {
+        name: "hermes",
+        aliases: &[],
+        project_skills: ".hermes/skills",
+        user_skills: ".hermes/skills",
+        project_agents: "",
+        user_agents: "",
+        project_extensions: "",
+        user_extensions: "",
+        uses_agent_md: false,
+    },
 ];
 
 /// CLI-typed selector for `pup skills install <platform>` and `pup skills
@@ -703,6 +714,7 @@ pub enum SkillsPlatform {
     #[clap(alias = "pi-dev")]
     Pi,
     Devin,
+    Hermes,
     All,
 }
 
@@ -721,6 +733,7 @@ impl SkillsPlatform {
             SkillsPlatform::GeminiCode => "gemini-code",
             SkillsPlatform::Pi => "pi",
             SkillsPlatform::Devin => "devin",
+            SkillsPlatform::Hermes => "hermes",
             SkillsPlatform::All => "all",
         }
     }
@@ -1358,6 +1371,24 @@ mod tests {
     }
 
     #[test]
+    fn test_skills_dir_hermes_project_scope() {
+        let root = PathBuf::from("/tmp/test-project");
+        assert_eq!(
+            skills_dir_with_home("hermes", None, &root, false, None),
+            Some(root.join(".hermes/skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_hermes_user_scope() {
+        let home = PathBuf::from("/tmp/fake-home");
+        assert_eq!(
+            skills_dir_with_home("hermes", Some(&home), &PathBuf::from("/unused"), true, None),
+            Some(home.join(".hermes/skills"))
+        );
+    }
+
+    #[test]
     fn test_skills_dir_unknown_returns_none() {
         let root = PathBuf::from("/tmp/test-project");
         assert_eq!(skills_dir_with_home("nope", None, &root, false, None), None);
@@ -1551,6 +1582,16 @@ mod tests {
     }
 
     #[test]
+    fn test_install_path_agent_hermes_as_skill() {
+        let root = PathBuf::from("/tmp/test-project");
+        let e = entry("logs", "agent", "");
+        let (path, fmt) = install_path(&e, "hermes", &root, None, false).unwrap();
+        assert_eq!(path, root.join(".hermes/skills/logs/SKILL.md"));
+        assert_ne!(path, root.join(".hermes/skills/logs.md"));
+        assert_eq!(fmt, InstallFormat::SkillMd);
+    }
+
+    #[test]
     fn test_install_path_dir_override() {
         let root = PathBuf::from("/tmp/test-project");
         let e = entry("logs", "agent", "");
@@ -1631,6 +1672,15 @@ mod tests {
     fn test_lookup_platform_devin() {
         let spec = lookup_platform("devin").expect("devin must be a known platform");
         assert_eq!(spec.name, "devin");
+        assert!(spec.aliases.is_empty());
+        assert!(!spec.uses_agent_md);
+        assert!(!spec.is_extension_only());
+    }
+
+    #[test]
+    fn test_lookup_platform_hermes() {
+        let spec = lookup_platform("hermes").expect("hermes must be a known platform");
+        assert_eq!(spec.name, "hermes");
         assert!(spec.aliases.is_empty());
         assert!(!spec.uses_agent_md);
         assert!(!spec.is_extension_only());

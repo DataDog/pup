@@ -107,6 +107,13 @@ static AGENT_DETECTORS: &[AgentDetector] = &[
         presence_vars: &["DEVIN_SESSION_ID"],
     },
     AgentDetector {
+        name: "hermes",
+        // Hermes Agent exports HERMES_AGENT=true (alongside AI_AGENT=hermes-agent)
+        // into every shell command it runs (tools/environments/base_session_env.py).
+        truthy_vars: &["HERMES_AGENT"],
+        presence_vars: &[],
+    },
+    AgentDetector {
         name: "generic-agent",
         truthy_vars: &["AGENT"],
         presence_vars: &[],
@@ -440,6 +447,27 @@ mod tests {
         let info = detect_agent_info();
         assert!(!info.detected);
         std::env::remove_var("DEVIN_SESSION_ID");
+    }
+
+    #[test]
+    fn test_detect_agent_info_hermes() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("HERMES_AGENT", "true");
+        let info = detect_agent_info();
+        assert!(info.detected);
+        assert_eq!(info.name, "hermes");
+        std::env::remove_var("HERMES_AGENT");
+    }
+
+    #[test]
+    fn test_detect_agent_info_hermes_false_not_detected() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        std::env::set_var("HERMES_AGENT", "false");
+        let info = detect_agent_info();
+        assert!(!info.detected);
+        std::env::remove_var("HERMES_AGENT");
     }
 
     #[test]

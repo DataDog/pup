@@ -2755,7 +2755,7 @@ enum Commands {
     ///   extension   Multi-file bundle for a coding-agent platform (e.g. pi)
     ///
     /// PLATFORMS:
-    ///   claude (or claude-code), cursor, codex, opencode, windsurf, gemini, pi, devin
+    ///   claude (or claude-code), cursor, codex, opencode, windsurf, gemini, pi, devin, hermes
     ///   Pass `all` to install for every supported platform.
     ///   If omitted, pup auto-detects the platform from the environment.
     ///

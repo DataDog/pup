@@ -646,6 +646,7 @@ pup skills install codex
 pup skills install opencode
 pup skills install pi
 pup skills install devin
+pup skills install hermes
 
 # Install for every supported platform at once
 pup skills install all
@@ -662,7 +663,7 @@ pup skills list --type=agent
 pup skills install claude --name dd-monitors
 ```
 
-For Claude Code, skills install to `~/.claude/skills/` (or `.claude/skills/` with `--project`) and agents install to `~/.claude/agents/` (native subagent format). If the `CLAUDE_CONFIG_DIR` environment variable is set, user-scope installs go to `$CLAUDE_CONFIG_DIR/skills/` and `$CLAUDE_CONFIG_DIR/agents/` instead of `~/.claude/`. For Cursor, Codex, opencode, and Devin, everything installs as `SKILL.md` under that tool's skills directory (e.g. `~/.cursor/skills/`, `~/.codex/skills/`, `~/.config/opencode/skills/`, and Devin's `~/.agents/skills/` — or `.agents/skills/` with `--project`).
+For Claude Code, skills install to `~/.claude/skills/` (or `.claude/skills/` with `--project`) and agents install to `~/.claude/agents/` (native subagent format). If the `CLAUDE_CONFIG_DIR` environment variable is set, user-scope installs go to `$CLAUDE_CONFIG_DIR/skills/` and `$CLAUDE_CONFIG_DIR/agents/` instead of `~/.claude/`. For Cursor, Codex, opencode, Devin, and Hermes, everything installs as `SKILL.md` under that tool's skills directory (e.g. `~/.cursor/skills/`, `~/.codex/skills/`, `~/.config/opencode/skills/`, Devin's `~/.agents/skills/` — or `.agents/skills/` with `--project` — and Hermes Agent's `~/.hermes/skills/` — or `.hermes/skills/` with `--project`; Hermes only loads project-local skills from repos trusted via `hermes skills trust`).
 
 Pup ships plugin manifest files for several AI coding assistants:
 

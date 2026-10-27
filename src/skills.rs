@@ -571,6 +571,12 @@ pub struct PlatformSpec {
     /// True iff agents install as Claude-Code-style `<name>.md` subagents
     /// rather than `SKILL.md` files.
     pub uses_agent_md: bool,
+    /// Environment variable the harness itself honours to relocate its whole
+    /// user-scope config directory (e.g. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
+    /// `HERMES_HOME`). When set, pup resolves user-scope installs under it so
+    /// skills land where the harness actually looks. Empty when the harness
+    /// has no such convention. See [`config_dir_from_env`].
+    pub user_config_dir_env: &'static str,
 }
 
 impl PlatformSpec {
@@ -600,6 +606,7 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         project_extensions: "",
         user_extensions: "",
         uses_agent_md: true,
+        user_config_dir_env: "CLAUDE_CONFIG_DIR",
     },
     PlatformSpec {
         name: "cursor",
@@ -611,6 +618,7 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         project_extensions: "",
         user_extensions: "",
         uses_agent_md: false,
+        user_config_dir_env: "",
     },
     PlatformSpec {
         name: "codex",
@@ -622,6 +630,7 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         project_extensions: "",
         user_extensions: "",
         uses_agent_md: false,
+        user_config_dir_env: "CODEX_HOME",
     },
     PlatformSpec {
         name: "opencode",
@@ -633,6 +642,7 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         project_extensions: "",
         user_extensions: "",
         uses_agent_md: false,
+        user_config_dir_env: "",
     },
     PlatformSpec {
         name: "windsurf",
@@ -644,6 +654,7 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         project_extensions: "",
         user_extensions: "",
         uses_agent_md: false,
+        user_config_dir_env: "",
     },
     PlatformSpec {
         name: "gemini-code",
@@ -655,6 +666,7 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         project_extensions: "",
         user_extensions: "",
         uses_agent_md: false,
+        user_config_dir_env: "",
     },
     PlatformSpec {
         name: "pi",
@@ -666,6 +678,7 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         project_extensions: ".pi/extensions",
         user_extensions: ".pi/agent/extensions",
         uses_agent_md: false,
+        user_config_dir_env: "",
     },
     PlatformSpec {
         name: "devin",
@@ -677,6 +690,7 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         project_extensions: "",
         user_extensions: "",
         uses_agent_md: false,
+        user_config_dir_env: "",
     },
     PlatformSpec {
         name: "hermes",
@@ -688,6 +702,7 @@ pub static PLATFORMS: &[PlatformSpec] = &[
         project_extensions: "",
         user_extensions: "",
         uses_agent_md: false,
+        user_config_dir_env: "HERMES_HOME",
     },
 ];
 
@@ -777,18 +792,30 @@ pub fn resolve_platform_list(input: Option<&str>) -> Vec<String> {
     vec![resolve_platform_name(input)]
 }
 
-/// Read the `CLAUDE_CONFIG_DIR` environment variable.
+/// Read the platform's config-directory override from the environment.
 ///
-/// Claude Code honours this variable to override the default `~/.claude`
-/// configuration directory, allowing multiple accounts to run side-by-side
-/// (e.g. `CLAUDE_CONFIG_DIR=~/.claude-work claude`). Pup respects it when
-/// resolving **user-scope** install paths for the `claude-code` platform so
-/// that skills and agents land in the same place Claude Code expects.
+/// Some harnesses let users relocate their entire config directory with one
+/// environment variable, and read skills from under it:
 ///
-/// Returns `None` when the variable is unset or empty. Project-scope installs
-/// are never affected — they always resolve relative to the project root.
-pub fn claude_code_config_dir_from_env() -> Option<PathBuf> {
-    std::env::var_os("CLAUDE_CONFIG_DIR")
+/// - Claude Code: `CLAUDE_CONFIG_DIR` replaces `~/.claude` (e.g.
+///   `CLAUDE_CONFIG_DIR=~/.claude-work claude` for side-by-side accounts).
+/// - Codex: `CODEX_HOME` replaces `~/.codex`; Codex documents it as the root
+///   for all its state including skills, and loads `$CODEX_HOME/skills` first.
+/// - Hermes Agent: `HERMES_HOME` replaces `~/.hermes` (profiles, containers);
+///   its skills tool reads `$HERMES_HOME/skills`.
+///
+/// Pup honours the variable named by [`PlatformSpec::user_config_dir_env`]
+/// when resolving **user-scope** install paths, so skills and agents land
+/// where the harness actually looks instead of a `~/.<tool>` it will never
+/// read. Returns `None` for platforms with no such convention, or when the
+/// variable is unset or empty. Project-scope installs are never affected —
+/// they always resolve relative to the project root.
+pub fn config_dir_from_env(platform: &str) -> Option<PathBuf> {
+    let spec = lookup_platform(platform)?;
+    if spec.user_config_dir_env.is_empty() {
+        return None;
+    }
+    std::env::var_os(spec.user_config_dir_env)
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
 }
@@ -800,20 +827,19 @@ pub fn extensions_dir(platform: &str, project_root: &Path, user_scope: bool) -> 
         dirs::home_dir().as_deref(),
         project_root,
         user_scope,
-        claude_code_config_dir_from_env().as_deref(),
+        config_dir_from_env(platform).as_deref(),
     )
 }
 
 /// Same as [`extensions_dir`] but takes an explicit `home` directory, so tests
-/// don't have to mutate the process-global `HOME` env var. The
-/// `claude_config_dir` parameter mirrors [`claude_code_config_dir_from_env`]
-/// for the same testability reason.
+/// don't have to mutate the process-global `HOME` env var. The `config_dir`
+/// parameter mirrors [`config_dir_from_env`] for the same testability reason.
 pub fn extensions_dir_with_home(
     platform: &str,
     home: Option<&Path>,
     project_root: &Path,
     user_scope: bool,
-    claude_config_dir: Option<&Path>,
+    config_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     let spec = lookup_platform(platform)?;
     let sub = if user_scope {
@@ -821,7 +847,7 @@ pub fn extensions_dir_with_home(
     } else {
         spec.project_extensions
     };
-    resolve_relative(sub, home, project_root, user_scope, claude_config_dir)
+    resolve_relative(spec, sub, home, project_root, user_scope, config_dir)
 }
 
 /// Determine the skills install directory for a platform.
@@ -831,19 +857,18 @@ pub fn skills_dir(platform: &str, project_root: &Path, user_scope: bool) -> Opti
         dirs::home_dir().as_deref(),
         project_root,
         user_scope,
-        claude_code_config_dir_from_env().as_deref(),
+        config_dir_from_env(platform).as_deref(),
     )
 }
 
 /// Same as [`skills_dir`] but takes an explicit `home` directory. The
-/// `claude_config_dir` parameter mirrors [`claude_code_config_dir_from_env`]
-/// for testability.
+/// `config_dir` parameter mirrors [`config_dir_from_env`] for testability.
 pub fn skills_dir_with_home(
     platform: &str,
     home: Option<&Path>,
     project_root: &Path,
     user_scope: bool,
-    claude_config_dir: Option<&Path>,
+    config_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     let spec = lookup_platform(platform)?;
     let sub = if user_scope {
@@ -851,7 +876,7 @@ pub fn skills_dir_with_home(
     } else {
         spec.project_skills
     };
-    resolve_relative(sub, home, project_root, user_scope, claude_config_dir)
+    resolve_relative(spec, sub, home, project_root, user_scope, config_dir)
 }
 
 /// Determine the agents (subagents) install directory for a platform.
@@ -863,19 +888,18 @@ pub fn agents_dir(platform: &str, project_root: &Path, user_scope: bool) -> Opti
         dirs::home_dir().as_deref(),
         project_root,
         user_scope,
-        claude_code_config_dir_from_env().as_deref(),
+        config_dir_from_env(platform).as_deref(),
     )
 }
 
 /// Same as [`agents_dir`] but takes an explicit `home` directory. The
-/// `claude_config_dir` parameter mirrors [`claude_code_config_dir_from_env`]
-/// for testability.
+/// `config_dir` parameter mirrors [`config_dir_from_env`] for testability.
 pub fn agents_dir_with_home(
     platform: &str,
     home: Option<&Path>,
     project_root: &Path,
     user_scope: bool,
-    claude_config_dir: Option<&Path>,
+    config_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     let spec = lookup_platform(platform)?;
     let sub = if user_scope {
@@ -885,9 +909,9 @@ pub fn agents_dir_with_home(
     };
     if sub.is_empty() {
         // Empty sentinel means "share the skills dir for this scope."
-        return skills_dir_with_home(platform, home, project_root, user_scope, claude_config_dir);
+        return skills_dir_with_home(platform, home, project_root, user_scope, config_dir);
     }
-    resolve_relative(sub, home, project_root, user_scope, claude_config_dir)
+    resolve_relative(spec, sub, home, project_root, user_scope, config_dir)
 }
 
 /// Resolve a forward-slash-separated relative subpath against either the home
@@ -895,25 +919,28 @@ pub fn agents_dir_with_home(
 /// when the subpath is empty (the sentinel for "not applicable") or when user
 /// scope is requested but `home` is unavailable.
 ///
-/// When `claude_config_dir` is `Some` and the subpath begins with `.claude/`,
-/// the `.claude` prefix is replaced by the config dir. This honours the
-/// `CLAUDE_CONFIG_DIR` environment variable for user-scope `claude-code`
-/// installs. Project scope is never affected.
+/// When `config_dir` is `Some` and the platform declares a
+/// [`PlatformSpec::user_config_dir_env`], the subpath's leading `.<tool>`
+/// component is replaced by the config dir: `.codex/skills` becomes
+/// `$CODEX_HOME/skills`, `.claude/agents` becomes `$CLAUDE_CONFIG_DIR/agents`.
+/// Platforms without the convention ignore `config_dir`. Project scope is
+/// never affected.
 fn resolve_relative(
+    spec: &PlatformSpec,
     sub: &str,
     home: Option<&Path>,
     project_root: &Path,
     user_scope: bool,
-    claude_config_dir: Option<&Path>,
+    config_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     if sub.is_empty() {
         return None;
     }
 
-    // Honour CLAUDE_CONFIG_DIR for user-scope paths that start with .claude/.
-    if user_scope {
-        if let Some(cfg) = claude_config_dir {
-            if let Some(rest) = sub.strip_prefix(".claude/") {
+    // Honour the harness's config-dir override for user-scope paths.
+    if user_scope && !spec.user_config_dir_env.is_empty() {
+        if let Some(cfg) = config_dir {
+            if let Some((_, rest)) = sub.split_once('/') {
                 let mut base = cfg.to_path_buf();
                 for part in rest.split('/') {
                     base.push(part);
@@ -1516,12 +1543,159 @@ mod tests {
         );
     }
 
+    // ---- CODEX_HOME / HERMES_HOME support (same mechanism) -------------------
+
     #[test]
-    fn test_claude_code_config_dir_from_env_unset() {
-        // We can't fully control env vars in a concurrent test runner, but we
-        // can at least verify the function returns Option<PathBuf> without
-        // panicking. The actual value depends on the test environment.
-        let _ = claude_code_config_dir_from_env();
+    fn test_skills_dir_codex_user_with_config_dir() {
+        // Codex loads `$CODEX_HOME/skills` first; CODEX_HOME replaces ~/.codex.
+        let home = PathBuf::from("/tmp/fake-home");
+        let cfg = PathBuf::from("/data/.codex-home");
+        assert_eq!(
+            skills_dir_with_home(
+                "codex",
+                Some(&home),
+                &PathBuf::from("/unused"),
+                true,
+                Some(&cfg),
+            ),
+            Some(cfg.join("skills"))
+        );
+    }
+
+    #[test]
+    fn test_agents_dir_codex_user_with_config_dir() {
+        // Codex has no agents dir, so agents share $CODEX_HOME/skills.
+        let cfg = PathBuf::from("/data/.codex-home");
+        assert_eq!(
+            agents_dir_with_home("codex", None, &PathBuf::from("/unused"), true, Some(&cfg)),
+            Some(cfg.join("skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_hermes_user_with_config_dir() {
+        // Hermes reads `$HERMES_HOME/skills`; HERMES_HOME replaces ~/.hermes.
+        let home = PathBuf::from("/tmp/fake-home");
+        let cfg = PathBuf::from("/data/.hermes-home");
+        assert_eq!(
+            skills_dir_with_home(
+                "hermes",
+                Some(&home),
+                &PathBuf::from("/unused"),
+                true,
+                Some(&cfg),
+            ),
+            Some(cfg.join("skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_codex_project_scope_ignores_config_dir() {
+        let root = PathBuf::from("/tmp/test-project");
+        let cfg = PathBuf::from("/data/.codex-home");
+        assert_eq!(
+            skills_dir_with_home("codex", None, &root, false, Some(&cfg)),
+            Some(root.join(".codex/skills"))
+        );
+    }
+
+    #[test]
+    fn test_skills_dir_hermes_project_scope_ignores_config_dir() {
+        let root = PathBuf::from("/tmp/test-project");
+        let cfg = PathBuf::from("/data/.hermes-home");
+        assert_eq!(
+            skills_dir_with_home("hermes", None, &root, false, Some(&cfg)),
+            Some(root.join(".hermes/skills"))
+        );
+    }
+
+    #[test]
+    fn test_install_path_skill_codex_user_scope_with_config_dir() {
+        // End to end: a skill lands at $CODEX_HOME/skills/<name>/SKILL.md.
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        std::env::set_var("CODEX_HOME", "/data/.codex-home");
+        let e = entry("logs", "skill", "");
+        let (path, fmt) = install_path(&e, "codex", Path::new("/unused"), None, true).unwrap();
+        std::env::remove_var("CODEX_HOME");
+        assert_eq!(
+            path,
+            PathBuf::from("/data/.codex-home/skills/logs/SKILL.md")
+        );
+        assert_eq!(fmt, InstallFormat::SkillMd);
+    }
+
+    #[test]
+    fn test_config_dir_from_env_reads_platform_variable() {
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        std::env::set_var("CODEX_HOME", "/data/.codex-home");
+        std::env::set_var("HERMES_HOME", "/data/.hermes-home");
+        std::env::set_var("CLAUDE_CONFIG_DIR", "/data/.claude-home");
+        assert_eq!(
+            config_dir_from_env("codex"),
+            Some(PathBuf::from("/data/.codex-home"))
+        );
+        assert_eq!(
+            config_dir_from_env("hermes"),
+            Some(PathBuf::from("/data/.hermes-home"))
+        );
+        assert_eq!(
+            config_dir_from_env("claude-code"),
+            Some(PathBuf::from("/data/.claude-home"))
+        );
+        // Aliases resolve to the same spec.
+        assert_eq!(
+            config_dir_from_env("claude"),
+            Some(PathBuf::from("/data/.claude-home"))
+        );
+        std::env::remove_var("CODEX_HOME");
+        std::env::remove_var("HERMES_HOME");
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+    }
+
+    #[test]
+    fn test_config_dir_from_env_unset_or_empty_is_none() {
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        std::env::remove_var("CODEX_HOME");
+        assert_eq!(config_dir_from_env("codex"), None);
+        std::env::set_var("HERMES_HOME", "");
+        assert_eq!(config_dir_from_env("hermes"), None);
+        std::env::remove_var("HERMES_HOME");
+    }
+
+    #[test]
+    fn test_config_dir_from_env_ignored_for_platforms_without_convention() {
+        // Cursor has no documented config-dir variable, so nothing in the
+        // environment can relocate its user-scope installs; unknown platforms
+        // resolve to None rather than guessing.
+        let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
+        std::env::set_var("CODEX_HOME", "/data/.codex-home");
+        assert_eq!(config_dir_from_env("cursor"), None);
+        assert_eq!(config_dir_from_env("not-a-platform"), None);
+        std::env::remove_var("CODEX_HOME");
+    }
+
+    #[test]
+    fn test_config_dir_platforms_share_one_user_dot_dir() {
+        // The override replaces the leading `.<tool>` component of every
+        // user-scope path, so a platform that declares an env var must keep
+        // all its user-scope paths under one such directory.
+        for spec in PLATFORMS {
+            if spec.user_config_dir_env.is_empty() {
+                continue;
+            }
+            let head = |p: &str| p.split_once('/').map(|(h, _)| h.to_string());
+            let skills_head = head(spec.user_skills);
+            assert!(
+                skills_head.is_some(),
+                "{}: user_skills must be nested under a .<tool> dir",
+                spec.name
+            );
+            for other in [spec.user_agents, spec.user_extensions] {
+                if !other.is_empty() {
+                    assert_eq!(head(other), skills_head, "{}: {other}", spec.name);
+                }
+            }
+        }
     }
 
     fn entry(name: &'static str, entry_type: &'static str, content: &'static str) -> SkillEntry {

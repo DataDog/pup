@@ -1305,41 +1305,91 @@ mod tests {
         None
     }
 
+    fn cli_invocation_args_error(invocation: &str) -> Option<String> {
+        let (prefix, command_text) = invocation.split_once("pup ")?;
+        let command_text = command_text
+            .split_once(" #")
+            .map_or(command_text, |(cmd, _)| cmd);
+        let in_subshell = prefix.trim_end().ends_with("$(");
+        let mut args = shell_words::split(command_text).ok()?;
+        if let Some(operator) = args
+            .iter()
+            .position(|arg| matches!(arg.as_str(), "|" | "||" | "&&" | ";" | ">" | ">>"))
+        {
+            args.truncate(operator);
+        }
+        while args.last().is_some_and(|arg| arg == "\\") {
+            args.pop();
+        }
+        if in_subshell {
+            if let Some(last) = args.last_mut() {
+                if last.ends_with(')') {
+                    last.pop();
+                }
+            }
+        }
+        for arg in &mut args {
+            if arg.starts_with('<') && arg.ends_with('>') && arg.len() > 2 {
+                *arg = "1".to_string();
+            }
+        }
+        let mut argv = vec!["pup".to_string()];
+        argv.extend(args);
+        crate::cli_command()
+            .try_get_matches_from(argv)
+            .err()
+            .map(|error| error.to_string())
+    }
+
     fn documented_commands(content: &str) -> Vec<(String, bool)> {
         let mut commands = Vec::new();
         let mut in_code_block = false;
-        for line in content.lines() {
+        let lines: Vec<&str> = content.lines().collect();
+        let mut line_index = 0;
+        while line_index < lines.len() {
+            let line = lines[line_index];
             if line.trim_start().starts_with("```") {
                 in_code_block = !in_code_block;
+                line_index += 1;
                 continue;
             }
 
             let mut segments = Vec::new();
             if in_code_block {
-                segments.push((line, true));
+                if !line.trim_start().starts_with('#') {
+                    let mut segment = line.trim_end().trim_end_matches('\\').to_string();
+                    let mut continuation = line_index;
+                    let mut has_continuation = line.trim_end().ends_with('\\');
+                    while has_continuation && continuation + 1 < lines.len() {
+                        continuation += 1;
+                        let next_line = lines[continuation].trim();
+                        has_continuation = next_line.ends_with('\\');
+                        segment.push(' ');
+                        segment.push_str(next_line.trim_end_matches('\\'));
+                    }
+                    segments.push((segment, true));
+                    line_index = continuation;
+                }
             } else {
                 let mut remaining = line;
                 while let Some((_, after_open)) = remaining.split_once('`') {
                     let Some((segment, after_close)) = after_open.split_once('`') else {
                         break;
                     };
-                    segments.push((segment, false));
+                    segments.push((segment.to_string(), false));
                     remaining = after_close;
                 }
             }
 
             for (segment, is_code_line) in segments {
-                let trimmed = segment.trim_start();
-                if trimmed.starts_with('#') {
-                    continue;
-                }
                 if let Some((prefix, _)) = segment.split_once("pup ") {
                     let prefix = prefix.trim_end();
                     if prefix.is_empty() || prefix.ends_with('|') || prefix.ends_with("$(") {
-                        commands.push((segment.to_string(), is_code_line));
+                        commands.push((segment, is_code_line));
                     }
                 }
             }
+            line_index += 1;
         }
         commands
     }
@@ -1357,6 +1407,21 @@ mod tests {
                 for (invocation, is_code_line) in documented_commands(content) {
                     if let Some(error) = cli_command_path_error(&invocation, is_code_line) {
                         errors.push(format!("{}: `{invocation}`: {error}", entry.name));
+                    }
+                    let args_validation_prefixes = [
+                        "pup obs-pipelines update",
+                        "pup logs-restriction update",
+                        "pup csm-threats agent-rules update",
+                        "pup csm-threats agent-policies update",
+                    ];
+                    if is_code_line
+                        && args_validation_prefixes
+                            .iter()
+                            .any(|prefix| invocation.trim_start().starts_with(prefix))
+                    {
+                        if let Some(error) = cli_invocation_args_error(&invocation) {
+                            errors.push(format!("{}: `{invocation}`: {error}", entry.name));
+                        }
                     }
                 }
             }
@@ -1376,6 +1441,21 @@ mod tests {
         assert!(cli_command_path_error("pup workflows list", true).is_some());
         assert!(cli_command_path_error("pup infrastructure hosts", true).is_some());
         assert!(cli_command_path_error("pup infrastructure hosts", false).is_none());
+    }
+
+    #[test]
+    fn test_cli_invocation_args_reject_missing_positionals_and_unknown_flags() {
+        assert!(
+            cli_invocation_args_error("pup obs-pipelines update --file=pipeline.json").is_some()
+        );
+        assert!(cli_invocation_args_error(
+            "pup obs-pipelines update pipeline-id --file=pipeline.json --unknown-flag"
+        )
+        .is_some());
+        assert!(cli_invocation_args_error(
+            "pup obs-pipelines update pipeline-id --file=pipeline.json"
+        )
+        .is_none());
     }
 
     #[test]

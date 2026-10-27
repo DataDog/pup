@@ -19,13 +19,13 @@ You are a specialized agent for managing Datadog log configuration. Your role is
 - **Archive Order**: Control priority of archive rules
 - **Rehydration**: Configure log rehydration from archives
 
-### Log Pipelines
-- **List Pipelines**: View all processing pipelines
-- **Create Pipelines**: Build log transformation pipelines
-- **Update Pipelines**: Modify pipeline configuration
-- **Delete Pipelines**: Remove pipelines
-- **Pipeline Order**: Control pipeline execution order
-- **Processors**: 15+ processor types for log parsing and enrichment
+### Log Pipelines (UI/API; no typed Pup commands)
+- **List Pipelines**: View processing pipelines in the Datadog UI/API
+- **Create Pipelines**: Configure log transformation pipelines in the Datadog UI/API
+- **Update Pipelines**: Modify pipeline configuration in the Datadog UI/API
+- **Delete Pipelines**: Remove pipelines in the Datadog UI/API
+- **Pipeline Order**: Control pipeline execution order in the Datadog UI/API
+- **Processors**: 15+ processor types for log parsing and enrichment; these definitions are reference material, not typed Pup commands
 
 ### Log Indexes
 - **List Indexes**: View all configured indexes
@@ -179,97 +179,98 @@ pup logs archives delete a2zcMylnM4OCHpYusxIi3g
 
 ### Log Pipelines
 
+The typed Pup CLI does not expose Log Management processing-pipeline operations. The examples in this section are Log Management API/UI guidance; do not substitute `obs-pipelines`, which manages a separate product.
+
 #### List All Pipelines
 ```bash
-pup obs-pipelines list
+# UNSUPPORTED: Log Management pipeline listing has no typed pup command.
 ```
 
 #### Get Specific Pipeline
 ```bash
-pup obs-pipelines get pipeline-123
+# UNSUPPORTED: Log Management pipeline retrieval has no typed pup command.
 ```
 
 #### Create Pipeline with Grok Parser
-```bash
-# Pup accepts these settings from a JSON file, not as individual flags.
-pup obs-pipelines create --file=pipeline.json
-# --name="Nginx Pipeline" \
-# --filter-query="source:nginx" \
-# --processors='[
-    {
-      "type": "grok-parser",
-      "name": "Parse Nginx logs",
-      "is_enabled": true,
-      "source": "message",
-      "grok": {
-        "match_rules": "%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
-      }
+The processor definition below is a Log Management API/UI example, not an Observability Pipelines request body.
+
+```json
+[
+  {
+    "type": "grok-parser",
+    "name": "Parse Nginx logs",
+    "is_enabled": true,
+    "source": "message",
+    "grok": {
+      "match_rules": "%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
     }
-  ]'
+  }
+]
 ```
 
 #### Create Pipeline with Multiple Processors
-```bash
-# Pup accepts these settings from a JSON file, not as individual flags.
-pup obs-pipelines create --file=pipeline.json
-# --name="API Pipeline" \
-# --filter-query="service:api" \
-# --processors='[
-    {
-      "type": "grok-parser",
-      "name": "Parse API logs",
-      "is_enabled": true,
-      "source": "message",
-      "grok": {
-        "match_rules": "%{TIMESTAMP_ISO8601:timestamp} %{WORD:level} %{GREEDYDATA:message}"
-      }
-    },
-    {
-      "type": "date-remapper",
-      "name": "Define timestamp as official date",
-      "is_enabled": true,
-      "sources": ["timestamp"]
-    },
-    {
-      "type": "status-remapper",
-      "name": "Define level as official status",
-      "is_enabled": true,
-      "sources": ["level"]
-    },
-    {
-      "type": "service-remapper",
-      "name": "Define service",
-      "is_enabled": true,
-      "sources": ["app_name"]
+```json
+[
+  {
+    "type": "grok-parser",
+    "name": "Parse API logs",
+    "is_enabled": true,
+    "source": "message",
+    "grok": {
+      "match_rules": "%{TIMESTAMP_ISO8601:timestamp} %{WORD:level} %{GREEDYDATA:message}"
     }
-  ]'
+  },
+  {
+    "type": "date-remapper",
+    "name": "Define timestamp as official date",
+    "is_enabled": true,
+    "sources": ["timestamp"]
+  },
+  {
+    "type": "status-remapper",
+    "name": "Define level as official status",
+    "is_enabled": true,
+    "sources": ["level"]
+  },
+  {
+    "type": "service-remapper",
+    "name": "Define service",
+    "is_enabled": true,
+    "sources": ["app_name"]
+  }
+]
 ```
 
 #### Update Pipeline
 ```bash
-# Pup accepts these settings from a JSON file, not as individual flags.
-pup obs-pipelines update --file=update-request.json
-# --pipeline-id="pipeline-123" \
-# --name="Updated Pipeline Name" \
-# --filter-query="source:nginx AND env:production"
+# UNSUPPORTED: Log Management pipeline updates have no typed pup command.
 ```
 
 #### Delete Pipeline
 ```bash
-pup obs-pipelines delete pipeline-123
+# UNSUPPORTED: Log Management pipeline deletion has no typed pup command.
 ```
 
 #### Get Pipeline Order
 ```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup obs-pipelines get-order
+# UNSUPPORTED: Log Management pipeline ordering has no typed pup command.
 ```
 
 #### Update Pipeline Order
 ```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup obs-pipelines update-order \
-# --pipeline-ids='["pipeline-1", "pipeline-2", "pipeline-3"]'
+# UNSUPPORTED: Log Management pipeline ordering has no typed pup command.
+```
+
+### Observability Pipelines (Separate Product)
+
+These commands manage Observability Pipelines, not Log Management processing pipelines:
+
+```bash
+pup obs-pipelines list
+pup obs-pipelines get "<pipeline-id>"
+pup obs-pipelines create --file=observability-pipeline.json
+pup obs-pipelines update "<pipeline-id>" --file=observability-pipeline.json
+pup obs-pipelines delete "<pipeline-id>"
 ```
 
 ### Log Indexes
@@ -601,6 +602,8 @@ Limit maximum data scanned during rehydration (in GB):
 - Cannot filter by tags during rehydration
 
 ## Log Pipelines Configuration
+
+This section documents Log Management pipeline behavior and processor definitions for the Datadog UI/API. Pup has no typed Log Management pipeline commands; see the separate Observability Pipelines section for `pup obs-pipelines`.
 
 ### Pipeline Processing Flow
 
@@ -1105,7 +1108,7 @@ pup logs-restriction get 79a0e60a-644a-11ea-ad29-43329f7f58b5
 Update existing restriction query:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup logs-restriction update --file=update-request.json
+pup logs-restriction update "<query-id>" --file=update-request.json
 # --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
 # --query="env:production AND team:platform"
 ```
@@ -1310,23 +1313,8 @@ pup logs archives list
 ```
 
 ### "Create a pipeline to parse Nginx logs"
-```bash
-# Pup accepts these settings from a JSON file, not as individual flags.
-pup obs-pipelines create --file=pipeline.json
-# --name="Nginx Pipeline" \
-# --filter-query="source:nginx" \
-# --processors='[
-    {
-      "type": "grok-parser",
-      "name": "Parse Nginx format",
-      "is_enabled": true,
-      "source": "message",
-      "grok": {
-        "match_rules": "%{IPORHOST:client_ip} - - \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
-      }
-    }
-  ]'
-```
+Log Management pipeline creation is not available as a typed Pup command. Use the Log Management UI or API; do not substitute Observability Pipelines commands.
+
 
 ### "Create an index for production logs with 30-day retention"
 ```bash

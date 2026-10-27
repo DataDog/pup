@@ -88,7 +88,7 @@ pup csm-threats agent-rules create --file=create-request.json
 
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup csm-threats agent-rules update --file=update-request.json
+pup csm-threats agent-rules update "<rule-id>" --file=update-request.json
 # --rule-id="3dd-0uc-h1s" \
 # --enabled=false \
 # --description="Updated description"
@@ -139,7 +139,7 @@ pup csm-threats agent-policies create --file=create-request.json
 
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup csm-threats agent-policies update --file=update-request.json
+pup csm-threats agent-policies update "<policy-id>" --file=update-request.json
 # --policy-id="6517fcc1-cec7-4394-a655-8d6e9d085255" \
 # --enabled=false
 ```

@@ -102,6 +102,8 @@ Extract:
 
 Decide whether this flake was **introduced by the current working change** (self-introduced) or is a **pre-existing, inherited** flake. This drives the fix-vs-quarantine steer in STEP 4/5 — you should not suppress a flake you just introduced.
 
+**Preserve the confirmed test identity.** If STEP 1 identified a module, add `@test.module:"<module>"` to the STEP 2 query and rerun it before continuing. Use only history matching the confirmed module, suite, name, and repository for attribution, error analysis, and blast radius. If history cannot be scoped to the confirmed test, treat it as inconclusive.
+
 **Failure history takes precedence.** If STEP 2 shows the test failing on the default branch, or failing across multiple unrelated branches (not just the current one), the flake pre-dates the current change — classify it `pre-existing` even if the current diff touches the test or nearby code, and even if the user claims ownership. Diff overlap or an author editing nearby code does not make an already-widespread flake self-introduced. Apply the signals below only when this pre-existing failure history is absent.
 
 A flake is **self-introduced** when *any* signal holds (and the failure history above has not already classified it `pre-existing`):

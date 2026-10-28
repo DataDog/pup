@@ -35,6 +35,16 @@ static DD_IDP_FILES: &[(&str, &str)] = &[
     ),
 ];
 
+static DD_UNBLOCK_PR_FILES: &[(&str, &str)] = &[(
+    "references/failure-classification.md",
+    include_str!("../skills/dd-unblock-pr/references/failure-classification.md"),
+)];
+
+static DD_TRIAGE_FLAKY_TEST_FILES: &[(&str, &str)] = &[(
+    "references/fix-patterns.md",
+    include_str!("../skills/dd-triage-flaky-test/references/fix-patterns.md"),
+)];
+
 /// Files for the `dd-pup-pi` extension bundle (pi coding agent).
 static DD_PUP_PI_FILES: &[(&str, &str)] = &[
     (
@@ -131,7 +141,7 @@ pub static SKILLS: &[SkillEntry] = &[
         entry_type: "skill",
         content: include_str!("../skills/dd-unblock-pr/SKILL.md"),
         platform: "",
-        files: &[],
+        files: DD_UNBLOCK_PR_FILES,
     },
     SkillEntry {
         name: "dd-triage-flaky-test",
@@ -139,7 +149,7 @@ pub static SKILLS: &[SkillEntry] = &[
         entry_type: "skill",
         content: include_str!("../skills/dd-triage-flaky-test/SKILL.md"),
         platform: "",
-        files: &[],
+        files: DD_TRIAGE_FLAKY_TEST_FILES,
     },
     SkillEntry {
         name: "dd-idp",

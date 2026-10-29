@@ -482,6 +482,70 @@ fn write_failure_http_rejections_and_unknown_outcomes_never_resend() {
     get.assert();
 }
 
+fn assert_write_redirect_not_followed(method: &str, path: &str, mut args: Vec<&str>) {
+    args.push("--yes");
+    for status in [307, 308, 302, 303, 301] {
+        let mut server = Server::new();
+        let preflight_path = if method == "POST" { CONTROL } else { DETECTION };
+        let preflight_body = if method == "POST" {
+            control()
+        } else {
+            current()
+        };
+        let preflight = server
+            .mock("GET", preflight_path)
+            .expect(1)
+            .with_body(preflight_body.to_string())
+            .create();
+        let original = server
+            .mock(method, path)
+            .expect(1)
+            .with_status(status)
+            .with_header("location", "/redirect-target")
+            .with_body("write redirected")
+            .create();
+        let destinations: Vec<_> = ["GET", "POST", "PATCH", "PUT", "DELETE", "HEAD", "OPTIONS"]
+            .iter()
+            .map(|method| {
+                server
+                    .mock(method, "/redirect-target")
+                    .expect(0)
+                    .with_body(
+                        r#"{"data":{"attributes":{"state":"exception","mitigate_after":null}}}"#,
+                    )
+                    .create()
+            })
+            .collect();
+        let output = run(&server.url(), &args, "", false);
+        preflight.assert();
+        original.assert();
+        for destination in destinations {
+            destination.assert();
+        }
+        assert!(!output.status.success(), "{method} {status} must fail");
+        let error = String::from_utf8_lossy(&output.stderr);
+        for expected in ["Outcome unknown", "Do not resubmit", "Audit Trail"] {
+            assert!(error.contains(expected), "{method} {status}: {error}");
+        }
+        assert!(error.contains(&format!("HTTP {status}")), "{error}");
+        assert!(
+            !error.contains("try again") && !error.contains("retry"),
+            "{error}"
+        );
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("\"accepted\": true"));
+    }
+}
+
+#[test]
+fn write_failure_redirect_post_never_resends_or_reports_accepted() {
+    assert_write_redirect_not_followed("POST", MITIGATE, mitigate());
+}
+
+#[test]
+fn write_failure_redirect_patch_never_resends() {
+    assert_write_redirect_not_followed("PATCH", DETECTION, update());
+}
+
 fn read_request(stream: &mut std::net::TcpStream) -> String {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))

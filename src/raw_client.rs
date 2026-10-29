@@ -59,8 +59,12 @@ impl std::error::Error for HttpError {}
 // return deeply-nested flame-graph trees that exceed it. serde_stacker grows
 // the thread stack on demand so disabling the limit can't blow it.
 async fn parse_response_json(resp: reqwest::Response) -> anyhow::Result<serde_json::Value> {
+    parse_response_bytes(&resp.bytes().await?)
+}
+
+/// Decode raw JSON with the same empty-body and recursion handling as the JSON helpers.
+pub(crate) fn parse_response_bytes(bytes: &[u8]) -> anyhow::Result<serde_json::Value> {
     use serde::Deserialize;
-    let bytes = resp.bytes().await?;
     // Some endpoints return a success status (e.g. 200) with an empty body, such
     // as GET /api/v2/on-call/pages/{id} which responds with content-length: 0.
     // Treat an empty or whitespace-only body as JSON null rather than failing
@@ -68,7 +72,7 @@ async fn parse_response_json(resp: reqwest::Response) -> anyhow::Result<serde_js
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(serde_json::Value::Null);
     }
-    let mut de = serde_json::Deserializer::from_slice(&bytes);
+    let mut de = serde_json::Deserializer::from_slice(bytes);
     de.disable_recursion_limit();
     let de = serde_stacker::Deserializer::new(&mut de);
     Ok(serde_json::Value::deserialize(de)?)
@@ -193,8 +197,72 @@ pub async fn raw_request(
     accept: &str,
     extra_headers: &[(&str, &str)],
 ) -> anyhow::Result<HttpResponse> {
+    raw_request_with_client(
+        cfg,
+        method,
+        path,
+        query,
+        body,
+        content_type,
+        accept,
+        extra_headers,
+        reqwest::Client::new(),
+    )
+    .await
+}
+
+/// Fail before any request on targets where redirect-following cannot be disabled.
+pub(crate) fn ensure_no_redirect_support() -> anyhow::Result<()> {
+    if cfg!(target_arch = "wasm32") {
+        anyhow::bail!("This write is not supported in the WASM build because redirect-following cannot be disabled; no request was sent");
+    }
+    Ok(())
+}
+
+/// Like [`raw_request`], but return the original redirect as an HTTP error, without following it.
+/// WASM builds fail before sending because their Fetch backend cannot disable redirects.
+#[allow(clippy::too_many_arguments)]
+pub async fn raw_request_no_redirect(
+    cfg: &Config,
+    method: &str,
+    path: &str,
+    query: &[(&str, &str)],
+    body: Option<Vec<u8>>,
+    content_type: Option<&str>,
+    accept: &str,
+    extra_headers: &[(&str, &str)],
+) -> anyhow::Result<HttpResponse> {
+    ensure_no_redirect_support()?;
+    let builder = reqwest::Client::builder();
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = builder.redirect(reqwest::redirect::Policy::none());
+    raw_request_with_client(
+        cfg,
+        method,
+        path,
+        query,
+        body,
+        content_type,
+        accept,
+        extra_headers,
+        builder.build()?,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn raw_request_with_client(
+    cfg: &Config,
+    method: &str,
+    path: &str,
+    query: &[(&str, &str)],
+    body: Option<Vec<u8>>,
+    content_type: Option<&str>,
+    accept: &str,
+    extra_headers: &[(&str, &str)],
+    client: reqwest::Client,
+) -> anyhow::Result<HttpResponse> {
     let url = format!("{}{}", cfg.api_base_url(), path);
-    let client = reqwest::Client::new();
     let method_name = method.to_uppercase();
     let method = reqwest::Method::from_bytes(method_name.as_bytes())
         .map_err(|_| anyhow::anyhow!("unsupported HTTP method: {method_name}"))?;
@@ -546,6 +614,88 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::test_support::*;
+
+    #[test]
+    fn test_parse_response_bytes_preserves_empty_deep_and_invalid_json_behavior() {
+        for body in [b"".as_slice(), b" \n\t"] {
+            assert_eq!(parse_response_bytes(body).unwrap(), serde_json::Value::Null);
+        }
+        let deep = format!("{}null{}", "[".repeat(256), "]".repeat(256));
+        assert!(parse_response_bytes(deep.as_bytes()).unwrap().is_array());
+        assert!(parse_response_bytes(b"not JSON").is_err());
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn test_no_redirect_support_fails_closed_on_wasm() {
+        let error = ensure_no_redirect_support().unwrap_err().to_string();
+        assert!(error.contains("not supported in the WASM build"));
+        assert!(error.contains("no request was sent"));
+    }
+
+    #[tokio::test]
+    async fn test_redirect_policy_is_opt_in() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        for method in ["POST", "PATCH"] {
+            let original = server
+                .mock(method, "/original")
+                .match_header("DD-API-KEY", "test-api-key")
+                .match_header("DD-APPLICATION-KEY", "test-app-key")
+                .match_header("Content-Type", "application/json")
+                .match_header("Accept", "application/json")
+                .match_header("x-request-test", "preserved")
+                .match_query(mockito::Matcher::UrlEncoded("key".into(), "value".into()))
+                .match_body(r#"{"id":"d1"}"#)
+                .with_status(307)
+                .with_header("location", "/destination")
+                .with_body("original redirect")
+                .expect(2)
+                .create_async()
+                .await;
+            let destination = server
+                .mock(method, "/destination")
+                .with_body(r#"{"ok":true}"#)
+                .expect(1)
+                .create_async()
+                .await;
+            let response = raw_request(
+                &cfg,
+                method,
+                "/original",
+                &[("key", "value")],
+                Some(br#"{"id":"d1"}"#.to_vec()),
+                Some("application/json"),
+                "application/json",
+                &[("x-request-test", "preserved")],
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.bytes, br#"{"ok":true}"#);
+            let error = raw_request_no_redirect(
+                &cfg,
+                method,
+                "/original",
+                &[("key", "value")],
+                Some(br#"{"id":"d1"}"#.to_vec()),
+                Some("application/json"),
+                "application/json",
+                &[("x-request-test", "preserved")],
+            )
+            .await
+            .unwrap_err();
+            let http = error.downcast_ref::<HttpError>().unwrap();
+            assert_eq!(http.status, 307);
+            assert_eq!(http.method, method);
+            assert_eq!(http.body, "original redirect");
+            original.assert_async().await;
+            destination.assert_async().await;
+            original.remove_async().await;
+            destination.remove_async().await;
+        }
+        cleanup_env();
+    }
 
     fn test_cfg() -> Config {
         Config {

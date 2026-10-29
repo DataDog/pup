@@ -438,6 +438,7 @@ fn write_failure(
             return governance_error(cfg, op, err, need).context("rejected; nothing was applied");
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
     if err
         .downcast_ref::<reqwest::Error>()
         .is_some_and(reqwest::Error::is_connect)
@@ -455,6 +456,9 @@ pub async fn detections_update(
     attrs: Map<String, Value>,
     dry_run: bool,
 ) -> Result<()> {
+    if !dry_run {
+        raw_client::ensure_no_redirect_support()?;
+    }
     let current = fetch_detection(cfg, id).await?;
     let effects = plan_update_effects(&current, &attrs)?;
     let previous = previous_fields(&current);
@@ -481,10 +485,23 @@ pub async fn detections_update(
         validate_deadline(deadline)?;
     }
     let inspection = format!("pup governance detections get {id}");
-    let mut response = raw_client::raw_patch(cfg, &path, body)
-        .await
-        .map_err(|e| write_failure(cfg, "update detection", e, Permission::Console, &inspection))
-        .with_context(|| format!("Detection preimage (previous): {previous}"))?;
+    let mut response = async {
+        let response = raw_client::raw_request_no_redirect(
+            cfg,
+            "PATCH",
+            &path,
+            &[],
+            Some(serde_json::to_vec(&body)?),
+            Some("application/json"),
+            "application/json",
+            &[],
+        )
+        .await?;
+        raw_client::parse_response_bytes(&response.bytes)
+    }
+    .await
+    .map_err(|e| write_failure(cfg, "update detection", e, Permission::Console, &inspection))
+    .with_context(|| format!("Detection preimage (previous): {previous}"))?;
     verify_update(&attrs, &response)
         .with_context(|| format!("Detection preimage (previous): {previous}"))?;
     let obj = response.as_object_mut().with_context(|| {
@@ -502,7 +519,7 @@ async fn submit_mitigation(
     permission: Permission<'_>,
     inspection: &str,
 ) -> Result<Value> {
-    let response = raw_client::raw_request(
+    let response = raw_client::raw_request_no_redirect(
         cfg,
         "POST",
         path,
@@ -530,6 +547,9 @@ pub async fn detections_mitigate(
     parameters: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
+    if !dry_run {
+        raw_client::ensure_no_redirect_support()?;
+    }
     let ids = parse_detection_ids(ids)?;
     let parameters = parse_parameters(parameters)?;
     let control = get(
@@ -1312,7 +1332,7 @@ mod tests {
         let _lock = lock_env().await;
         let cfg = test_config("http://localhost");
         for op in ["update detection", "mitigate detections"] {
-            for code in [400, 403, 409, 429, 500, 503] {
+            for code in [301, 302, 303, 307, 308, 400, 403, 409, 429, 500, 503] {
                 let error = format!(
                     "{:#}",
                     write_failure(
@@ -1323,7 +1343,7 @@ mod tests {
                         "pup governance detections get d1"
                     )
                 );
-                if code < 500 {
+                if (400..500).contains(&code) {
                     assert!(error.contains("rejected; nothing was applied"), "{error}");
                 } else {
                     assert!(

@@ -1655,6 +1655,8 @@ enum Commands {
     ///   governance_console_read (insights also accept metrics_read, events_read,
     ///   or audit_logs_read). Opt in: pup auth login --extra-scopes governance_console_read
     ///   Mitigations also need their declared permissions and any resource-read grants.
+    ///   WASM builds support detection reads and --dry-run, but detection writes require
+    ///   a native build because the WASM transport cannot disable redirect-following.
     ///   See https://docs.datadoghq.com/account_management/governance_console/
     #[command(verbatim_doc_comment)]
     Governance {

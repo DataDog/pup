@@ -239,7 +239,7 @@ pup infrastructure hosts list
 - **static-analysis** - Code security (custom-rulesets, custom-rules)
 - **audit-logs** - Audit trail (list, search)
 - **data-governance** - Sensitive data scanning (scanner-rules list)
-- **governance** - Governance Console insights, controls, detections, mitigations, limits, best practices, and tag rules. Detection writes support `--dry-run` and `--yes`. OAuth users opt in with `pup auth login --extra-scopes governance_console_read`; mitigations also need their declared permissions.
+- **governance** - Governance Console insights, controls, detections, mitigations, limits, best practices, and tag rules. Detection writes support `--dry-run` and `--yes`. OAuth users opt in with `pup auth login --extra-scopes governance_console_read`; mitigations also need their declared permissions. WASM builds support reads and dry runs, but detection writes require a native build because the WASM transport cannot disable automatic redirects.
 
 ### Cloud & Integrations
 - **cloud** - Cloud providers (aws, gcp, azure, oci)

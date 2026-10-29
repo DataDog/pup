@@ -1631,22 +1631,31 @@ enum Commands {
         #[arg(long, value_name = "FIELD", value_delimiter = ',')]
         columns: Vec<String>,
     },
-    /// Manage tag governance
+    /// Manage Governance Console and tag rules
     ///
-    /// Manage governance rules that control which tag values Datadog accepts.
+    /// Explore insights, controls, flagged resources, limits, and best practices.
     ///
     /// COMMANDS:
+    ///   insights          List insights (with computed values by default)
+    ///   controls          List controls or get a control and its mitigations
+    ///   detections        List, get, update, or mitigate flagged resources
+    ///   limits            List rate and resource limits
+    ///   best-practices    List best practices
     ///   tag-rules         Manage tag rules
     ///
     /// EXAMPLES:
-    ///   # List tag rules
+    ///   pup governance insights list --product metrics
+    ///   pup governance controls list
+    ///   pup governance detections list <detection-type> --state active
+    ///   pup governance detections update <id> --state exception --dry-run
     ///   pup governance tag-rules list
     ///
-    ///   # Get a tag rule with its compliance score
-    ///   pup governance tag-rules get rule-abc123 --include-score
-    ///
     /// AUTHENTICATION:
-    ///   Requires either OAuth2 authentication or API keys.
+    ///   Supports OAuth2 or API and application keys. Console commands need
+    ///   governance_console_read (insights also accept metrics_read, events_read,
+    ///   or audit_logs_read). Opt in: pup auth login --extra-scopes governance_console_read
+    ///   Mitigations also need their declared permissions and any resource-read grants.
+    ///   See https://docs.datadoghq.com/account_management/governance_console/
     #[command(verbatim_doc_comment)]
     Governance {
         #[command(subcommand)]
@@ -5178,11 +5187,135 @@ enum TagActions {
 // ---- Governance ----
 #[derive(Subcommand)]
 enum GovernanceActions {
+    /// List governance insights
+    Insights {
+        #[command(subcommand)]
+        action: GovernanceInsightActions,
+    },
+    /// Discover controls and their mitigations
+    Controls {
+        #[command(subcommand)]
+        action: GovernanceControlActions,
+    },
+    /// Inspect, update, or mitigate flagged resources
+    Detections {
+        #[command(subcommand)]
+        action: GovernanceDetectionActions,
+    },
+    /// Inspect rate and resource limits
+    Limits {
+        #[command(subcommand)]
+        action: GovernanceLimitActions,
+    },
+    /// List governance best practices
+    #[command(name = "best-practices")]
+    BestPractices {
+        #[command(subcommand)]
+        action: GovernanceBestPracticeActions,
+    },
     /// Manage tag rules
     #[command(name = "tag-rules", alias = "tag-policies")]
     TagRules {
         #[command(subcommand)]
         action: TagRulesActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum GovernanceInsightActions {
+    /// List insights with computed values by default
+    List {
+        #[arg(long, help = "Filter by product (repeatable)")]
+        product: Vec<String>,
+        #[arg(long, help = "Omit computed insight values")]
+        no_values: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum GovernanceControlActions {
+    /// List all controls, including their available mitigations
+    List,
+    /// Get a control by its detection type
+    Get { detection_type: String },
+}
+
+#[derive(Subcommand)]
+enum GovernanceDetectionActions {
+    /// List detections for one control
+    List {
+        detection_type: String,
+        #[arg(long, value_delimiter = ',', value_parser = ["active", "exception", "mitigated", "mitigation_in_progress"])]
+        state: Vec<String>,
+        #[arg(long, help = "Filter detections by a search query")]
+        query: Option<String>,
+        #[arg(long, default_value_t = 0, help = "Page number (0-indexed)")]
+        page: u64,
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
+        page_size: i64,
+    },
+    /// Get a detection by ID (no detection type needed)
+    Get { detection_id: String },
+    /// Update a detection; preview effects before applying consequential changes
+    Update {
+        detection_id: String,
+        #[arg(long, value_parser = commands::governance::parse_update_state, help = "active or exception; use mitigate to apply a mitigation")]
+        state: Option<String>,
+        #[arg(
+            long,
+            help = "Future RFC 3339 mitigation deadline (requires active state)"
+        )]
+        mitigate_after: Option<String>,
+        #[arg(long, help = "User UUID, or an empty string to clear")]
+        assigned_to: Option<String>,
+        #[arg(long, help = "Team UUID, or an empty string to clear")]
+        assigned_team: Option<String>,
+        #[arg(long, help = "Validate and preview the exact request without writing")]
+        dry_run: bool,
+    },
+    /// Queue an asynchronous mitigation for up to 25 detections of one type
+    Mitigate {
+        detection_type: String,
+        #[arg(
+            long,
+            required = true,
+            value_delimiter = ',',
+            help = "Comma-separated detection ids (1 to 25)"
+        )]
+        ids: Vec<String>,
+        #[arg(
+            long,
+            required = true,
+            help = "Explicit mitigation id supporting manual execution"
+        )]
+        mitigation_type: String,
+        #[arg(long, help = "Mitigation parameters as a JSON object")]
+        parameters: Option<String>,
+        #[arg(
+            long,
+            help = "Validate and preview the request and mitigation without writing"
+        )]
+        dry_run: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum GovernanceLimitActions {
+    /// List rate and resource limits together; fail if either call fails
+    List {
+        #[arg(long, help = "Skip resource limits and return only rate limits")]
+        no_resource_limits: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum GovernanceBestPracticeActions {
+    /// List best practices
+    List {
+        #[arg(long, value_parser = ["access_governance", "security", "compliance", "operational_hygiene"])]
+        category: Option<String>,
+        #[arg(long)]
+        query: Option<String>,
     },
 }
 
@@ -12535,6 +12668,84 @@ async fn run_annotations(cfg: &config::Config, action: AnnotationsActions) -> an
     }
 }
 
+/// Dispatch Governance Console commands and the existing tag-rule commands.
+async fn run_governance(cfg: &config::Config, action: GovernanceActions) -> anyhow::Result<()> {
+    use commands::governance;
+    match action {
+        GovernanceActions::Insights {
+            action: GovernanceInsightActions::List { product, no_values },
+        } => governance::insights_list(cfg, &product, no_values).await,
+        GovernanceActions::Controls { action } => match action {
+            GovernanceControlActions::List => governance::controls_list(cfg).await,
+            GovernanceControlActions::Get { detection_type } => {
+                governance::controls_get(cfg, &detection_type).await
+            }
+        },
+        GovernanceActions::Detections { action } => match action {
+            GovernanceDetectionActions::List {
+                detection_type,
+                state,
+                query,
+                page,
+                page_size,
+            } => {
+                governance::detections_list(
+                    cfg,
+                    &detection_type,
+                    &state,
+                    query.as_deref(),
+                    page,
+                    page_size,
+                )
+                .await
+            }
+            GovernanceDetectionActions::Get { detection_id } => {
+                governance::detections_get(cfg, &detection_id).await
+            }
+            GovernanceDetectionActions::Update {
+                detection_id,
+                state,
+                mitigate_after,
+                assigned_to,
+                assigned_team,
+                dry_run,
+            } => {
+                let attrs = governance::build_update_attributes(
+                    state.as_deref(),
+                    mitigate_after.as_deref(),
+                    assigned_to.as_deref(),
+                    assigned_team.as_deref(),
+                )?;
+                governance::detections_update(cfg, &detection_id, attrs, dry_run).await
+            }
+            GovernanceDetectionActions::Mitigate {
+                detection_type,
+                ids,
+                mitigation_type,
+                parameters,
+                dry_run,
+            } => {
+                governance::detections_mitigate(
+                    cfg,
+                    &detection_type,
+                    &ids,
+                    &mitigation_type,
+                    parameters.as_deref(),
+                    dry_run,
+                )
+                .await
+            }
+        },
+        GovernanceActions::Limits {
+            action: GovernanceLimitActions::List { no_resource_limits },
+        } => governance::limits_list(cfg, no_resource_limits).await,
+        GovernanceActions::BestPractices {
+            action: GovernanceBestPracticeActions::List { category, query },
+        } => governance::best_practices_list(cfg, category.as_deref(), query.as_deref()).await,
+        GovernanceActions::TagRules { action } => run_tag_rules(cfg, action).await,
+    }
+}
+
 /// Shared dispatch for tag rule subcommands, exposed under
 /// `pup governance tag-rules` and under the deprecated `pup tag-policies`
 /// alias kept for backwards compatibility.
@@ -13406,6 +13617,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
     name == "delete"
         || name == "create"
         || name == "update"
+        || name == "mitigate"
         || name == "cancel"
         || name == "conclude"
         || name == "refresh-results"
@@ -13910,6 +14122,118 @@ mod test_agent_schema {
             Commands::Setup { args } => assert!(args.is_empty()),
             _ => panic!("expected the setup command"),
         }
+    }
+
+    #[test]
+    fn is_write_command_governance_mitigate() {
+        assert!(is_write_command_name("mitigate"));
+        assert!(is_write_command_name("update"));
+    }
+
+    #[test]
+    fn is_write_command_governance_schema() {
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        for action in ["update", "mitigate"] {
+            let command = find_command(commands, &["governance", "detections", action]).unwrap();
+            assert_eq!(command["read_only"], false, "{action}");
+        }
+        let list = find_command(commands, &["governance", "detections", "list"]).unwrap();
+        assert_eq!(list["read_only"], true);
+    }
+
+    #[test]
+    fn governance_clap_validates_filters_and_required_mitigation() {
+        for args in [
+            vec![
+                "pup",
+                "governance",
+                "detections",
+                "list",
+                "test",
+                "--page-size",
+                "0",
+            ],
+            vec![
+                "pup",
+                "governance",
+                "detections",
+                "list",
+                "test",
+                "--page-size",
+                "10001",
+            ],
+            vec![
+                "pup",
+                "governance",
+                "detections",
+                "list",
+                "test",
+                "--state",
+                "inactive",
+            ],
+            vec![
+                "pup",
+                "governance",
+                "best-practices",
+                "list",
+                "--category",
+                "unknown",
+            ],
+            vec![
+                "pup",
+                "governance",
+                "detections",
+                "mitigate",
+                "test",
+                "--ids",
+                "d1",
+            ],
+        ] {
+            assert!(
+                Cli::try_parse_from(args.iter().copied()).is_err(),
+                "{args:?}"
+            );
+        }
+        for size in ["1", "10000"] {
+            assert!(Cli::try_parse_from([
+                "pup",
+                "governance",
+                "detections",
+                "list",
+                "test",
+                "--page-size",
+                size,
+                "--state",
+                "active,exception,mitigated,mitigation_in_progress"
+            ])
+            .is_ok());
+        }
+        assert!(Cli::try_parse_from([
+            "pup",
+            "governance",
+            "insights",
+            "list",
+            "--product",
+            "metrics",
+            "--product",
+            "logs",
+            "--no-values"
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from([
+            "pup",
+            "governance",
+            "detections",
+            "update",
+            "d1",
+            "--state",
+            "mitigated"
+        ])
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("detections mitigate"));
     }
 
     #[test]
@@ -16561,9 +16885,7 @@ async fn main_inner() -> anyhow::Result<()> {
         // --- Governance ---
         Commands::Governance { action } => {
             cfg.validate_auth()?;
-            match action {
-                GovernanceActions::TagRules { action } => run_tag_rules(&cfg, action).await?,
-            }
+            run_governance(&cfg, action).await?;
         }
         // --- Tag Policies (deprecated alias for `governance tag-rules`) ---
         Commands::TagPolicies { action } => {

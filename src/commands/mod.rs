@@ -59,6 +59,7 @@ pub mod fleet;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod format;
 pub mod google_chat;
+pub mod governance;
 pub mod hamr;
 pub mod idp;
 pub mod incidents;

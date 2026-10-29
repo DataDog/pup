@@ -228,7 +228,7 @@ pup deployment-gates gates list
 
 #### Get Deployment Gate
 ```bash
-pup deployment-gates gates get <gate-id>
+pup deployment-gates gates get "<gate-id>"
 ```
 
 #### Create Deployment Gate
@@ -243,35 +243,35 @@ pup deployment-gates gates create --file=create-request.json
 #### Update Deployment Gate
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup deployment-gates gates update <gate-id> --file=update-request.json
+pup deployment-gates gates update "<gate-id>" --file=update-request.json
 # --dry-run=false
 ```
 
 #### Delete Deployment Gate
 ```bash
-pup deployment-gates gates delete <gate-id>
+pup deployment-gates gates delete "<gate-id>"
 ```
 
 #### List Deployment Rules
 Rules have their own command group under deployment gates:
 ```bash
-pup deployment-gates rules list <gate-id>
+pup deployment-gates rules list "<gate-id>"
 ```
 
 #### Create Deployment Rule
 Create a rule from a JSON request file. Rule settings belong in the file, not in individual CLI flags.
 ```bash
-pup deployment-gates rules create <gate-id> --file=rule.json
+pup deployment-gates rules create "<gate-id>" --file=rule.json
 ```
 
 #### Update Deployment Rule
 ```bash
-pup deployment-gates rules update <gate-id> <rule-id> --file=rule.json
+pup deployment-gates rules update "<gate-id>" "<rule-id>" --file=rule.json
 ```
 
 #### Delete Deployment Rule
 ```bash
-pup deployment-gates rules delete <gate-id> <rule-id>
+pup deployment-gates rules delete "<gate-id>" "<rule-id>"
 ```
 
 ## Query Syntax

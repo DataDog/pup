@@ -66,7 +66,7 @@ Filter by name:
 
 #### Get Workflow Details
 ```bash
-pup workflows get <workflow-id>
+pup workflows get "<workflow-id>"
 ```
 
 #### Create Workflow
@@ -76,12 +76,12 @@ pup workflows create --file=workflow-config.json
 
 #### Update Workflow
 ```bash
-pup workflows update <workflow-id> --file=updated-config.json
+pup workflows update "<workflow-id>" --file=updated-config.json
 ```
 
 #### Delete Workflow
 ```bash
-pup workflows delete <workflow-id>
+pup workflows delete "<workflow-id>"
 ```
 
 ### Workflow Execution
@@ -89,35 +89,35 @@ pup workflows delete <workflow-id>
 #### Execute Workflow
 ```bash
 # Execute with no input parameters
-pup workflows run <workflow-id>
+pup workflows run "<workflow-id>"
 ```
 
 Execute with input parameters:
 ```bash
-pup workflows run <workflow-id> \
+pup workflows run "<workflow-id>" \
   --payload='{"host": "web-server-01", "action": "restart"}'
 ```
 
 #### List Workflow Instances
 ```bash
 # List all executions for a workflow
-pup workflows instances list <workflow-id>
+pup workflows instances list "<workflow-id>"
 ```
 
 Paginate through executions with the supported limit and page options:
 ```bash
-pup workflows instances list <workflow-id> --limit=20 --page=0
+pup workflows instances list "<workflow-id>" --limit=20 --page=0
 ```
 The typed CLI does not support filtering instances by status.
 
 #### Get Instance Details
 ```bash
-pup workflows instances get <workflow-id> <instance-id>
+pup workflows instances get "<workflow-id>" "<instance-id>"
 ```
 
 #### Cancel Workflow Execution
 ```bash
-pup workflows instances cancel <workflow-id> <instance-id>
+pup workflows instances cancel "<workflow-id>" "<instance-id>"
 ```
 
 ### Connection Management
@@ -137,7 +137,7 @@ Filter by type:
 
 #### Get Connection Details
 ```bash
-pup workflows connections get <connection-id>
+pup workflows connections get "<connection-id>"
 ```
 
 #### Create Connection
@@ -158,12 +158,12 @@ pup workflows connections create --file=jira-connection.json
 
 #### Update Connection
 ```bash
-pup workflows connections update <connection-id> --file=updated-connection.json
+pup workflows connections update "<connection-id>" --file=updated-connection.json
 ```
 
 #### Delete Connection
 ```bash
-pup workflows connections delete <connection-id>
+pup workflows connections delete "<connection-id>"
 ```
 
 #### Test Connection
@@ -246,12 +246,12 @@ Present workflow data in clear, user-friendly formats:
 # pup workflows list --query="incident"
 
 # Then execute it
-pup workflows run <workflow-id>
+pup workflows run "<workflow-id>"
 ```
 
 ### "Show me recent workflow executions"
 ```bash
-pup workflows instances list <workflow-id>
+pup workflows instances list "<workflow-id>"
 ```
 
 ### "Create a workflow to restart services"
@@ -267,7 +267,7 @@ pup workflows create --file=restart-workflow.json
 
 ### "Cancel a running workflow"
 ```bash
-pup workflows instances cancel <workflow-id> <instance-id>
+pup workflows instances cancel "<workflow-id>" "<instance-id>"
 ```
 
 ## Workflow Structure

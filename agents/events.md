@@ -221,7 +221,7 @@ pup events list \
 
 #### Get Specific Event
 ```bash
-pup events get <event-id>
+pup events get "<event-id>"
 ```
 
 ## Event Properties

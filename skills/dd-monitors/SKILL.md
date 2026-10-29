@@ -40,7 +40,7 @@ pup monitors search --query "status:Alert"
 ### Get Monitor
 
 ```bash
-pup monitors get <id>
+pup monitors get "<id>"
 ```
 
 ### Create Monitor

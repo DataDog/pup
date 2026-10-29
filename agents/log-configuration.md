@@ -305,23 +305,23 @@ With exclusion filters:
 # --filter-query="env:production" \
 # --num-retention-days=30 \
 # --exclusion-filters='[
-    {
-      "name": "Exclude debug logs",
-      "is_enabled": true,
-      "filter": {
-        "query": "status:debug",
-        "sample_rate": 1.0
-      }
-    },
-    {
-      "name": "Sample info logs",
-      "is_enabled": true,
-      "filter": {
-        "query": "status:info",
-        "sample_rate": 0.1
-      }
-    }
-  ]'
+#   {
+#     "name": "Exclude debug logs",
+#     "is_enabled": true,
+#     "filter": {
+#       "query": "status:debug",
+#       "sample_rate": 1.0
+#     }
+#   },
+#   {
+#     "name": "Sample info logs",
+#     "is_enabled": true,
+#     "filter": {
+#       "query": "status:info",
+#       "sample_rate": 0.1
+#     }
+#   }
+# ]'
 ```
 
 With daily limit:

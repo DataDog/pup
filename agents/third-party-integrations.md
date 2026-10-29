@@ -248,7 +248,7 @@ pup integrations ms-teams handles create --file=create-request.json
 #### Update Tenant-Based Handle
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup integrations ms-teams handles update <handle-id> --file=update-request.json
+pup integrations ms-teams handles update "<handle-id>" --file=update-request.json
 # <handle-id> \
 # --name="updated-handle-name"
 ```
@@ -256,7 +256,7 @@ pup integrations ms-teams handles update <handle-id> --file=update-request.json
 #### Delete Tenant-Based Handle
 ```bash
 pup integrations ms-teams handles delete \
-  <handle-id>
+  "<handle-id>"
 ```
 
 #### List Workflows Webhook Handles
@@ -354,13 +354,13 @@ With resources:
 # --api-key="your-confluent-api-key" \
 # --api-secret="your-confluent-api-secret" \
 # --resources='[
-    {
-      "resource_type": "kafka",
-      "id": "lkc-abc123",
-      "enable_custom_metrics": true,
-      "tags": ["env:prod"]
-    }
-  ]'
+    # {
+      # "resource_type": "kafka",
+      # "id": "lkc-abc123",
+      # "enable_custom_metrics": true,
+      # "tags": ["env:prod"]
+    # }
+  # ]'
 ```
 
 #### Get Confluent Account
@@ -596,13 +596,13 @@ pup integrations ms-teams handles create --file=create-request.json
 # --api-key="confluent-api-key" \
 # --api-secret="confluent-api-secret" \
 # --resources='[
-    {
-      "resource_type": "kafka",
-      "id": "lkc-xyz789",
-      "enable_custom_metrics": true,
-      "tags": ["env:prod", "cluster:main"]
-    }
-  ]'
+    # {
+      # "resource_type": "kafka",
+      # "id": "lkc-xyz789",
+      # "enable_custom_metrics": true,
+      # "tags": ["env:prod", "cluster:main"]
+    # }
+  # ]'
 ```
 
 ### "Configure Cloudflare monitoring for specific zones"

@@ -80,7 +80,7 @@ pup scorecards rules create --file=create-request.json
 Update an existing rule:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup scorecards rules update <rule-id> --file=update-request.json
+pup scorecards rules update "<rule-id>" --file=update-request.json
 # --name="Updated Rule Name" \
 # --description="Updated description" \
 # --enabled=false
@@ -97,7 +97,7 @@ pup scorecards rules update abc-123-def --file=update-request.json
 
 Remove a custom rule:
 ```bash
-pup scorecards rules delete <rule-id>
+pup scorecards rules delete "<rule-id>"
 ```
 
 **Warning**: This is a destructive operation that requires confirmation. Only custom rules can be deleted.
@@ -254,7 +254,7 @@ pup scorecards outcomes batch-create --file=outcomes.json
 ### "Disable a rule temporarily"
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup scorecards rules update <rule-id> --file=update-request.json
+pup scorecards rules update "<rule-id>" --file=update-request.json
 # --enabled=false
 ```
 

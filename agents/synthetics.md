@@ -33,7 +33,7 @@ pup synthetics tests list
 ### Get Test Details
 
 ```bash
-pup synthetics tests get <public-id>
+pup synthetics tests get "<public-id>"
 ```
 
 Example:
@@ -99,7 +99,7 @@ pup synthetics tests list
 pup synthetics tests list
 
 # Then get details
-pup synthetics tests get <public-id>
+pup synthetics tests get "<public-id>"
 ```
 
 ### "What endpoints are being monitored?"

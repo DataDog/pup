@@ -115,7 +115,7 @@ pup traces aggregate --query="service:api" --compute="avg(@duration)" --group-by
 ```bash
 pup incidents list
 pup incidents list --limit 20
-pup incidents get <incident-id>
+pup incidents get "<incident-id>"
 ```
 
 ### Dashboards
@@ -156,7 +156,7 @@ pup downtime cancel abc-123-def
 pup infrastructure hosts list
 pup infrastructure hosts list --filter "env:prod"
 pup infrastructure hosts list --count 100
-pup infrastructure hosts get <host-id>
+pup infrastructure hosts get "<host-id>"
 ```
 
 ### Events
@@ -164,15 +164,15 @@ pup infrastructure hosts get <host-id>
 pup events list --from 24h
 pup events list --tags "source:deploy" --from 24h
 pup events search --query "deploy" --from 24h
-pup events get <event-id>
+pup events get "<event-id>"
 ```
 
 ### Users / Teams
 ```bash
 pup users list
-pup users get <user-id>
+pup users get "<user-id>"
 pup on-call teams list
-pup on-call teams get <team-id>
+pup on-call teams get "<team-id>"
 ```
 
 ### Security
@@ -204,20 +204,20 @@ pup debugger probes create --service my-svc --env prod \
   --capture "request.id" --ttl 1h
 
 # Watch probe events — compact output
-pup debugger probes watch <PROBE_ID> --fields "message,captures,timestamp" --timeout 60 --limit 10 --wait 5
+pup debugger probes watch "<PROBE_ID>" --fields "message,captures,timestamp" --timeout 60 --limit 10 --wait 5
 
 # Watch — template message only
-pup debugger probes watch <PROBE_ID> --fields "message" --limit 10
+pup debugger probes watch "<PROBE_ID>" --fields "message" --limit 10
 
 # List and delete probes
 pup debugger probes list --service my-svc
-pup debugger probes delete <PROBE_ID>
+pup debugger probes delete "<PROBE_ID>"
 ```
 
 ### Service Catalog
 ```bash
 pup service-catalog list
-pup service-catalog get <service-name>
+pup service-catalog get "<service-name>"
 ```
 
 ### Notebooks
@@ -230,10 +230,10 @@ pup notebooks create --file notebook.json
 ### Observability Pipelines
 ```bash
 pup obs-pipelines list
-pup obs-pipelines get <pipeline-id>
+pup obs-pipelines get "<pipeline-id>"
 pup obs-pipelines create --file pipeline.json
-pup obs-pipelines update <pipeline-id> --file pipeline.json
-pup obs-pipelines delete <pipeline-id>
+pup obs-pipelines update "<pipeline-id>" --file pipeline.json
+pup obs-pipelines delete "<pipeline-id>"
 pup obs-pipelines validate --file pipeline.json
 ```
 
@@ -242,19 +242,19 @@ pup obs-pipelines validate --file pipeline.json
 pup llm-obs projects list
 pup llm-obs projects create --file project.json
 pup llm-obs experiments list
-pup llm-obs experiments list --filter-project-id <project-id>
-pup llm-obs experiments list --filter-dataset-id <dataset-id>
+pup llm-obs experiments list --filter-project-id "<project-id>"
+pup llm-obs experiments list --filter-dataset-id "<dataset-id>"
 pup llm-obs experiments create --file experiment.json
-pup llm-obs experiments update <experiment-id> --file experiment.json
+pup llm-obs experiments update "<experiment-id>" --file experiment.json
 pup llm-obs experiments delete --file delete-request.json
-pup llm-obs datasets list --project-id <project-id>
-pup llm-obs datasets create --project-id <project-id> --file dataset.json
+pup llm-obs datasets list --project-id "<project-id>"
+pup llm-obs datasets create --project-id "<project-id>" --file dataset.json
 ```
 
 ### Reference Tables
 ```bash
 pup reference-tables list
-pup reference-tables get <table-id>
+pup reference-tables get "<table-id>"
 pup reference-tables create --file table.json
 pup reference-tables batch-query --file query.json
 ```
@@ -263,28 +263,28 @@ pup reference-tables batch-query --file query.json
 ```bash
 # AWS CUR configs
 pup costs datadog aws-config list
-pup costs datadog aws-config get <account-id>
+pup costs datadog aws-config get "<account-id>"
 pup costs datadog aws-config create --file config.json
-pup costs datadog aws-config delete <account-id>
+pup costs datadog aws-config delete "<account-id>"
 
 # Azure UC configs
 pup costs datadog azure-config list
-pup costs datadog azure-config get <account-id>
+pup costs datadog azure-config get "<account-id>"
 pup costs datadog azure-config create --file config.json
-pup costs datadog azure-config delete <account-id>
+pup costs datadog azure-config delete "<account-id>"
 
 # GCP usage cost configs
 pup costs datadog gcp-config list
-pup costs datadog gcp-config get <account-id>
+pup costs datadog gcp-config get "<account-id>"
 pup costs datadog gcp-config create --file config.json
-pup costs datadog gcp-config delete <account-id>
+pup costs datadog gcp-config delete "<account-id>"
 ```
 
 ## Subcommand Discovery
 
 ```bash
 pup --help              # List all commands
-pup <command> --help    # Command-specific help
+pup "<command>" --help    # Command-specific help
 ```
 
 ## Error Handling

@@ -74,7 +74,7 @@ Agent listing does not expose sort options in the typed CLI; sort the returned r
 #### Get Agent Details
 
 ```bash
-pup fleet agents get <agent-key>
+pup fleet agents get "<agent-key>"
 ```
 
 ### Deployment Management
@@ -93,12 +93,12 @@ pup fleet deployments list --page-size=20
 #### Get Deployment Details
 
 ```bash
-pup fleet deployments get <deployment-id>
+pup fleet deployments get "<deployment-id>"
 ```
 
 Deployment details are retrieved by ID; the typed get command does not have pagination options:
 ```bash
-pup fleet deployments get <deployment-id>
+pup fleet deployments get "<deployment-id>"
 ```
 
 #### Create Configuration Deployment
@@ -171,7 +171,7 @@ pup fleet deployments upgrade --file=upgrade-request.json
 #### Cancel a Deployment
 
 ```bash
-pup fleet deployments cancel <deployment-id>
+pup fleet deployments cancel "<deployment-id>"
 ```
 
 ### Schedule Management
@@ -185,7 +185,7 @@ pup fleet schedules list
 #### Get Schedule Details
 
 ```bash
-pup fleet schedules get <schedule-id>
+pup fleet schedules get "<schedule-id>"
 ```
 
 #### Create a Schedule
@@ -223,14 +223,14 @@ pup fleet schedules create --file=create-request.json
 Pause a schedule:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup fleet schedules update <schedule-id> --file=update-request.json
+pup fleet schedules update "<schedule-id>" --file=update-request.json
 # --status="inactive"
 ```
 
 Change maintenance window:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup fleet schedules update <schedule-id> --file=update-request.json
+pup fleet schedules update "<schedule-id>" --file=update-request.json
 # --days-of-week="Mon,Wed,Fri" \
 # --start-time="03:00" \
 # --duration=240
@@ -239,20 +239,20 @@ pup fleet schedules update <schedule-id> --file=update-request.json
 Update target query:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup fleet schedules update <schedule-id> --file=update-request.json
+pup fleet schedules update "<schedule-id>" --file=update-request.json
 # --query="env:prod AND service:api"
 ```
 
 #### Delete a Schedule
 
 ```bash
-pup fleet schedules delete <schedule-id>
+pup fleet schedules delete "<schedule-id>"
 ```
 
 #### Manually Trigger a Schedule
 
 ```bash
-pup fleet schedules trigger <schedule-id>
+pup fleet schedules trigger "<schedule-id>"
 ```
 
 ## Fleet Automation Concepts
@@ -403,12 +403,12 @@ pup fleet schedules create --file=create-request.json
 
 ### "Check the status of a deployment"
 ```bash
-pup fleet deployments get <deployment-id>
+pup fleet deployments get "<deployment-id>"
 ```
 
 ### "Get detailed information about an agent"
 ```bash
-pup fleet agents get <agent-key>
+pup fleet agents get "<agent-key>"
 ```
 
 ## Error Handling

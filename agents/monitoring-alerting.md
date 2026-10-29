@@ -742,7 +742,7 @@ pup downtime list
 ### Get Downtime Details
 
 ```bash
-pup downtime get <downtime-id>
+pup downtime get "<downtime-id>"
 ```
 
 ### List Monitor Downtimes
@@ -770,7 +770,7 @@ pup downtime create --file=downtime.json
 ### Cancel a Downtime
 
 ```bash
-pup downtime cancel <downtime-id>
+pup downtime cancel "<downtime-id>"
 ```
 
 ## Downtime Lifecycle

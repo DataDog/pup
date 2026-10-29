@@ -75,7 +75,7 @@ pup costs datadog aws-config create --file=create-request.json
 
 #### Get AWS CUR Config
 ```bash
-pup costs datadog aws-config get <cloud-account-id>
+pup costs datadog aws-config get "<cloud-account-id>"
 ```
 
 #### Update AWS CUR Config
@@ -95,7 +95,7 @@ Update account filtering:
 
 #### Delete AWS CUR Config
 ```bash
-pup costs datadog aws-config delete <cloud-account-id>
+pup costs datadog aws-config delete "<cloud-account-id>"
 ```
 
 ### Azure UC Configuration
@@ -116,7 +116,7 @@ pup costs datadog azure-config create --file=create-request.json
 
 #### Get Azure UC Config
 ```bash
-pup costs datadog azure-config get <cloud-account-id>
+pup costs datadog azure-config get "<cloud-account-id>"
 ```
 
 #### Update Azure UC Config
@@ -128,7 +128,7 @@ pup costs datadog azure-config get <cloud-account-id>
 
 #### Delete Azure UC Config
 ```bash
-pup costs datadog azure-config delete <cloud-account-id>
+pup costs datadog azure-config delete "<cloud-account-id>"
 ```
 
 ### GCP UC Configuration
@@ -149,7 +149,7 @@ pup costs datadog gcp-config create --file=create-request.json
 
 #### Get GCP UC Config
 ```bash
-pup costs datadog gcp-config get <cloud-account-id>
+pup costs datadog gcp-config get "<cloud-account-id>"
 ```
 
 #### Update GCP UC Config
@@ -161,7 +161,7 @@ pup costs datadog gcp-config get <cloud-account-id>
 
 #### Delete GCP UC Config
 ```bash
-pup costs datadog gcp-config delete <cloud-account-id>
+pup costs datadog gcp-config delete "<cloud-account-id>"
 ```
 
 ### Cost Allocation Rules
@@ -294,12 +294,12 @@ pup costs ccm custom-costs list
 
 #### Get Custom Cost File
 ```bash
-pup costs ccm custom-costs get <file-id>
+pup costs ccm custom-costs get "<file-id>"
 ```
 
 #### Delete Custom Cost File
 ```bash
-pup costs ccm custom-costs delete <file-id>
+pup costs ccm custom-costs delete "<file-id>"
 ```
 
 ### Budget Management
@@ -334,12 +334,12 @@ pup costs ccm budgets upsert --file=upsert-request.json
 
 #### Get Budget
 ```bash
-pup costs ccm budgets get <budget-id>
+pup costs ccm budgets get "<budget-id>"
 ```
 
 #### Delete Budget
 ```bash
-pup costs ccm budgets delete <budget-id>
+pup costs ccm budgets delete "<budget-id>"
 ```
 
 ## Query Syntax

@@ -102,7 +102,7 @@ fn read_only_blocks_both_writes_even_dry_runs() {
     let mut server = Server::new();
     let mocks: Vec<_> = ["GET", "PATCH", "POST"]
         .iter()
-        .map(|m| server.mock(*m, Matcher::Any).expect(0).create())
+        .map(|m| server.mock(m, Matcher::Any).expect(0).create())
         .collect();
     for args in [mitigate(), update()] {
         for dry in [false, true] {
@@ -261,7 +261,7 @@ fn invalid_flags_and_local_update_fields_send_no_requests() {
     let mut server = Server::new();
     let mocks: Vec<_> = ["GET", "PATCH", "POST"]
         .iter()
-        .map(|m| server.mock(*m, Matcher::Any).expect(0).create())
+        .map(|m| server.mock(m, Matcher::Any).expect(0).create())
         .collect();
     for args in [
         vec![

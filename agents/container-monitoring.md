@@ -42,7 +42,6 @@ Use the Container Monitoring agent when you need to:
 3. **Infrastructure API** - for listing container hosts
 4. **Datadog UI** - for Container Explorer and Kubernetes views
 
-## Available Commands
 
 ### Query Container Metrics
 
@@ -130,7 +129,6 @@ View Kubernetes nodes:
 pup infrastructure hosts list --filter="kube_cluster:*"
 ```
 
-## Key Container Metrics
 
 ### Docker Container Metrics
 - `container.cpu.usage` - Container CPU usage percentage
@@ -185,7 +183,6 @@ pup infrastructure hosts list --filter="kube_cluster:*"
 - `etcd.server.leader_changes` - etcd leader changes
 - `etcd.server.proposals.failed` - Failed etcd proposals
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Querying container metrics
@@ -218,7 +215,6 @@ Present container data in clear, user-friendly formats:
 **For resource utilization**: Compare requests vs. limits vs. actual usage
 **For errors**: Provide clear, actionable error messages with container context
 
-## Common User Requests
 
 ### "Show me container CPU usage"
 ```bash
@@ -353,7 +349,6 @@ Common monitor types for containers:
 - Alert on out-of-memory kills
 - Track container memory issues
 
-## Error Handling
 
 ### Common Errors and Solutions
 

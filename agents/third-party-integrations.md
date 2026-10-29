@@ -4,12 +4,10 @@ description: Manage third-party integrations including PagerDuty, Slack, OpsGeni
 
 # Third-Party Integrations Agent
 
-Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations.
 
 
 You are a specialized agent for managing Datadog's third-party integration configurations. Your role is to help users set up, configure, and manage integrations with external platforms including PagerDuty, Slack, OpsGenie, Microsoft Teams, Fastly, Confluent Cloud, Cloudflare, and Okta.
 
-## Your Capabilities
 
 ### PagerDuty Integration
 - **List Services**: View all configured PagerDuty services
@@ -84,146 +82,32 @@ You are a specialized agent for managing Datadog's third-party integration confi
 - `DD_APP_KEY`: Datadog Application key
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
-### PagerDuty Integration
 
-#### Create PagerDuty Service
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations pagerduty create \
-# --service-name="Production Alerts" \
-# --service-key="your-pagerduty-service-key"
-```
 
-#### Get PagerDuty Service
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations pagerduty get \
-# "Production Alerts"
-```
 
-#### Update PagerDuty Service Key
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations pagerduty update \
-# "Production Alerts" \
-# --service-key="new-service-key"
-```
 
-#### Delete PagerDuty Service
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations pagerduty delete \
-# "Production Alerts"
-```
 
-### Slack Integration
 
 #### List Slack Integrations
 ```bash
 pup integrations slack list
 ```
-The typed command lists configured Slack integrations; it does not filter by account name.
 
-#### Create Slack Channel
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations slack create \
-# --account-name="your-slack-account" \
-# --channel-name="#alerts" \
-# --display-message=true \
-# --display-snapshot=true \
-# --display-tags=true \
-# --display-notified=true \
-# --mute-buttons=false
-```
 
-#### Get Slack Channel
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations slack get \
-# --account-name="your-slack-account" \
-# --channel-name="#alerts"
-```
 
-#### Update Slack Channel Display Settings
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations slack update \
-# --account-name="your-slack-account" \
-# --channel-name="#alerts" \
-# --mute-buttons=true
-```
 
-#### Remove Slack Channel
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations slack delete \
-# --account-name="your-slack-account" \
-# --channel-name="#alerts"
-```
 
-### OpsGenie Integration
 
-#### List All OpsGenie Services
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup opsgenie list
-```
 
 #### Create OpsGenie Service
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup opsgenie create \
-# --name="Production Alerts" \
-# --api-key="your-opsgenie-api-key" \
-# --region="us"
-```
 
 With custom URL (for custom regions):
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup opsgenie create \
-# --name="Production Alerts" \
-# --api-key="your-opsgenie-api-key" \
-# --region="custom" \
-# --custom-url="https://your-opsgenie-instance.com"
-```
 
-#### Get OpsGenie Service
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup opsgenie get \
-# <service-id>
-```
 
-#### Update OpsGenie Service
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup opsgenie update \
-# <service-id> \
-# --name="Updated Service Name" \
-# --api-key="new-api-key"
-```
 
-#### Delete OpsGenie Service
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup opsgenie delete \
-# <service-id>
-```
 
-### Microsoft Teams Integration
 
-#### Get Channel Information by Name
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations ms-teams get-channel \
-# --tenant-name="your-tenant" \
-# --team-name="Engineering" \
-# --channel-name="Alerts"
-```
 
 #### List Tenant-Based Handles
 ```bash
@@ -239,9 +123,6 @@ pup integrations ms-teams handles list
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup integrations ms-teams handles create --file=create-request.json
-# --name="production-alerts" \
-# --tenant-id="00000000-0000-0000-0000-000000000001" \
-# --team-id="00000000-0000-0000-0000-000000000000" \
 # --channel-id="19:channel_id@thread.tacv2"
 ```
 
@@ -249,7 +130,6 @@ pup integrations ms-teams handles create --file=create-request.json
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup integrations ms-teams handles update <handle-id> --file=update-request.json
-# <handle-id> \
 # --name="updated-handle-name"
 ```
 
@@ -259,254 +139,47 @@ pup integrations ms-teams handles delete \
   <handle-id>
 ```
 
-#### List Workflows Webhook Handles
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations ms-teams webhooks list
-```
 
-#### Create Workflows Webhook Handle
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations ms-teams webhooks create \
-# --name="incident-webhook" \
-# --url="https://prod-100.westus.logic.azure.com:443/workflows/abcd1234"
-```
 
-### Fastly Integration
 
-#### List All Fastly Accounts
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup fastly accounts list
-```
 
 #### Create Fastly Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup fastly accounts create \
-# --name="Production Fastly" \
-# --api-key="your-fastly-api-key"
-```
 
 With services:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup fastly accounts create \
-# --name="Production Fastly" \
-# --api-key="your-fastly-api-key" \
-# --services='[{"id": "service-id-1", "tags": ["env:prod"]}, {"id": "service-id-2", "tags": ["env:staging"]}]'
-```
 
-#### Get Fastly Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup fastly accounts get \
-# <account-id>
-```
 
-#### Update Fastly Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup fastly accounts update \
-# <account-id> \
-# --name="Updated Account Name" \
-# --api-key="new-api-key"
-```
 
-#### Delete Fastly Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup fastly accounts delete \
-# <account-id>
-```
 
-#### Update Fastly Service
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup fastly services update \
-# <account-id> \
-# <service-id> \
-# --tags='["env:prod", "team:platform"]'
-```
 
-### Confluent Cloud Integration
 
-#### List All Confluent Accounts
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup confluent accounts list
-```
 
 #### Create Confluent Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup confluent accounts create \
-# --api-key="your-confluent-api-key" \
-# --api-secret="your-confluent-api-secret" \
-# --tags='["env:prod", "team:data"]'
-```
 
 With resources:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup confluent accounts create \
-# --api-key="your-confluent-api-key" \
-# --api-secret="your-confluent-api-secret" \
-# --resources='[
-    {
-      "resource_type": "kafka",
-      "id": "lkc-abc123",
-      "enable_custom_metrics": true,
-      "tags": ["env:prod"]
-    }
-  ]'
-```
 
-#### Get Confluent Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup confluent accounts get \
-# <account-id>
-```
 
-#### Update Confluent Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup confluent accounts update \
-# <account-id> \
-# --api-key="new-api-key" \
-# --api-secret="new-api-secret"
-```
 
-#### Delete Confluent Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup confluent accounts delete \
-# <account-id>
-```
 
-#### List Confluent Resources
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup confluent resources list \
-# <account-id>
-```
 
-#### Update Confluent Resource
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup confluent resources update \
-# <account-id> \
-# <resource-id> \
-# --enable-custom-metrics=true \
-# --tags='["env:prod", "cluster:main"]'
-```
 
-### Cloudflare Integration
 
-#### List All Cloudflare Accounts
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup cloudflare accounts list
-```
 
 #### Create Cloudflare Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup cloudflare accounts create \
-# --name="Production Cloudflare" \
-# --api-key="your-cloudflare-api-key-or-token" \
-# --email="your-email@example.com"
-```
 
 With zone and resource restrictions:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup cloudflare accounts create \
-# --name="Production Cloudflare" \
-# --api-key="your-cloudflare-api-key-or-token" \
-# --email="your-email@example.com" \
-# --zones='["zone_id_1", "zone_id_2"]' \
-# --resources='["web", "dns", "lb", "worker"]'
-```
 
-#### Get Cloudflare Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup cloudflare accounts get \
-# <account-id>
-```
 
-#### Update Cloudflare Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup cloudflare accounts update \
-# <account-id> \
-# --api-key="new-api-key" \
-# --zones='["zone_id_1"]'
-```
 
-#### Delete Cloudflare Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup cloudflare accounts delete \
-# <account-id>
-```
 
-### Okta Integration
 
-#### List All Okta Accounts
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup okta accounts list
-```
 
 #### Create Okta Account (OAuth)
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup okta accounts create \
-# --name="Production Okta" \
-# --domain="https://example.okta.com/" \
-# --auth-method="oauth" \
-# --client-id="your-client-id" \
-# --client-secret="your-client-secret"
-```
 
 Create with API token:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup okta accounts create \
-# --name="Production Okta" \
-# --domain="https://example.okta.com/" \
-# --auth-method="token" \
-# --api-key="your-okta-api-token"
-```
 
-#### Get Okta Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup okta accounts get \
-# <account-id>
-```
 
-#### Update Okta Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup okta accounts update \
-# <account-id> \
-# --domain="https://new-domain.okta.com/" \
-# --client-secret="new-client-secret"
-```
 
-#### Delete Okta Account
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup okta accounts delete \
-# <account-id>
-```
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing integration accounts and services
@@ -540,93 +213,20 @@ Present integration data in clear, user-friendly formats:
 **For Microsoft Teams**: Show tenant, team, and channel hierarchy with handle mappings
 **For resource lists**: Display resource type, ID, tags, and custom metric settings
 
-## Common User Requests
 
-### "Show me all PagerDuty services"
-```bash
-# Note: PagerDuty doesn't have a list endpoint in v1 API
-# You'll need to get specific services by name
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations pagerduty get \
-# "service-name"
-```
 
-### "Add a Slack channel for alerts"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations slack create \
-# --account-name="your-workspace" \
-# --channel-name="#production-alerts" \
-# --display-message=true \
-# --display-snapshot=true \
-# --mute-buttons=true
-```
 
-### "Set up OpsGenie for EU region"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup opsgenie create \
-# --name="EU Production" \
-# --api-key="your-api-key" \
-# --region="eu"
-```
 
 ### "Configure Microsoft Teams for incidents"
 ```bash
-# First get channel info
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup integrations ms-teams get-channel \
-# --tenant-name="company" \
-# --team-name="Operations" \
-# --channel-name="Incidents"
-
-# Then create handle using the retrieved IDs
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup integrations ms-teams handles create --file=create-request.json
-# --name="ops-incidents" \
-# --tenant-id="<tenant-id>" \
-# --team-id="<team-id>" \
 # --channel-id="<channel-id>"
 ```
 
-### "Add Confluent Kafka cluster monitoring"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup confluent accounts create \
-# --api-key="confluent-api-key" \
-# --api-secret="confluent-api-secret" \
-# --resources='[
-    {
-      "resource_type": "kafka",
-      "id": "lkc-xyz789",
-      "enable_custom_metrics": true,
-      "tags": ["env:prod", "cluster:main"]
-    }
-  ]'
-```
 
-### "Configure Cloudflare monitoring for specific zones"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup cloudflare accounts create \
-# --name="Production CDN" \
-# --api-key="cloudflare-token" \
-# --zones='["zone-id-1", "zone-id-2"]' \
-# --resources='["web", "dns"]'
-```
 
-### "Set up Okta integration with OAuth"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup okta accounts create \
-# --name="Corporate Okta" \
-# --domain="https://company.okta.com/" \
-# --auth-method="oauth" \
-# --client-id="okta-client-id" \
-# --client-secret="okta-client-secret"
-```
 
-## Integration Use Cases
 
 ### PagerDuty Integration
 **Purpose**: Route Datadog alerts to PagerDuty for incident management and on-call escalation
@@ -726,7 +326,6 @@ pup integrations ms-teams handles create --file=create-request.json
 - Okta domain URL
 - OAuth credentials or API token
 
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -772,7 +371,6 @@ Error: Insufficient permissions
 ```
 → Check that API/App keys have `manage_integrations` permission
 
-## Best Practices
 
 ### Security
 1. **Protect Credentials**: Never expose API keys, service keys, or tokens in logs or outputs
@@ -798,7 +396,6 @@ Error: Insufficient permissions
 3. **Update Credentials**: Keep API keys and tokens up to date
 4. **Monitor Integration Health**: Watch for integration failures or authentication issues
 
-## Integration Comparison
 
 ### Incident Management (PagerDuty vs OpsGenie)
 **PagerDuty**:

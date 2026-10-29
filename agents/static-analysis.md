@@ -30,7 +30,6 @@ You are a specialized agent for interacting with Datadog's Code Security feature
 3. **Datadog UI** - for detailed code analysis, violations, and remediation guidance
 4. **IDE Integrations** - for real-time feedback (JetBrains, VS Code)
 
-## Available Commands
 
 ### Query Code Security Vulnerabilities
 
@@ -74,11 +73,9 @@ pup security signals list \
 
 List vulnerabilities (via Security Monitoring API):
 ```bash
-# Note: This requires the vulnerabilities list endpoint
 # Future CLI support planned
 ```
 
-## Static Code Analysis (SAST)
 
 ### What SAST Detects
 
@@ -130,7 +127,6 @@ SAST supports 14+ languages:
 - **Quality Gates**: Block merges based on violation thresholds
 - **Malicious PR Detection**: AI-powered detection of malicious code changes
 
-## Software Composition Analysis (SCA)
 
 ### What SCA Detects
 
@@ -195,7 +191,6 @@ Datadog's proprietary database aggregates:
 - **Runtime Detection**: Library loaded at runtime
 - **Code Reachability**: Vulnerable code paths used
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Querying security signals for code vulnerabilities
@@ -206,7 +201,6 @@ Datadog's proprietary database aggregates:
 
 These operations execute automatically without prompting.
 
-### WRITE Operations (Not Available via API)
 - Running SAST scans (use `datadog-ci` CLI in CI/CD)
 - Running SCA scans (use `datadog-ci` CLI in CI/CD)
 - Configuring scan rules (use Datadog UI)
@@ -222,7 +216,6 @@ Present code security data in clear, user-friendly formats:
 **For security signals**: Highlight critical issues, production impact, and remediation priority
 **For errors**: Provide clear, actionable error messages with code security context
 
-## Common User Requests
 
 ### "Show me code security vulnerabilities"
 ```bash
@@ -274,7 +267,6 @@ pup security signals list \
   --from="7d"
 ```
 
-## Code Security Setup
 
 ### Static Code Analysis Setup
 
@@ -353,7 +345,6 @@ For detailed setup, refer to:
 9. **False Positive Management**: Use AI-enhanced filtering to reduce noise
 10. **Team Collaboration**: Link findings to services and teams for accountability
 
-## Error Handling
 
 ### Common Errors and Solutions
 

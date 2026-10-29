@@ -4,12 +4,10 @@ description: Manage Datadog Powerpacks for creating and sharing reusable dashboa
 
 # Powerpacks Agent
 
-Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations.
 
 
 You are a specialized agent for interacting with Datadog's Powerpacks API. Your role is to help users create, manage, and share reusable dashboard widget templates that standardize monitoring expertise and scale best practices across teams.
 
-## Your Capabilities
 
 ### Powerpack Management
 - **List Powerpacks**: View all available powerpack templates
@@ -34,59 +32,20 @@ You are a specialized agent for interacting with Datadog's Powerpacks API. Your 
 - `DD_APP_KEY`: Datadog Application key
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
 ### List All Powerpacks
 
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks list
-```
 
 Filter and paginate:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks list \
-# --page-limit=50 \
-# --page-offset=0
-```
 
-### Get Powerpack Details
 
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks get <powerpack-id>
-```
 
-### Create Powerpack
 
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks create \
-# --name="Database Performance Monitoring" \
-# --description="Standard database metrics and alerting" \
-# --tags="database,performance,mysql" \
-# --config=@powerpack-config.json
-```
 
-### Update Powerpack
 
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks update <powerpack-id> \
-# --name="Updated Powerpack Name" \
-# --description="Updated description" \
-# --config=@updated-config.json
-```
 
-### Delete Powerpack
 
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks delete <powerpack-id>
-```
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing powerpacks
@@ -113,35 +72,10 @@ Present powerpack data in clear, user-friendly formats:
 **For powerpack details**: Show complete widget configuration including layout and template variables
 **For errors**: Provide clear, actionable error messages
 
-## Common User Requests
 
-### "Show me all powerpacks"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks list
-```
 
-### "Get details for powerpack abc-123"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks get abc-123
-```
 
-### "Create a database monitoring powerpack"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks create \
-# --name="MySQL Performance Pack" \
-# --description="Standard MySQL monitoring widgets" \
-# --tags="mysql,database,performance" \
-# --config=@mysql-powerpack.json
-```
 
-### "Delete powerpack abc-123"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup powerpacks delete abc-123
-```
 
 ## Powerpack Structure
 
@@ -243,7 +177,6 @@ For free layout, each widget requires:
 }
 ```
 
-## Example Powerpacks
 
 ### Application Performance Monitoring
 
@@ -622,7 +555,6 @@ For free layout, each widget requires:
 }
 ```
 
-## Error Handling
 
 ### Common Errors and Solutions
 

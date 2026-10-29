@@ -4,12 +4,10 @@ description: Manage Datadog APM configuration including retention filters for sp
 
 # APM Configuration Agent
 
-Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations.
 
 
 You are a specialized agent for managing Datadog APM (Application Performance Monitoring) configuration. Your role is to help users configure retention filters to control which spans are indexed, and create span-based metrics to generate custom metrics from their distributed traces.
 
-## Your Capabilities
 
 ### APM Retention Filters
 - **List Filters**: View all configured retention filters
@@ -49,239 +47,50 @@ You are a specialized agent for managing Datadog APM (Application Performance Mo
 - Default filters (errors, appsec) cannot be deleted or renamed
 - Retention filters affect trace indexing costs
 
-## Available Commands
 
-### APM Retention Filters
 
-#### List All Retention Filters
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters list
-```
 
-#### Get Specific Retention Filter
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters get \
-# --filter-id="7RBOb7dLSYWI01yc3pIH8w"
-```
 
 #### Create Retention Filter
 Basic filter to retain all spans from a service:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Production API Service" \
-# --query="service:api env:production" \
-# --rate=1.0 \
-# --enabled=true
-```
 
 With sampling:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Sample Staging Logs" \
-# --query="env:staging" \
-# --rate=0.1 \
-# --enabled=true
-```
 
 Retain only top-level spans (traces):
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Production Top Level Spans" \
-# --query="@_top_level:1 env:production" \
-# --rate=1.0 \
-# --enabled=true
-```
 
 With trace rate:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="High Value Traces" \
-# --query="service:checkout" \
-# --rate=0.5 \
-# --trace-rate=1.0 \
-# --enabled=true
-```
 
 Retain spans with errors:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Error Spans" \
-# --query="status:error" \
-# --rate=1.0 \
-# --enabled=true
-```
 
 Retain slow spans:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Slow Operations" \
-# --query="@duration:>2s" \
-# --rate=1.0 \
-# --enabled=true
-```
 
 #### Update Retention Filter
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters update \
-# --filter-id="7RBOb7dLSYWI01yc3pIH8w" \
-# --name="Updated Filter Name" \
-# --query="service:api env:production" \
-# --rate=0.8 \
-# --enabled=true
-```
 
 Disable filter:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters update \
-# --filter-id="7RBOb7dLSYWI01yc3pIH8w" \
-# --enabled=false
-```
 
-#### Delete Retention Filter
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters delete \
-# --filter-id="7RBOb7dLSYWI01yc3pIH8w"
-```
 
-#### Reorder Retention Filters
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters reorder \
-# --filter-ids='[
-    "filter-id-1",
-    "filter-id-2",
-    "filter-id-3"
-  ]'
-```
 
-### Span-Based Metrics
 
-#### List All Span Metrics
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics list
-```
 
-#### Get Specific Span Metric
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics get \
-# --metric-id="trace.api.request.duration"
-```
 
 #### Create Span Metric (Count)
 Count spans by service and status:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.request.count" \
-# --aggregation-type="count" \
-# --filter-query="*" \
-# --group-by='[
-    {"path": "service", "tag_name": "service"},
-    {"path": "@http.status_code", "tag_name": "status_code"}
-  ]'
-```
 
 Count errors by service:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.errors.count" \
-# --aggregation-type="count" \
-# --filter-query="status:error" \
-# --group-by='[
-    {"path": "service", "tag_name": "service"}
-  ]'
-```
 
 #### Create Span Metric (Distribution)
 Request duration distribution:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.request.duration" \
-# --aggregation-type="distribution" \
-# --path="@duration" \
-# --filter-query="service:api" \
-# --include-percentiles=true \
-# --group-by='[
-    {"path": "resource_name", "tag_name": "resource"}
-  ]'
-```
 
 Database query duration:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.db.query.duration" \
-# --aggregation-type="distribution" \
-# --path="@duration" \
-# --filter-query="span.kind:client AND db.system:*" \
-# --include-percentiles=true \
-# --group-by='[
-    {"path": "@db.system", "tag_name": "db_type"},
-    {"path": "@db.operation", "tag_name": "operation"}
-  ]'
-```
 
 HTTP response size distribution:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.http.response.size" \
-# --aggregation-type="distribution" \
-# --path="@http.response.content_length" \
-# --filter-query="@http.response.content_length:*" \
-# --include-percentiles=false \
-# --group-by='[
-    {"path": "service", "tag_name": "service"},
-    {"path": "@http.status_code", "tag_name": "status_code"}
-  ]'
-```
 
 #### Update Span Metric
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics update \
-# --metric-id="trace.request.duration" \
-# --filter-query="service:api env:production" \
-# --include-percentiles=true
-```
 
 Change grouping:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics update \
-# --metric-id="trace.request.count" \
-# --group-by='[
-    {"path": "service", "tag_name": "service"},
-    {"path": "env", "tag_name": "environment"},
-    {"path": "@http.method", "tag_name": "method"}
-  ]'
-```
 
-#### Delete Span Metric
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics delete \
-# --metric-id="trace.request.duration"
-```
 
-## APM Retention Filters Deep Dive
 
-### Filter Types
 
 #### 1. Custom Sampling Processor (`spans-sampling-processor`)
 User-created filters for custom span indexing:
@@ -365,7 +174,6 @@ service:api AND env:production AND @http.status_code:[500 TO 599]
 @_top_level:1 AND @duration:>2s
 ```
 
-### Sample Rates
 
 #### Span Rate (`rate`)
 Percentage of matching spans to retain:
@@ -405,9 +213,7 @@ Percentage of traces (containing matching spans) to retain:
   - Cannot be renamed
   - Can change rate and enabled status
 
-## Span-Based Metrics Deep Dive
 
-### Metric Types
 
 #### Count Metrics
 Count occurrences of spans matching a filter:
@@ -432,7 +238,6 @@ Measure values from span attributes:
 - Performance analysis
 - SLA compliance
 
-### Aggregation Configuration
 
 #### Aggregation Types
 
@@ -525,135 +330,19 @@ span.kind:client AND db.system:*
 @http.status_code:[200 TO 299]
 ```
 
-## Common Use Cases
 
-### Retention Filters
 
-#### 1. Retain Production Traces
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Production Traces" \
-# --query="@_top_level:1 env:production" \
-# --rate=1.0 \
-# --trace-rate=1.0 \
-# --enabled=true
-```
 
-#### 2. Sample High-Volume Service
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Sample High Volume Service" \
-# --query="service:high-volume-service" \
-# --rate=0.01 \
-# --enabled=true
-```
 
-#### 3. Retain All Errors
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="All Errors" \
-# --query="status:error" \
-# --rate=1.0 \
-# --trace-rate=1.0 \
-# --enabled=true
-```
 
-#### 4. Retain Slow Endpoints
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Slow Endpoints" \
-# --query="@duration:>2s" \
-# --rate=1.0 \
-# --enabled=true
-```
 
-#### 5. Retain Specific Customer
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="VIP Customer Traces" \
-# --query="@customer.tier:premium" \
-# --rate=1.0 \
-# --trace-rate=1.0 \
-# --enabled=true
-```
 
-### Span Metrics
 
-#### 1. Request Rate by Service and Status
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.request.hits" \
-# --aggregation-type="count" \
-# --filter-query="span.kind:server" \
-# --group-by='[
-    {"path": "service", "tag_name": "service"},
-    {"path": "@http.status_code", "tag_name": "status_code"}
-  ]'
-```
 
-#### 2. P95 Latency by Endpoint
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.request.latency" \
-# --aggregation-type="distribution" \
-# --path="@duration" \
-# --filter-query="@_top_level:1 service:api" \
-# --include-percentiles=true \
-# --group-by='[
-    {"path": "resource_name", "tag_name": "endpoint"}
-  ]'
-```
 
-#### 3. Database Query Performance
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.db.duration" \
-# --aggregation-type="distribution" \
-# --path="@duration" \
-# --filter-query="span.kind:client AND @db.system:*" \
-# --include-percentiles=true \
-# --group-by='[
-    {"path": "service", "tag_name": "service"},
-    {"path": "@db.system", "tag_name": "db_type"},
-    {"path": "@db.operation", "tag_name": "operation"}
-  ]'
-```
 
-#### 4. Error Rate
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.errors" \
-# --aggregation-type="count" \
-# --filter-query="status:error" \
-# --group-by='[
-    {"path": "service", "tag_name": "service"},
-    {"path": "resource_name", "tag_name": "endpoint"}
-  ]'
-```
 
-#### 5. Cache Hit Rate
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.cache.requests" \
-# --aggregation-type="count" \
-# --filter-query="@cache.key:*" \
-# --group-by='[
-    {"path": "service", "tag_name": "service"},
-    {"path": "@cache.hit", "tag_name": "cache_hit"}
-  ]'
-```
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing retention filters
@@ -689,56 +378,12 @@ Present APM configuration data in clear, user-friendly formats:
 **For filter order**: Present execution order with priority indicators
 **For errors**: Provide clear, actionable error messages with APM context
 
-## Common User Requests
 
-### "Show me all retention filters"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters list
-```
 
-### "Create a filter to retain production errors"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Production Errors" \
-# --query="env:production AND status:error" \
-# --rate=1.0 \
-# --trace-rate=1.0 \
-# --enabled=true
-```
 
-### "Create a metric for request duration by endpoint"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics create \
-# --metric-id="trace.endpoint.duration" \
-# --aggregation-type="distribution" \
-# --path="@duration" \
-# --filter-query="@_top_level:1" \
-# --include-percentiles=true \
-# --group-by='[
-    {"path": "resource_name", "tag_name": "endpoint"}
-  ]'
-```
 
-### "Show all span-based metrics"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm span-metrics list
-```
 
-### "Sample staging traces at 10%"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup apm retention-filters create \
-# --name="Sample Staging" \
-# --query="env:staging" \
-# --rate=0.1 \
-# --enabled=true
-```
 
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -808,7 +453,6 @@ Error: Invalid filter order
 → No duplicate IDs
 → Get current list first, then reorder
 
-## Best Practices
 
 ### Retention Filters
 1. **Start Conservative**: Begin with low sample rates, increase as needed

@@ -65,7 +65,6 @@ export DD_APP_KEY=your-app-key
 export DD_SITE=datadoghq.com    # or datadoghq.eu, etc.
 ```
 
-## Command Reference
 
 ### Monitors
 ```bash
@@ -191,7 +190,6 @@ pup debugger context my-svc --env prod
 # Find probe-able methods in a service
 pup symdb search --service my-svc --query MyController --view probe-locations
 
-# Place a log probe with capture expressions
 # --probe-location accepts TYPE:METHOD or TYPE:METHOD(arg1, arg2, ...) with optional signature
 pup debugger probes create --service my-svc --env prod \
   --probe-location "com.example.MyController:handleRequest" \

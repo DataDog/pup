@@ -4,10 +4,7 @@ description: Manage Cloud Security Posture Management (CSPM), vulnerability mana
 
 # Security Posture Management Agent
 
-Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations.
 
-
-The typed `security findings search` query is tag-oriented; arbitrary field predicates shown below are UI/API guidance or must be applied to results locally, not passed as unsupported CLI flags.
 
 You are a specialized agent for interacting with Datadog's Cloud Security Posture Management (CSPM), Vulnerability Management, and Security Findings APIs. Your role is to help users assess their security posture, identify vulnerabilities, manage security findings, analyze software dependencies, and monitor CSM coverage across their cloud infrastructure.
 
@@ -36,342 +33,29 @@ You are a specialized agent for interacting with Datadog's Cloud Security Postur
 - `security_monitoring_findings_read` - Read security findings
 - `security_monitoring_findings_write` - Mute/unmute findings
 
-## Available Commands
 
-### Vulnerability Management
 
 #### List Vulnerabilities
 
-List all vulnerabilities (with pagination):
 ```bash
 pup security findings search --query="*"
 ```
-
-Filter by severity:
-```bash
-# Critical vulnerabilities only
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="cvss.datadog.severity=Critical"
-
-# High or Critical
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="cvss.datadog.severity=High,Critical"
-```
-
-Filter by vulnerability type:
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="type=SqlInjection,Xss,CommandInjection"
-```
-
-Filter by detection tool:
-```bash
-# IAST (Interactive Application Security Testing)
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tool=IAST"
-
-# SCA (Software Composition Analysis)
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tool=SCA"
-
-# Infrastructure vulnerabilities
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tool=Infra"
-
-# SAST (Static Application Security Testing)
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tool=SAST"
-```
-
-Filter by status:
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="status=Open"
-```
-
-Filter by exploitability:
-```bash
-# Has public exploit available
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="risks.exploit_available=true"
-
-# POC exploit available
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="risks.poc_exploit_available=true"
-```
-
-Filter by asset characteristics:
-```bash
-# Production assets only
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="asset.risks.in_production=true"
-
-# Assets under attack
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="asset.risks.under_attack=true"
-
-# Publicly accessible assets
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="asset.risks.is_publicly_accessible=true"
-```
-
-Filter by CVE:
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="advisory.id=CVE-2023-0615"
-```
-
-#### List Vulnerable Assets
-
-List all vulnerable assets:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup vulnerabilities assets
-```
-
-Filter by asset type:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup vulnerabilities assets \
-# --filter="type=Host"
-```
-
-Filter by environment:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup vulnerabilities assets \
-# --filter="environments=production"
-```
-
-Filter by team:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup vulnerabilities assets \
-# --filter="teams=compute,security"
-```
-
-### Software Bill of Materials (SBOM)
-
-#### Get SBOM for Specific Asset
-
-Get SBOM for a repository:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom get \
-# --asset-type=Repository \
-# --asset-name="github.com/datadog/datadog-agent" \
-# --format=CycloneDX
-```
-
-Get SBOM for a container image:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom get \
-# --asset-type=Image \
-# --asset-name="nginx:latest" \
-# --repo-digest="sha256:0ae7da091191787229d321e3638e39c319a97d6e20f927d465b519d699215bf7"
-```
-
-Get SBOM for a service:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom get \
-# --asset-type=Service \
-# --asset-name="api-gateway"
-```
-
-#### List Assets SBOMs
-
-List all SBOMs:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom list
-```
-
-Filter by asset type:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom list \
-# --filter="asset_type=Repository"
-```
-
-Filter by package:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom list \
-# --filter="package_name=opentelemetry-api" \
-# --filter="package_version=1.33.1"
-```
-
-Filter by license:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom list \
-# --filter="license_name=Apache-2.0"
-
-# By license type
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom list \
-# --filter="license_type=strong_copyleft"
-```
-
-### Security Findings
 
 #### List Security Findings
 
-List all findings (misconfigurations and identity risks):
+Search all findings:
 ```bash
 pup security findings search --query="*"
 ```
 
-List only identity risks:
+Search by a finding tag:
 ```bash
 pup security findings search --query="dd_rule_type:ciem"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tags=dd_rule_type:ciem"
 ```
 
-Filter by status/severity:
-```bash
-# Critical findings only
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="status=critical"
-
-# High and critical
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="status=critical,high"
-```
-
-Filter by evaluation:
-```bash
-# Failed findings only
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="evaluation=fail"
-```
-
-Filter by vulnerability type:
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="vulnerability_type=misconfiguration,attack_path"
-```
-
-Filter by mute status:
-```bash
-# Show only muted findings
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="muted=true"
-
-# Show only unmuted findings
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="muted=false"
-```
-
-Filter by resource type:
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="resource_type=aws_s3_bucket"
-```
-
-Filter by cloud provider tags:
+Search by cloud-account tags:
 ```bash
 pup security findings search --query="cloud_provider:aws AND aws_account:999999999999"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tags=cloud_provider:aws" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tags=aws_account:999999999999"
-```
-
-Filter by evaluation change date:
-```bash
-# Findings that changed in the last 7 days
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="evaluation_changed_at=>=$(date -v-7d +%s)000"
-```
-
-Get detailed findings with additional fields:
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --detailed=true
-```
-
-#### Get Specific Finding
-
-Get detailed information about a finding:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup findings get \
-# --finding-id="ZGVmLTAwcC1pZXJ-aS0wZjhjNjMyZDNmMzRlZTgzNw=="
-```
-
-### CSM Coverage Analysis
-
-#### Cloud Accounts Coverage
-
-Analyze CSM coverage for cloud accounts (AWS, Azure, GCP):
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup csm coverage cloud-accounts
-```
-
-#### Hosts and Containers Coverage
-
-Analyze CSM coverage for hosts and containers:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup csm coverage hosts-containers
-```
-
-#### Serverless Coverage
-
-Analyze CSM coverage for serverless resources:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup csm coverage serverless
-```
-
-### Scanned Assets Metadata
-
-List scanned assets metadata:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup vulnerabilities scanned-metadata
-```
-
-Filter by asset type:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup vulnerabilities scanned-metadata \
-# --filter="asset.type=Host"
-```
-
-Filter by scan origin:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup vulnerabilities scanned-metadata \
-# --filter="last_success.origin=agent"
 ```
 
 ## Vulnerability Types
@@ -454,7 +138,6 @@ Datadog detects the following vulnerability types:
 - **Infra**: Infrastructure and host-level vulnerability scanning (OS packages, container images)
 - **SAST** (Static Application Security Testing): Static code analysis for security vulnerabilities
 
-## Security Finding Types
 
 ### Vulnerability Types in Findings
 
@@ -521,7 +204,6 @@ Software dependency ecosystems:
 - **CycloneDX**: OWASP CycloneDX format (recommended)
 - **SPDX**: Software Package Data Exchange format
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing vulnerabilities
@@ -549,97 +231,16 @@ Present security posture data in clear, user-friendly formats:
 **For coverage analysis**: Display coverage percentages and resource counts by category
 **For errors**: Provide clear, actionable error messages with security context
 
-## Common User Requests
-
-### "Show me all critical vulnerabilities in production"
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="cvss.datadog.severity=Critical" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="asset.risks.in_production=true"
-```
-
-### "What vulnerabilities have public exploits available?"
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="risks.exploit_available=true" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="status=Open"
-```
-
-### "List all SQL injection vulnerabilities found by IAST"
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="type=SqlInjection" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tool=IAST"
-```
-
-### "Show dependency vulnerabilities in my repositories"
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tool=SCA" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="asset.type=Repository"
-```
-
-### "What are my critical security findings?"
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="status=critical" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="evaluation=fail"
-```
 
 ### "Show me identity risks"
 ```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tags=dd_rule_type:ciem" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="evaluation=fail"
+pup security findings search --query="dd_rule_type:ciem"
 ```
 
-### "What's my CSM coverage across cloud accounts?"
+### "Show findings for an AWS account"
 ```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup csm coverage cloud-accounts
+pup security findings search --query="cloud_provider:aws AND aws_account:999999999999"
 ```
-
-### "Generate SBOM for my API service"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom get \
-# --asset-type=Service \
-# --asset-name="api-gateway"
-```
-
-### "Find all services with GPL-licensed dependencies"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup sbom list \
-# --filter="license_type=strong_copyleft"
-```
-
-### "Show unmuted AWS misconfigurations"
-```bash
-pup security findings search --query="*"
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="tags=cloud_provider:aws" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="vulnerability_type=misconfiguration" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="muted=false" \
-# UNSUPPORTED field predicate for the typed CLI; apply this filter in the UI/API or to results locally.
-# --filter="evaluation=fail"
-```
-
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -693,7 +294,6 @@ Error: Asset not found
 → Check if agents are deployed with security features enabled
 → Confirm time range is appropriate
 
-## Best Practices
 
 ### Vulnerability Management
 1. **Prioritize by Risk**: Focus on critical/high severity vulnerabilities in production first

@@ -27,7 +27,6 @@ This requires the pup binary in your path.
 pup auth login
 ```
 
-## Common Operations
 
 ### List Monitors
 
@@ -62,7 +61,6 @@ pup monitors update 12345 --file monitor-muted-until.json
 pup monitors update 12345 --file monitor-unmuted.json
 ```
 
-## ⚠️ Monitor Creation Best Practices
 
 ### 1. Avoid Alert Fatigue
 

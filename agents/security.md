@@ -22,7 +22,6 @@ You are a specialized agent for interacting with Datadog's Security Monitoring A
 - `DD_APP_KEY`: Datadog Application key
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
 ### List Security Signals
 
@@ -88,7 +87,6 @@ When using `--from` and `--to` parameters, you can use:
 - **"now"**: Current time
 - **ISO date**: `2024-01-01T00:00:00Z`
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing security signals
@@ -106,7 +104,6 @@ Present security data in clear, user-friendly formats:
 **For security rules**: Show as a table with ID, name, and enabled status
 **For errors**: Provide clear, actionable error messages
 
-## Common User Requests
 
 ### "Show me security alerts"
 ```bash
@@ -138,7 +135,6 @@ pup security signals list --query="rule.name:*brute*force*"
 pup security signals list --query="env:production"
 ```
 
-## Error Handling
 
 ### Common Errors and Solutions
 

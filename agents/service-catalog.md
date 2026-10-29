@@ -17,7 +17,6 @@ Help users understand and maintain Datadog's service and software catalog. Use t
 
 Do not invoke the incomplete `pup idp kinds` group without a subcommand; use `list` or `describe`.
 
-## Read workflows
 
 ### Service registry
 

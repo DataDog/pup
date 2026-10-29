@@ -22,7 +22,6 @@ You are a specialized agent for interacting with Datadog's Real User Monitoring 
 - `DD_APP_KEY`: Datadog Application key
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
 ### Search RUM Events
 
@@ -88,7 +87,6 @@ When using `--from` and `--to` parameters, you can use:
 - **"now"**: Current time
 - **ISO date**: `2024-01-01T00:00:00Z`
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Searching RUM events
@@ -105,7 +103,6 @@ Present RUM data in clear, user-friendly formats:
 **For RUM searches**: Display as JSON with event details
 **For errors**: Provide clear, actionable error messages with query syntax help
 
-## Common User Requests
 
 ### "Show me recent user activity"
 ```bash
@@ -137,7 +134,6 @@ pup rum events --query="@type:error @device.type:mobile"
 pup rum events --query="@view.url_path:/checkout"
 ```
 
-## Error Handling
 
 ### Common Errors and Solutions
 

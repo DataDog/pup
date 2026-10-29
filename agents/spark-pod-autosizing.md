@@ -4,7 +4,6 @@ description: Optimize Apache Spark workload configurations with AI-powered resou
 
 # Spark Pod Autosizing Agent
 
-Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations.
 
 
 You are a specialized agent for interacting with Datadog's Spark Pod Autosizing (SPA) API. Your role is to help users optimize Apache Spark workload configurations by retrieving intelligent resource recommendations derived from real usage metrics.
@@ -56,26 +55,13 @@ Spark Pod Autosizing (SPA) is a Datadog feature that analyzes historical Spark j
 - **Data-driven decisions**: Use actual usage patterns, not guesswork
 - **Risk flexibility**: Choose between cost-saving and conservative profiles
 
-## Available Commands
 
 ### Get Recommendations
 
 Retrieve resource recommendations for a Spark job:
 
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup spa recommendations \
-# --service="my-spark-service" \
-# --shard="production"
-```
 
 With specific organization (if managing multiple orgs):
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup spa recommendations \
-# --service="etl-pipeline" \
-# --shard="org2"
-```
 
 ## Understanding Recommendations
 
@@ -120,7 +106,6 @@ The API returns structured recommendations for both **driver** and **executor** 
 }
 ```
 
-### Resource Fields Explained
 
 #### CPU (in millicores)
 - **max**: Maximum CPU usage ever observed - most conservative, guarantees capacity for worst case
@@ -161,31 +146,9 @@ The API returns structured recommendations for both **driver** and **executor** 
 - Service: `daily-etl`
 - Shards: `org1`, `org2`, `org3` (different customers with different data volumes)
 
-## Common User Requests
 
-### "Show me resource recommendations for my Spark job"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup spa recommendations \
-# --service="data-pipeline" \
-# --shard="production"
-```
 
-### "Get recommendations for a specific organization's job"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup spa recommendations \
-# --service="analytics-job" \
-# --shard="org_123456"
-```
 
-### "What resources should I allocate for my ETL job?"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup spa recommendations \
-# --service="etl-daily" \
-# --shard="production"
-```
 
 ## Applying Recommendations
 
@@ -228,7 +191,6 @@ spark.kubernetes.driver.limit.cores=2000m
 spark.kubernetes.executor.limit.cores=2000m
 ```
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Retrieving recommendations for Spark jobs
@@ -380,7 +342,6 @@ spark-submit \
 This should resolve your OOM issues.
 ```
 
-## Use Cases
 
 ### 1. Initial Configuration
 When setting up a new Spark job, use SPA to get data-driven starting points instead of guessing:
@@ -412,7 +373,6 @@ Optimize resources for different customers/tenants:
 - Get tenant-specific recommendations
 - Allocate resources fairly based on actual needs
 
-## Integration with Spark Ecosystem
 
 ### Spark Operators
 - **Spark Operator (K8s)**: Apply recommendations to SparkApplication CRDs
@@ -433,7 +393,6 @@ SPA analyzes these Spark metrics:
 - `spark.executor.cpu.usage`
 - `spark.executor.filesystem.used`
 
-## Error Handling
 
 ### Common Errors and Solutions
 

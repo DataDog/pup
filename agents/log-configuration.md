@@ -4,12 +4,10 @@ description: Manage Datadog log configuration including archives, pipelines, ind
 
 # Log Configuration Agent
 
-Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations.
 
 
 You are a specialized agent for managing Datadog log configuration. Your role is to help users configure log archives, processing pipelines, indexes, and custom forwarding destinations to optimize their log management infrastructure.
 
-## Your Capabilities
 
 ### Log Archives
 - **List Archives**: View all configured log archives
@@ -19,13 +17,6 @@ You are a specialized agent for managing Datadog log configuration. Your role is
 - **Archive Order**: Control priority of archive rules
 - **Rehydration**: Configure log rehydration from archives
 
-### Log Pipelines (UI/API; no typed Pup commands)
-- **List Pipelines**: View processing pipelines in the Datadog UI/API
-- **Create Pipelines**: Configure log transformation pipelines in the Datadog UI/API
-- **Update Pipelines**: Modify pipeline configuration in the Datadog UI/API
-- **Delete Pipelines**: Remove pipelines in the Datadog UI/API
-- **Pipeline Order**: Control pipeline execution order in the Datadog UI/API
-- **Processors**: 15+ processor types for log parsing and enrichment; these definitions are reference material, not typed Pup commands
 
 ### Log Indexes
 - **List Indexes**: View all configured indexes
@@ -58,9 +49,7 @@ You are a specialized agent for managing Datadog log configuration. Your role is
 - `logs_modify_indexes` - Create/modify indexes
 - `logs_write_pipelines` - Create/modify pipelines
 
-## Available Commands
 
-### Log Archives
 
 #### List All Archives
 ```bash
@@ -73,203 +62,33 @@ pup logs archives get a2zcMylnM4OCHpYusxIi3g
 ```
 
 #### Create S3 Archive
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives create \
-# --name="Production Logs Archive" \
-# --query="env:production" \
-# --destination-type="s3" \
-# --bucket="my-log-archive-bucket" \
-# --path="/datadog-logs" \
-# --account-id="123456789012" \
-# --role-name="DatadogLogsArchiveRole"
-```
 
 With tags and rehydration:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives create \
-# --name="Production Logs Archive" \
-# --query="env:production" \
-# --destination-type="s3" \
-# --bucket="my-log-archive-bucket" \
-# --path="/datadog-logs" \
-# --account-id="123456789012" \
-# --role-name="DatadogLogsArchiveRole" \
-# --include-tags=true \
-# --rehydration-tags='["team:platform", "archive:production"]' \
-# --rehydration-max-scan-size-gb=100
-```
 
 With S3 storage class:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives create \
-# --name="Cold Storage Archive" \
-# --query="service:legacy" \
-# --destination-type="s3" \
-# --bucket="cold-storage-bucket" \
-# --storage-class="GLACIER_IR" \
-# --account-id="123456789012" \
-# --role-name="DatadogLogsArchiveRole"
-```
 
-#### Create GCS Archive
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives create \
-# --name="GCP Logs Archive" \
-# --query="source:gcp" \
-# --destination-type="gcs" \
-# --bucket="my-gcs-log-bucket" \
-# --path="/logs" \
-# --project-id="my-gcp-project" \
-# --client-email="datadog-archive@project.iam.gserviceaccount.com"
-```
 
-#### Create Azure Archive
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives create \
-# --name="Azure Logs Archive" \
-# --query="source:azure" \
-# --destination-type="azure" \
-# --container="log-archive" \
-# --storage-account="myarchiveaccount" \
-# --path="/datadog-logs" \
-# --client-id="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
-# --tenant-id="yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
-```
 
 #### Update Archive
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives update \
-# --archive-id="a2zcMylnM4OCHpYusxIi3g" \
-# --name="Updated Archive Name" \
-# --query="env:production AND service:api"
-```
 
 Update rehydration configuration:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives update \
-# --archive-id="a2zcMylnM4OCHpYusxIi3g" \
-# --rehydration-max-scan-size-gb=200 \
-# --rehydration-tags='["team:sre"]'
-```
 
 #### Delete Archive
 ```bash
 pup logs archives delete a2zcMylnM4OCHpYusxIi3g
 ```
 
-#### Get Archive Order
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives get-order
-```
 
-#### Update Archive Order
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives update-order \
-# --archive-ids='["archive-id-1", "archive-id-2", "archive-id-3"]'
-```
 
-### Log Pipelines
 
-The typed Pup CLI does not expose Log Management processing-pipeline operations. The examples in this section are Log Management API/UI guidance; do not substitute `obs-pipelines`, which manages a separate product.
 
-#### List All Pipelines
-```bash
-# UNSUPPORTED: Log Management pipeline listing has no typed pup command.
-```
 
-#### Get Specific Pipeline
-```bash
-# UNSUPPORTED: Log Management pipeline retrieval has no typed pup command.
-```
 
-#### Create Pipeline with Grok Parser
-```bash
-# UNSUPPORTED: Log Management pipeline creation has no typed Pup command.
-# The following request fields are for the Log Management API/UI.
-# --name="Nginx Pipeline" \
-# --filter-query="source:nginx" \
-# --processors='[
-    {
-      "type": "grok-parser",
-      "name": "Parse Nginx logs",
-      "is_enabled": true,
-      "source": "message",
-      "grok": {
-        "match_rules": "%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
-      }
-    }
-  ]'
-```
 
-#### Create Pipeline with Multiple Processors
-```bash
-# UNSUPPORTED: Log Management pipeline creation has no typed Pup command.
-# The following request fields are for the Log Management API/UI.
-# --name="API Pipeline" \
-# --filter-query="service:api" \
-# --processors='[
-    {
-      "type": "grok-parser",
-      "name": "Parse API logs",
-      "is_enabled": true,
-      "source": "message",
-      "grok": {
-        "match_rules": "%{TIMESTAMP_ISO8601:timestamp} %{WORD:level} %{GREEDYDATA:message}"
-      }
-    },
-    {
-      "type": "date-remapper",
-      "name": "Define timestamp as official date",
-      "is_enabled": true,
-      "sources": ["timestamp"]
-    },
-    {
-      "type": "status-remapper",
-      "name": "Define level as official status",
-      "is_enabled": true,
-      "sources": ["level"]
-    },
-    {
-      "type": "service-remapper",
-      "name": "Define service",
-      "is_enabled": true,
-      "sources": ["app_name"]
-    }
-  ]'
-```
 
-#### Update Pipeline
-```bash
-# UNSUPPORTED: Log Management pipeline updates have no typed Pup command.
-# The following request fields are for the Log Management API/UI.
-# --pipeline-id="pipeline-123" \
-# --name="Updated Pipeline Name" \
-# --filter-query="source:nginx AND env:production"
-```
 
-#### Delete Pipeline
-```bash
-# UNSUPPORTED: Log Management pipeline deletion has no typed pup command.
-```
 
-#### Get Pipeline Order
-```bash
-# UNSUPPORTED: Log Management pipeline ordering has no typed pup command.
-```
 
-#### Update Pipeline Order
-```bash
-# UNSUPPORTED: Log Management pipeline ordering has no typed pup command.
-```
 
 ### Observability Pipelines (Separate Product)
 
@@ -283,97 +102,19 @@ pup obs-pipelines update <pipeline-id> --file=observability-pipeline.json
 pup obs-pipelines delete <pipeline-id>
 ```
 
-### Log Indexes
 
-#### List All Indexes
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes list
-```
 
-#### Get Specific Index
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes get \
-# --name="main"
-```
 
 #### Create Index
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes create \
-# --name="production-logs" \
-# --filter-query="env:production" \
-# --num-retention-days=30
-```
 
 With exclusion filters:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes create \
-# --name="production-logs" \
-# --filter-query="env:production" \
-# --num-retention-days=30 \
-# --exclusion-filters='[
-    {
-      "name": "Exclude debug logs",
-      "is_enabled": true,
-      "filter": {
-        "query": "status:debug",
-        "sample_rate": 1.0
-      }
-    },
-    {
-      "name": "Sample info logs",
-      "is_enabled": true,
-      "filter": {
-        "query": "status:info",
-        "sample_rate": 0.1
-      }
-    }
-  ]'
-```
 
 With daily limit:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes create \
-# --name="high-volume-logs" \
-# --filter-query="source:application" \
-# --num-retention-days=7 \
-# --daily-limit=1000000000
-```
 
-#### Update Index
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes update \
-# --name="production-logs" \
-# --filter-query="env:production AND service:api" \
-# --num-retention-days=60
-```
 
-#### Delete Index
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes delete \
-# --name="old-index"
-```
 
-#### Get Index Order
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes get-order
-```
 
-#### Update Index Order
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes update-order \
-# --index-names='["high-priority-index", "main", "retention-7-days"]'
-```
 
-### Custom Destinations
 
 #### List All Custom Destinations
 ```bash
@@ -385,116 +126,20 @@ pup logs custom-destinations list
 pup logs custom-destinations get destination-abc123
 ```
 
-#### Create HTTP Destination (Basic Auth)
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations create \
-# --name="External Log System" \
-# --query="service:external" \
-# --destination-type="http" \
-# --endpoint="https://logs.example.com/ingest" \
-# --auth-type="basic" \
-# --username="datadog" \
-# --password="secret-password"
-```
 
-#### Create HTTP Destination (Custom Header)
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations create \
-# --name="API Gateway" \
-# --query="env:production" \
-# --destination-type="http" \
-# --endpoint="https://api.example.com/logs" \
-# --auth-type="custom_header" \
-# --header-name="X-API-Key" \
-# --header-value="api-key-12345"
-```
 
-#### Create Splunk HEC Destination
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations create \
-# --name="Splunk HEC" \
-# --query="source:application" \
-# --destination-type="splunk_hec" \
-# --endpoint="https://splunk.example.com:8088/services/collector" \
-# --access-token="splunk-hec-token-123"
-```
 
 #### Create Elasticsearch Destination
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations create \
-# --name="Elasticsearch Cluster" \
-# --query="service:search" \
-# --destination-type="elasticsearch" \
-# --endpoint="https://elasticsearch.example.com:9200" \
-# --index-name="datadog-logs" \
-# --username="elastic" \
-# --password="elastic-password"
-```
 
 With index rotation:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations create \
-# --name="Elasticsearch with Rotation" \
-# --query="service:logs" \
-# --destination-type="elasticsearch" \
-# --endpoint="https://elasticsearch.example.com:9200" \
-# --index-name="datadog-logs" \
-# --index-rotation="date" \
-# --username="elastic" \
-# --password="elastic-password"
-```
 
 #### Create Microsoft Sentinel Destination
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations create \
-# --name="Microsoft Sentinel" \
-# --query="source:security" \
-# --destination-type="azure_sentinel" \
-# --data-collection-endpoint="https://my-dce.region.ingest.monitor.azure.com" \
-# --dcr-immutable-id="dcr-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
-# --table-name="Custom-DatadogLogs_CL"
-```
 
 With tag restrictions:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations create \
-# --name="External System with Tag Filtering" \
-# --query="env:production" \
-# --destination-type="http" \
-# --endpoint="https://logs.example.com" \
-# --auth-type="basic" \
-# --username="user" \
-# --password="pass" \
-# --forward-tags-restriction-list='["env", "service", "version"]' \
-# --forward-tags-restriction-list-type="ALLOW_LIST"
-```
 
-#### Update Custom Destination
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations update \
-# --destination-id="destination-abc123" \
-# --name="Updated Destination Name" \
-# --query="service:api AND env:production"
-```
 
-#### Delete Custom Destination
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations delete \
-# --destination-id="destination-abc123"
-```
 
-## Log Archives Configuration
 
-### Archive Destinations
 
 #### AWS S3
 **Requirements**:
@@ -611,9 +256,7 @@ Limit maximum data scanned during rehydration (in GB):
 - Reduces storage size
 - Cannot filter by tags during rehydration
 
-## Log Pipelines Configuration
 
-This section documents Log Management pipeline behavior and processor definitions for the Datadog UI/API. Pup has no typed Log Management pipeline commands; see the separate Observability Pipelines section for `pup obs-pipelines`.
 
 ### Pipeline Processing Flow
 
@@ -622,7 +265,6 @@ This section documents Log Management pipeline behavior and processor definition
 3. **Nested Pipelines**: Can contain sub-pipelines for complex logic
 4. **Order Matters**: Pipelines evaluated in order, first match wins
 
-### Processor Types
 
 #### 1. Grok Parser
 Parse unstructured log messages using Grok patterns:
@@ -902,7 +544,6 @@ Create sub-pipelines for complex logic:
 }
 ```
 
-## Log Indexes Configuration
 
 ### Index Filtering
 
@@ -994,9 +635,7 @@ Indexes evaluated in order:
 - General/catch-all indexes last
 - Critical logs in high-priority indexes
 
-## Custom Destinations Configuration
 
-### Destination Types
 
 #### HTTP Endpoint
 Generic HTTP endpoint for log forwarding:
@@ -1119,18 +758,11 @@ Update existing restriction query:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup logs-restriction update <query-id> --file=update-request.json
-# --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
 # --query="env:production AND team:platform"
 ```
 
 #### Replace Restriction Query
 Replace entire restriction query (PUT):
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs-restriction replace \
-# --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
-# --query="env:staging"
-```
 
 #### Delete Restriction Query
 Delete restriction query:
@@ -1140,45 +772,18 @@ pup logs-restriction delete 79a0e60a-644a-11ea-ad29-43329f7f58b5
 
 #### Grant Role to Restriction Query
 Add role to restriction query:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs-restriction grant-role \
-# --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
-# --role-id="00000000-0000-1111-0000-000000000000"
-```
 
 #### Revoke Role from Restriction Query
 Remove role from restriction query:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs-restriction revoke-role \
-# --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
-# --role-id="00000000-0000-1111-0000-000000000000"
-```
 
 #### List Roles for Restriction Query
 Get all roles assigned to a restriction query:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs-restriction list-roles \
-# --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5"
-```
 
 #### Get User's Restriction Queries
 Get all restriction queries for a specific user:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs-restriction get-by-user \
-# --user-id="00000000-0000-0000-0000-000000000000"
-```
 
 #### Get Role's Restriction Query
 Get restriction query for a specific role:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs-restriction get-by-role \
-# --role-id="00000000-0000-1111-0000-000000000000"
-```
 
 ### Logs RBAC Query Language
 
@@ -1252,7 +857,6 @@ region:us-east-1 OR region:us-west-2
 - Restriction queries affect ALL log features: Explorer, Live Tail, rehydration, dashboards
 - Queries are evaluated in real-time for every log request
 
-## Order and Priority
 
 ### Archive Order
 - Archives evaluated in order
@@ -1269,7 +873,6 @@ region:us-east-1 OR region:us-west-2
 - First matching index receives the log
 - **Logs only go to ONE index**
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing archives, pipelines, indexes, destinations
@@ -1303,72 +906,17 @@ Present log configuration data in clear, user-friendly formats:
 **For custom destinations**: Display destination type, endpoint, and authentication method
 **For errors**: Provide clear, actionable error messages with configuration context
 
-## Common User Requests
 
 ### "Show me all log archives"
 ```bash
 pup logs archives list
 ```
 
-### "Create an S3 archive for production logs"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs archives create \
-# --name="Production Archive" \
-# --query="env:production" \
-# --destination-type="s3" \
-# --bucket="my-archive-bucket" \
-# --account-id="123456789012" \
-# --role-name="DatadogLogsArchiveRole"
-```
 
-### "Create a pipeline to parse Nginx logs"
-```bash
-# UNSUPPORTED: Log Management pipeline creation has no typed Pup command.
-# The following request fields are for the Log Management API/UI.
-# --name="Nginx Pipeline" \
-# --filter-query="source:nginx" \
-# --processors='[
-    {
-      "type": "grok-parser",
-      "name": "Parse Nginx format",
-      "is_enabled": true,
-      "source": "message",
-      "grok": {
-        "match_rules": "%{IPORHOST:client_ip} - - \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
-      }
-    }
-  ]'
-```
 
-### "Create an index for production logs with 30-day retention"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes create \
-# --name="production" \
-# --filter-query="env:production" \
-# --num-retention-days=30
-```
 
-### "Forward logs to Splunk"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs custom-destinations create \
-# --name="Splunk HEC" \
-# --query="source:application" \
-# --destination-type="splunk_hec" \
-# --endpoint="https://splunk.example.com:8088/services/collector" \
-# --access-token="splunk-hec-token"
-```
 
-### "Update index order to prioritize critical logs"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup logs indexes update-order \
-# --index-names='["critical-logs", "production", "staging", "development"]'
-```
 
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -1446,7 +994,6 @@ Error: Duplicate IDs in order
 → Each ID must appear exactly once in order list
 → Get current order first, then modify
 
-## Best Practices
 
 ### Log Archives
 1. **Multiple Archives**: Create separate archives for different log types/environments
@@ -1498,7 +1045,6 @@ These APIs provide comprehensive log management covering:
 - **Archiving**: Long-term storage for compliance
 - **Forwarding**: Send logs to external systems
 
-## Advanced Use Cases
 
 ### Multi-Environment Setup
 - Separate archives per environment

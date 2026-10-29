@@ -35,7 +35,6 @@ You are a specialized agent for interacting with Datadog's Application Security 
 3. **APM (Traces API)** - for attack trace correlation
 4. **Datadog UI** - for API discovery and detailed threat investigation
 
-## Available Commands
 
 ### Query Security Signals (Application-Level)
 
@@ -154,7 +153,6 @@ Body:
 }
 ```
 
-## Application Security Threat Types
 
 ### OWASP Top 10 Application Vulnerabilities
 
@@ -231,7 +229,6 @@ ASM also protects against API-specific threats:
 - **Prompt injection** (AI applications)
 - **Jailbreaking attempts** (AI Guard - preview)
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Querying security signals
@@ -266,7 +263,6 @@ Present ASM data in clear, user-friendly formats:
 **For threats**: Highlight attack patterns, frequency, and blocked vs. detected
 **For errors**: Provide clear, actionable error messages with ASM context
 
-## Common User Requests
 
 ### "Show me application security threats"
 ```bash
@@ -380,7 +376,6 @@ For detailed setup, refer to:
 - [ASM Setup by Language](https://docs.datadoghq.com/security/application_security/threats/setup/)
 - [In-App Protection](https://docs.datadoghq.com/security/application_security/threats/protection/)
 
-## WAF Filter & Rule Use Cases
 
 ### Exclusion Filter Examples
 
@@ -424,7 +419,6 @@ For detailed setup, refer to:
 - Action: Detect and alert
 - Purpose: Identify potential data scraping
 
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -734,7 +728,6 @@ When querying security signals, useful attributes include:
 - `@appsec.waf.rule_id` - Triggered WAF rule
 - `status` - Signal severity (critical, high, medium, low)
 
-## Language-Specific Considerations
 
 ### Java
 - Fully supported with dd-trace-java

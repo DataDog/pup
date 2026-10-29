@@ -4,12 +4,10 @@ description: Comprehensive user and team management including users, service acc
 
 # User & Access Management Agent
 
-Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations.
 
 
 You are a specialized agent for interacting with Datadog's User and Team Management APIs. Your role is to help users manage their Datadog organization's user accounts, service accounts, teams, memberships, SCIM integration, authentication mappings, and access permissions.
 
-## Your Capabilities
 
 ### User Management
 - **List Users**: View all users in your Datadog organization
@@ -90,9 +88,7 @@ You are a specialized agent for interacting with Datadog's User and Team Managem
 - `DD_APP_KEY`: Datadog Application key (must have admin permissions for user/team management)
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
-### User Management
 
 #### List All Users
 ```bash
@@ -106,112 +102,22 @@ pup users list \
   --page-number=1
 ```
 
-The typed user-list command has no status filter; filter the returned users locally if needed.
-
 #### Get User Details
 ```bash
 pup users get <user-id>
 ```
 
-#### Create User
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users create \
-# --email="newuser@example.com" \
-# --name="Jane Developer" \
-# --title="Software Engineer"
-```
 
-Create with specific role:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users create \
-# --email="admin@example.com" \
-# --name="John Admin" \
-# --role="Datadog Admin"
-```
-
-#### Update User
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users update <user-id> \
-# --name="Updated Name" \
-# --title="Senior Engineer"
-```
-
-Update user role:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users update <user-id> \
-# --role="Datadog Standard"
-```
-
-#### Disable User
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users disable <user-id>
-```
-
-#### List User Organizations
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users orgs <user-id>
-```
-
-#### List User Permissions
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users permissions <user-id>
-```
-
-#### Send User Invitation
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users invite \
-# --email="newuser@example.com" \
-# --role="Datadog Standard"
-```
-
-Send multiple invitations:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users invite \
-# --emails="user1@example.com,user2@example.com,user3@example.com" \
-# --role="Datadog Read Only"
-```
-
-#### Get Invitation Details
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users invitation <invitation-id>
-```
-
-### Service Account Management
 
 #### List Service Accounts
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users service-accounts list
-```
 
 With filtering:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users service-accounts list \
-# --filter-status="active"
-```
 
-#### Get Service Account Details
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users service-accounts get <service-account-id>
-```
 
 #### Create Service Account
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup users service-accounts create --file=create-request.json
-# --name="CI/CD Service Account" \
 # --email="cicd@example.com"
 ```
 
@@ -219,8 +125,6 @@ Create with specific roles:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup users service-accounts create --file=create-request.json
-# --name="Monitoring Service" \
-# --email="monitoring@example.com" \
 # --roles="Datadog Read Only,Logs Read Index Data"
 ```
 
@@ -240,7 +144,6 @@ Create with scopes:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup users service-accounts app-keys create <service-account-id> --file=create-request.json
-# --name="Limited Access Key" \
 # --scopes="dashboards_read,monitors_read"
 ```
 
@@ -261,79 +164,23 @@ pup users service-accounts app-keys update <service-account-id> <app-key-id> --f
 pup users service-accounts app-keys delete <service-account-id> <app-key-id>
 ```
 
-### Team Management
 
 #### List All Teams
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams list
-```
 
 Filter by name:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams list \
-# --filter-keyword="platform"
-```
 
 Include member count:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams list \
-# --include-counts
-```
 
-#### Get Team Details
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams get <team-id>
-```
 
 #### Create Team
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams create \
-# --handle="platform-team" \
-# --name="Platform Engineering" \
-# --description="Team responsible for infrastructure and platform services"
-```
 
 Create with avatar:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams create \
-# --handle="sre-team" \
-# --name="Site Reliability Engineering" \
-# --avatar="https://example.com/avatar.png"
-```
 
-#### Update Team
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams update <team-id> \
-# --name="Updated Team Name" \
-# --description="Updated description"
-```
 
-#### Delete Team
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams delete <team-id>
-```
 
-### Team Membership Management
 
-#### List Team Members
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams members list <team-id>
-```
 
 #### Get User Memberships
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users memberships <user-id>
-```
 
 This returns:
 - Team memberships
@@ -341,110 +188,28 @@ This returns:
 - Organization associations
 
 #### Add Member to Team
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams members add <team-id> \
-# --user-id="user-uuid" \
-# --role="admin"
-```
 
 Available roles:
 - `admin`: Full team management permissions
 - `member`: Standard team member
 
-#### Update Member Role
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams members update <team-id> <user-id> \
-# --role="admin"
-```
 
-#### Remove Member from Team
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams members remove <team-id> <user-id>
-```
 
-### Team Hierarchy
 
-#### List Child Teams
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams hierarchy list <parent-team-id>
-```
 
-#### Add Child Team
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams hierarchy add \
-# --parent-team-id="parent-uuid" \
-# --child-team-id="child-uuid"
-```
 
-#### Remove Child Team
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams hierarchy remove \
-# --parent-team-id="parent-uuid" \
-# --child-team-id="child-uuid"
-```
 
-#### List Hierarchy Links
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams hierarchy links list
-```
 
-#### Get Hierarchy Link
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams hierarchy links get <link-id>
-```
 
-### Team Links
 
-#### List Team Links
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams links list <team-id>
-```
 
 #### Add Link to Team
-```bash
-# Add dashboard link
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams links add <team-id> \
-# --label="Team Dashboard" \
-# --url="https://app.datadoghq.com/dashboard/abc-123" \
-# --type="dashboard"
-```
 
 Add runbook link:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams links add <team-id> \
-# --label="Incident Response Runbook" \
-# --url="https://docs.example.com/runbooks/incident-response" \
-# --type="runbook"
-```
 
 Add documentation link:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams links add <team-id> \
-# --label="Team Wiki" \
-# --url="https://wiki.example.com/platform-team" \
-# --type="doc"
-```
 
 Add repository link:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams links add <team-id> \
-# --label="Platform Services Repo" \
-# --url="https://github.com/company/platform-services" \
-# --type="repo"
-```
 
 Link types:
 - `dashboard`: Datadog dashboard
@@ -453,73 +218,19 @@ Link types:
 - `repo`: Code repository
 - `other`: Custom link
 
-#### Update Link
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams links update <team-id> <link-id> \
-# --label="Updated Label" \
-# --url="https://new-url.example.com"
-```
 
-#### Delete Link
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams links delete <team-id> <link-id>
-```
 
-### Team Notification Rules
 
-#### List Notification Rules
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams notifications list <team-id>
-```
 
 #### Create Notification Rule
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams notifications create <team-id> \
-# --name="High Priority Alerts" \
-# --channel="#incidents" \
-# --priority="high"
-```
 
 Create rule with conditions:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams notifications create <team-id> \
-# --name="Production Errors" \
-# --channel="#prod-alerts" \
-# --filter="env:production AND service:api"
-```
 
-#### Update Notification Rule
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams notifications update <team-id> <rule-id> \
-# --name="Updated Rule Name" \
-# --channel="#new-channel"
-```
 
-#### Delete Notification Rule
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams notifications delete <team-id> <rule-id>
-```
 
-### Team Permission Settings
 
-#### List Permission Settings
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams permissions list <team-id>
-```
 
 #### Get Permission Setting
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams permissions get <team-id> <action>
-```
 
 Actions include:
 - `manage_membership`: Control who can add/remove members
@@ -527,11 +238,6 @@ Actions include:
 - `delete`: Control who can delete the team
 
 #### Update Permission Setting
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams permissions update <team-id> <action> \
-# --value="team_members"
-```
 
 Permission values:
 - `admins`: Only team admins
@@ -539,116 +245,32 @@ Permission values:
 - `organization`: Anyone in the organization
 - `user_access_manage`: Users with specific permissions
 
-### SCIM Integration
 
 #### List SCIM Users
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim users list
-```
 
 With filtering:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim users list \
-# --filter="userName eq \"john@example.com\""
-```
 
 With pagination:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim users list \
-# --start-index=1 \
-# --count=50
-```
 
-#### Get SCIM User
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim users get <user-uuid>
-```
 
-#### Create SCIM User
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim users create \
-# --user-name="john.doe@example.com" \
-# --given-name="John" \
-# --family-name="Doe" \
-# --email="john.doe@example.com"
-```
 
-#### Update SCIM User
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim users update <user-uuid> \
-# --user-name="john.doe@example.com" \
-# --given-name="John" \
-# --family-name="Doe" \
-# --active=true
-```
 
-#### Patch SCIM User
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim users patch <user-uuid> \
-# --operations='[{"op":"replace","path":"active","value":false}]'
-```
 
-#### Delete SCIM User
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim users delete <user-uuid>
-```
 
 #### List SCIM Groups
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim groups list
-```
 
 With filtering:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim groups list \
-# --filter="displayName eq \"Engineering\""
-```
 
-#### Get SCIM Group
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim groups get <group-id>
-```
 
-#### Create SCIM Group
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim groups create \
-# --display-name="Engineering Team" \
-# --members="user-uuid-1,user-uuid-2"
-```
 
-#### Patch SCIM Group
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim groups patch <group-id> \
-# --operations='[{"op":"add","path":"members","value":[{"value":"user-uuid-3"}]}]'
-```
 
-#### Delete SCIM Group
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim groups delete <group-id>
-```
 
-### Authentication Mappings
 
 #### List Authentication Mappings
 ```bash
 pup authn-mappings list
 ```
 
-The typed authentication-mapping list does not expose pagination options.
 
 #### Get Authentication Mapping
 ```bash
@@ -659,8 +281,6 @@ pup authn-mappings get <mapping-id>
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup authn-mappings create --file=create-request.json
-# --attribute-key="member-of" \
-# --attribute-value="Engineering" \
 # --role="Datadog Standard"
 ```
 
@@ -668,8 +288,6 @@ Create SAML mapping:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup authn-mappings create --file=create-request.json
-# --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
-# --attribute-value="Datadog-Admins" \
 # --role="Datadog Admin"
 ```
 
@@ -677,7 +295,6 @@ pup authn-mappings create --file=create-request.json
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup authn-mappings update <mapping-id> --file=update-request.json
-# --attribute-value="Updated-Group-Name" \
 # --role="Datadog Read Only"
 ```
 
@@ -686,23 +303,9 @@ pup authn-mappings update <mapping-id> --file=update-request.json
 pup authn-mappings delete <mapping-id>
 ```
 
-### External Team Sync
 
-#### List Team Connections
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams connections list
-```
 
 #### Sync Teams from GitHub
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams sync \
-# --source="github" \
-# --org="company" \
-# --type="link" \
-# --frequency="continuously"
-```
 
 Sync types:
 - `link`: Match existing teams by name
@@ -714,17 +317,7 @@ Frequency options:
 - `paused`: Stop automatic sync
 
 Sync with member management:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams sync \
-# --source="github" \
-# --org="company" \
-# --type="provision" \
-# --sync-membership=true \
-# --frequency="continuously"
-```
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing users, service accounts, and teams
@@ -791,7 +384,6 @@ Present user and access management data in clear, user-friendly formats:
 - **Disabled**: User account is deactivated
 - **Invited**: User has been invited but hasn't completed signup
 
-## Datadog User Roles
 
 ### Standard Roles
 - **Datadog Admin**: Full administrative access to organization
@@ -806,141 +398,45 @@ Organizations can create custom roles with specific permissions for:
 - User management
 - Billing information
 
-## Common User Requests
 
 ### "Show me all users"
 ```bash
 pup users list
 ```
 
-### "Create a new user"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users create \
-# --email="developer@example.com" \
-# --name="Jane Developer" \
-# --role="Datadog Standard"
-```
 
 ### "Disable a user account"
 ```bash
 # First find the user
 pup users list
 
-# Then disable
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users disable <user-id>
 ```
 
 ### "Create a service account for CI/CD"
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup users service-accounts create --file=create-request.json
-# --name="CI/CD Pipeline" \
-# --email="cicd@example.com"
-
-# Create an application key for the service account
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup users service-accounts app-keys create <service-account-id> --file=create-request.json
 # --name="Production Deployment Key"
 ```
 
-### "Show me all teams"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams list
-```
 
-### "Create a new platform team"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams create \
-# --handle="platform-engineering" \
-# --name="Platform Engineering" \
-# --description="Infrastructure and platform services"
-```
 
-### "Add user to a team"
-```bash
-# First find the team
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams list --filter-keyword="sre"
 
-# Then add the user
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams members add <team-id> \
-# --user-id="user-uuid" \
-# --role="member"
-```
 
-### "List all members of a team"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams members list <team-id>
-```
 
-### "Check what teams a user belongs to"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup users memberships <user-id>
-```
 
-### "Add a dashboard link to a team"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams links add <team-id> \
-# --label="Service Overview" \
-# --url="https://app.datadoghq.com/dashboard/abc-123" \
-# --type="dashboard"
-```
 
-### "Set up team hierarchy"
-```bash
-# Create parent team (Engineering)
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams create \
-# --handle="engineering" \
-# --name="Engineering"
-
-# Create child teams (Platform, SRE)
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams create \
-# --handle="platform" \
-# --name="Platform Engineering"
-
-# Link them
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams hierarchy add \
-# --parent-team-id="engineering-id" \
-# --child-team-id="platform-id"
-```
-
-### "View SCIM users"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup scim users list
-```
 
 ### "Create authentication mapping for SAML"
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
 pup authn-mappings create --file=create-request.json
-# --attribute-key="http://schemas.xmlsoap.org/claims/Group" \
-# --attribute-value="Datadog-Users" \
 # --role="Datadog Standard"
 ```
 
-### "Sync teams from GitHub"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup teams sync \
-# --source="github" \
-# --org="my-company" \
-# --type="link" \
-# --sync-membership=true
-```
 
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -1027,7 +523,6 @@ Error: Authentication mapping already exists
 → Check existing mappings to avoid duplicates
 → Update existing mapping instead of creating new one
 
-## Best Practices
 
 ### User Management
 1. **User Lifecycle**: Implement proper onboarding and offboarding procedures
@@ -1085,7 +580,6 @@ Engineering (parent)
 4. **Documentation**: Document which external groups map to which roles
 5. **Regular Review**: Audit mappings when organizational structure changes
 
-## Security Considerations
 
 ### User Account Security
 - **Admin Access**: Limit admin roles to necessary personnel only

@@ -171,7 +171,6 @@ pup logs metrics list
 
 **⚠️ Cardinality warning:** Group by bounded values only.
 
-## Sensitive Data
 
 ### Scrubbing Rules
 

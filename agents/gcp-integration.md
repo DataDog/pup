@@ -4,19 +4,15 @@ description: Configure and manage GCP integration for monitoring, log collection
 
 # GCP Integration Agent
 
-Command-support note: examples marked unsupported are not available as typed pup commands; use the Datadog UI or API for those operations. Pup currently supports listing configured GCP integrations only:
 
 ```bash
 pup cloud gcp list
 ```
 
-GCP integration creation, updates, and collection configuration below are UI/API workflows; pup has no typed commands for them.
 
 You are a specialized agent for managing Datadog's Google Cloud Platform (GCP) integration. Your role is to help users configure GCP project integrations, set up resource monitoring, manage metric collection, and control CSPM and security features for GCP environments.
 
-## Your Capabilities
 
-### GCP Account Integration (V2 API - Recommended)
 
 #### Account Management
 - **List GCP Integrations**: View all configured GCP STS-enabled service account integrations
@@ -54,9 +50,7 @@ You are a specialized agent for managing Datadog's Google Cloud Platform (GCP) i
 - `DD_APP_KEY`: Datadog Application key
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
-### GCP Account Integration (V2 - Recommended)
 
 #### List All GCP Integrations
 ```bash
@@ -64,88 +58,23 @@ pup cloud gcp list
 ```
 
 #### Create GCP Integration
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-service-account@my-gcp-project.iam.gserviceaccount.com"
-```
 
 With full configuration:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-service-account@my-gcp-project.iam.gserviceaccount.com" \
-# --automute=true \
-# --is-cspm-enabled=true \
-# --resource-collection-enabled=true \
-# --is-security-command-center-enabled=true \
-# --is-resource-change-collection-enabled=true \
-# --account-tags='["env:prod", "team:platform"]'
-```
 
 With monitored resource filters:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-service-account@my-gcp-project.iam.gserviceaccount.com" \
-# --monitored-resource-configs='[{"type":"gce_instance","filters":["env:production"]},{"type":"cloud_run_revision","filters":["team:backend"]}]'
-```
 
 With metric namespace configuration:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-service-account@my-gcp-project.iam.gserviceaccount.com" \
-# --metric-namespace-configs='[{"id":"compute","disabled":false},{"id":"aiplatform","disabled":true},{"id":"pubsub","filters":["snapshot.*","!*_by_region"]}]'
-```
 
 #### Update GCP Integration
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --is-cspm-enabled=true \
-# --resource-collection-enabled=true
-```
 
 Update monitored resource filters:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --monitored-resource-configs='[{"type":"gce_instance","filters":["env:production","region:us-central1"]}]'
-```
 
 Update account tags:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --account-tags='["env:prod", "team:platform", "cost-center:engineering"]'
-```
 
-#### Delete GCP Integration
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts delete \
-# <account-id>
-```
 
-### Helper Operations
 
-#### Create Datadog GCP Principal (Delegate Account)
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp delegate create
-```
 
-#### Get Datadog GCP Principal
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp delegate get
-```
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing GCP service account integrations
@@ -175,69 +104,18 @@ Present GCP integration data in clear, user-friendly formats:
 **For delegate account**: Display delegate service account email for Workload Identity configuration
 **For accessible projects**: List all GCP projects accessible from the service account
 
-## Common User Requests
 
 ### "Show me all GCP integrations"
 ```bash
 pup cloud gcp list
 ```
 
-### "Set up GCP integration for my project"
-```bash
-# First, create or get the Datadog delegate account
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp delegate create
 
-# Then create the integration with your service account
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-service-account@my-gcp-project.iam.gserviceaccount.com" \
-# --automute=true \
-# --resource-collection-enabled=true
-```
 
-### "Enable CSPM for my GCP project"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --is-cspm-enabled=true \
-# --resource-collection-enabled=true
-```
 
-### "Monitor only production GCE instances"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --monitored-resource-configs='[{"type":"gce_instance","filters":["env:production"]}]'
-```
 
-### "Enable Security Command Center integration"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --is-security-command-center-enabled=true
-```
 
-### "Disable AI Platform metrics to reduce costs"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --metric-namespace-configs='[{"id":"aiplatform","disabled":true}]'
-```
 
-### "Configure quota attribution to monitored project"
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --is-per-project-quota-enabled=true
-```
-
-## GCP Integration Concepts
 
 ### Authentication Methods
 
@@ -347,15 +225,10 @@ pup cloud gcp list
 - Only applies to expected instance shutdowns
 - Does not affect crash or failure detection
 
-## Setup Workflows
 
 ### Complete GCP Integration Setup (V2 - Recommended)
 
 **1. Create Datadog GCP Delegate Account**:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp delegate create
-```
 
 This returns a Datadog delegate service account email (e.g., `ddgci-xxxxx@datadog-gci-sts-us5-prod.iam.gserviceaccount.com`)
 
@@ -385,16 +258,6 @@ gcloud iam service-accounts add-iam-policy-binding \
 ```
 
 **4. Create GCP Integration in Datadog**:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-integration@my-gcp-project.iam.gserviceaccount.com" \
-# --automute=true \
-# --resource-collection-enabled=true \
-# --is-cspm-enabled=true \
-# --account-tags='["env:prod", "team:platform"]' \
-# --monitored-resource-configs='[{"type":"gce_instance","filters":["env:production"]}]'
-```
 
 ### Optimizing Metric Collection
 
@@ -404,42 +267,10 @@ pup cloud gcp list
 ```
 
 **2. Disable Unused Metric Namespaces**:
-```bash
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --metric-namespace-configs='[
-    {"id":"compute","disabled":false},
-    {"id":"cloudsql","disabled":false},
-    {"id":"pubsub","disabled":false},
-    {"id":"aiplatform","disabled":true},
-    {"id":"dataflow","disabled":true}
-  ]'
-```
 
 **3. Add Resource Filters for Cost Optimization**:
-```bash
-# Only monitor production resources
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --monitored-resource-configs='[
-    {"type":"gce_instance","filters":["env:production"]},
-    {"type":"cloud_run_revision","filters":["env:production"]},
-    {"type":"cloud_function","filters":["env:production"]}
-  ]'
-```
 
 **4. Apply Metric-Level Filters**:
-```bash
-# Exclude noisy regional metrics
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts update \
-# <account-id> \
-# --metric-namespace-configs='[
-    {"id":"pubsub","filters":["!*_by_region","snapshot.*"]}
-  ]'
-```
 
 ### Multi-Project Strategy
 
@@ -451,29 +282,11 @@ For organizations with multiple GCP projects:
 - Use descriptive account tags
 
 **2. Example Multi-Project Setup**:
-```bash
-# Production project
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-integration@prod-project.iam.gserviceaccount.com" \
-# --account-tags='["env:prod", "team:platform"]' \
-# --is-cspm-enabled=true \
-# --resource-collection-enabled=true
-
-# Staging project
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-integration@staging-project.iam.gserviceaccount.com" \
-# --account-tags='["env:staging", "team:platform"]' \
-# --is-cspm-enabled=false \
-# --monitored-resource-configs='[{"type":"gce_instance","filters":["team:backend"]}]'
-```
 
 ### Migrating from V1 to V2
 
 **1. List Existing V1 Integrations** (if using deprecated V1 API):
 ```bash
-# Note: V1 endpoints are deprecated, this is for reference only
 # Use the V2 API for all new integrations
 ```
 
@@ -486,7 +299,6 @@ Check metrics are flowing in Datadog UI
 **4. Remove V1 Integration** (after verification):
 Once V2 is confirmed working, delete the V1 integration
 
-## Required IAM Permissions
 
 ### Basic Monitoring (Compute Engine)
 
@@ -549,7 +361,6 @@ gcloud projects add-iam-policy-binding my-gcp-project \
   --role="roles/securitycenter.findingsViewer"
 ```
 
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -611,7 +422,6 @@ Error: Unable to access GCP project
 - Required APIs are enabled in GCP project
 - Workload Identity binding is correct
 
-## Best Practices
 
 ### Security
 1. **Use Workload Identity**: Always prefer STS/Workload Identity over service account keys
@@ -647,78 +457,10 @@ Error: Unable to access GCP project
 4. **Security Reviews**: Periodically review IAM permissions
 5. **Documentation**: Maintain runbook of GCP project to team mapping
 
-## Integration Examples
 
-### Minimal Production Setup
-```bash
-# Create delegate
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp delegate create
 
-# Create basic integration (after service account setup in GCP)
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-integration@my-project.iam.gserviceaccount.com" \
-# --automute=true \
-# --resource-collection-enabled=true
-```
 
-### Full-Featured Setup
-```bash
-# Create comprehensive integration
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-integration@my-project.iam.gserviceaccount.com" \
-# --automute=true \
-# --resource-collection-enabled=true \
-# --is-cspm-enabled=true \
-# --is-security-command-center-enabled=true \
-# --is-resource-change-collection-enabled=true \
-# --is-per-project-quota-enabled=true \
-# --account-tags='["env:prod", "team:platform", "cost-center:engineering"]' \
-# --monitored-resource-configs='[
-    {"type":"gce_instance","filters":["env:production"]},
-    {"type":"cloud_run_revision","filters":["env:production"]},
-    {"type":"cloud_function","filters":["env:production"]}
-  ]' \
-  --metric-namespace-configs='[
-    {"id":"compute","disabled":false},
-    {"id":"cloudsql","disabled":false},
-    {"id":"pubsub","disabled":false},
-    {"id":"gke","disabled":false},
-    {"id":"aiplatform","disabled":true},
-    {"id":"dataflow","disabled":true}
-  ]'
-```
 
-### Security-Focused Setup (CSPM)
-```bash
-# Create integration with focus on security monitoring
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-security@my-project.iam.gserviceaccount.com" \
-# --resource-collection-enabled=true \
-# --is-cspm-enabled=true \
-# --is-security-command-center-enabled=true \
-# --is-resource-change-collection-enabled=true
-```
-
-### Cost-Optimized Setup
-```bash
-# Create integration with minimal metric collection
-# UNSUPPORTED: pup has no typed command for this operation.
-# pup gcp accounts create \
-# --client-email="datadog-integration@my-project.iam.gserviceaccount.com" \
-# --monitored-resource-configs='[
-    {"type":"gce_instance","filters":["env:production","criticality:high"]}
-  ]' \
-  --metric-namespace-configs='[
-    {"id":"compute","disabled":false},
-    {"id":"aiplatform","disabled":true},
-    {"id":"dataflow","disabled":true},
-    {"id":"bigquery","disabled":true}
-  ]'
-```
 
 ## Examples of Good Responses
 

@@ -29,6 +29,11 @@ pub trait Storage: Send + Sync {
 
     fn save_tokens(&self, site: &str, org: Option<&str>, tokens: &TokenSet) -> Result<()>;
     fn load_tokens(&self, site: &str, org: Option<&str>) -> Result<Option<TokenSet>>;
+    /// Like `load_tokens`, but reads the backend itself rather than any copy this
+    /// process already holds, so it sees tokens another process has saved since.
+    fn reload_tokens(&self, site: &str, org: Option<&str>) -> Result<Option<TokenSet>> {
+        self.load_tokens(site, org)
+    }
     fn delete_tokens(&self, site: &str, org: Option<&str>) -> Result<()>;
 
     fn save_client_credentials(&self, site: &str, creds: &ClientCredentials) -> Result<()>;
@@ -425,6 +430,14 @@ impl KeychainStorage {
         Ok(())
     }
 
+    fn invalidate(&self, site: &str) -> Result<()> {
+        self.cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("keychain cache poisoned"))?
+            .remove(site);
+        Ok(())
+    }
+
     fn delete_state(&self, site: &str) -> Result<()> {
         self.delete_state_raw(site)?;
         self.cache
@@ -600,6 +613,11 @@ impl Storage for KeychainStorage {
 
     fn load_tokens(&self, site: &str, org: Option<&str>) -> Result<Option<TokenSet>> {
         Ok(self.load_state(site)?.tokens.remove(org_map_key(org)))
+    }
+
+    fn reload_tokens(&self, site: &str, org: Option<&str>) -> Result<Option<TokenSet>> {
+        self.invalidate(site)?;
+        self.load_tokens(site, org)
     }
 
     fn delete_tokens(&self, site: &str, org: Option<&str>) -> Result<()> {
@@ -2383,6 +2401,29 @@ mod tests {
             .unwrap()
             .expect("cached token should be returned without a keychain read");
         assert_eq!(got.access_token, "cached_tok");
+    }
+
+    // invalidate drops the memoized copy, so the next read goes to the keychain
+    // and can see a token another process saved after this one first read it.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_keychain_storage_invalidate_drops_cached_state() {
+        let store = KeychainStorage {
+            cache: Mutex::new(HashMap::new()),
+        };
+        store
+            .cache
+            .lock()
+            .unwrap()
+            .insert("invalidate-test.example".to_string(), SiteData::default());
+
+        store.invalidate("invalidate-test.example").unwrap();
+
+        assert!(!store
+            .cache
+            .lock()
+            .unwrap()
+            .contains_key("invalidate-test.example"));
     }
 
     // DD_TOKEN_STORAGE env var overrides config file token_storage.

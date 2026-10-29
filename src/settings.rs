@@ -675,7 +675,13 @@ pub fn load_token_from_storage(site: &str, org: Option<&str>) -> Option<String> 
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 let dcr_client = crate::auth::dcr::DcrClient::new(site);
-                dcr_client.refresh_token(refresh_token, creds).await.ok()
+                match dcr_client.refresh_token(refresh_token, creds).await {
+                    Ok(new_tokens) => Some(new_tokens),
+                    Err(e) => {
+                        eprintln!("⚠️ Automatic token refresh failed: {e:#}");
+                        None
+                    }
+                }
             })
         })
     });
@@ -690,8 +696,30 @@ pub fn load_token_from_storage(site: &str, org: Option<&str>) -> Option<String> 
             eprintln!("🔄 Access token refreshed automatically.");
             Some(new_tokens.access_token)
         }
-        ResolvedToken::Expired => None,
+        ResolvedToken::Expired => {
+            let guard = crate::auth::storage::get_storage().ok()?;
+            let lock = guard.lock().ok()?;
+            let store = lock.as_ref()?;
+            valid_token_after_reload(store.as_ref(), site, org)
+        }
     }
+}
+
+/// Reads storage again, bypassing the per-process memo, and returns the access
+/// token if it is now valid.
+///
+/// When several pup processes refresh the same expired token at once, one
+/// succeeds and saves a new token set; the refreshes of the others then fail.
+/// Their memoized copy still holds the old, expired tokens, so without a fresh
+/// read they report the token as expired although a valid one is in storage.
+#[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+fn valid_token_after_reload(
+    store: &dyn crate::auth::storage::Storage,
+    site: &str,
+    org: Option<&str>,
+) -> Option<String> {
+    let tokens = store.reload_tokens(site, org).ok()??;
+    (!tokens.is_expired()).then_some(tokens.access_token)
 }
 
 /// Returns true if a non-empty refresh token exists in storage for the given site/org.
@@ -2422,6 +2450,84 @@ profiles:
             scope: String::new(),
             client_id: "test-client-id".into(),
         }
+    }
+
+    // Serves stale tokens from load_tokens and current ones from reload_tokens,
+    // like a memoized store after another process has saved a refresh.
+    #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+    struct ReloadStore {
+        stale: TokenSet,
+        current: Option<TokenSet>,
+    }
+
+    #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+    impl crate::auth::storage::Storage for ReloadStore {
+        fn backend_type(&self) -> crate::auth::storage::BackendType {
+            crate::auth::storage::BackendType::Keychain
+        }
+        fn storage_location(&self) -> String {
+            "test".into()
+        }
+        fn save_tokens(&self, _: &str, _: Option<&str>, _: &TokenSet) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn load_tokens(&self, _: &str, _: Option<&str>) -> anyhow::Result<Option<TokenSet>> {
+            Ok(Some(self.stale.clone()))
+        }
+        fn reload_tokens(&self, _: &str, _: Option<&str>) -> anyhow::Result<Option<TokenSet>> {
+            Ok(self.current.clone())
+        }
+        fn delete_tokens(&self, _: &str, _: Option<&str>) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn save_client_credentials(&self, _: &str, _: &ClientCredentials) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn load_client_credentials(&self, _: &str) -> anyhow::Result<Option<ClientCredentials>> {
+            Ok(None)
+        }
+        fn delete_client_credentials(&self, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+    fn test_valid_token_after_reload_returns_token_saved_by_another_process() {
+        let store = ReloadStore {
+            stale: make_token_set(7200, 3600, "refresh"),
+            current: Some(make_refreshed_token_set()),
+        };
+        assert_eq!(
+            super::valid_token_after_reload(&store, "datadoghq.com", None).as_deref(),
+            Some("fresh-access-token")
+        );
+    }
+
+    #[test]
+    #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+    fn test_valid_token_after_reload_still_expired() {
+        let store = ReloadStore {
+            stale: make_token_set(7200, 3600, "refresh"),
+            current: Some(make_token_set(7200, 3600, "refresh")),
+        };
+        assert_eq!(
+            super::valid_token_after_reload(&store, "datadoghq.com", None),
+            None
+        );
+    }
+
+    #[test]
+    #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+    fn test_valid_token_after_reload_nothing_stored() {
+        let store = ReloadStore {
+            stale: make_token_set(7200, 3600, "refresh"),
+            current: None,
+        };
+        assert_eq!(
+            super::valid_token_after_reload(&store, "datadoghq.com", None),
+            None
+        );
     }
 
     #[test]

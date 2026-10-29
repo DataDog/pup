@@ -456,12 +456,12 @@ pup cloud azure list
 # --client-id="YOUR_CLIENT_ID" \
 # --metrics-enabled-default=false \
 # --resource-provider-configs='[
-    # {"namespace":"Microsoft.Compute","metrics_enabled":true},
-    # {"namespace":"Microsoft.Sql","metrics_enabled":true},
-    # {"namespace":"Microsoft.Web","metrics_enabled":true},
-    # {"namespace":"Microsoft.Storage","metrics_enabled":false},
-    # {"namespace":"Microsoft.Network","metrics_enabled":false}
-  # ]'
+    {"namespace":"Microsoft.Compute","metrics_enabled":true},
+    {"namespace":"Microsoft.Sql","metrics_enabled":true},
+    {"namespace":"Microsoft.Web","metrics_enabled":true},
+    {"namespace":"Microsoft.Storage","metrics_enabled":false},
+    {"namespace":"Microsoft.Network","metrics_enabled":false}
+  ]'
 ```
 
 **3. Add Resource Filters for Cost Optimization**:
@@ -750,13 +750,13 @@ Error: Unable to access Azure subscription
 # --app-service-plan-filters="env:production,tier:premium" \
 # --container-app-filters="env:production" \
 # --resource-provider-configs='[
-    # {"namespace":"Microsoft.Compute","metrics_enabled":true},
-    # {"namespace":"Microsoft.Sql","metrics_enabled":true},
-    # {"namespace":"Microsoft.Web","metrics_enabled":true},
-    # {"namespace":"Microsoft.ContainerService","metrics_enabled":true},
-    # {"namespace":"Microsoft.Network","metrics_enabled":true},
-    # {"namespace":"Microsoft.Storage","metrics_enabled":true}
-  # ]'
+    {"namespace":"Microsoft.Compute","metrics_enabled":true},
+    {"namespace":"Microsoft.Sql","metrics_enabled":true},
+    {"namespace":"Microsoft.Web","metrics_enabled":true},
+    {"namespace":"Microsoft.ContainerService","metrics_enabled":true},
+    {"namespace":"Microsoft.Network","metrics_enabled":true},
+    {"namespace":"Microsoft.Storage","metrics_enabled":true}
+  ]'
 ```
 
 ### Security-Focused Setup (CSPM)
@@ -786,9 +786,9 @@ Error: Unable to access Azure subscription
 # --usage-metrics-enabled=false \
 # --host-filters="env:production,critical:high" \
 # --resource-provider-configs='[
-    # {"namespace":"Microsoft.Compute","metrics_enabled":true},
-    # {"namespace":"Microsoft.Sql","metrics_enabled":true}
-  # ]'
+    {"namespace":"Microsoft.Compute","metrics_enabled":true},
+    {"namespace":"Microsoft.Sql","metrics_enabled":true}
+  ]'
 ```
 
 ### Update Existing Integration

@@ -409,12 +409,12 @@ pup cloud gcp list
 # pup gcp accounts update \
 # <account-id> \
 # --metric-namespace-configs='[
-    # {"id":"compute","disabled":false},
-    # {"id":"cloudsql","disabled":false},
-    # {"id":"pubsub","disabled":false},
-    # {"id":"aiplatform","disabled":true},
-    # {"id":"dataflow","disabled":true}
-  # ]'
+    {"id":"compute","disabled":false},
+    {"id":"cloudsql","disabled":false},
+    {"id":"pubsub","disabled":false},
+    {"id":"aiplatform","disabled":true},
+    {"id":"dataflow","disabled":true}
+  ]'
 ```
 
 **3. Add Resource Filters for Cost Optimization**:
@@ -424,10 +424,10 @@ pup cloud gcp list
 # pup gcp accounts update \
 # <account-id> \
 # --monitored-resource-configs='[
-    # {"type":"gce_instance","filters":["env:production"]},
-    # {"type":"cloud_run_revision","filters":["env:production"]},
-    # {"type":"cloud_function","filters":["env:production"]}
-  # ]'
+    {"type":"gce_instance","filters":["env:production"]},
+    {"type":"cloud_run_revision","filters":["env:production"]},
+    {"type":"cloud_function","filters":["env:production"]}
+  ]'
 ```
 
 **4. Apply Metric-Level Filters**:
@@ -437,8 +437,8 @@ pup cloud gcp list
 # pup gcp accounts update \
 # <account-id> \
 # --metric-namespace-configs='[
-    # {"id":"pubsub","filters":["!*_by_region","snapshot.*"]}
-  # ]'
+    {"id":"pubsub","filters":["!*_by_region","snapshot.*"]}
+  ]'
 ```
 
 ### Multi-Project Strategy
@@ -677,10 +677,10 @@ Error: Unable to access GCP project
 # --is-per-project-quota-enabled=true \
 # --account-tags='["env:prod", "team:platform", "cost-center:engineering"]' \
 # --monitored-resource-configs='[
-    # {"type":"gce_instance","filters":["env:production"]},
-    # {"type":"cloud_run_revision","filters":["env:production"]},
-    # {"type":"cloud_function","filters":["env:production"]}
-  # ]' \
+    {"type":"gce_instance","filters":["env:production"]},
+    {"type":"cloud_run_revision","filters":["env:production"]},
+    {"type":"cloud_function","filters":["env:production"]}
+  ]' \
   --metric-namespace-configs='[
     {"id":"compute","disabled":false},
     {"id":"cloudsql","disabled":false},
@@ -710,8 +710,8 @@ Error: Unable to access GCP project
 # pup gcp accounts create \
 # --client-email="datadog-integration@my-project.iam.gserviceaccount.com" \
 # --monitored-resource-configs='[
-    # {"type":"gce_instance","filters":["env:production","criticality:high"]}
-  # ]' \
+    {"type":"gce_instance","filters":["env:production","criticality:high"]}
+  ]' \
   --metric-namespace-configs='[
     {"id":"compute","disabled":false},
     {"id":"aiplatform","disabled":true},

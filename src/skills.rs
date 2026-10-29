@@ -1257,8 +1257,7 @@ mod tests {
 
     fn cli_command_path_error(invocation: &str, require_leaf: bool) -> Option<String> {
         let command_text = invocation.split_once("pup ")?.1;
-        let command_text = command_text.trim_start();
-        if command_text.starts_with('<') || command_text.starts_with("\"<") {
+        if command_text.trim_start().starts_with('<') {
             return None;
         }
         let command_text = command_text.split('#').next().unwrap_or_default();

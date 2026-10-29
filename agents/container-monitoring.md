@@ -114,7 +114,7 @@ pup monitors search "pod"
 
 Get monitor details:
 ```bash
-pup monitors get "<monitor-id>"
+pup monitors get <monitor-id>
 ```
 
 ### List Container Hosts

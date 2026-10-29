@@ -23,7 +23,7 @@ Do not invoke the incomplete `pup idp kinds` group without a subcommand; use `li
 
 ```bash
 pup --read-only service-catalog list
-pup --read-only service-catalog get "<service-name>"
+pup --read-only service-catalog get <service-name>
 ```
 
 ### Connected service context
@@ -43,10 +43,10 @@ This is the graph's central value: service identity, ownership, health, and decl
 ### Convenience service helpers
 
 ```bash
-pup --read-only idp assist "<service-name>"
-pup --read-only idp owner "<service-name>"
+pup --read-only idp assist <service-name>
+pup --read-only idp owner <service-name>
 pup --read-only idp find '<service-name>'
-pup --read-only idp deps "<service-name>"
+pup --read-only idp deps <service-name>
 ```
 
 ### General entity graph
@@ -68,7 +68,7 @@ Treat relationship expansions as bounded samples, follow returned refs, honor cu
 
 ```bash
 pup --read-only software-catalog entities list --filter-kind service
-pup --read-only software-catalog entities list --filter-owner "<team>"
+pup --read-only software-catalog entities list --filter-owner <team>
 pup --read-only software-catalog kinds list
 pup --read-only software-catalog relations list
 ```
@@ -92,7 +92,7 @@ This accepts v1 through v3 definitions and posts them to the Catalog entity API.
 Verify a returned ref against Catalog inventory before assuming it has propagated to UEG:
 
 ```bash
-pup --read-only software-catalog entities list --filter-ref "service:default/<service-name>"
+pup --read-only software-catalog entities list --filter-ref service:default/<service-name>
 ```
 
 Catalog is the immediate source of truth after a write. UEG creation and deletion may lag by tens of seconds, so retry a bounded exact-ref query before concluding propagation failed.
@@ -111,9 +111,9 @@ Use valid JSON payloads and confirm the target org and intended mutation:
 
 ```bash
 pup software-catalog entities upsert --file entity.json
-pup software-catalog entities delete "<entity-id>"
+pup software-catalog entities delete <entity-id>
 pup software-catalog kinds upsert --file kind.json
-pup software-catalog kinds delete "<kind-id>"
+pup software-catalog kinds delete <kind-id>
 ```
 
 Never delete as cleanup or guess an entity identifier. Read the entity first, show the exact target, and require explicit user approval.

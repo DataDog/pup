@@ -159,10 +159,10 @@ Disable filter:
 # UNSUPPORTED: pup has no typed command for this operation.
 # pup apm retention-filters reorder \
 # --filter-ids='[
-    # "filter-id-1",
-    # "filter-id-2",
-    # "filter-id-3"
-  # ]'
+    "filter-id-1",
+    "filter-id-2",
+    "filter-id-3"
+  ]'
 ```
 
 ### Span-Based Metrics
@@ -189,9 +189,9 @@ Count spans by service and status:
 # --aggregation-type="count" \
 # --filter-query="*" \
 # --group-by='[
-    # {"path": "service", "tag_name": "service"},
-    # {"path": "@http.status_code", "tag_name": "status_code"}
-  # ]'
+    {"path": "service", "tag_name": "service"},
+    {"path": "@http.status_code", "tag_name": "status_code"}
+  ]'
 ```
 
 Count errors by service:
@@ -202,8 +202,8 @@ Count errors by service:
 # --aggregation-type="count" \
 # --filter-query="status:error" \
 # --group-by='[
-    # {"path": "service", "tag_name": "service"}
-  # ]'
+    {"path": "service", "tag_name": "service"}
+  ]'
 ```
 
 #### Create Span Metric (Distribution)
@@ -217,8 +217,8 @@ Request duration distribution:
 # --filter-query="service:api" \
 # --include-percentiles=true \
 # --group-by='[
-    # {"path": "resource_name", "tag_name": "resource"}
-  # ]'
+    {"path": "resource_name", "tag_name": "resource"}
+  ]'
 ```
 
 Database query duration:
@@ -231,9 +231,9 @@ Database query duration:
 # --filter-query="span.kind:client AND db.system:*" \
 # --include-percentiles=true \
 # --group-by='[
-    # {"path": "@db.system", "tag_name": "db_type"},
-    # {"path": "@db.operation", "tag_name": "operation"}
-  # ]'
+    {"path": "@db.system", "tag_name": "db_type"},
+    {"path": "@db.operation", "tag_name": "operation"}
+  ]'
 ```
 
 HTTP response size distribution:
@@ -246,9 +246,9 @@ HTTP response size distribution:
 # --filter-query="@http.response.content_length:*" \
 # --include-percentiles=false \
 # --group-by='[
-    # {"path": "service", "tag_name": "service"},
-    # {"path": "@http.status_code", "tag_name": "status_code"}
-  # ]'
+    {"path": "service", "tag_name": "service"},
+    {"path": "@http.status_code", "tag_name": "status_code"}
+  ]'
 ```
 
 #### Update Span Metric
@@ -266,10 +266,10 @@ Change grouping:
 # pup apm span-metrics update \
 # --metric-id="trace.request.count" \
 # --group-by='[
-    # {"path": "service", "tag_name": "service"},
-    # {"path": "env", "tag_name": "environment"},
-    # {"path": "@http.method", "tag_name": "method"}
-  # ]'
+    {"path": "service", "tag_name": "service"},
+    {"path": "env", "tag_name": "environment"},
+    {"path": "@http.method", "tag_name": "method"}
+  ]'
 ```
 
 #### Delete Span Metric
@@ -592,9 +592,9 @@ span.kind:client AND db.system:*
 # --aggregation-type="count" \
 # --filter-query="span.kind:server" \
 # --group-by='[
-    # {"path": "service", "tag_name": "service"},
-    # {"path": "@http.status_code", "tag_name": "status_code"}
-  # ]'
+    {"path": "service", "tag_name": "service"},
+    {"path": "@http.status_code", "tag_name": "status_code"}
+  ]'
 ```
 
 #### 2. P95 Latency by Endpoint
@@ -607,8 +607,8 @@ span.kind:client AND db.system:*
 # --filter-query="@_top_level:1 service:api" \
 # --include-percentiles=true \
 # --group-by='[
-    # {"path": "resource_name", "tag_name": "endpoint"}
-  # ]'
+    {"path": "resource_name", "tag_name": "endpoint"}
+  ]'
 ```
 
 #### 3. Database Query Performance
@@ -621,10 +621,10 @@ span.kind:client AND db.system:*
 # --filter-query="span.kind:client AND @db.system:*" \
 # --include-percentiles=true \
 # --group-by='[
-    # {"path": "service", "tag_name": "service"},
-    # {"path": "@db.system", "tag_name": "db_type"},
-    # {"path": "@db.operation", "tag_name": "operation"}
-  # ]'
+    {"path": "service", "tag_name": "service"},
+    {"path": "@db.system", "tag_name": "db_type"},
+    {"path": "@db.operation", "tag_name": "operation"}
+  ]'
 ```
 
 #### 4. Error Rate
@@ -635,9 +635,9 @@ span.kind:client AND db.system:*
 # --aggregation-type="count" \
 # --filter-query="status:error" \
 # --group-by='[
-    # {"path": "service", "tag_name": "service"},
-    # {"path": "resource_name", "tag_name": "endpoint"}
-  # ]'
+    {"path": "service", "tag_name": "service"},
+    {"path": "resource_name", "tag_name": "endpoint"}
+  ]'
 ```
 
 #### 5. Cache Hit Rate
@@ -648,9 +648,9 @@ span.kind:client AND db.system:*
 # --aggregation-type="count" \
 # --filter-query="@cache.key:*" \
 # --group-by='[
-    # {"path": "service", "tag_name": "service"},
-    # {"path": "@cache.hit", "tag_name": "cache_hit"}
-  # ]'
+    {"path": "service", "tag_name": "service"},
+    {"path": "@cache.hit", "tag_name": "cache_hit"}
+  ]'
 ```
 
 ## Permission Model
@@ -718,8 +718,8 @@ Present APM configuration data in clear, user-friendly formats:
 # --filter-query="@_top_level:1" \
 # --include-percentiles=true \
 # --group-by='[
-    # {"path": "resource_name", "tag_name": "endpoint"}
-  # ]'
+    {"path": "resource_name", "tag_name": "endpoint"}
+  ]'
 ```
 
 ### "Show all span-based metrics"

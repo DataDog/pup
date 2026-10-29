@@ -73,7 +73,7 @@ pup monitors list --tags="source:dbm"
 
 Get details of a specific monitor:
 ```bash
-pup monitors get "<monitor-id>"
+pup monitors get <monitor-id>
 ```
 
 Search for database monitors:

@@ -125,20 +125,20 @@ pup on-call schedules create --file=create-request.json
 
 #### Get Schedule
 ```bash
-pup on-call schedules get "<schedule-id>"
+pup on-call schedules get <schedule-id>
 ```
 
 #### Update Schedule
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call schedules update "<schedule-id>" --file=update-request.json
+pup on-call schedules update <schedule-id> --file=update-request.json
 # --name="Updated Rotation" \
 # --schedule='{"rotations": [...]}'
 ```
 
 #### Delete Schedule
 ```bash
-pup on-call schedules delete "<schedule-id>"
+pup on-call schedules delete <schedule-id>
 ```
 
 #### Get Current On-Call User
@@ -155,33 +155,33 @@ pup on-call schedules delete "<schedule-id>"
 pup on-call escalation-policies create --file=escalation-policy.json
 # --name="Platform Team Escalation" \
 # --steps='[
-    # {
-      # "delay_minutes": 0,
-      # "targets": [{"type": "schedule", "id": "schedule-123"}]
-    # },
-    # {
-      # "delay_minutes": 15,
-      # "targets": [{"type": "user", "id": "user-456"}]
-    # }
-  # ]'
+    {
+      "delay_minutes": 0,
+      "targets": [{"type": "schedule", "id": "schedule-123"}]
+    },
+    {
+      "delay_minutes": 15,
+      "targets": [{"type": "user", "id": "user-456"}]
+    }
+  ]'
 ```
 
 #### Get Escalation Policy
 ```bash
-pup on-call escalation-policies get "<policy-id>"
+pup on-call escalation-policies get <policy-id>
 ```
 
 #### Update Escalation Policy
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call escalation-policies update "<policy-id>" --file=update-request.json
+pup on-call escalation-policies update <policy-id> --file=update-request.json
 # --name="Updated Escalation" \
 # --steps='[...]'
 ```
 
 #### Delete Escalation Policy
 ```bash
-pup on-call escalation-policies delete "<policy-id>"
+pup on-call escalation-policies delete <policy-id>
 ```
 
 ### On-Call: Team Routing
@@ -268,28 +268,28 @@ pup on-call pages create --file=create-request.json
 ```bash
 # SMS
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-channels create "<user-id>" --file=create-request.json
+pup on-call notification-channels create <user-id> --file=create-request.json
 # --type="sms" \
 # --value="+15551234567" \
 # --enabled
 
 # Email
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-channels create "<user-id>" --file=create-request.json
+pup on-call notification-channels create <user-id> --file=create-request.json
 # --type="email" \
 # --value="oncall@example.com" \
 # --enabled
 
 # Phone
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-channels create "<user-id>" --file=create-request.json
+pup on-call notification-channels create <user-id> --file=create-request.json
 # --type="phone" \
 # --value="+15551234567" \
 # --enabled
 
 # Slack
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-channels create "<user-id>" --file=create-request.json
+pup on-call notification-channels create <user-id> --file=create-request.json
 # --type="slack" \
 # --value="@username" \
 # --enabled
@@ -302,26 +302,26 @@ pup on-call notification-channels list
 
 #### Get Notification Channel
 ```bash
-pup on-call notification-channels get "<channel-id>"
+pup on-call notification-channels get <channel-id>
 ```
 
 #### Delete Notification Channel
 ```bash
-pup on-call notification-channels delete "<channel-id>"
+pup on-call notification-channels delete <channel-id>
 ```
 
 #### Create Notification Rule
 ```bash
 # Immediate high urgency notification
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-rules create "<user-id>" --file=create-request.json
+pup on-call notification-rules create <user-id> --file=create-request.json
 # --channel-id="channel-123" \
 # --urgency="high" \
 # --delay-minutes=0
 
 # Delayed notification
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-rules create "<user-id>" --file=create-request.json
+pup on-call notification-rules create <user-id> --file=create-request.json
 # --channel-id="channel-456" \
 # --urgency="high" \
 # --delay-minutes=15
@@ -334,19 +334,19 @@ pup on-call notification-rules list
 
 #### Get Notification Rule
 ```bash
-pup on-call notification-rules get "<rule-id>"
+pup on-call notification-rules get <rule-id>
 ```
 
 #### Update Notification Rule
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-rules update "<rule-id>" --file=update-request.json
+pup on-call notification-rules update <rule-id> --file=update-request.json
 # --delay-minutes=5
 ```
 
 #### Delete Notification Rule
 ```bash
-pup on-call notification-rules delete "<rule-id>"
+pup on-call notification-rules delete <rule-id>
 ```
 
 ### Incident Management
@@ -369,7 +369,7 @@ pup incidents list --limit=50
 
 #### Get Incident Details
 ```bash
-pup incidents get "<incident-id>"
+pup incidents get <incident-id>
 ```
 
 ### Case Management
@@ -387,12 +387,12 @@ pup cases create \
   --project-id "<project-uuid>"
 
 # Track investigation progress
-pup cases comments create "<case-id>" --body "Investigation update: ..."
-pup cases update-status "<case-id>" --status IN_PROGRESS
+pup cases comments create <case-id> --body "Investigation update: ..."
+pup cases update-status <case-id> --status IN_PROGRESS
 
 # Close out after resolution
-pup cases update-status "<case-id>" --status CLOSED
-pup cases archive "<case-id>"
+pup cases update-status <case-id> --status CLOSED
+pup cases archive <case-id>
 ```
 
 For anything beyond these, defer to `case-management`.
@@ -524,7 +524,7 @@ pup on-call pages create --file=create-request.json
 
 # 3. INCIDENT TRACKING: Check incident details
 pup incidents list
-pup incidents get "<incident-id>"
+pup incidents get <incident-id>
 
 # 4. CASE MANAGEMENT: Create tracking case
 #    (see the case-management agent for full options)
@@ -535,7 +535,7 @@ pup cases create \
   --project-id "<production-project-uuid>"
 
 # 5. ASSIGNMENT: Assign to incident commander (by user UUID, not email)
-pup cases assign CASE-XXX --user-id "<user-uuid>"
+pup cases assign CASE-XXX --user-id <user-uuid>
 
 # 6. INVESTIGATION: Update status as work progresses
 pup cases update-status CASE-XXX --status IN_PROGRESS
@@ -577,9 +577,9 @@ pup on-call schedules create --file=schedule.json
 pup on-call escalation-policies create --file=escalation-policy.json
 # --name="Critical Production Escalation" \
 # --steps='[
-    # {"delay_minutes": 0, "targets": [{"type": "schedule", "id": "<schedule-id>"}]},
-    # {"delay_minutes": 15, "targets": [{"type": "user", "id": "<manager-id>"}]}
-  # ]'
+    {"delay_minutes": 0, "targets": [{"type": "schedule", "id": "<schedule-id>"}]},
+    {"delay_minutes": 15, "targets": [{"type": "user", "id": "<manager-id>"}]}
+  ]'
 
 # 3. Configure team routing
 # UNSUPPORTED: pup has no typed command for this operation.
@@ -589,15 +589,15 @@ pup on-call escalation-policies create --file=escalation-policy.json
 
 # 4. Set up notification channels
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-channels create "<user-id>" --file=create-request.json
+pup on-call notification-channels create <user-id> --file=create-request.json
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-channels create "<user-id>" --file=create-request.json
+pup on-call notification-channels create <user-id> --file=create-request.json
 
 # 5. Create notification rules
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-rules create "<user-id>" --file=create-request.json
+pup on-call notification-rules create <user-id> --file=create-request.json
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup on-call notification-rules create "<user-id>" --file=create-request.json
+pup on-call notification-rules create <user-id> --file=create-request.json
 
 # 6. Create case management project (both --name and --key required)
 pup cases projects create --name "Production Incidents Q1 2025" --key "PROD-INC"
@@ -656,7 +656,7 @@ pup incidents list --query="state:active"
 
 ### "What's the status of incident XYZ?"
 ```bash
-pup incidents get "<incident-id>"
+pup incidents get <incident-id>
 ```
 
 ### Case operations during an incident

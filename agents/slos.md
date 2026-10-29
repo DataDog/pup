@@ -36,7 +36,7 @@ pup slos list
 ### Get SLO Details
 
 ```bash
-pup slos get "<slo-id>"
+pup slos get <slo-id>
 ```
 
 Example:
@@ -61,7 +61,7 @@ Example with specific time range:
 ### Delete SLO
 
 ```bash
-pup slos delete "<slo-id>"
+pup slos delete <slo-id>
 ```
 
 **Warning**: This is a destructive operation that requires confirmation.
@@ -109,7 +109,7 @@ pup slos list
 pup slos list
 
 # Then get details
-pup slos get "<slo-id>"
+pup slos get <slo-id>
 ```
 
 ### "Show SLO performance over the last 30 days"

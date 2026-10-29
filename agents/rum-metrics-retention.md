@@ -48,7 +48,7 @@ pup rum metrics list
 #### Get RUM Metric Details
 
 ```bash
-pup rum metrics get "<metric-id>"
+pup rum metrics get <metric-id>
 ```
 
 #### Create a RUM Metric
@@ -81,7 +81,7 @@ pup rum metrics create --file=create-request.json
 
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup rum metrics update "<metric-id>" --file=update-request.json
+pup rum metrics update <metric-id> --file=update-request.json
 # --filter="@application.name:web-app AND @geo.country:US" \
 # --include-percentiles=false
 ```
@@ -89,7 +89,7 @@ pup rum metrics update "<metric-id>" --file=update-request.json
 #### Delete a RUM Metric
 
 ```bash
-pup rum metrics delete "<metric-id>"
+pup rum metrics delete <metric-id>
 ```
 
 ### RUM Retention Filters Management
@@ -97,20 +97,20 @@ pup rum metrics delete "<metric-id>"
 #### List Retention Filters for an Application
 
 ```bash
-pup rum retention-filters list "<application-id>"
+pup rum retention-filters list <application-id>
 ```
 
 #### Get Retention Filter Details
 
 ```bash
-pup rum retention-filters get "<application-id>" "<filter-id>"
+pup rum retention-filters get <application-id> <filter-id>
 ```
 
 #### Create a Retention Filter
 
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup rum retention-filters create "<app-id>" --file=create-request.json
+pup rum retention-filters create <app-id> --file=create-request.json
 # --app-id=<application-id> \
 # --name="Retain sessions with errors" \
 # --event-type="session" \
@@ -122,7 +122,7 @@ pup rum retention-filters create "<app-id>" --file=create-request.json
 Create filter for sessions with replays:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup rum retention-filters create "<app-id>" --file=create-request.json
+pup rum retention-filters create <app-id> --file=create-request.json
 # --app-id=<application-id> \
 # --name="Retain sessions with replay" \
 # --event-type="session" \
@@ -135,7 +135,7 @@ pup rum retention-filters create "<app-id>" --file=create-request.json
 
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup rum retention-filters update "<app-id>" "<filter-id>" --file=update-request.json
+pup rum retention-filters update <app-id> <filter-id> --file=update-request.json
 # --app-id=<application-id> \
 # --filter-id=<filter-id> \
 # --sample-rate=50 \
@@ -145,7 +145,7 @@ pup rum retention-filters update "<app-id>" "<filter-id>" --file=update-request.
 #### Delete a Retention Filter
 
 ```bash
-pup rum retention-filters delete "<application-id>" "<filter-id>"
+pup rum retention-filters delete <application-id> <filter-id>
 ```
 
 #### Order Retention Filters
@@ -308,7 +308,7 @@ pup rum retention-filters list abc123
 ### "Create a retention filter for sessions with errors"
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup rum retention-filters create "<app-id>" --file=create-request.json
+pup rum retention-filters create <app-id> --file=create-request.json
 # --app-id=abc123 \
 # --name="Sessions with errors" \
 # --event-type="session" \
@@ -320,7 +320,7 @@ pup rum retention-filters create "<app-id>" --file=create-request.json
 ### "Retain 25% of sessions with replay"
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup rum retention-filters create "<app-id>" --file=create-request.json
+pup rum retention-filters create <app-id> --file=create-request.json
 # --app-id=abc123 \
 # --name="Sample sessions with replay" \
 # --event-type="session" \

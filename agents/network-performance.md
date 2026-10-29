@@ -221,7 +221,7 @@ The typed `network devices list` command does not accept tag or location filters
 
 ```bash
 # Get details for a specific device
-pup network devices get "<device-id>"
+pup network devices get <device-id>
 ```
 
 Example:
@@ -242,12 +242,12 @@ Device details include:
 
 ```bash
 # Get interfaces for a device
-pup network devices interfaces "<device-id>"
+pup network devices interfaces <device-id>
 ```
 
 Include IP addresses:
 ```bash
-pup network devices interfaces "<device-id>" --ip-addresses
+pup network devices interfaces <device-id> --ip-addresses
 ```
 
 Interface information includes:
@@ -262,21 +262,21 @@ Interface information includes:
 
 ##### List Device Tags
 ```bash
-pup network devices tags list "<device-id>"
+pup network devices tags list <device-id>
 ```
 
 ##### Update Device Tags
 ```bash
 # Add tags to a device
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup network devices tags update "<device-id>" --file=update-request.json
+pup network devices tags update <device-id> --file=update-request.json
 # --tags="datacenter:us-west-2,device_type:switch,critical:true"
 ```
 
 Replace all tags:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup network devices tags update "<device-id>" --file=update-request.json
+pup network devices tags update <device-id> --file=update-request.json
 # --tags="env:production,team:networking" \
 # --replace
 ```

@@ -46,7 +46,7 @@ The typed CLI does not offer server-side name filtering or pagination for API ke
 #### Get API Key Details
 
 ```bash
-pup api-keys get "<key-id>"
+pup api-keys get <key-id>
 ```
 
 #### Create a New API Key
@@ -65,7 +65,7 @@ pup api-keys create --name="Production API Key"
 #### Delete an API Key
 
 ```bash
-pup api-keys delete "<key-id>"
+pup api-keys delete <key-id>
 ```
 
 ### Application Keys Management
@@ -84,19 +84,19 @@ pup app-keys list --filter="terraform"
 #### Get Application Key Details
 
 ```bash
-pup app-keys get "<key-id>"
+pup app-keys get <key-id>
 ```
 
 #### Update an Application Key
 
 ```bash
-pup app-keys update "<key-id>" --name="Updated App Key"
+pup app-keys update <key-id> --name="Updated App Key"
 ```
 
 #### Delete an Application Key
 
 ```bash
-pup app-keys delete "<key-id>"
+pup app-keys delete <key-id>
 ```
 
 ### Current User Application Keys
@@ -499,7 +499,7 @@ Create temporary application keys for development:
 keys my-app-keys create --name="Dev Testing Key" --scopes="dashboards_read,metrics_read"
 
 # Delete when done
-keys my-app-keys delete "<key-id>"
+keys my-app-keys delete <key-id>
 ```
 
 ### Infrastructure as Code
@@ -532,7 +532,7 @@ keys api-keys create --name="Production API Key 2024-Q1"
 # ...
 
 # Delete old key
-keys api-keys delete "<old-key-id>"
+keys api-keys delete <old-key-id>
 ```
 
 ### Security Audit

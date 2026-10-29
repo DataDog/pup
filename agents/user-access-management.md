@@ -110,7 +110,7 @@ The typed user-list command has no status filter; filter the returned users loca
 
 #### Get User Details
 ```bash
-pup users get "<user-id>"
+pup users get <user-id>
 ```
 
 #### Create User
@@ -226,39 +226,39 @@ pup users service-accounts create --file=create-request.json
 
 #### List Service Account Application Keys
 ```bash
-pup users service-accounts app-keys list "<service-account-id>"
+pup users service-accounts app-keys list <service-account-id>
 ```
 
 #### Create Service Account Application Key
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup users service-accounts app-keys create "<service-account-id>" --file=create-request.json
+pup users service-accounts app-keys create <service-account-id> --file=create-request.json
 # --name="Production CI Key"
 ```
 
 Create with scopes:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup users service-accounts app-keys create "<service-account-id>" --file=create-request.json
+pup users service-accounts app-keys create <service-account-id> --file=create-request.json
 # --name="Limited Access Key" \
 # --scopes="dashboards_read,monitors_read"
 ```
 
 #### Get Service Account Application Key
 ```bash
-pup users service-accounts app-keys get "<service-account-id>" "<app-key-id>"
+pup users service-accounts app-keys get <service-account-id> <app-key-id>
 ```
 
 #### Update Service Account Application Key
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup users service-accounts app-keys update "<service-account-id>" "<app-key-id>" --file=update-request.json
+pup users service-accounts app-keys update <service-account-id> <app-key-id> --file=update-request.json
 # --name="Updated Key Name"
 ```
 
 #### Delete Service Account Application Key
 ```bash
-pup users service-accounts app-keys delete "<service-account-id>" "<app-key-id>"
+pup users service-accounts app-keys delete <service-account-id> <app-key-id>
 ```
 
 ### Team Management
@@ -652,7 +652,7 @@ The typed authentication-mapping list does not expose pagination options.
 
 #### Get Authentication Mapping
 ```bash
-pup authn-mappings get "<mapping-id>"
+pup authn-mappings get <mapping-id>
 ```
 
 #### Create Authentication Mapping
@@ -676,14 +676,14 @@ pup authn-mappings create --file=create-request.json
 #### Update Authentication Mapping
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup authn-mappings update "<mapping-id>" --file=update-request.json
+pup authn-mappings update <mapping-id> --file=update-request.json
 # --attribute-value="Updated-Group-Name" \
 # --role="Datadog Read Only"
 ```
 
 #### Delete Authentication Mapping
 ```bash
-pup authn-mappings delete "<mapping-id>"
+pup authn-mappings delete <mapping-id>
 ```
 
 ### External Team Sync
@@ -841,7 +841,7 @@ pup users service-accounts create --file=create-request.json
 
 # Create an application key for the service account
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup users service-accounts app-keys create "<service-account-id>" --file=create-request.json
+pup users service-accounts app-keys create <service-account-id> --file=create-request.json
 # --name="Production Deployment Key"
 ```
 

@@ -59,7 +59,7 @@ The typed search command does not expose a direct exclude-author filter or offse
 
 ```bash
 # Get complete notebook by ID
-pup notebooks get "<notebook-id>"
+pup notebooks get <notebook-id>
 ```
 
 Example:
@@ -75,16 +75,16 @@ pup notebooks get 123456
 pup notebooks create --file=notebook.json
 # --name="Investigation: API Latency" \
 # --cells='[
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "markdown",
-          # "text": "# API Latency Investigation\n\n## Problem\nAPI response times increased by 200ms starting at 2pm."
-        # }
-      # }
-    # }
-  # ]'
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "# API Latency Investigation\n\n## Problem\nAPI response times increased by 200ms starting at 2pm."
+        }
+      }
+    }
+  ]'
 ```
 
 #### Notebook with Timeseries
@@ -94,33 +94,33 @@ pup notebooks create --file=notebook.json
 # --name="Production Metrics Dashboard" \
 # --time='{"live_span": "1h"}' \
 # --cells='[
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "markdown",
-          # "text": "## Production API Metrics"
-        # }
-      # }
-    # },
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "timeseries",
-          # "requests": [
-            # {
-              # "q": "avg:system.cpu.user{env:production}",
-              # "display_type": "line"
-            # }
-          # ],
-          # "yaxis": {"scale": "linear"}
-        # },
-        # "graph_size": "m",
-        # "time": null
-      # }
-    # }
-  # ]'
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "## Production API Metrics"
+        }
+      }
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "timeseries",
+          "requests": [
+            {
+              "q": "avg:system.cpu.user{env:production}",
+              "display_type": "line"
+            }
+          ],
+          "yaxis": {"scale": "linear"}
+        },
+        "graph_size": "m",
+        "time": null
+      }
+    }
+  ]'
 ```
 
 #### Notebook with Multiple Cell Types
@@ -130,46 +130,46 @@ pup notebooks create --file=notebook.json
 # --name="Weekly Incident Report" \
 # --time='{"live_span": "1w"}' \
 # --cells='[
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "markdown",
-          # "text": "# Weekly Incident Report\n\n## Summary\nReview of incidents from the past week."
-        # }
-      # }
-    # },
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "timeseries",
-          # "requests": [{"q": "sum:trace.web.request.errors{env:production}", "display_type": "bars"}]
-        # },
-        # "graph_size": "l"
-      # }
-    # },
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "toplist",
-          # "requests": [{"q": "top(avg:system.cpu.user{*} by {host}, 10, \"mean\", \"desc\")"}]
-        # },
-        # "graph_size": "m"
-      # }
-    # },
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "log_stream",
-          # "query": "status:error"
-        # },
-        # "graph_size": "m"
-      # }
-    # }
-  # ]'
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "# Weekly Incident Report\n\n## Summary\nReview of incidents from the past week."
+        }
+      }
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "timeseries",
+          "requests": [{"q": "sum:trace.web.request.errors{env:production}", "display_type": "bars"}]
+        },
+        "graph_size": "l"
+      }
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "toplist",
+          "requests": [{"q": "top(avg:system.cpu.user{*} by {host}, 10, \"mean\", \"desc\")"}]
+        },
+        "graph_size": "m"
+      }
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "log_stream",
+          "query": "status:error"
+        },
+        "graph_size": "m"
+      }
+    }
+  ]'
 ```
 
 ### Update Notebook
@@ -177,25 +177,25 @@ pup notebooks create --file=notebook.json
 ```bash
 # Update notebook name and cells
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup notebooks update "<notebook-id>" --file=notebook.json
+pup notebooks update <notebook-id> --file=notebook.json
 # --name="Updated Notebook Name" \
 # --cells='[
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "markdown",
-          # "text": "## Updated content"
-        # }
-      # }
-    # }
-  # ]'
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "## Updated content"
+        }
+      }
+    }
+  ]'
 ```
 
 Update with new time range:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup notebooks update "<notebook-id>" --file=update-request.json
+pup notebooks update <notebook-id> --file=update-request.json
 # --name="Production Dashboard" \
 # --time='{"live_span": "4h"}' \
 # --cells='[...]'
@@ -204,7 +204,7 @@ pup notebooks update "<notebook-id>" --file=update-request.json
 ### Delete Notebook
 
 ```bash
-pup notebooks delete "<notebook-id>"
+pup notebooks delete <notebook-id>
 ```
 
 ## Cell Types Reference
@@ -464,36 +464,36 @@ pup notebooks create --file=notebook.json
 # --name="Incident Investigation: API Timeout" \
 # --time='{"live_span": "4h"}' \
 # --cells='[
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "markdown",
-          # "text": "# Incident: API Timeout Spike\n\n## Timeline\n- 14:23 UTC: First alerts\n- 14:25 UTC: Customer reports\n- 14:30 UTC: Investigation started\n\n## Hypothesis\nDatabase connection pool exhaustion"
-        # }
-      # }
-    # },
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "timeseries",
-          # "requests": [{"q": "avg:trace.web.request.duration{service:api}"}]
-        # },
-        # "graph_size": "l"
-      # }
-    # },
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "log_stream",
-          # "query": "service:api status:error"
-        # },
-        # "graph_size": "m"
-      # }
-    # }
-  # ]'
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "# Incident: API Timeout Spike\n\n## Timeline\n- 14:23 UTC: First alerts\n- 14:25 UTC: Customer reports\n- 14:30 UTC: Investigation started\n\n## Hypothesis\nDatabase connection pool exhaustion"
+        }
+      }
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "timeseries",
+          "requests": [{"q": "avg:trace.web.request.duration{service:api}"}]
+        },
+        "graph_size": "l"
+      }
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "log_stream",
+          "query": "service:api status:error"
+        },
+        "graph_size": "m"
+      }
+    }
+  ]'
 ```
 
 ### "List my notebooks"
@@ -503,7 +503,7 @@ pup notebooks search --filter="author:user@example.com"
 
 ### "Show notebook details"
 ```bash
-pup notebooks get "<notebook-id>"
+pup notebooks get <notebook-id>
 ```
 
 ### "Create a weekly report notebook"
@@ -513,63 +513,63 @@ pup notebooks create --file=notebook.json
 # --name="Weekly Performance Report" \
 # --time='{"live_span": "1w"}' \
 # --cells='[
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "markdown",
-          # "text": "# Weekly Performance Report\n\n## Key Metrics\n- Average response time\n- Error rate\n- Throughput"
-        # }
-      # }
-    # },
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "timeseries",
-          # "requests": [
-            # {"q": "avg:trace.web.request.duration{env:production}", "display_type": "line"}
-          # ]
-        # },
-        # "graph_size": "l"
-      # }
-    # },
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "toplist",
-          # "requests": [
-            # {"q": "top(sum:trace.web.request.errors{env:production} by {service}, 10, \"sum\", \"desc\")"}
-          # ]
-        # },
-        # "graph_size": "m"
-      # }
-    # }
-  # ]'
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "# Weekly Performance Report\n\n## Key Metrics\n- Average response time\n- Error rate\n- Throughput"
+        }
+      }
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "timeseries",
+          "requests": [
+            {"q": "avg:trace.web.request.duration{env:production}", "display_type": "line"}
+          ]
+        },
+        "graph_size": "l"
+      }
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "toplist",
+          "requests": [
+            {"q": "top(sum:trace.web.request.errors{env:production} by {service}, 10, \"sum\", \"desc\")"}
+          ]
+        },
+        "graph_size": "m"
+      }
+    }
+  ]'
 ```
 
 ### "Update notebook content"
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup notebooks update "<notebook-id>" --file=notebook.json
+pup notebooks update <notebook-id> --file=notebook.json
 # --name="Updated: API Investigation" \
 # --cells='[
-    # {
-      # "type": "notebook_cells",
-      # "attributes": {
-        # "definition": {
-          # "type": "markdown",
-          # "text": "# Updated Investigation\n\n## Resolution\nIssue resolved by scaling database connections."
-        # }
-      # }
-    # }
-  # ]'
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "# Updated Investigation\n\n## Resolution\nIssue resolved by scaling database connections."
+        }
+      }
+    }
+  ]'
 ```
 
 ### "Delete a notebook"
 ```bash
-pup notebooks delete "<notebook-id>"
+pup notebooks delete <notebook-id>
 ```
 
 ## Error Handling

@@ -192,58 +192,68 @@ The typed Pup CLI does not expose Log Management processing-pipeline operations.
 ```
 
 #### Create Pipeline with Grok Parser
-The processor definition below is a Log Management API/UI example, not an Observability Pipelines request body.
-
-```json
-[
-  {
-    "type": "grok-parser",
-    "name": "Parse Nginx logs",
-    "is_enabled": true,
-    "source": "message",
-    "grok": {
-      "match_rules": "%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
+```bash
+# UNSUPPORTED: Log Management pipeline creation has no typed Pup command.
+# The following request fields are for the Log Management API/UI.
+# --name="Nginx Pipeline" \
+# --filter-query="source:nginx" \
+# --processors='[
+    {
+      "type": "grok-parser",
+      "name": "Parse Nginx logs",
+      "is_enabled": true,
+      "source": "message",
+      "grok": {
+        "match_rules": "%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
+      }
     }
-  }
-]
+  ]'
 ```
 
 #### Create Pipeline with Multiple Processors
-```json
-[
-  {
-    "type": "grok-parser",
-    "name": "Parse API logs",
-    "is_enabled": true,
-    "source": "message",
-    "grok": {
-      "match_rules": "%{TIMESTAMP_ISO8601:timestamp} %{WORD:level} %{GREEDYDATA:message}"
+```bash
+# UNSUPPORTED: Log Management pipeline creation has no typed Pup command.
+# The following request fields are for the Log Management API/UI.
+# --name="API Pipeline" \
+# --filter-query="service:api" \
+# --processors='[
+    {
+      "type": "grok-parser",
+      "name": "Parse API logs",
+      "is_enabled": true,
+      "source": "message",
+      "grok": {
+        "match_rules": "%{TIMESTAMP_ISO8601:timestamp} %{WORD:level} %{GREEDYDATA:message}"
+      }
+    },
+    {
+      "type": "date-remapper",
+      "name": "Define timestamp as official date",
+      "is_enabled": true,
+      "sources": ["timestamp"]
+    },
+    {
+      "type": "status-remapper",
+      "name": "Define level as official status",
+      "is_enabled": true,
+      "sources": ["level"]
+    },
+    {
+      "type": "service-remapper",
+      "name": "Define service",
+      "is_enabled": true,
+      "sources": ["app_name"]
     }
-  },
-  {
-    "type": "date-remapper",
-    "name": "Define timestamp as official date",
-    "is_enabled": true,
-    "sources": ["timestamp"]
-  },
-  {
-    "type": "status-remapper",
-    "name": "Define level as official status",
-    "is_enabled": true,
-    "sources": ["level"]
-  },
-  {
-    "type": "service-remapper",
-    "name": "Define service",
-    "is_enabled": true,
-    "sources": ["app_name"]
-  }
-]
+  ]'
 ```
 
 #### Update Pipeline
 ```bash
-# UNSUPPORTED: Log Management pipeline updates have no typed pup command.
+# UNSUPPORTED: Log Management pipeline updates have no typed Pup command.
+# The following request fields are for the Log Management API/UI.
+# --pipeline-id="pipeline-123" \
+# --name="Updated Pipeline Name" \
+# --filter-query="source:nginx AND env:production"
 ```
 
 #### Delete Pipeline
@@ -267,10 +277,10 @@ These commands manage Observability Pipelines, not Log Management processing pip
 
 ```bash
 pup obs-pipelines list
-pup obs-pipelines get "<pipeline-id>"
+pup obs-pipelines get <pipeline-id>
 pup obs-pipelines create --file=observability-pipeline.json
-pup obs-pipelines update "<pipeline-id>" --file=observability-pipeline.json
-pup obs-pipelines delete "<pipeline-id>"
+pup obs-pipelines update <pipeline-id> --file=observability-pipeline.json
+pup obs-pipelines delete <pipeline-id>
 ```
 
 ### Log Indexes
@@ -1108,7 +1118,7 @@ pup logs-restriction get 79a0e60a-644a-11ea-ad29-43329f7f58b5
 Update existing restriction query:
 ```bash
 # Pup accepts these settings from a JSON file, not as individual flags.
-pup logs-restriction update "<query-id>" --file=update-request.json
+pup logs-restriction update <query-id> --file=update-request.json
 # --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
 # --query="env:production AND team:platform"
 ```
@@ -1313,8 +1323,23 @@ pup logs archives list
 ```
 
 ### "Create a pipeline to parse Nginx logs"
-Log Management pipeline creation is not available as a typed Pup command. Use the Log Management UI or API; do not substitute Observability Pipelines commands.
-
+```bash
+# UNSUPPORTED: Log Management pipeline creation has no typed Pup command.
+# The following request fields are for the Log Management API/UI.
+# --name="Nginx Pipeline" \
+# --filter-query="source:nginx" \
+# --processors='[
+    {
+      "type": "grok-parser",
+      "name": "Parse Nginx format",
+      "is_enabled": true,
+      "source": "message",
+      "grok": {
+        "match_rules": "%{IPORHOST:client_ip} - - \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
+      }
+    }
+  ]'
+```
 
 ### "Create an index for production logs with 30-day retention"
 ```bash

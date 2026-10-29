@@ -3440,7 +3440,7 @@ enum LogActions {
         sort: String,
         #[arg(
             long,
-            help = "Storage tier: auto, indexes, online-archives, or flex. Long lookback queries may require flex or online-archives for full retention."
+            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto). Long lookback queries may require flex or online-archives for full retention."
         )]
         storage: Option<String>,
         #[arg(
@@ -3475,7 +3475,7 @@ enum LogActions {
         sort: String,
         #[arg(
             long,
-            help = "Storage tier: auto, indexes, online-archives, or flex. Long lookback queries may require flex or online-archives for full retention."
+            help = "Storage tier: auto, indexes, online-archives, or flex (default: auto). Long lookback queries may require flex or online-archives for full retention."
         )]
         storage: Option<String>,
         #[arg(
@@ -15772,7 +15772,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort,
                             storage,
                             index,
-                            auto_storage: false,
+                            auto_storage: true,
                         },
                     )
                     .await?;
@@ -15799,7 +15799,7 @@ async fn main_inner() -> anyhow::Result<()> {
                             sort,
                             storage,
                             index,
-                            auto_storage: false,
+                            auto_storage: true,
                         },
                     )
                     .await?;

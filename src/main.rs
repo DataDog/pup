@@ -17829,16 +17829,11 @@ async fn main_inner() -> anyhow::Result<()> {
                     commands::app_keys::update(&cfg, &key_id, &name, &scopes).await?
                 }
                 AppKeyActions::Delete { key_id } => {
-                    if !cfg.auto_approve {
-                        eprint!(
-                            "Permanently delete application key {key_id}? Type 'yes' to confirm: "
-                        );
-                        let mut input = String::new();
-                        std::io::stdin().read_line(&mut input)?;
-                        if input.trim() != "yes" {
-                            println!("Operation cancelled.");
-                            return Ok(());
-                        }
+                    if !util_ext::confirm_destructive(
+                        &cfg,
+                        &format!("Permanently delete application key {key_id}?"),
+                    )? {
+                        return Ok(());
                     }
                     commands::app_keys::delete(&cfg, &key_id).await?
                 }
@@ -18052,16 +18047,11 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::rum::playlists_update(&cfg, playlist_id, &file).await?;
                     }
                     RumPlaylistActions::Delete { playlist_id } => {
-                        if !cfg.auto_approve {
-                            eprint!(
-                                "Permanently delete RUM playlist {playlist_id}? Type 'yes' to confirm: "
-                            );
-                            let mut input = String::new();
-                            std::io::stdin().read_line(&mut input)?;
-                            if input.trim() != "yes" {
-                                println!("Operation cancelled.");
-                                return Ok(());
-                            }
+                        if !util_ext::confirm_destructive(
+                            &cfg,
+                            &format!("Permanently delete RUM playlist {playlist_id}?"),
+                        )? {
+                            return Ok(());
                         }
                         commands::rum::playlists_delete(&cfg, playlist_id).await?;
                     }

@@ -3,7 +3,7 @@
 //! generated command modules (only `util::read_json_file` is) -- kept here as pup-
 //! owned code the generator never touches.
 
-use std::io::Read;
+use std::io::{BufRead, Read, Write};
 
 use anyhow::{bail, Result};
 use chrono::{NaiveDate, Utc};
@@ -12,6 +12,26 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::formatter;
+
+/// Confirm a destructive action, unless --yes or agent auto-approval is active.
+pub fn confirm_destructive(cfg: &crate::config::Config, prompt: &str) -> Result<bool> {
+    if cfg.auto_approve {
+        return Ok(true);
+    }
+    let confirmed = confirm_from(std::io::stdin().lock(), prompt)?;
+    if !confirmed {
+        println!("Operation cancelled.");
+    }
+    Ok(confirmed)
+}
+
+fn confirm_from(mut reader: impl BufRead, prompt: &str) -> Result<bool> {
+    eprint!("{prompt} Type 'yes' to confirm: ");
+    std::io::stderr().flush()?;
+    let mut input = String::new();
+    reader.read_line(&mut input)?;
+    Ok(input.trim() == "yes")
+}
 
 fn parse_relative_duration_millis(input: &str) -> Result<i64> {
     let stripped = input.trim_start_matches('-').trim();
@@ -615,6 +635,51 @@ pub fn percent_encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confirm_yes_no_and_eof() {
+        for (input, expected) in [
+            ("yes\n", true),
+            (" yes \n", true),
+            ("no\n", false),
+            ("YES\n", false),
+            ("", false),
+        ] {
+            assert_eq!(
+                confirm_from(std::io::Cursor::new(input), "Delete resource?").unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn confirm_read_error() {
+        struct Broken;
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("read failed"))
+            }
+        }
+        impl BufRead for Broken {
+            fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+                Err(std::io::Error::other("read failed"))
+            }
+            fn consume(&mut self, _: usize) {}
+        }
+        assert!(confirm_from(Broken, "Delete resource?")
+            .unwrap_err()
+            .to_string()
+            .contains("read failed"));
+    }
+
+    #[tokio::test]
+    async fn confirm_auto_approve_never_reads_stdin() {
+        let _lock = crate::test_support::lock_env().await;
+        let mut cfg = crate::test_support::test_config("http://localhost");
+        cfg.auto_approve = true;
+        assert!(confirm_destructive(&cfg, "Delete resource?").unwrap());
+        crate::test_support::cleanup_env();
+    }
 
     #[test]
     fn test_now() {

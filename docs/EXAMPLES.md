@@ -276,6 +276,12 @@ pup dbm samples search \
 > (`/api/unstable/profiling/pup/...`) endpoints. These are supported for the latest pup
 > release, with older pup versions kept working for 30 days after a newer release. Upgrade
 > pup regularly if you depend on these commands.
+>
+> **Design partners only:** `profiles list` and `profiles download` are enabled only for
+> design-partner organizations (Datadog-side enrollment). Other orgs get HTTP 403 "The pup
+> API is not enabled for this organization." — an enrollment gate, not a permissions
+> problem; ask Datadog support or your account team for access. All other profiling
+> commands work for every org.
 
 ### Search Profile Events
 ```bash

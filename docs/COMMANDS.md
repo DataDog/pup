@@ -63,7 +63,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | costs | datadog (projected, attribution, by-org, aws-config, azure-config, gcp-config), ccm (custom-costs, tag-descriptions, tag-metadata, tags, tag-keys, budgets, commitments) | src/commands/cost.rs, src/commands/cost_ccm.rs | ✅ |
 | product-analytics | events send | src/commands/product_analytics.rs | ✅ |
 | experiments | list, get, create, update, delete, start, conclude, cancel, diagnostics, traffic-summary, results, refresh-results, analysis-plan (get, update), metric-groups (list, create, create-from-collection, update, delete), metrics (list, get, create, update, delete), metric-collections (list, get, create, update, delete), subject-types (list, get, create, update, delete, set-default), protocols (list, get) | src/commands/experiments.rs | ✅ |
-| profiling | profiles (list, download), services (list), profile-types (list), explore (flamegraph, callgraph, timeline) | src/commands/profiling.rs | ✅ |
+| profiling | profiles (list, download — design-partner orgs only), services (list), profile-types (list), explore (flamegraph, callgraph, timeline) | src/commands/profiling.rs | ✅ |
 | datasets | list, get, create, update, delete | src/commands/datasets.rs | ✅ |
 | data-deletion | requests (list, create, cancel) | src/commands/data_deletion.rs | ✅ |
 | data-governance | scanner-rules (list) | src/commands/data_governance.rs | ✅ |
@@ -231,6 +231,7 @@ pup infrastructure hosts list
 - **tags** - Host tag management (list, get, add, update, delete)
 - **profiling** - Continuous Profiler search/download (profiles list/download, services list, profile-types list, explore flamegraph/callgraph/timeline)
   - Uses unstable `/api/unstable/profiling/pup/...` endpoints with a reduced support guarantee: the latest pup release, plus 30 days for older versions (see [EXAMPLES.md](EXAMPLES.md#continuous-profiler))
+  - `profiles list` and `profiles download` are enabled only for design-partner organizations (Datadog-side enrollment); other orgs get HTTP 403 "not enabled for this organization" (exit code 403). The remaining profiling commands work for every org.
 
 ### Security & Compliance
 - **security** - Security monitoring (rules, signals, findings, content-packs, risk-scores)

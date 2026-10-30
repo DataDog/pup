@@ -1,4 +1,5 @@
-//! Datadog `X-RateLimit-*` response header capture and readable 429 reporting.
+//! Datadog `X-RateLimit-*` response header capture and readable 429 reporting,
+//! plus readable 403 reporting for endpoints gated per organization.
 //!
 //! Typed SDK commands discard response headers; middleware in `client.rs` captures
 //! rate-limit metadata so 429 errors can name the throttling rule.
@@ -21,6 +22,13 @@ thread_local! {
 /// On Unix the value is truncated to eight bits (`429 % 256 == 173`); check stderr
 /// for the HTTP status and rate-limit rule when scripting.
 pub const EXIT_RATE_LIMITED: i32 = 429;
+
+/// Process exit code for HTTP 403 org-gating failures: the endpoint exists but
+/// the caller's organization is not enrolled for it (see [`is_org_gated`]).
+///
+/// On Unix the value is truncated to eight bits (`403 % 256 == 147`); check
+/// stderr for the HTTP status and hint when scripting.
+pub const EXIT_FORBIDDEN: i32 = 403;
 
 static LAST_CAPTURED: Mutex<Option<RateLimitInfo>> = Mutex::new(None);
 
@@ -164,7 +172,43 @@ pub fn is_rate_limited(err: &anyhow::Error) -> bool {
             || msg.contains("status code 429"))
 }
 
-/// Format a CLI error and choose an exit code (429 for rate limits, 1 otherwise).
+/// Serialized `errors[].code` member the prof-gateway org gate puts in 403
+/// bodies when the caller's organization is not enrolled for an org-gated
+/// endpoint (first seen on the pup profiling API, restricted to
+/// design-partner organizations). Matched as the compact member string —
+/// the exact form the gate pins in its own tests — so a bare
+/// "org_not_enrolled" token in unrelated body text is not treated as
+/// gating, and the human-readable `detail` text may change freely.
+const ORG_GATE_CODE_MEMBER: &str = r#""code":"org_not_enrolled""#;
+
+/// Hint appended to org-gate 403 failures so callers understand the failure is
+/// an enrollment gate, not an auth or permissions problem.
+const ORG_GATE_HINT: &str = "Hint: this API is enabled only for design-partner organizations (Datadog-side enrollment). Your authentication and permissions are fine; your organization is not enrolled. Contact Datadog support or your account team to request access.";
+
+/// Returns true when `err` represents an HTTP 403 org-gating failure: the
+/// endpoint exists, but the caller's organization is not enrolled for it.
+/// Detected by substring-matching the serialized `errors[].code` member
+/// ([`ORG_GATE_CODE_MEMBER`]) — the machine-readable contract the gate pins
+/// in its own tests — not the 403 detail text.
+pub fn is_org_gated(err: &anyhow::Error) -> bool {
+    if let Some(http_err) = err.downcast_ref::<crate::raw_client::HttpError>() {
+        return http_err.status == 403
+            && http_err
+                .body
+                .to_ascii_lowercase()
+                .contains(ORG_GATE_CODE_MEMBER);
+    }
+
+    // Fallback for errors that lost their typed form (same reason as the
+    // string path in `is_rate_limited`): match the status and code member
+    // on the full error chain. "http 403" is the shape HttpError's Display
+    // emits ("failed (HTTP 403)"); a bare "403" could appear in an ID.
+    let msg = format!("{err:#}").to_ascii_lowercase();
+    msg.contains("http 403") && msg.contains(ORG_GATE_CODE_MEMBER)
+}
+
+/// Format a CLI error and choose an exit code (429 for rate limits, 403 for
+/// org gating, 1 otherwise).
 pub fn cli_error(err: &anyhow::Error) -> (String, i32) {
     let mut msg = format!("{err:#}");
 
@@ -179,6 +223,12 @@ pub fn cli_error(err: &anyhow::Error) -> (String, i32) {
             msg.push_str("\nHint: rate limited — wait and retry");
             return (msg, EXIT_RATE_LIMITED);
         }
+    }
+
+    if is_org_gated(err) {
+        msg.push('\n');
+        msg.push_str(ORG_GATE_HINT);
+        return (msg, EXIT_FORBIDDEN);
     }
 
     if is_rate_limited(err) {
@@ -304,6 +354,126 @@ mod tests {
         let (msg, code) = cli_error(&err);
         assert_eq!(code, 1);
         assert!(msg.contains("404"));
+    }
+
+    fn org_gate_http_error() -> anyhow::Error {
+        anyhow::Error::from(crate::raw_client::HttpError {
+            status: 403,
+            method: "POST".into(),
+            url: "https://api.datadoghq.com/api/unstable/profiling/pup/profiles/list".into(),
+            body: r#"{"errors":[{"code":"org_not_enrolled","title":"Forbidden","detail":"The pup API is not enabled for this organization.","status":"403"}]}"#.into(),
+            rate_limit: None,
+        })
+    }
+
+    #[test]
+    fn test_is_org_gated_http_error() {
+        assert!(is_org_gated(&org_gate_http_error()));
+    }
+
+    #[test]
+    fn test_is_org_gated_context_wrapped_http_error() {
+        // Commands wrap HTTP failures with `.context(...)`, which must not
+        // hide the typed HttpError from detection.
+        let err = org_gate_http_error().context("failed to list profile events");
+        assert!(is_org_gated(&err));
+    }
+
+    #[test]
+    fn test_is_org_gated_string_fallback() {
+        let body = r#"{"errors":[{"code":"org_not_enrolled","title":"Forbidden","detail":"The pup API is not enabled for this organization.","status":"403"}]}"#;
+        let err = anyhow::anyhow!(
+            "failed to list profile events: POST https://api.datadoghq.com/api/unstable/profiling/pup/profiles/list failed (HTTP 403): {body}"
+        );
+        assert!(is_org_gated(&err));
+    }
+
+    #[test]
+    fn test_is_org_gated_false_for_other_403() {
+        let err = anyhow::Error::from(crate::raw_client::HttpError {
+            status: 403,
+            method: "GET".into(),
+            url: "https://api.datadoghq.com/api/v1/monitor".into(),
+            body: "Forbidden".into(),
+            rate_limit: None,
+        });
+        assert!(!is_org_gated(&err));
+    }
+
+    #[test]
+    fn test_is_org_gated_false_for_other_status_with_code() {
+        // A 500 whose body carries the code is not an org gate.
+        let err = anyhow::Error::from(crate::raw_client::HttpError {
+            status: 500,
+            method: "POST".into(),
+            url: "https://api.datadoghq.com/api/unstable/profiling/pup/profiles/list".into(),
+            body: r#"{"errors":[{"code":"org_not_enrolled"}]}"#.into(),
+            rate_limit: None,
+        });
+        assert!(!is_org_gated(&err));
+    }
+
+    #[test]
+    fn test_is_org_gated_false_for_prose_without_code() {
+        // Only the serialized `errors[].code` member is the contract: the
+        // gate's detail text without the code member is not treated as
+        // gating.
+        let err = anyhow::Error::from(crate::raw_client::HttpError {
+            status: 403,
+            method: "POST".into(),
+            url: "https://api.datadoghq.com/api/unstable/profiling/pup/profiles/list".into(),
+            body: r#"{"errors":["The pup API is not enabled for this organization."]}"#.into(),
+            rate_limit: None,
+        });
+        assert!(!is_org_gated(&err));
+    }
+
+    #[test]
+    fn test_is_org_gated_false_for_bare_token_without_member() {
+        // A bare "org_not_enrolled" token inside body text (not the
+        // serialized member) is not treated as gating.
+        let err = anyhow::Error::from(crate::raw_client::HttpError {
+            status: 403,
+            method: "GET".into(),
+            url: "https://api.datadoghq.com/api/v1/monitor".into(),
+            body: r#"{"errors":["org_not_enrolled: contact support"]}"#.into(),
+            rate_limit: None,
+        });
+        assert!(!is_org_gated(&err));
+    }
+
+    #[test]
+    fn test_is_org_gated_string_fallback_requires_http_403_shape() {
+        // A "403" inside an ID must not satisfy the status half of the
+        // fallback; only HttpError's Display shape ("failed (HTTP 403)")
+        // counts. This is a 500 whose URL happens to contain 403.
+        let body = r#"{"errors":[{"code":"org_not_enrolled"}]}"#;
+        let err = anyhow::anyhow!(
+            "failed to list profile events: POST https://api.datadoghq.com/api/profile-403abc failed (HTTP 500): {body}"
+        );
+        assert!(!is_org_gated(&err));
+    }
+
+    #[test]
+    fn test_cli_error_org_gated_exits_forbidden_with_hint() {
+        let (msg, code) = cli_error(&org_gate_http_error());
+        assert_eq!(code, EXIT_FORBIDDEN);
+        assert!(msg.contains("design-partner"));
+        assert!(msg.contains("org_not_enrolled"));
+    }
+
+    #[test]
+    fn test_cli_error_other_403_exits_one() {
+        let err = anyhow::Error::from(crate::raw_client::HttpError {
+            status: 403,
+            method: "GET".into(),
+            url: "https://api.datadoghq.com/api/v1/monitor".into(),
+            body: "Forbidden".into(),
+            rate_limit: None,
+        });
+        let (msg, code) = cli_error(&err);
+        assert_eq!(code, 1);
+        assert!(!msg.contains("design-partner"));
     }
 
     #[test]

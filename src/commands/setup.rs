@@ -15,7 +15,7 @@ const AI_SETUP_DEFAULT_VERSION: &str = "latest";
 const AI_SETUP_PACKAGE_ENV: &str = "PUP_SETUP_AI_SETUP_PACKAGE";
 const MIN_NODE_MAJOR: u32 = 22;
 const NODE_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
-pub const LOGIN_EXTRA_SCOPES: &str = "api_keys_read";
+pub const LOGIN_EXTRA_SCOPES: &str = "api_keys_read,product_analytics_apps_write";
 const TELEMETRY_TIMEOUT: Duration = Duration::from_secs(2);
 const TELEMETRY_EVENT: &str = "setup_prerequisite_missing";
 const TELEMETRY_SERVICE: &str = "setup-cli";
@@ -854,7 +854,12 @@ mod tests {
         let _lock = lock_env().await;
         let cases = [
             (None, false),
-            (Some("apm_read api_keys_read dashboards_read"), false),
+            (
+                Some("apm_read api_keys_read product_analytics_apps_write dashboards_read"),
+                false,
+            ),
+            (Some("apm_read api_keys_read dashboards_read"), true),
+            (Some("apm_read product_analytics_apps_write"), true),
             (Some("apm_read dashboards_read"), true),
             (Some(""), true),
         ];

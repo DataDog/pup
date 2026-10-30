@@ -162,42 +162,42 @@ pup events search \
   --from="1h"
 ```
 
-#### Filter by Alert Type
+#### Search by Alert Type
 ```bash
 # Error events only
-pup events list \
-  --from="24h" \
-  --filter=alert_type:"error"
+pup events search \
+  --query="alert_type:error" \
+  --from="24h"
 ```
 
 Info events only:
 ```bash
-pup events list \
-  --from="24h" \
-  --filter=alert_type:"info"
+pup events search \
+  --query="alert_type:info" \
+  --from="24h"
 ```
 
-#### Filter by Priority
+#### Search by Priority
 ```bash
-# High priority events (normal priority in Datadog)
-pup events list \
-  --from="24h" \
-  --filter=priority:"normal"
+# Normal priority events
+pup events search \
+  --query="priority:normal" \
+  --from="24h"
 ```
 
-#### Filter by Source
+#### Search by Source
 ```bash
 # Events from monitors
-pup events list \
-  --from="24h" \
-  --filter=source:"monitor"
+pup events search \
+  --query="source:monitor" \
+  --from="24h"
 ```
 
 Events from API:
 ```bash
-pup events list \
-  --from="24h" \
-  --filter=source:"api"
+pup events search \
+  --query="source:api" \
+  --from="24h"
 ```
 
 #### Pagination
@@ -341,10 +341,9 @@ pup events search \
 
 ### "Show monitor alerts"
 ```bash
-pup events list \
-  --from="24h" \
-  --filter=source:"monitor" \
-  --filter=alert_type:"error"
+pup events search \
+  --query="source:monitor AND alert_type:error" \
+  --from="24h"
 ```
 
 ### "Create incident event"

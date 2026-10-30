@@ -148,10 +148,9 @@ pup costs ccm tags list
 
 
 #### Upload Custom Cost File
+Upload the CSV data file directly; `--file` is the CSV itself, not a JSON request body.
 ```bash
-# Pup accepts these settings from a JSON file, not as individual flags.
-pup costs ccm custom-costs upload --file=upload-request.json
-# --provider="third-party-vendor"
+pup costs ccm custom-costs upload --file=custom-costs.csv
 ```
 
 CSV format:
@@ -341,9 +340,7 @@ pup costs ccm budgets upsert --file=upsert-request.json
 
 ### "Upload SaaS tool costs"
 ```bash
-# Pup accepts these settings from a JSON file, not as individual flags.
-pup costs ccm custom-costs upload --file=upload-request.json
-# --provider="software-licenses"
+pup costs ccm custom-costs upload --file=saas-costs.csv
 ```
 
 

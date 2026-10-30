@@ -126,7 +126,7 @@ Threshold: {{threshold}}
 
 ## Delete Monitors Safely
 
-Monitor deletion is supported, but destructive. Delete only when the user explicitly requests it and confirms the target monitor. Pup prompts for confirmation by default; do not use `--yes` unless the user explicitly authorizes automated deletion. Do not rename a monitor as a substitute for the requested deletion.
+Monitor deletion is destructive and the CLI deletes immediately without prompting. Only run `pup monitors delete <monitor-id>` after the user explicitly requests deletion and confirms the exact monitor. Do not rename a monitor as a substitute for deletion.
 
 ```bash
 pup monitors delete 12345

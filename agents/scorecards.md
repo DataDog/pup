@@ -175,7 +175,7 @@ pup scorecards rules create --file=create-request.json
 ### "Update outcome for a service passing our security check"
 ```bash
 # Create outcomes file
-cat > outcome.json << EOF
+cat > outcome.json <<'JSON'
 [
   {
     "rule_id": "security-scan-rule-id",
@@ -184,10 +184,9 @@ cat > outcome.json << EOF
     "remarks": "Security scan completed successfully with no vulnerabilities"
   }
 ]
-EOF
+JSON
 
-# Pup accepts these settings from a JSON file, not as individual flags.
-pup scorecards outcomes batch-create --file=outcomes.json
+pup scorecards outcomes batch-create --file=outcome.json
 ```
 
 ### "Disable a rule temporarily"

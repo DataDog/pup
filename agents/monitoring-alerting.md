@@ -88,7 +88,7 @@ pup monitors search --query="production"
 
 ### Delete a Monitor
 
-Monitor deletion is destructive. Delete only after the user explicitly requests it and confirms the target monitor. Pup prompts for confirmation by default; do not use `--yes` unless the user explicitly authorizes automated deletion. Do not mark or rename a monitor as a substitute for deletion.
+Monitor deletion is destructive and the CLI deletes immediately without prompting. Only run `pup monitors delete <monitor-id>` after the user explicitly requests deletion and confirms the exact monitor. Do not mark or rename a monitor as a substitute for deletion.
 
 ```bash
 pup monitors delete 12345
@@ -125,6 +125,7 @@ pup monitors get 12345
 ```
 
 ### "Delete monitor 12345"
+Confirm the user requested deletion and verify the exact monitor ID before running the command; the CLI does not prompt.
 ```bash
 pup monitors delete 12345
 ```

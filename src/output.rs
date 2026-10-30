@@ -3289,6 +3289,8 @@ mod tests {
     #[test]
     fn test_output_helper() {
         let cfg = crate::config::Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,

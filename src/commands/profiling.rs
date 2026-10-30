@@ -5,7 +5,7 @@
 //! datadog-api-client-rust SDK, so raw HTTP is used throughout, following
 //! the pattern established in `llm_obs.rs` for non-SDK endpoints.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::json;
 
 use crate::config::Config;
@@ -99,7 +99,7 @@ pub async fn profiles_list(
         extra_headers,
     )
     .await
-    .map_err(|e| anyhow::anyhow!("failed to list profile events: {e:?}"))?;
+    .context("failed to list profile events")?;
     formatter::format_and_print(&resp, &cfg.output_format, cfg.jq.as_deref())
 }
 
@@ -118,7 +118,7 @@ pub async fn profiles_download(
     let path = format!("{BASE}/profiles/{profile_id}/download");
     let resp = raw_client::raw_request(cfg, "GET", &path, &query, None, None, "*/*", extra_headers)
         .await
-        .map_err(|e| anyhow::anyhow!("failed to download profile: {e:?}"))?;
+        .context("failed to download profile")?;
     std::fs::write(&output_file, &resp.bytes)
         .map_err(|e| anyhow::anyhow!("failed to write to '{output_file}': {e}"))?;
     eprintln!(
@@ -146,7 +146,7 @@ pub async fn services_list(
     let resp =
         raw_client::raw_post_with_headers(cfg, &format!("{BASE}/services"), body, extra_headers)
             .await
-            .map_err(|e| anyhow::anyhow!("failed to list profiled services: {e:?}"))?;
+            .context("failed to list profiled services")?;
     formatter::output(cfg, &resp)
 }
 
@@ -175,7 +175,7 @@ pub async fn profile_types_list(
         extra_headers,
     )
     .await
-    .map_err(|e| anyhow::anyhow!("failed to list profile types: {e:?}"))?;
+    .context("failed to list profile types")?;
     formatter::output(cfg, &resp)
 }
 
@@ -246,7 +246,7 @@ pub async fn explore_flamegraph(
         extra_headers,
     )
     .await
-    .map_err(|e| anyhow::anyhow!("failed to explore flame graph: {e:?}"))?;
+    .context("failed to explore flame graph")?;
     formatter::output(cfg, &resp)
 }
 
@@ -303,7 +303,7 @@ pub async fn explore_callgraph(
         extra_headers,
     )
     .await
-    .map_err(|e| anyhow::anyhow!("failed to explore call graph: {e:?}"))?;
+    .context("failed to explore call graph")?;
     formatter::output(cfg, &resp)
 }
 
@@ -392,7 +392,7 @@ pub async fn explore_timeline(
         extra_headers,
     )
     .await
-    .map_err(|e| anyhow::anyhow!("failed to explore timeline: {e:?}"))?;
+    .context("failed to explore timeline")?;
     formatter::output(cfg, &resp)
 }
 
@@ -578,7 +578,7 @@ mod tests {
             .mock("POST", mockito::Matcher::Any)
             .with_status(403)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"errors":["The pup API is not enabled for this organization."]}"#)
+            .with_body(r#"{"errors":[{"code":"org_not_enrolled","title":"Forbidden","detail":"The pup API is not enabled for this organization.","status":"403"}]}"#)
             .create_async()
             .await;
 
@@ -593,11 +593,17 @@ mod tests {
             &[],
         )
         .await;
-        assert!(
-            result.is_err(),
-            "expected error but got ok: {:?}",
-            result.ok()
-        );
+        let err = result.expect_err("expected error but got ok");
+        // The error chain must keep the context message and the 403 body so
+        // users and scripts can tell an org-gate 403 apart from other errors.
+        let msg = format!("{err:#}");
+        assert!(msg.contains("failed to list profile events"));
+        assert!(msg.contains("HTTP 403"));
+        assert!(msg.contains("org_not_enrolled"));
+        // The org-gate 403 must map to the design-partner hint and exit code.
+        let (cli_msg, code) = crate::rate_limit::cli_error(&err);
+        assert_eq!(code, crate::rate_limit::EXIT_FORBIDDEN);
+        assert!(cli_msg.contains("design-partner"));
 
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");

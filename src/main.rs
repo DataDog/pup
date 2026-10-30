@@ -2458,6 +2458,13 @@ enum Commands {
     /// official datadog-api-client-rust SDK and may have a shorter backwards
     /// compatibility window than the rest of pup.
     ///
+    /// AVAILABILITY:
+    ///   'profiles list' and 'profiles download' are enabled only for
+    ///   design-partner organizations (Datadog-side enrollment). Other orgs
+    ///   get HTTP 403 "The pup API is not enabled for this organization." —
+    ///   an enrollment gate, not a permissions problem. All other profiling
+    ///   commands are available to every organization.
+    ///
     /// CAPABILITIES:
     ///   • Search and download profile events
     ///   • List services and profile types with profiling data
@@ -4790,7 +4797,8 @@ enum DdsqlSchemaActions {
 // ---- Profiling ----
 #[derive(Subcommand)]
 enum ProfilingActions {
-    /// Search and download profile events
+    /// Search and download profile events (design-partner orgs only; other
+    /// orgs get HTTP 403)
     Profiles {
         #[command(subcommand)]
         action: ProfilingProfilesActions,
@@ -4874,7 +4882,7 @@ enum ProfilingProfileTypesActions {
 
 #[derive(Subcommand)]
 enum ProfilingProfilesActions {
-    /// Search/list profile events
+    /// Search/list profile events (design-partner orgs only)
     List {
         #[arg(
             long,
@@ -4905,7 +4913,7 @@ enum ProfilingProfilesActions {
         #[arg(long, default_value = "start", help = "Field to sort by, e.g. 'start'")]
         sort_field: String,
     },
-    /// Download a raw profile file (or a zip of all files for a profile)
+    /// Download a raw profile file or a zip of all files (design-partner orgs only)
     Download {
         #[arg(
             long,

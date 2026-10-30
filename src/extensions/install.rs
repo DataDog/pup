@@ -752,7 +752,10 @@ fn extension_names_from_zip(bytes: &[u8]) -> Result<Vec<String>> {
         if !file.is_file() {
             continue;
         }
-        if let Some(name) = extension_name_from_archive_path(Path::new(file.name())) {
+        let file_name = file
+            .name()
+            .with_context(|| format!("reading name for zip archive entry {i}"))?;
+        if let Some(name) = extension_name_from_archive_path(Path::new(file_name.as_ref())) {
             names.push(name);
         }
     }
@@ -918,7 +921,10 @@ fn extract_extension_from_zip(
         if !file.is_file() {
             continue;
         }
-        if extension_archive_member_matches(Path::new(file.name()), name) {
+        let file_name = file
+            .name()
+            .with_context(|| format!("reading name for zip archive entry {i}"))?;
+        if extension_archive_member_matches(Path::new(file_name.as_ref()), name) {
             ensure_archive_member_size(file.size(), name, max_member_bytes)?;
             return read_limited_archive_member(
                 &mut file,

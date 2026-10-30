@@ -69,6 +69,11 @@ fn run(url: &str, args: &[&str], stdin: &str, agent: bool) -> Output {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // Winsock needs SystemRoot to locate its providers even with isolated credentials.
+    #[cfg(windows)]
+    if let Some(system_root) = std::env::var_os("SystemRoot") {
+        command.env("SystemRoot", system_root);
+    }
     // Keep coverage instrumentation when cargo llvm-cov runs the binary tests.
     if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
         command.env("LLVM_PROFILE_FILE", profile);

@@ -48,8 +48,7 @@ git symbolic-ref refs/remotes/origin/HEAD
 **Pipeline failures (job level):**
 ```bash
 pup cicd events search \
-  --query "@ci.status:error @git.branch:<branch> @git.repository.id_v2:\"<repo>\"" \
-  --level job \
+  --query "ci_level:job @ci.status:error @git.branch:<branch> @git.repository.id_v2:\"<repo>\"" \
   --from 24h \
   --limit 50
 ```

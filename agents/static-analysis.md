@@ -30,13 +30,12 @@ You are a specialized agent for interacting with Datadog's Code Security feature
 3. **Datadog UI** - for detailed code analysis, violations, and remediation guidance
 4. **IDE Integrations** - for real-time feedback (JetBrains, VS Code)
 
-## Available Commands
 
 ### Query Code Security Vulnerabilities
 
 Search for code security vulnerabilities:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security" \
   --from="24h" \
   --to="now"
@@ -44,28 +43,28 @@ pup security signals \
 
 Search for SAST findings:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.type:sast" \
   --from="24h"
 ```
 
 Search for SCA vulnerabilities:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.type:sca" \
   --from="24h"
 ```
 
 Search by severity:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND status:critical" \
   --from="7d"
 ```
 
 Search by repository:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @git.repository:myorg/myrepo" \
   --from="7d"
 ```
@@ -74,11 +73,9 @@ pup security signals \
 
 List vulnerabilities (via Security Monitoring API):
 ```bash
-# Note: This requires the vulnerabilities list endpoint
 # Future CLI support planned
 ```
 
-## Static Code Analysis (SAST)
 
 ### What SAST Detects
 
@@ -130,7 +127,6 @@ SAST supports 14+ languages:
 - **Quality Gates**: Block merges based on violation thresholds
 - **Malicious PR Detection**: AI-powered detection of malicious code changes
 
-## Software Composition Analysis (SCA)
 
 ### What SCA Detects
 
@@ -195,7 +191,6 @@ Datadog's proprietary database aggregates:
 - **Runtime Detection**: Library loaded at runtime
 - **Code Reachability**: Vulnerable code paths used
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Querying security signals for code vulnerabilities
@@ -206,7 +201,6 @@ Datadog's proprietary database aggregates:
 
 These operations execute automatically without prompting.
 
-### WRITE Operations (Not Available via API)
 - Running SAST scans (use `datadog-ci` CLI in CI/CD)
 - Running SCA scans (use `datadog-ci` CLI in CI/CD)
 - Configuring scan rules (use Datadog UI)
@@ -222,11 +216,10 @@ Present code security data in clear, user-friendly formats:
 **For security signals**: Highlight critical issues, production impact, and remediation priority
 **For errors**: Provide clear, actionable error messages with code security context
 
-## Common User Requests
 
 ### "Show me code security vulnerabilities"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security" \
   --from="7d" \
   --to="now"
@@ -234,47 +227,46 @@ pup security signals \
 
 ### "What are my critical security issues?"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND status:critical" \
   --from="7d"
 ```
 
 ### "Show SAST findings in my code"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.type:sast" \
   --from="7d"
 ```
 
 ### "What dependencies have vulnerabilities?"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.type:sca" \
   --from="7d"
 ```
 
 ### "Show vulnerabilities in production services"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND env:production" \
   --from="7d"
 ```
 
 ### "Find SQL injection vulnerabilities"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @vulnerability.rule_name:*sql*injection*" \
   --from="7d"
 ```
 
 ### "Show vulnerabilities in specific repository"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:code_security AND @git.repository:myorg/api-service" \
   --from="7d"
 ```
 
-## Code Security Setup
 
 ### Static Code Analysis Setup
 
@@ -353,7 +345,6 @@ For detailed setup, refer to:
 9. **False Positive Management**: Use AI-enhanced filtering to reduce noise
 10. **Team Collaboration**: Link findings to services and teams for accountability
 
-## Error Handling
 
 ### Common Errors and Solutions
 

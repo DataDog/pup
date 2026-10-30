@@ -28,7 +28,6 @@ You are a specialized agent for interacting with Datadog's Database Monitoring (
 2. **Monitors API** - for creating DBM-specific monitors
 3. **Datadog UI** - for query samples, explain plans, and detailed DBM analysis
 
-## Available Commands
 
 ### Query Database Metrics
 
@@ -85,10 +84,9 @@ pup monitors search "database"
 
 View infrastructure hosts running databases:
 ```bash
-pup infrastructure hosts --filter="dbm:true"
+pup infrastructure hosts list --filter="dbm:true"
 ```
 
-## Common Database Metrics by Technology
 
 ### PostgreSQL Metrics
 - `postgresql.connections.count` - Active connections
@@ -122,7 +120,6 @@ pup infrastructure hosts --filter="dbm:true"
 - `oracle.logical_reads` - Memory reads
 - `oracle.parse_rate` - SQL parsing rate
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Querying database metrics
@@ -153,7 +150,6 @@ Present DBM data in clear, user-friendly formats:
 **For monitors**: Display monitor status, thresholds, and alert conditions
 **For errors**: Provide clear, actionable error messages with DBM context
 
-## Common User Requests
 
 ### "Show me my database metrics"
 ```bash
@@ -208,7 +204,7 @@ pup monitors search "database"
 
 ### "Show hosts with DBM enabled"
 ```bash
-pup infrastructure hosts --filter="dbm:true"
+pup infrastructure hosts list --filter="dbm:true"
 ```
 
 ## Database Monitoring Setup
@@ -246,7 +242,6 @@ While the CLI supports monitor creation through structured data, it's recommende
 - Alert on increased lock wait times
 - Monitor deadlock occurrences
 
-## Error Handling
 
 ### Common Errors and Solutions
 

@@ -2186,7 +2186,7 @@ enum Commands {
     /// CAPABILITIES:
     ///   • List all monitors with optional filtering by name or tags
     ///   • Get detailed information about a specific monitor
-    ///   • Delete monitors (requires confirmation unless --yes flag is used)
+    ///   • Delete monitors immediately (confirm the target before running the command)
     ///   • View monitor configuration, thresholds, and notification settings
     ///
     /// MONITOR TYPES:
@@ -2211,11 +2211,8 @@ enum Commands {
     ///   # Get detailed information about a specific monitor
     ///   pup monitors get 12345678
     ///
-    ///   # Delete a monitor with confirmation prompt
+    ///   # Delete a monitor (the CLI does not prompt)
     ///   pup monitors delete 12345678
-    ///
-    ///   # Delete a monitor without confirmation (automation)
-    ///   pup monitors delete 12345678 --yes
     ///
     /// OUTPUT FORMAT:
     ///   All commands output JSON by default. Use --output flag for other formats.

@@ -35,13 +35,12 @@ You are a specialized agent for interacting with Datadog's Application Security 
 3. **APM (Traces API)** - for attack trace correlation
 4. **Datadog UI** - for API discovery and detailed threat investigation
 
-## Available Commands
 
 ### Query Security Signals (Application-Level)
 
 Search for application security threats:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm" \
   --from="1h" \
   --to="now"
@@ -50,24 +49,24 @@ pup security signals \
 Search for specific attack types:
 ```bash
 # SQL injection attempts
-pup security signals \
+pup security signals list \
   --query="source:asm AND rule.name:*sql*injection*" \
   --from="24h"
 
 # XSS attacks
-pup security signals \
+pup security signals list \
   --query="source:asm AND rule.name:*xss*" \
   --from="24h"
 
 # SSRF attempts
-pup security signals \
+pup security signals list \
   --query="source:asm AND rule.name:*ssrf*" \
   --from="24h"
 ```
 
 Search by severity:
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND status:high" \
   --from="1h"
 ```
@@ -154,7 +153,6 @@ Body:
 }
 ```
 
-## Application Security Threat Types
 
 ### OWASP Top 10 Application Vulnerabilities
 
@@ -231,7 +229,6 @@ ASM also protects against API-specific threats:
 - **Prompt injection** (AI applications)
 - **Jailbreaking attempts** (AI Guard - preview)
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Querying security signals
@@ -266,11 +263,10 @@ Present ASM data in clear, user-friendly formats:
 **For threats**: Highlight attack patterns, frequency, and blocked vs. detected
 **For errors**: Provide clear, actionable error messages with ASM context
 
-## Common User Requests
 
 ### "Show me application security threats"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm" \
   --from="24h" \
   --to="now"
@@ -278,49 +274,49 @@ pup security signals \
 
 ### "Are there any SQL injection attempts?"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND rule.name:*sql*injection*" \
   --from="24h"
 ```
 
 ### "Show XSS attacks"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND @attack.technique:cross-site-scripting" \
   --from="24h"
 ```
 
 ### "Find high-severity application threats"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND status:high" \
   --from="1h"
 ```
 
 ### "Show blocked attacks"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND @appsec.blocked:true" \
   --from="24h"
 ```
 
 ### "Search for SSRF attempts"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND @attack.technique:ssrf" \
   --from="24h"
 ```
 
 ### "Find attacks targeting specific service"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND service:api-gateway" \
   --from="24h"
 ```
 
 ### "Show credential stuffing attempts"
 ```bash
-pup security signals \
+pup security signals list \
   --query="source:asm AND @attack.technique:credential-stuffing" \
   --from="24h"
 ```
@@ -380,7 +376,6 @@ For detailed setup, refer to:
 - [ASM Setup by Language](https://docs.datadoghq.com/security/application_security/threats/setup/)
 - [In-App Protection](https://docs.datadoghq.com/security/application_security/threats/protection/)
 
-## WAF Filter & Rule Use Cases
 
 ### Exclusion Filter Examples
 
@@ -424,7 +419,6 @@ For detailed setup, refer to:
 - Action: Detect and alert
 - Purpose: Identify potential data scraping
 
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -734,7 +728,6 @@ When querying security signals, useful attributes include:
 - `@appsec.waf.rule_id` - Triggered WAF rule
 - `status` - Signal severity (critical, high, medium, low)
 
-## Language-Specific Considerations
 
 ### Java
 - Fully supported with dd-trace-java

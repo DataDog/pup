@@ -12,7 +12,7 @@ metadata:
 
 # Datadog Logs
 
-Search, process, and archive logs with cost awareness.
+Search, process, and archive logs with cost awareness. Use this skill for broader log-management, archive, pipeline, and cost workflows; use the `logs` agent for focused log search and result analysis.
 
 ## Prerequisites
 
@@ -171,7 +171,6 @@ pup logs metrics list
 
 **⚠️ Cardinality warning:** Group by bounded values only.
 
-## Sensitive Data
 
 ### Scrubbing Rules
 

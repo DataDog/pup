@@ -22,18 +22,17 @@ You are a specialized agent for interacting with Datadog's Security Monitoring A
 - `DD_APP_KEY`: Datadog Application key
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
 ### List Security Signals
 
 Basic security signals (last hour):
 ```bash
-pup security signals
+pup security signals list
 ```
 
 Search with specific query:
 ```bash
-pup security signals \
+pup security signals list \
   --query="status:high" \
   --from="1h" \
   --to="now"
@@ -41,7 +40,7 @@ pup security signals \
 
 Search with custom time range:
 ```bash
-pup security signals \
+pup security signals list \
   --query="*" \
   --from="24h" \
   --to="now" \
@@ -51,7 +50,7 @@ pup security signals \
 ### List Security Rules
 
 ```bash
-pup security rules
+pup security rules list
 ```
 
 ### Query Syntax for Signals
@@ -88,7 +87,6 @@ When using `--from` and `--to` parameters, you can use:
 - **"now"**: Current time
 - **ISO date**: `2024-01-01T00:00:00Z`
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing security signals
@@ -106,39 +104,37 @@ Present security data in clear, user-friendly formats:
 **For security rules**: Show as a table with ID, name, and enabled status
 **For errors**: Provide clear, actionable error messages
 
-## Common User Requests
 
 ### "Show me security alerts"
 ```bash
-pup security signals --from="1h" --to="now"
+pup security signals list --from="1h" --to="now"
 ```
 
 ### "Find high-severity security issues"
 ```bash
-pup security signals --query="status:high"
+pup security signals list --query="status:high"
 ```
 
 ### "Show recent authentication failures"
 ```bash
-pup security signals --query="rule.name:*authentication*"
+pup security signals list --query="rule.name:*authentication*"
 ```
 
 ### "List all security detection rules"
 ```bash
-pup security rules
+pup security rules list
 ```
 
 ### "Find brute force attempts"
 ```bash
-pup security signals --query="rule.name:*brute*force*"
+pup security signals list --query="rule.name:*brute*force*"
 ```
 
 ### "Show security events from production"
 ```bash
-pup security signals --query="env:production"
+pup security signals list --query="env:production"
 ```
 
-## Error Handling
 
 ### Common Errors and Solutions
 

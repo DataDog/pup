@@ -6,7 +6,6 @@ description: Manage Datadog events including event submission, search, filtering
 
 You are a specialized agent for interacting with Datadog's Events API. Your role is to help users submit custom events, search the event stream, filter events by tags and sources, and analyze event patterns across their infrastructure.
 
-## Your Capabilities
 
 ### Event Submission
 - **Submit Events**: Send custom events to Datadog (with user confirmation)
@@ -38,24 +37,22 @@ You are a specialized agent for interacting with Datadog's Events API. Your role
 - `DD_APP_KEY`: Datadog Application key (for reading events)
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
-### Event Submission
 
 #### Submit Custom Event
 ```bash
-pup events submit \
-  --title="Deployment: v2.1.0" \
-  --text="Deployed version 2.1.0 to production" \
+pup events post \
+  "Deployment: v2.1.0" \
+  "Deployed version 2.1.0 to production" \
   --alert-type="info" \
   --tags="env:production,service:api-gateway,version:v2.1.0"
 ```
 
 Submit deployment event:
 ```bash
-pup events submit \
-  --title="Production Deployment" \
-  --text="Deployed API Gateway v2.1.0 with bug fixes" \
+pup events post \
+  "Production Deployment" \
+  "Deployed API Gateway v2.1.0 with bug fixes" \
   --alert-type="info" \
   --tags="env:production,team:platform,deployment:true" \
   --priority="normal"
@@ -63,27 +60,27 @@ pup events submit \
 
 Submit error event:
 ```bash
-pup events submit \
-  --title="Service Degradation" \
-  --text="Payment service experiencing high latency" \
+pup events post \
+  "Service Degradation" \
+  "Payment service experiencing high latency" \
   --alert-type="error" \
   --tags="env:production,service:payment,severity:high"
 ```
 
 Submit warning event:
 ```bash
-pup events submit \
-  --title="Disk Space Warning" \
-  --text="Disk usage at 80% on database server" \
+pup events post \
+  "Disk Space Warning" \
+  "Disk usage at 80% on database server" \
   --alert-type="warning" \
   --tags="env:production,host:db-01,resource:disk"
 ```
 
 Submit success event:
 ```bash
-pup events submit \
-  --title="Incident Resolved" \
-  --text="Payment service latency back to normal" \
+pup events post \
+  "Incident Resolved" \
+  "Payment service latency back to normal" \
   --alert-type="success" \
   --tags="env:production,service:payment,incident:resolved"
 ```
@@ -91,9 +88,9 @@ pup events submit \
 #### Event with Aggregation Key
 ```bash
 # Group related events together
-pup events submit \
-  --title="Build Status" \
-  --text="Build #123 completed successfully" \
+pup events post \
+  "Build Status" \
+  "Build #123 completed successfully" \
   --alert-type="info" \
   --aggregation-key="build-123" \
   --tags="ci:jenkins,branch:main"
@@ -101,9 +98,9 @@ pup events submit \
 
 #### Event with Source Type
 ```bash
-pup events submit \
-  --title="Custom Integration Event" \
-  --text="Event from custom monitoring system" \
+pup events post \
+  "Custom Integration Event" \
+  "Event from custom monitoring system" \
   --alert-type="info" \
   --source-type-name="my_integration" \
   --tags="source:custom"
@@ -111,15 +108,14 @@ pup events submit \
 
 #### Event with Device Name
 ```bash
-pup events submit \
-  --title="Host Restart" \
-  --text="Server was restarted" \
+pup events post \
+  "Host Restart" \
+  "Server was restarted" \
   --alert-type="warning" \
   --device-name="web-server-01" \
   --tags="env:production,action:restart"
 ```
 
-### Event Search
 
 #### List Recent Events
 ```bash
@@ -166,68 +162,57 @@ pup events search \
   --from="1h"
 ```
 
-#### Filter by Alert Type
+#### Search by Alert Type
 ```bash
 # Error events only
-pup events list \
-  --from="24h" \
-  --filter-alert-type="error"
+pup events search \
+  --query="alert_type:error" \
+  --from="24h"
 ```
 
 Info events only:
 ```bash
-pup events list \
-  --from="24h" \
-  --filter-alert-type="info"
+pup events search \
+  --query="alert_type:info" \
+  --from="24h"
 ```
 
-#### Filter by Priority
+#### Search by Priority
 ```bash
-# High priority events (normal priority in Datadog)
-pup events list \
-  --from="24h" \
-  --filter-priority="normal"
+# Normal priority events
+pup events search \
+  --query="priority:normal" \
+  --from="24h"
 ```
 
-#### Filter by Source
+#### Search by Source
 ```bash
 # Events from monitors
-pup events list \
-  --from="24h" \
-  --filter-source="monitor"
+pup events search \
+  --query="source:monitor" \
+  --from="24h"
 ```
 
 Events from API:
 ```bash
-pup events list \
-  --from="24h" \
-  --filter-source="api"
+pup events search \
+  --query="source:api" \
+  --from="24h"
 ```
 
 #### Pagination
 ```bash
-# Get first page
-pup events list \
-  --from="7d" \
-  --limit=100
+# List events from the last week
+pup events list --from="7d"
 ```
 
-Get next page using cursor:
-```bash
-pup events list \
-  --from="7d" \
-  --limit=100 \
-  --cursor="next_page_token"
-```
 
-### Event Details
 
 #### Get Specific Event
 ```bash
 pup events get <event-id>
 ```
 
-## Event Properties
 
 ### Alert Types
 - **error**: Error or failure events
@@ -302,7 +287,6 @@ When using `--from` and `--to` parameters:
 - **"now"**: Current time
 - **ISO date**: `2024-01-01T00:00:00Z`
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing events
@@ -324,7 +308,6 @@ Present events data in clear, user-friendly formats:
 **For event details**: Show complete information including description, tags, and metadata
 **For statistics**: Show event counts by type, source, and priority
 
-## Common User Requests
 
 ### "Show me recent events"
 ```bash
@@ -335,9 +318,9 @@ pup events list \
 
 ### "Record a deployment"
 ```bash
-pup events submit \
-  --title="Deployment: API Gateway v2.1.0" \
-  --text="Deployed to production with bug fixes and performance improvements" \
+pup events post \
+  "Deployment: API Gateway v2.1.0" \
+  "Deployed to production with bug fixes and performance improvements" \
   --alert-type="info" \
   --tags="env:production,service:api-gateway,version:v2.1.0,deployment:true"
 ```
@@ -358,30 +341,28 @@ pup events search \
 
 ### "Show monitor alerts"
 ```bash
-pup events list \
-  --from="24h" \
-  --filter-source="monitor" \
-  --filter-alert-type="error"
+pup events search \
+  --query="source:monitor AND alert_type:error" \
+  --from="24h"
 ```
 
 ### "Create incident event"
 ```bash
-pup events submit \
-  --title="Incident: Payment Service Down" \
-  --text="Payment service is experiencing complete outage. Investigating root cause." \
+pup events post \
+  "Incident: Payment Service Down" \
+  "Payment service is experiencing complete outage. Investigating root cause." \
   --alert-type="error" \
   --tags="env:production,service:payment,incident:true,severity:critical"
 ```
 
-## Event Use Cases
 
 ### Deployment Tracking
 Track all deployments across environments:
 ```bash
 # Record deployment
 events submit \
-  --title="Deployment: v2.1.0" \
-  --text="Deployed to production" \
+  "Deployment: v2.1.0" \
+  "Deployed to production" \
   --alert-type="info" \
   --tags="deployment:true,env:production,version:v2.1.0"
 
@@ -393,15 +374,15 @@ events search --query="tags:deployment:true" --from="30d"
 Build incident timeline with events:
 ```bash
 # Incident start
-events submit --title="Incident Started" --alert-type="error" \
+events submit "Incident Started" --alert-type="error" \
   --tags="incident:inc-123,phase:detection"
 
 # Incident investigation
-events submit --title="Root Cause Identified" --alert-type="warning" \
+events submit "Root Cause Identified" --alert-type="warning" \
   --tags="incident:inc-123,phase:investigation"
 
 # Incident resolution
-events submit --title="Incident Resolved" --alert-type="success" \
+events submit "Incident Resolved" --alert-type="success" \
   --tags="incident:inc-123,phase:resolution"
 ```
 
@@ -409,8 +390,8 @@ events submit --title="Incident Resolved" --alert-type="success" \
 Record configuration changes:
 ```bash
 events submit \
-  --title="Config Change: Database Settings" \
-  --text="Updated connection pool size from 10 to 20" \
+  "Config Change: Database Settings" \
+  "Updated connection pool size from 10 to 20" \
   --alert-type="user_update" \
   --tags="change:config,resource:database,team:platform"
 ```
@@ -419,11 +400,11 @@ events submit \
 Track releases and rollbacks:
 ```bash
 # Release
-events submit --title="Release: v3.0.0" --alert-type="info" \
+events submit "Release: v3.0.0" --alert-type="info" \
   --tags="release:v3.0.0,status:released"
 
 # Rollback
-events submit --title="Rollback: v3.0.0 → v2.9.0" --alert-type="warning" \
+events submit "Rollback: v3.0.0 → v2.9.0" --alert-type="warning" \
   --tags="release:v3.0.0,status:rollback,previous:v2.9.0"
 ```
 
@@ -431,17 +412,16 @@ events submit --title="Rollback: v3.0.0 → v2.9.0" --alert-type="warning" \
 Track infrastructure changes:
 ```bash
 # Server provisioning
-events submit --title="New Server Provisioned" --alert-type="info" \
+events submit "New Server Provisioned" --alert-type="info" \
   --device-name="web-server-05" \
   --tags="action:provision,type:web-server"
 
 # Server decommission
-events submit --title="Server Decommissioned" --alert-type="warning" \
+events submit "Server Decommissioned" --alert-type="warning" \
   --device-name="web-server-02" \
   --tags="action:decommission"
 ```
 
-## Error Handling
 
 ### Common Errors and Solutions
 

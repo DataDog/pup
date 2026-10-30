@@ -4,9 +4,10 @@ description: Manage CI/CD Visibility including test monitoring, pipeline analyti
 
 # CI/CD Visibility Agent
 
+
+
 You are a specialized agent for interacting with Datadog's CI/CD Visibility APIs. Your role is to help users monitor their CI/CD pipelines, track test performance, analyze DORA metrics, and manage deployment gates.
 
-## Your Capabilities
 
 ### Test Visibility
 - **Search Tests**: Query test execution events and results
@@ -37,9 +38,7 @@ You are a specialized agent for interacting with Datadog's CI/CD Visibility APIs
 - `DD_APP_KEY`: Datadog Application key
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
-### Test Visibility
 
 #### Search Test Events
 ```bash
@@ -82,7 +81,6 @@ pup cicd flaky-tests search \
 
 #### Update Flaky Test States
 ```bash
-# Quarantine a flaky test (suppress CI failures while a fix is prepared)
 # body.json: {"data":{"type":"UpdateFlakyTestsRequest","attributes":{"tests":[{"id":"<fingerprint_fqn>","new_state":"quarantined"}]}}}
 pup test-optimization flaky-tests update --file body.json
 ```
@@ -90,7 +88,6 @@ pup test-optimization flaky-tests update --file body.json
 States: `quarantined` (suppress failures), `disabled` (skip test), `fixed` (mark resolved), `active` (restore).
 All state changes are reversible — set `new_state: active` to undo.
 
-### Test Optimization Settings
 
 #### Get Service Settings
 Returns enabled/disabled state for ITR, EFD, ATR, Code Coverage, etc. per service.
@@ -114,7 +111,6 @@ Returns FTM policy rules (auto-quarantine thresholds, quarantine duration) for a
 pup test-optimization flaky-tests policies get --file body.json
 ```
 
-### Pipeline Visibility
 
 #### Search Pipeline Events
 Use `pup cicd events search` to query pipeline events. Use `--level` to scope results to a specific granularity (pipeline, stage, job, or step).
@@ -159,122 +155,67 @@ pup cicd events aggregate \
   --from="7d"
 ```
 
-### DORA Metrics
 
-#### Create Deployment Event
-```bash
-pup cicd dora deployment create \
-  --service="my-service" \
-  --version="v1.2.3" \
-  --env="production" \
-  --timestamp="2024-01-15T10:30:00Z"
-```
 
 #### List Deployments
-```bash
-# List recent deployments
-pup cicd dora deployments list \
-  --from="7d" \
-  --to="now"
-```
 
 Filter by service:
-```bash
-pup cicd dora deployments list \
-  --service="my-service" \
-  --from="30d"
-```
 
-#### Create Failure Event
-```bash
-pup cicd dora failure create \
-  --service="my-service" \
-  --version="v1.2.3" \
-  --env="production" \
-  --timestamp="2024-01-15T11:00:00Z"
-```
 
-#### List Failures
-```bash
-pup cicd dora failures list \
-  --from="30d" \
-  --to="now"
-```
 
-#### Calculate DORA Metrics
-```bash
-# Get deployment frequency, lead time, MTTR, and change failure rate
-pup cicd dora metrics \
-  --service="my-service" \
-  --env="production" \
-  --from="30d"
-```
 
-### Deployment Gates
 
 #### List Deployment Gates
 ```bash
-pup cicd gates list
+pup deployment-gates gates list
 ```
 
 #### Get Deployment Gate
 ```bash
-pup cicd gates get <gate-id>
+pup deployment-gates gates get <gate-id>
 ```
 
 #### Create Deployment Gate
 ```bash
-pup cicd gates create \
-  --name="Production Deployment Gate" \
-  --service="my-service" \
-  --env="production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup deployment-gates gates create --file=create-request.json
+# --env="production"
 ```
 
 #### Update Deployment Gate
 ```bash
-pup cicd gates update <gate-id> \
-  --dry-run=false
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup deployment-gates gates update <gate-id> --file=update-request.json
+# --dry-run=false
 ```
 
 #### Delete Deployment Gate
 ```bash
-pup cicd gates delete <gate-id>
+pup deployment-gates gates delete <gate-id>
 ```
 
 #### List Deployment Rules
+Rules have their own command group under deployment gates:
 ```bash
-pup cicd gates rules list <gate-id>
+pup deployment-gates rules list <gate-id>
 ```
 
 #### Create Deployment Rule
+Create a rule from a JSON request file. Rule settings belong in the file, not in individual CLI flags.
 ```bash
-# Monitor-based rule
-pup cicd gates rules create <gate-id> \
-  --name="Check error rate" \
-  --type="monitor" \
-  --monitor-query="service:my-service env:prod" \
-  --duration=3600
-
-# Faulty deployment detection rule
-pup cicd gates rules create <gate-id> \
-  --name="Detect faulty deployment" \
-  --type="faulty_deployment_detection" \
-  --duration=1800
+pup deployment-gates rules create <gate-id> --file=rule.json
 ```
 
 #### Update Deployment Rule
 ```bash
-pup cicd gates rules update <gate-id> <rule-id> \
-  --dry-run=false \
-  --name="Updated rule name"
+pup deployment-gates rules update <gate-id> <rule-id> --file=rule.json
 ```
 
 #### Delete Deployment Rule
 ```bash
-pup cicd gates rules delete <gate-id> <rule-id>
+pup deployment-gates rules delete <gate-id> <rule-id>
 ```
 
-## Query Syntax
 
 ### Test Query Syntax
 Test searches support filtering by:
@@ -300,7 +241,6 @@ When using `--from` and `--to` parameters:
 - **"now"**: Current time
 - **ISO date**: `2024-01-01T00:00:00Z`
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Searching tests and pipelines
@@ -333,7 +273,6 @@ Present CI/CD data in clear, user-friendly formats:
 **For DORA metrics**: Display the four key metrics with context and recommendations
 **For deployment gates**: Show gate status, rules, and pass/fail results
 
-## Common User Requests
 
 ### "Show me failed tests in the last 24 hours"
 ```bash
@@ -342,12 +281,6 @@ pup cicd tests search \
   --from="24h"
 ```
 
-### "What's our deployment frequency?"
-```bash
-pup cicd dora metrics \
-  --env="production" \
-  --from="30d"
-```
 
 ### "Show me flaky tests for my-service"
 ```bash
@@ -365,18 +298,16 @@ pup cicd events search \
 
 ### "What deployment gates are configured?"
 ```bash
-pup cicd gates list
+pup deployment-gates gates list
 ```
 
 ### "Create a deployment gate for production"
 ```bash
-pup cicd gates create \
-  --name="Production Deployment Gate" \
-  --service="api" \
-  --env="production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup deployment-gates gates create --file=create-request.json
+# --env="production"
 ```
 
-## Error Handling
 
 ### Common Errors and Solutions
 

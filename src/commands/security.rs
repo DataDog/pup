@@ -12,9 +12,8 @@ use datadog_api_client::datadogV2::api_restriction_policies::{
     RestrictionPoliciesAPI, UpdateRestrictionPolicyOptionalParams,
 };
 use datadog_api_client::datadogV2::api_security_monitoring::{
-    GetIndicatorOfCompromiseOptionalParams, ListFindingsOptionalParams,
-    ListIndicatorsOfCompromiseOptionalParams, ListSecurityMonitoringRulesOptionalParams,
-    ListSecurityMonitoringSuppressionsOptionalParams,
+    GetIndicatorOfCompromiseOptionalParams, ListIndicatorsOfCompromiseOptionalParams,
+    ListSecurityMonitoringRulesOptionalParams, ListSecurityMonitoringSuppressionsOptionalParams,
     SearchSecurityMonitoringSignalsOptionalParams, SecurityMonitoringAPI,
 };
 use datadog_api_client::datadogV2::model::{
@@ -394,16 +393,15 @@ pub async fn signals_suggested_actions(cfg: &Config, signal_id: &str) -> Result<
 }
 
 pub async fn findings_search(cfg: &Config, query: Option<String>, limit: i64) -> Result<()> {
-    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
-    let mut params = ListFindingsOptionalParams::default().page_limit(limit);
-    if let Some(q) = query {
-        params = params.filter_tags(q);
+    let limit = limit.to_string();
+    let mut params = vec![("page[limit]", limit.as_str())];
+    if let Some(query) = query.as_deref() {
+        params.push(("filter[tags]", query));
     }
-    let resp = api
-        .list_findings(params)
+    let response = crate::raw_client::raw_get(cfg, "/api/v2/posture_management/findings", &params)
         .await
         .map_err(|e| anyhow::anyhow!("failed to search findings: {e:?}"))?;
-    formatter::output(cfg, &resp)
+    formatter::output(cfg, &response)
 }
 
 // ---- Mute Findings ----
@@ -984,6 +982,56 @@ mod tests {
         let input = "Line 1\n{% tab title=\"Foo\" %}\nLine 2\n{% /tab %}\nLine 3";
         let result = strip_template_directives(input);
         assert_eq!(result, "Line 1\nLine 2\nLine 3");
+    }
+
+    #[tokio::test]
+    async fn test_findings_search_accepts_muted_finding_extra_fields() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", "/api/v2/posture_management/findings")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("page[limit]".into(), "1".into()),
+                mockito::Matcher::UrlEncoded(
+                    "filter[tags]".into(),
+                    "@workflow.mute.is_muted:true".into(),
+                ),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"data":[{"attributes":{"mute":{"is_muted":true,"extra_field":"value"}}}]}"#,
+            )
+            .create_async()
+            .await;
+
+        let result =
+            super::findings_search(&cfg, Some("@workflow.mute.is_muted:true".into()), 1).await;
+
+        assert!(result.is_ok(), "muted finding failed: {result:?}");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_findings_search_api_error_has_context() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .with_status(500)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":["Internal Server Error"]}"#)
+            .create_async()
+            .await;
+
+        let error = super::findings_search(&cfg, None, 10)
+            .await
+            .expect_err("API error should fail");
+
+        assert!(error.to_string().contains("failed to search findings"));
+        cleanup_env();
     }
 
     #[tokio::test]

@@ -329,6 +329,14 @@ pub static SKILLS: &[SkillEntry] = &[
         files: &[],
     },
     SkillEntry {
+        name: "governance",
+        description: "Governance Console insights, controls, detections, mitigations, limits.",
+        entry_type: "agent",
+        content: include_str!("../agents/governance.md"),
+        platform: "",
+        files: &[],
+    },
+    SkillEntry {
         name: "incident-response",
         description: "Manage incident lifecycle, teams, and response.",
         entry_type: "agent",
@@ -1190,6 +1198,35 @@ pub fn find_project_root() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn governance_agent_has_templates_and_safe_write_protocol() {
+        let entry = SKILLS
+            .iter()
+            .find(|entry| entry.name == "governance")
+            .unwrap();
+        assert_eq!(entry.entry_type, "agent");
+        for fragment in [
+            include_str!("../agents/_templates/pup-context.md"),
+            include_str!("../agents/_templates/permission-model-mixed.md"),
+        ] {
+            assert!(entry.content.contains(fragment));
+        }
+        for rule in [
+            "--dry-run",
+            "explicit approval",
+            "previous",
+            "Outcome unknown",
+            "surfacing",
+            "Never change blocking rules",
+            "customer-controlled",
+            "--extra-scopes",
+            "user_access_manage",
+        ] {
+            assert!(entry.content.contains(rule), "missing {rule}");
+        }
+        assert!(!entry.content.contains("| MCP tool |"));
+    }
 
     #[test]
     fn test_all_entries_have_valid_names() {

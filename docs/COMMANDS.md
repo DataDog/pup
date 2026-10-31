@@ -87,7 +87,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | change-requests | create, get, update, create-branch, decisions (update, delete) | src/commands/change_management.rs | ✅ |
 | change-stories | list | src/commands/change_stories.rs | ✅ |
 | app-builder | list, get, create, update, delete, delete-batch, publish, unpublish | src/commands/app_builder.rs | ✅ |
-| governance | tag-rules (list, get, create, update, delete, score) | src/commands/tag_rules.rs | ✅ |
+| governance | insights (list), controls (list, get), detections (list, get, update, mitigate), limits (list), best-practices (list), tag-rules (list, get, create, update, delete, score) | src/commands/governance.rs, src/commands/tag_rules.rs | ✅ |
 
 **Note:** RUM command is fully operational. Apps and sessions work completely. Metrics and retention-filters support list/get operations (create/update/delete operations pending due to complex API type structures).
 
@@ -240,7 +240,7 @@ pup infrastructure hosts list
 - **static-analysis** - Code security (custom-rulesets, custom-rules)
 - **audit-logs** - Audit trail (list, search)
 - **data-governance** - Sensitive data scanning (scanner-rules list)
-- **governance** - Tag governance (tag-rules list/get/create/update/delete/score)
+- **governance** - Governance Console insights, controls, detections, mitigations, limits, best practices, and tag rules. Detection writes support `--dry-run` and `--yes`. OAuth users opt in with `pup auth login --extra-scopes governance_console_read`; mitigations also need their declared permissions. WASM builds support reads and dry runs, but detection writes require a native build because the WASM transport cannot disable automatic redirects.
 
 ### Cloud & Integrations
 - **cloud** - Cloud providers (aws, gcp, azure, oci)

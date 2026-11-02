@@ -379,7 +379,7 @@ mod tests {
             Auth::Reject { .. }
         ));
         assert!(matches!(
-            handler.authorize_public_key("unknown-test", &other_key),
+            handler.authorize_public_key("unknown-test", &handler.client_public_key),
             Auth::Reject { .. }
         ));
     }

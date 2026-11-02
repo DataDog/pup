@@ -7649,10 +7649,13 @@ enum UsageActions {
         #[arg(
             long,
             default_value = "1d",
-            help = "Start time (1d, 7d, YYYY-MM, YYYY-MM-DD, or RFC3339)"
+            help = "Start time (1d, 7d, YYYY-MM, YYYY-MM-DD, YYYY-MM-DDThh, or RFC3339)"
         )]
         from: String,
-        #[arg(long, help = "End time (now, YYYY-MM, YYYY-MM-DD, or RFC3339)")]
+        #[arg(
+            long,
+            help = "End time (now, YYYY-MM, YYYY-MM-DD, YYYY-MM-DDThh, or RFC3339)"
+        )]
         to: Option<String>,
     },
 }

@@ -219,6 +219,7 @@ All `--from` and `--to` flags accept:
 | Relative short | `1h`, `30m`, `7d`, `5s`, `1w` |
 | Relative long | `5min`, `2hours`, `3days` |
 | With spaces | `"5 minutes"`, `"2 hours"` |
+| Calendar month, date, hour (UTC) | `2024-01`, `2024-01-01`, `2024-01-01T12` |
 | RFC3339 | `2024-01-01T00:00:00Z` |
 | Unix ms | `1704067200000` |
 | Keyword | `now` |

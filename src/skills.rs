@@ -1305,6 +1305,209 @@ mod tests {
         }
     }
 
+    fn cli_command_path_error(invocation: &str, require_leaf: bool) -> Option<String> {
+        let command_text = invocation.split_once("pup ")?.1;
+        if command_text.trim_start().starts_with('<') {
+            return None;
+        }
+        let command_text = command_text.split('#').next().unwrap_or_default();
+        let mut tokens = command_text.split_whitespace().peekable();
+        let mut command = crate::cli_command();
+        let mut path = vec!["pup".to_string()];
+
+        while let Some(raw_token) = tokens.next() {
+            let token = raw_token.trim_matches(|character: char| {
+                !character.is_ascii_alphanumeric() && character != '-' && character != '_'
+            });
+            if token.is_empty() {
+                continue;
+            }
+            if token.starts_with('-') {
+                if matches!(token, "--output" | "-o" | "--org" | "--jq") {
+                    tokens.next();
+                }
+                continue;
+            }
+
+            let child = command
+                .get_subcommands()
+                .find(|subcommand| subcommand.get_name() == token);
+            let Some(child) = child else {
+                if path.len() == 1 {
+                    return Some(format!("unknown pup command `{token}`"));
+                }
+                return Some(format!(
+                    "unknown subcommand `{token}` below `{}`",
+                    path.join(" ")
+                ));
+            };
+            path.push(token.to_string());
+            command = child.clone();
+            if command.get_subcommands().next().is_none() {
+                break;
+            }
+        }
+
+        if require_leaf && path.len() > 1 && command.get_subcommands().next().is_some() {
+            return Some(format!("incomplete command path `{}`", path.join(" ")));
+        }
+
+        None
+    }
+
+    fn cli_invocation_args_error(invocation: &str) -> Option<String> {
+        let (prefix, command_text) = invocation.split_once("pup ")?;
+        let command_text = command_text
+            .split_once(" #")
+            .map_or(command_text, |(cmd, _)| cmd);
+        let in_subshell = prefix.trim_end().ends_with("$(");
+        let mut args = shell_words::split(command_text).ok()?;
+        if let Some(operator) = args
+            .iter()
+            .position(|arg| matches!(arg.as_str(), "|" | "||" | "&&" | ";" | ">" | ">>"))
+        {
+            args.truncate(operator);
+        }
+        while args.last().is_some_and(|arg| arg == "\\") {
+            args.pop();
+        }
+        if in_subshell {
+            if let Some(last) = args.last_mut() {
+                if last.ends_with(')') {
+                    last.pop();
+                }
+            }
+        }
+        for arg in &mut args {
+            if arg.starts_with('<') && arg.ends_with('>') && arg.len() > 2 {
+                *arg = "1".to_string();
+            }
+        }
+        let mut argv = vec!["pup".to_string()];
+        argv.extend(args);
+        crate::cli_command()
+            .try_get_matches_from(argv)
+            .err()
+            .map(|error| error.to_string())
+    }
+
+    fn documented_commands(content: &str) -> Vec<(String, bool)> {
+        let mut commands = Vec::new();
+        let mut in_code_block = false;
+        let lines: Vec<&str> = content.lines().collect();
+        let mut line_index = 0;
+        while line_index < lines.len() {
+            let line = lines[line_index];
+            if line.trim_start().starts_with("```") {
+                in_code_block = !in_code_block;
+                line_index += 1;
+                continue;
+            }
+
+            let mut segments = Vec::new();
+            if in_code_block {
+                if !line.trim_start().starts_with('#') {
+                    let mut segment = line.trim_end().trim_end_matches('\\').to_string();
+                    let mut continuation = line_index;
+                    let mut has_continuation = line.trim_end().ends_with('\\');
+                    while has_continuation && continuation + 1 < lines.len() {
+                        continuation += 1;
+                        let next_line = lines[continuation].trim();
+                        has_continuation = next_line.ends_with('\\');
+                        segment.push(' ');
+                        segment.push_str(next_line.trim_end_matches('\\'));
+                    }
+                    segments.push((segment, true));
+                    line_index = continuation;
+                }
+            } else {
+                let mut remaining = line;
+                while let Some((_, after_open)) = remaining.split_once('`') {
+                    let Some((segment, after_close)) = after_open.split_once('`') else {
+                        break;
+                    };
+                    segments.push((segment.to_string(), false));
+                    remaining = after_close;
+                }
+            }
+
+            for (segment, is_code_line) in segments {
+                if let Some((prefix, _)) = segment.split_once("pup ") {
+                    let prefix = prefix.trim_end();
+                    if prefix.is_empty() || prefix.ends_with('|') || prefix.ends_with("$(") {
+                        commands.push((segment, is_code_line));
+                    }
+                }
+            }
+            line_index += 1;
+        }
+        commands
+    }
+
+    #[test]
+    fn test_all_skill_source_commands_match_cli_tree() {
+        let mut errors = Vec::new();
+        for entry in SKILLS
+            .iter()
+            .filter(|entry| entry.entry_type != "extension")
+        {
+            let mut contents = vec![entry.content];
+            contents.extend(entry.files.iter().map(|(_, content)| *content));
+            for content in contents {
+                for (invocation, is_code_line) in documented_commands(content) {
+                    if let Some(error) = cli_command_path_error(&invocation, is_code_line) {
+                        errors.push(format!("{}: `{invocation}`: {error}", entry.name));
+                    }
+                    let args_validation_prefixes = [
+                        "pup obs-pipelines update",
+                        "pup logs-restriction update",
+                        "pup csm-threats agent-rules update",
+                        "pup csm-threats agent-policies update",
+                    ];
+                    if is_code_line
+                        && args_validation_prefixes
+                            .iter()
+                            .any(|prefix| invocation.trim_start().starts_with(prefix))
+                    {
+                        if let Some(error) = cli_invocation_args_error(&invocation) {
+                            errors.push(format!("{}: `{invocation}`: {error}", entry.name));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            errors.is_empty(),
+            "invalid documented pup commands:\n{}",
+            errors.join("\n")
+        );
+    }
+
+    #[test]
+    fn test_cli_command_path_validation_accepts_and_rejects_paths() {
+        assert!(cli_command_path_error("pup cloud aws list", true).is_none());
+        assert!(cli_command_path_error("pup workflows run workflow-id", true).is_none());
+        assert!(cli_command_path_error("pup not-a-command list", true).is_some());
+        assert!(cli_command_path_error("pup workflows list", true).is_some());
+        assert!(cli_command_path_error("pup infrastructure hosts", true).is_some());
+        assert!(cli_command_path_error("pup infrastructure hosts", false).is_none());
+    }
+
+    #[test]
+    fn test_cli_invocation_args_reject_missing_positionals_and_unknown_flags() {
+        assert!(
+            cli_invocation_args_error("pup obs-pipelines update --file=pipeline.json").is_some()
+        );
+        assert!(cli_invocation_args_error(
+            "pup obs-pipelines update pipeline-id --file=pipeline.json --unknown-flag"
+        )
+        .is_some());
+        assert!(cli_invocation_args_error(
+            "pup obs-pipelines update pipeline-id --file=pipeline.json"
+        )
+        .is_none());
+    }
+
     #[test]
     fn test_skills_dir_claude_code_project() {
         let root = PathBuf::from("/tmp/test-project");

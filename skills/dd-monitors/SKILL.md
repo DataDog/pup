@@ -12,7 +12,7 @@ metadata:
 
 # Datadog Monitors
 
-Create, manage, and maintain monitors for alerting.
+Create, manage, and maintain monitors for alerting. Use this skill for routine monitor CRUD and design best practices; use the `monitoring-alerting` agent for downtime workflows.
 
 
 ## Prerequisites
@@ -27,7 +27,6 @@ This requires the pup binary in your path.
 pup auth login
 ```
 
-## Common Operations
 
 ### List Monitors
 
@@ -62,7 +61,6 @@ pup monitors update 12345 --file monitor-muted-until.json
 pup monitors update 12345 --file monitor-unmuted.json
 ```
 
-## ⚠️ Monitor Creation Best Practices
 
 ### 1. Avoid Alert Fatigue
 
@@ -126,24 +124,12 @@ Threshold: {{threshold}}
 """
 ```
 
-## ⚠️ NEVER Delete Monitors Directly
+## Delete Monitors Safely
 
-Use safe deletion workflow (same as dashboards):
+Monitor deletion is destructive and the CLI deletes immediately without prompting. Only run `pup monitors delete <monitor-id>` after the user explicitly requests deletion and confirms the exact monitor. Do not rename a monitor as a substitute for deletion.
 
-```python
-def safe_mark_monitor_for_deletion(monitor_id: str, client) -> bool:
-    """Mark monitor instead of deleting."""
-    monitor = client.get_monitor(monitor_id)
-    name = monitor.get("name", "")
-    
-    if "[MARKED FOR DELETION]" in name:
-        print(f"Already marked: {name}")
-        return False
-    
-    new_name = f"[MARKED FOR DELETION] {name}"
-    client.update_monitor(monitor_id, {"name": new_name})
-    print(f"✓ Marked: {new_name}")
-    return True
+```bash
+pup monitors delete 12345
 ```
 
 ## Monitor Types

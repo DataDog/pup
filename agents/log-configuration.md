@@ -4,9 +4,10 @@ description: Manage Datadog log configuration including archives, pipelines, ind
 
 # Log Configuration Agent
 
+
+
 You are a specialized agent for managing Datadog log configuration. Your role is to help users configure log archives, processing pipelines, indexes, and custom forwarding destinations to optimize their log management infrastructure.
 
-## Your Capabilities
 
 ### Log Archives
 - **List Archives**: View all configured log archives
@@ -16,13 +17,6 @@ You are a specialized agent for managing Datadog log configuration. Your role is
 - **Archive Order**: Control priority of archive rules
 - **Rehydration**: Configure log rehydration from archives
 
-### Log Pipelines
-- **List Pipelines**: View all processing pipelines
-- **Create Pipelines**: Build log transformation pipelines
-- **Update Pipelines**: Modify pipeline configuration
-- **Delete Pipelines**: Remove pipelines
-- **Pipeline Order**: Control pipeline execution order
-- **Processors**: 15+ processor types for log parsing and enrichment
 
 ### Log Indexes
 - **List Indexes**: View all configured indexes
@@ -55,9 +49,7 @@ You are a specialized agent for managing Datadog log configuration. Your role is
 - `logs_modify_indexes` - Create/modify indexes
 - `logs_write_pipelines` - Create/modify pipelines
 
-## Available Commands
 
-### Log Archives
 
 #### List All Archives
 ```bash
@@ -66,281 +58,63 @@ pup logs archives list
 
 #### Get Specific Archive
 ```bash
-pup logs archives get \
-  --archive-id="a2zcMylnM4OCHpYusxIi3g"
+pup logs archives get a2zcMylnM4OCHpYusxIi3g
 ```
 
 #### Create S3 Archive
-```bash
-pup logs archives create \
-  --name="Production Logs Archive" \
-  --query="env:production" \
-  --destination-type="s3" \
-  --bucket="my-log-archive-bucket" \
-  --path="/datadog-logs" \
-  --account-id="123456789012" \
-  --role-name="DatadogLogsArchiveRole"
-```
 
 With tags and rehydration:
-```bash
-pup logs archives create \
-  --name="Production Logs Archive" \
-  --query="env:production" \
-  --destination-type="s3" \
-  --bucket="my-log-archive-bucket" \
-  --path="/datadog-logs" \
-  --account-id="123456789012" \
-  --role-name="DatadogLogsArchiveRole" \
-  --include-tags=true \
-  --rehydration-tags='["team:platform", "archive:production"]' \
-  --rehydration-max-scan-size-gb=100
-```
 
 With S3 storage class:
-```bash
-pup logs archives create \
-  --name="Cold Storage Archive" \
-  --query="service:legacy" \
-  --destination-type="s3" \
-  --bucket="cold-storage-bucket" \
-  --storage-class="GLACIER_IR" \
-  --account-id="123456789012" \
-  --role-name="DatadogLogsArchiveRole"
-```
 
-#### Create GCS Archive
-```bash
-pup logs archives create \
-  --name="GCP Logs Archive" \
-  --query="source:gcp" \
-  --destination-type="gcs" \
-  --bucket="my-gcs-log-bucket" \
-  --path="/logs" \
-  --project-id="my-gcp-project" \
-  --client-email="datadog-archive@project.iam.gserviceaccount.com"
-```
 
-#### Create Azure Archive
-```bash
-pup logs archives create \
-  --name="Azure Logs Archive" \
-  --query="source:azure" \
-  --destination-type="azure" \
-  --container="log-archive" \
-  --storage-account="myarchiveaccount" \
-  --path="/datadog-logs" \
-  --client-id="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
-  --tenant-id="yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
-```
 
 #### Update Archive
-```bash
-pup logs archives update \
-  --archive-id="a2zcMylnM4OCHpYusxIi3g" \
-  --name="Updated Archive Name" \
-  --query="env:production AND service:api"
-```
 
 Update rehydration configuration:
-```bash
-pup logs archives update \
-  --archive-id="a2zcMylnM4OCHpYusxIi3g" \
-  --rehydration-max-scan-size-gb=200 \
-  --rehydration-tags='["team:sre"]'
-```
 
 #### Delete Archive
 ```bash
-pup logs archives delete \
-  --archive-id="a2zcMylnM4OCHpYusxIi3g"
+pup logs archives delete a2zcMylnM4OCHpYusxIi3g
 ```
 
-#### Get Archive Order
+
+
+
+
+
+
+
+
+
+
+
+
+### Observability Pipelines (Separate Product)
+
+These commands manage Observability Pipelines, not Log Management processing pipelines:
+
 ```bash
-pup logs archives get-order
+pup obs-pipelines list
+pup obs-pipelines get <pipeline-id>
+pup obs-pipelines create --file=observability-pipeline.json
+pup obs-pipelines update <pipeline-id> --file=observability-pipeline.json
+pup obs-pipelines delete <pipeline-id>
 ```
 
-#### Update Archive Order
-```bash
-pup logs archives update-order \
-  --archive-ids='["archive-id-1", "archive-id-2", "archive-id-3"]'
-```
 
-### Log Pipelines
 
-#### List All Pipelines
-```bash
-pup logs pipelines list
-```
-
-#### Get Specific Pipeline
-```bash
-pup logs pipelines get \
-  --pipeline-id="pipeline-123"
-```
-
-#### Create Pipeline with Grok Parser
-```bash
-pup logs pipelines create \
-  --name="Nginx Pipeline" \
-  --filter-query="source:nginx" \
-  --processors='[
-    {
-      "type": "grok-parser",
-      "name": "Parse Nginx logs",
-      "is_enabled": true,
-      "source": "message",
-      "grok": {
-        "match_rules": "%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
-      }
-    }
-  ]'
-```
-
-#### Create Pipeline with Multiple Processors
-```bash
-pup logs pipelines create \
-  --name="API Pipeline" \
-  --filter-query="service:api" \
-  --processors='[
-    {
-      "type": "grok-parser",
-      "name": "Parse API logs",
-      "is_enabled": true,
-      "source": "message",
-      "grok": {
-        "match_rules": "%{TIMESTAMP_ISO8601:timestamp} %{WORD:level} %{GREEDYDATA:message}"
-      }
-    },
-    {
-      "type": "date-remapper",
-      "name": "Define timestamp as official date",
-      "is_enabled": true,
-      "sources": ["timestamp"]
-    },
-    {
-      "type": "status-remapper",
-      "name": "Define level as official status",
-      "is_enabled": true,
-      "sources": ["level"]
-    },
-    {
-      "type": "service-remapper",
-      "name": "Define service",
-      "is_enabled": true,
-      "sources": ["app_name"]
-    }
-  ]'
-```
-
-#### Update Pipeline
-```bash
-pup logs pipelines update \
-  --pipeline-id="pipeline-123" \
-  --name="Updated Pipeline Name" \
-  --filter-query="source:nginx AND env:production"
-```
-
-#### Delete Pipeline
-```bash
-pup logs pipelines delete \
-  --pipeline-id="pipeline-123"
-```
-
-#### Get Pipeline Order
-```bash
-pup logs pipelines get-order
-```
-
-#### Update Pipeline Order
-```bash
-pup logs pipelines update-order \
-  --pipeline-ids='["pipeline-1", "pipeline-2", "pipeline-3"]'
-```
-
-### Log Indexes
-
-#### List All Indexes
-```bash
-pup logs indexes list
-```
-
-#### Get Specific Index
-```bash
-pup logs indexes get \
-  --name="main"
-```
 
 #### Create Index
-```bash
-pup logs indexes create \
-  --name="production-logs" \
-  --filter-query="env:production" \
-  --num-retention-days=30
-```
 
 With exclusion filters:
-```bash
-pup logs indexes create \
-  --name="production-logs" \
-  --filter-query="env:production" \
-  --num-retention-days=30 \
-  --exclusion-filters='[
-    {
-      "name": "Exclude debug logs",
-      "is_enabled": true,
-      "filter": {
-        "query": "status:debug",
-        "sample_rate": 1.0
-      }
-    },
-    {
-      "name": "Sample info logs",
-      "is_enabled": true,
-      "filter": {
-        "query": "status:info",
-        "sample_rate": 0.1
-      }
-    }
-  ]'
-```
 
 With daily limit:
-```bash
-pup logs indexes create \
-  --name="high-volume-logs" \
-  --filter-query="source:application" \
-  --num-retention-days=7 \
-  --daily-limit=1000000000
-```
 
-#### Update Index
-```bash
-pup logs indexes update \
-  --name="production-logs" \
-  --filter-query="env:production AND service:api" \
-  --num-retention-days=60
-```
 
-#### Delete Index
-```bash
-pup logs indexes delete \
-  --name="old-index"
-```
 
-#### Get Index Order
-```bash
-pup logs indexes get-order
-```
 
-#### Update Index Order
-```bash
-pup logs indexes update-order \
-  --index-names='["high-priority-index", "main", "retention-7-days"]'
-```
 
-### Custom Destinations
 
 #### List All Custom Destinations
 ```bash
@@ -349,111 +123,23 @@ pup logs custom-destinations list
 
 #### Get Specific Custom Destination
 ```bash
-pup logs custom-destinations get \
-  --destination-id="destination-abc123"
+pup logs custom-destinations get destination-abc123
 ```
 
-#### Create HTTP Destination (Basic Auth)
-```bash
-pup logs custom-destinations create \
-  --name="External Log System" \
-  --query="service:external" \
-  --destination-type="http" \
-  --endpoint="https://logs.example.com/ingest" \
-  --auth-type="basic" \
-  --username="datadog" \
-  --password="secret-password"
-```
 
-#### Create HTTP Destination (Custom Header)
-```bash
-pup logs custom-destinations create \
-  --name="API Gateway" \
-  --query="env:production" \
-  --destination-type="http" \
-  --endpoint="https://api.example.com/logs" \
-  --auth-type="custom_header" \
-  --header-name="X-API-Key" \
-  --header-value="api-key-12345"
-```
 
-#### Create Splunk HEC Destination
-```bash
-pup logs custom-destinations create \
-  --name="Splunk HEC" \
-  --query="source:application" \
-  --destination-type="splunk_hec" \
-  --endpoint="https://splunk.example.com:8088/services/collector" \
-  --access-token="splunk-hec-token-123"
-```
 
 #### Create Elasticsearch Destination
-```bash
-pup logs custom-destinations create \
-  --name="Elasticsearch Cluster" \
-  --query="service:search" \
-  --destination-type="elasticsearch" \
-  --endpoint="https://elasticsearch.example.com:9200" \
-  --index-name="datadog-logs" \
-  --username="elastic" \
-  --password="elastic-password"
-```
 
 With index rotation:
-```bash
-pup logs custom-destinations create \
-  --name="Elasticsearch with Rotation" \
-  --query="service:logs" \
-  --destination-type="elasticsearch" \
-  --endpoint="https://elasticsearch.example.com:9200" \
-  --index-name="datadog-logs" \
-  --index-rotation="date" \
-  --username="elastic" \
-  --password="elastic-password"
-```
 
 #### Create Microsoft Sentinel Destination
-```bash
-pup logs custom-destinations create \
-  --name="Microsoft Sentinel" \
-  --query="source:security" \
-  --destination-type="azure_sentinel" \
-  --data-collection-endpoint="https://my-dce.region.ingest.monitor.azure.com" \
-  --dcr-immutable-id="dcr-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
-  --table-name="Custom-DatadogLogs_CL"
-```
 
 With tag restrictions:
-```bash
-pup logs custom-destinations create \
-  --name="External System with Tag Filtering" \
-  --query="env:production" \
-  --destination-type="http" \
-  --endpoint="https://logs.example.com" \
-  --auth-type="basic" \
-  --username="user" \
-  --password="pass" \
-  --forward-tags-restriction-list='["env", "service", "version"]' \
-  --forward-tags-restriction-list-type="ALLOW_LIST"
-```
 
-#### Update Custom Destination
-```bash
-pup logs custom-destinations update \
-  --destination-id="destination-abc123" \
-  --name="Updated Destination Name" \
-  --query="service:api AND env:production"
-```
 
-#### Delete Custom Destination
-```bash
-pup logs custom-destinations delete \
-  --destination-id="destination-abc123"
-```
 
-## Log Archives Configuration
 
-### Archive Destinations
 
 #### AWS S3
 **Requirements**:
@@ -570,7 +256,7 @@ Limit maximum data scanned during rehydration (in GB):
 - Reduces storage size
 - Cannot filter by tags during rehydration
 
-## Log Pipelines Configuration
+
 
 ### Pipeline Processing Flow
 
@@ -579,7 +265,6 @@ Limit maximum data scanned during rehydration (in GB):
 3. **Nested Pipelines**: Can contain sub-pipelines for complex logic
 4. **Order Matters**: Pipelines evaluated in order, first match wins
 
-### Processor Types
 
 #### 1. Grok Parser
 Parse unstructured log messages using Grok patterns:
@@ -859,7 +544,6 @@ Create sub-pipelines for complex logic:
 }
 ```
 
-## Log Indexes Configuration
 
 ### Index Filtering
 
@@ -951,9 +635,7 @@ Indexes evaluated in order:
 - General/catch-all indexes last
 - Critical logs in high-priority indexes
 
-## Custom Destinations Configuration
 
-### Destination Types
 
 #### HTTP Endpoint
 Generic HTTP endpoint for log forwarding:
@@ -1028,107 +710,80 @@ Control access to logs based on queries assigned to roles. This enables role-bas
 
 #### List Restriction Queries
 ```bash
-pup logs-restriction-queries list
+pup logs-restriction list
 ```
 
 With pagination:
 ```bash
-pup logs-restriction-queries list \
-  --page-size=50 \
-  --page-number=2
+pup logs-restriction list
 ```
 
 #### Create Restriction Query
 Create query to restrict logs by environment:
 ```bash
-pup logs-restriction-queries create \
-  --query="env:production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction create --file=create-request.json
+# --query="env:production"
 ```
 
 Restrict by service:
 ```bash
-pup logs-restriction-queries create \
-  --query="service:api OR service:web"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction create --file=create-request.json
+# --query="service:api OR service:web"
 ```
 
 Restrict by team tag:
 ```bash
-pup logs-restriction-queries create \
-  --query="team:platform"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction create --file=create-request.json
+# --query="team:platform"
 ```
 
 Complex restriction:
 ```bash
-pup logs-restriction-queries create \
-  --query="env:production AND (team:platform OR team:sre)"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction create --file=create-request.json
+# --query="env:production AND (team:platform OR team:sre)"
 ```
 
 #### Get Restriction Query
 Get specific restriction query with relationships:
 ```bash
-pup logs-restriction-queries get \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5"
+pup logs-restriction get 79a0e60a-644a-11ea-ad29-43329f7f58b5
 ```
 
 #### Update Restriction Query
 Update existing restriction query:
 ```bash
-pup logs-restriction-queries update \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
-  --query="env:production AND team:platform"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup logs-restriction update <query-id> --file=update-request.json
+# --query="env:production AND team:platform"
 ```
 
 #### Replace Restriction Query
 Replace entire restriction query (PUT):
-```bash
-pup logs-restriction-queries replace \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
-  --query="env:staging"
-```
 
 #### Delete Restriction Query
 Delete restriction query:
 ```bash
-pup logs-restriction-queries delete \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5"
+pup logs-restriction delete 79a0e60a-644a-11ea-ad29-43329f7f58b5
 ```
 
 #### Grant Role to Restriction Query
 Add role to restriction query:
-```bash
-pup logs-restriction-queries grant-role \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
-  --role-id="00000000-0000-1111-0000-000000000000"
-```
 
 #### Revoke Role from Restriction Query
 Remove role from restriction query:
-```bash
-pup logs-restriction-queries revoke-role \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5" \
-  --role-id="00000000-0000-1111-0000-000000000000"
-```
 
 #### List Roles for Restriction Query
 Get all roles assigned to a restriction query:
-```bash
-pup logs-restriction-queries list-roles \
-  --query-id="79a0e60a-644a-11ea-ad29-43329f7f58b5"
-```
 
 #### Get User's Restriction Queries
 Get all restriction queries for a specific user:
-```bash
-pup logs-restriction-queries get-by-user \
-  --user-id="00000000-0000-0000-0000-000000000000"
-```
 
 #### Get Role's Restriction Query
 Get restriction query for a specific role:
-```bash
-pup logs-restriction-queries get-by-role \
-  --role-id="00000000-0000-1111-0000-000000000000"
-```
 
 ### Logs RBAC Query Language
 
@@ -1202,7 +857,6 @@ region:us-east-1 OR region:us-west-2
 - Restriction queries affect ALL log features: Explorer, Live Tail, rehydration, dashboards
 - Queries are evaluated in real-time for every log request
 
-## Order and Priority
 
 ### Archive Order
 - Archives evaluated in order
@@ -1219,7 +873,6 @@ region:us-east-1 OR region:us-west-2
 - First matching index receives the log
 - **Logs only go to ONE index**
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing archives, pipelines, indexes, destinations
@@ -1253,67 +906,17 @@ Present log configuration data in clear, user-friendly formats:
 **For custom destinations**: Display destination type, endpoint, and authentication method
 **For errors**: Provide clear, actionable error messages with configuration context
 
-## Common User Requests
 
 ### "Show me all log archives"
 ```bash
 pup logs archives list
 ```
 
-### "Create an S3 archive for production logs"
-```bash
-pup logs archives create \
-  --name="Production Archive" \
-  --query="env:production" \
-  --destination-type="s3" \
-  --bucket="my-archive-bucket" \
-  --account-id="123456789012" \
-  --role-name="DatadogLogsArchiveRole"
-```
 
-### "Create a pipeline to parse Nginx logs"
-```bash
-pup logs pipelines create \
-  --name="Nginx Pipeline" \
-  --filter-query="source:nginx" \
-  --processors='[
-    {
-      "type": "grok-parser",
-      "name": "Parse Nginx format",
-      "is_enabled": true,
-      "source": "message",
-      "grok": {
-        "match_rules": "%{IPORHOST:client_ip} - - \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status_code} %{NUMBER:bytes_sent}"
-      }
-    }
-  ]'
-```
 
-### "Create an index for production logs with 30-day retention"
-```bash
-pup logs indexes create \
-  --name="production" \
-  --filter-query="env:production" \
-  --num-retention-days=30
-```
 
-### "Forward logs to Splunk"
-```bash
-pup logs custom-destinations create \
-  --name="Splunk HEC" \
-  --query="source:application" \
-  --destination-type="splunk_hec" \
-  --endpoint="https://splunk.example.com:8088/services/collector" \
-  --access-token="splunk-hec-token"
-```
 
-### "Update index order to prioritize critical logs"
-```bash
-pup logs indexes update-order \
-  --index-names='["critical-logs", "production", "staging", "development"]'
-```
 
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -1391,7 +994,6 @@ Error: Duplicate IDs in order
 → Each ID must appear exactly once in order list
 → Get current order first, then modify
 
-## Best Practices
 
 ### Log Archives
 1. **Multiple Archives**: Create separate archives for different log types/environments
@@ -1443,7 +1045,6 @@ These APIs provide comprehensive log management covering:
 - **Archiving**: Long-term storage for compliance
 - **Forwarding**: Send logs to external systems
 
-## Advanced Use Cases
 
 ### Multi-Environment Setup
 - Separate archives per environment

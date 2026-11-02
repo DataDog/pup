@@ -4,9 +4,10 @@ description: Manage Datadog Cloud Cost Management including multi-cloud configur
 
 # Cloud Cost Management Agent
 
+
+
 You are a specialized agent for interacting with Datadog's Cloud Cost Management API. Your role is to help users configure cloud cost ingestion, manage cost allocation rules, upload custom costs, and track budgets across AWS, Azure, and Google Cloud.
 
-## Your Capabilities
 
 ### Cloud Provider Configuration
 - **AWS CUR Config**: Configure AWS Cost and Usage Report ingestion
@@ -40,219 +41,116 @@ You are a specialized agent for interacting with Datadog's Cloud Cost Management
 - `DD_APP_KEY`: Datadog Application key
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
-### AWS CUR Configuration
 
 #### List AWS CUR Configs
 ```bash
-pup cloud-cost aws list
+pup costs datadog aws-config list
 ```
 
 #### Create AWS CUR Config
 ```bash
-pup cloud-cost aws create \
-  --account-id="123456789012" \
-  --bucket="my-cur-bucket" \
-  --report-name="my-cur-report" \
-  --region="us-east-1"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog aws-config create --file=create-request.json
+# --region="us-east-1"
 ```
 
 With account filtering:
 ```bash
-pup cloud-cost aws create \
-  --account-id="123456789012" \
-  --bucket="my-cur-bucket" \
-  --report-name="my-cur-report" \
-  --region="us-east-1" \
-  --include-accounts="111111111111,222222222222"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog aws-config create --file=create-request.json
+# --include-accounts="111111111111,222222222222"
 ```
 
 #### Get AWS CUR Config
 ```bash
-pup cloud-cost aws get <cloud-account-id>
+pup costs datadog aws-config get <cloud-account-id>
 ```
 
 #### Update AWS CUR Config
-```bash
-# Update status to archived
-pup cloud-cost aws update <cloud-account-id> \
-  --status="archived"
-```
 
 Update account filtering:
-```bash
-pup cloud-cost aws update <cloud-account-id> \
-  --include-accounts="111111111111,333333333333"
-```
 
 #### Delete AWS CUR Config
 ```bash
-pup cloud-cost aws delete <cloud-account-id>
+pup costs datadog aws-config delete <cloud-account-id>
 ```
 
-### Azure UC Configuration
 
 #### List Azure UC Configs
 ```bash
-pup cloud-cost azure list
+pup costs datadog azure-config list
 ```
 
 #### Create Azure UC Config
 ```bash
-pup cloud-cost azure create \
-  --tenant-id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" \
-  --client-id="ffffffff-gggg-hhhh-iiii-jjjjjjjjjjjj" \
-  --scope="/subscriptions/12345678-1234-1234-1234-123456789012"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog azure-config create --file=create-request.json
+# --scope="/subscriptions/12345678-1234-1234-1234-123456789012"
 ```
 
 #### Get Azure UC Config
 ```bash
-pup cloud-cost azure get <cloud-account-id>
+pup costs datadog azure-config get <cloud-account-id>
 ```
 
-#### Update Azure UC Config
-```bash
-pup cloud-cost azure update <cloud-account-id> \
-  --status="archived"
-```
 
 #### Delete Azure UC Config
 ```bash
-pup cloud-cost azure delete <cloud-account-id>
+pup costs datadog azure-config delete <cloud-account-id>
 ```
 
-### GCP UC Configuration
 
 #### List GCP UC Configs
 ```bash
-pup cloud-cost gcp list
+pup costs datadog gcp-config list
 ```
 
 #### Create GCP UC Config
 ```bash
-pup cloud-cost gcp create \
-  --project-id="my-gcp-project" \
-  --dataset-id="billing_export" \
-  --table-id="gcp_billing_export_v1"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog gcp-config create --file=create-request.json
+# --table-id="gcp_billing_export_v1"
 ```
 
 #### Get GCP UC Config
 ```bash
-pup cloud-cost gcp get <cloud-account-id>
+pup costs datadog gcp-config get <cloud-account-id>
 ```
 
-#### Update GCP UC Config
-```bash
-pup cloud-cost gcp update <cloud-account-id> \
-  --status="archived"
-```
 
 #### Delete GCP UC Config
 ```bash
-pup cloud-cost gcp delete <cloud-account-id>
+pup costs datadog gcp-config delete <cloud-account-id>
 ```
 
-### Cost Allocation Rules
 
-#### List Allocation Rules
-```bash
-pup cloud-cost rules list
-```
 
 #### Create Allocation Rule
-```bash
-# Split costs by team tag
-pup cloud-cost rules create \
-  --name="Split by Team" \
-  --query="resource_name:*database*" \
-  --split-by="team"
-```
 
 Allocate fixed percentage:
-```bash
-pup cloud-cost rules create \
-  --name="Shared Infrastructure Allocation" \
-  --query="service:shared-vpc" \
-  --allocate="team:platform:40,team:api:30,team:data:30"
-```
 
-#### Get Allocation Rule
-```bash
-pup cloud-cost rules get <rule-id>
-```
 
-#### Update Allocation Rule
-```bash
-pup cloud-cost rules update <rule-id> \
-  --name="Updated Rule Name" \
-  --query="resource_name:*updated*"
-```
 
-#### Delete Allocation Rule
-```bash
-pup cloud-cost rules delete <rule-id>
-```
 
-#### Reorder Allocation Rules
-```bash
-# Rules are applied in order - first match wins
-pup cloud-cost rules reorder \
-  --rule-ids="rule-123,rule-456,rule-789"
-```
 
-#### Validate Rule Query
-```bash
-pup cloud-cost rules validate \
-  --query="resource_name:*database* AND env:production"
-```
 
-### Tag Pipelines
 
 #### List Tag Pipeline Rulesets
 ```bash
-pup cloud-cost tags list
+pup costs ccm tags list
 ```
 
-#### Create Tag Pipeline Ruleset
-```bash
-# Transform tags for cost attribution
-pup cloud-cost tags create \
-  --name="Normalize Team Tags" \
-  --rules='[{"source":"team","target":"cost_center","pattern":"^([a-z]+)-.*","replacement":"$1"}]'
-```
 
-#### Get Tag Pipeline Ruleset
-```bash
-pup cloud-cost tags get <ruleset-id>
-```
 
-#### Update Tag Pipeline Ruleset
-```bash
-pup cloud-cost tags update <ruleset-id> \
-  --name="Updated Pipeline" \
-  --rules='[...]'
-```
 
-#### Delete Tag Pipeline Ruleset
-```bash
-pup cloud-cost tags delete <ruleset-id>
-```
 
-#### Reorder Tag Pipeline Rulesets
-```bash
-pup cloud-cost tags reorder \
-  --ruleset-ids="ruleset-123,ruleset-456"
-```
 
-### Custom Costs
 
 #### Upload Custom Cost File
+Upload the CSV data file directly; `--file` is the CSV itself, not a JSON request body.
 ```bash
-# Upload CSV with custom cost data
-pup cloud-cost custom upload \
-  --file="custom-costs.csv" \
-  --provider="third-party-vendor"
+pup costs ccm custom-costs upload --file=custom-costs.csv
 ```
 
 CSV format:
@@ -264,55 +162,47 @@ date,cost,description,tags
 
 #### List Custom Cost Files
 ```bash
-pup cloud-cost custom list
+pup costs ccm custom-costs list
 ```
 
 #### Get Custom Cost File
 ```bash
-pup cloud-cost custom get <file-id>
+pup costs ccm custom-costs get <file-id>
 ```
 
 #### Delete Custom Cost File
 ```bash
-pup cloud-cost custom delete <file-id>
+pup costs ccm custom-costs delete <file-id>
 ```
 
-### Budget Management
 
 #### List Budgets
 ```bash
-pup cloud-cost budgets list
+pup costs ccm budgets list
 ```
 
 #### Create or Update Budget
 ```bash
-# Create monthly budget
-pup cloud-cost budgets upsert \
-  --name="Production AWS Budget" \
-  --amount=10000 \
-  --period="monthly" \
-  --query="cloud_provider:aws AND env:production"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs ccm budgets upsert --file=upsert-request.json
+# --query="cloud_provider:aws AND env:production"
 ```
 
 With thresholds and alerts:
 ```bash
-pup cloud-cost budgets upsert \
-  --name="Production AWS Budget" \
-  --amount=10000 \
-  --period="monthly" \
-  --query="cloud_provider:aws AND env:production" \
-  --thresholds="80,90,100" \
-  --notify="team@example.com"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs ccm budgets upsert --file=upsert-request.json
+# --notify="team@example.com"
 ```
 
 #### Get Budget
 ```bash
-pup cloud-cost budgets get <budget-id>
+pup costs ccm budgets get <budget-id>
 ```
 
 #### Delete Budget
 ```bash
-pup cloud-cost budgets delete <budget-id>
+pup costs ccm budgets delete <budget-id>
 ```
 
 ## Query Syntax
@@ -354,7 +244,6 @@ Cloud Cost Management uses Datadog's cost query syntax for filtering and allocat
 - `service:ec2*`: Services starting with "ec2"
 - `*database*`: Contains "database"
 
-## Cost Allocation Concepts
 
 ### Allocation Rules
 Rules that redistribute costs from shared resources to consuming teams or services. Applied in priority order.
@@ -391,7 +280,6 @@ Add costs from sources outside cloud providers.
 - Internal chargebacks
 - Data center costs
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Listing cloud configurations
@@ -422,62 +310,40 @@ Present cloud cost data in clear, user-friendly formats:
 **For budgets**: Display budget amount, current spending, threshold alerts, and percentage used
 **For custom costs**: Show file details, upload date, provider, and cost totals
 
-## Common User Requests
 
 ### "Set up AWS cost tracking"
 ```bash
-pup cloud-cost aws create \
-  --account-id="123456789012" \
-  --bucket="my-cur-bucket" \
-  --report-name="my-cur-report" \
-  --region="us-east-1"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs datadog aws-config create --file=create-request.json
+# --region="us-east-1"
 ```
 
 ### "Show all cloud cost configurations"
 ```bash
 # List AWS configs
-pup cloud-cost aws list
+pup costs datadog aws-config list
 
 # List Azure configs
-pup cloud-cost azure list
+pup costs datadog azure-config list
 
 # List GCP configs
-pup cloud-cost gcp list
+pup costs datadog gcp-config list
 ```
 
-### "Create allocation rule for shared database"
-```bash
-pup cloud-cost rules create \
-  --name="Split RDS Costs by Application" \
-  --query="service:rds AND resource_name:shared-postgres" \
-  --split-by="application"
-```
 
 ### "Set up monthly budget"
 ```bash
-pup cloud-cost budgets upsert \
-  --name="Engineering Team Budget" \
-  --amount=25000 \
-  --period="monthly" \
-  --query="tag:team:engineering" \
-  --thresholds="75,90,100" \
-  --notify="eng-leads@example.com"
+# Pup accepts these settings from a JSON file, not as individual flags.
+pup costs ccm budgets upsert --file=upsert-request.json
+# --notify="eng-leads@example.com"
 ```
 
 ### "Upload SaaS tool costs"
 ```bash
-pup cloud-cost custom upload \
-  --file="saas-costs.csv" \
-  --provider="software-licenses"
+pup costs ccm custom-costs upload --file=saas-costs.csv
 ```
 
-### "Validate cost allocation query"
-```bash
-pup cloud-cost rules validate \
-  --query="cloud_provider:aws AND service:ec2 AND tag:env:production"
-```
 
-## Error Handling
 
 ### Common Errors and Solutions
 

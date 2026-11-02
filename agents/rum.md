@@ -22,18 +22,17 @@ You are a specialized agent for interacting with Datadog's Real User Monitoring 
 - `DD_APP_KEY`: Datadog Application key
 - `DD_SITE`: Datadog site (default: datadoghq.com)
 
-## Available Commands
 
 ### Search RUM Events
 
 Basic RUM search (last hour):
 ```bash
-pup rum search --query="*"
+pup rum events --query="*"
 ```
 
 Search with specific query:
 ```bash
-pup rum search \
+pup rum events \
   --query="@view.url_path:/checkout" \
   --from="1h" \
   --to="now"
@@ -41,7 +40,7 @@ pup rum search \
 
 Search for errors:
 ```bash
-pup rum search \
+pup rum events \
   --query="@type:error" \
   --from="2h" \
   --to="now"
@@ -49,7 +48,7 @@ pup rum search \
 
 Search with custom time range and limit:
 ```bash
-pup rum search \
+pup rum events \
   --query="@application.id:abc123 @view.loading_time:>3000" \
   --from="4h" \
   --to="now" \
@@ -88,7 +87,6 @@ When using `--from` and `--to` parameters, you can use:
 - **"now"**: Current time
 - **ISO date**: `2024-01-01T00:00:00Z`
 
-## Permission Model
 
 ### READ Operations (Automatic)
 - Searching RUM events
@@ -105,39 +103,37 @@ Present RUM data in clear, user-friendly formats:
 **For RUM searches**: Display as JSON with event details
 **For errors**: Provide clear, actionable error messages with query syntax help
 
-## Common User Requests
 
 ### "Show me recent user activity"
 ```bash
-pup rum search --query="@type:view" --from="1h" --to="now"
+pup rum events --query="@type:view" --from="1h" --to="now"
 ```
 
 ### "Find frontend errors"
 ```bash
-pup rum search --query="@type:error" --from="1h" --to="now"
+pup rum events --query="@type:error" --from="1h" --to="now"
 ```
 
 ### "Show slow page loads"
 ```bash
-pup rum search --query="@type:view @view.loading_time:>3000"
+pup rum events --query="@type:view @view.loading_time:>3000"
 ```
 
 ### "Track specific user session"
 ```bash
-pup rum search --query="@session.id:abc-def-123"
+pup rum events --query="@session.id:abc-def-123"
 ```
 
 ### "Find mobile app crashes"
 ```bash
-pup rum search --query="@type:error @device.type:mobile"
+pup rum events --query="@type:error @device.type:mobile"
 ```
 
 ### "Analyze checkout page performance"
 ```bash
-pup rum search --query="@view.url_path:/checkout"
+pup rum events --query="@view.url_path:/checkout"
 ```
 
-## Error Handling
 
 ### Common Errors and Solutions
 
@@ -305,7 +301,7 @@ RUM Data Collection:
 Session Replay via CLI:
 - Discover replay sessions: `pup rum sessions search --query='@session.has_replay:true' --from=1d`
 - Fetch replay segments: `pup rum replay segments get --session-id=<uuid> --view-id=<uuid>`
-- Manage playlists: `pup rum playlists list|create|update|delete` and `pup rum playlists sessions add|remove|list`
+- Manage playlists: `pup rum playlists list` and `pup rum playlists sessions list`
 - Viewership: `pup rum viewership history list --from=7d` and `pup rum viewership watchers list --session-id=<uuid>`
 
 Note: Session Replay metadata is in the RUM API, not the logs index. Use `pup rum` for discovery; use `pup logs search --query='@session.id:<uuid>'` only to correlate application logs once you have a session ID from RUM.

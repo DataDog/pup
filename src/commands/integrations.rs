@@ -598,11 +598,12 @@ struct OciIssue {
     value: String,
 }
 
-fn gcp_messages(body: serde_json::Value) -> Vec<String> {
-    let Ok(parsed) = serde_json::from_value::<GcpIssuesResponse>(body) else {
-        return Vec::new();
-    };
-    parsed
+/// `None` when the response could not be decoded. An undecodable body is an
+/// unknown answer, not a clean bill of health, and the caller keeps the
+/// integration out of `checked` so it is never reported as `ok`.
+fn gcp_messages(body: serde_json::Value) -> Option<Vec<String>> {
+    let parsed = serde_json::from_value::<GcpIssuesResponse>(body).ok()?;
+    let messages = parsed
         .data
         .into_iter()
         .filter_map(|entry| entry.attributes.issues)
@@ -624,13 +625,13 @@ fn gcp_messages(body: serde_json::Value) -> Vec<String> {
             }
             msg
         })
-        .collect()
+        .collect();
+    Some(messages)
 }
 
-fn aws_flagged_accounts(body: serde_json::Value) -> Vec<String> {
-    let Ok(parsed) = serde_json::from_value::<AwsIssuesStatusResponse>(body) else {
-        return Vec::new();
-    };
+/// `None` when the response could not be decoded; see [`gcp_messages`].
+fn aws_flagged_accounts(body: serde_json::Value) -> Option<Vec<String>> {
+    let parsed = serde_json::from_value::<AwsIssuesStatusResponse>(body).ok()?;
     let mut accounts: Vec<String> = parsed
         .data
         .and_then(|entry| entry.attributes.account_level_issues)
@@ -641,15 +642,19 @@ fn aws_flagged_accounts(body: serde_json::Value) -> Vec<String> {
         .collect();
     accounts.sort();
     accounts.dedup();
-    accounts
+    Some(accounts)
 }
 
-fn aws_account_messages(account_id: &str, body: serde_json::Value) -> Vec<String> {
-    let Ok(parsed) = serde_json::from_value::<AwsAccountIssuesResponse>(body) else {
-        return Vec::new();
-    };
+/// `None` when the response could not be decoded; see [`gcp_messages`]. The
+/// account reached this function because the summary already flagged it, so a
+/// response carrying no detail still yields the generic issue rather than
+/// erasing a problem the summary reported.
+fn aws_account_messages(account_id: &str, body: serde_json::Value) -> Option<Vec<String>> {
+    let parsed = serde_json::from_value::<AwsAccountIssuesResponse>(body).ok()?;
     let Some(attrs) = parsed.data.map(|entry| entry.attributes) else {
-        return Vec::new();
+        return Some(vec![format!(
+            "AWS account {account_id} has integration issues"
+        )]);
     };
     let mut permissions: Vec<String> = [
         attrs.core_issues,
@@ -666,19 +671,20 @@ fn aws_account_messages(account_id: &str, body: serde_json::Value) -> Vec<String
     permissions.dedup();
 
     if permissions.is_empty() {
-        return vec![format!("AWS account {account_id} has integration issues")];
+        return Some(vec![format!(
+            "AWS account {account_id} has integration issues"
+        )]);
     }
-    vec![format!(
+    Some(vec![format!(
         "AWS account {account_id} is missing IAM permissions: {}. \
          Update the Datadog integration role policy to grant them.",
         permissions.join(", ")
-    )]
+    )])
 }
 
-fn oci_messages(body: serde_json::Value) -> Vec<String> {
-    let Ok(parsed) = serde_json::from_value::<OciIssuesResponse>(body) else {
-        return Vec::new();
-    };
+/// `None` when the response could not be decoded; see [`gcp_messages`].
+fn oci_messages(body: serde_json::Value) -> Option<Vec<String>> {
+    let parsed = serde_json::from_value::<OciIssuesResponse>(body).ok()?;
     let mut messages = Vec::new();
     for entry in parsed.data {
         let tenancy = if entry.id.is_empty() {
@@ -698,7 +704,7 @@ fn oci_messages(body: serde_json::Value) -> Vec<String> {
             }
         }
     }
-    messages
+    Some(messages)
 }
 
 /// Outcome of probing the integrations whose health pup can read: the problems
@@ -715,49 +721,61 @@ async fn collect_health(cfg: &Config) -> HealthReport {
     let mut report = HealthReport::default();
 
     match crate::raw_client::raw_get(cfg, GCP_ISSUES_PATH, &[]).await {
-        Ok(body) => {
-            report.checked.insert(GCP_ID.to_string());
-            let messages = gcp_messages(body);
-            if !messages.is_empty() {
-                report.issues.insert(GCP_ID.to_string(), messages);
+        Ok(body) => match gcp_messages(body) {
+            Some(messages) => {
+                report.checked.insert(GCP_ID.to_string());
+                if !messages.is_empty() {
+                    report.issues.insert(GCP_ID.to_string(), messages);
+                }
             }
-        }
+            None => warn_decode("Google Cloud"),
+        },
         Err(e) => warn_probe("Google Cloud", &e),
     }
 
     match aws_issues_get(cfg, AWS_ISSUES_PATH, &[]).await {
-        Ok(body) => {
-            report.checked.insert(AWS_ID.to_string());
-            let mut messages = Vec::new();
-            for account_id in aws_flagged_accounts(body) {
-                match aws_issues_get(
-                    cfg,
-                    AWS_ACCOUNT_ISSUES_PATH,
-                    &[("aws_account_id", account_id.as_str())],
-                )
-                .await
-                {
-                    Ok(detail) => messages.extend(aws_account_messages(&account_id, detail)),
-                    Err(_) => messages.push(format!(
-                        "AWS account {account_id} has integration issues (details unavailable)"
-                    )),
+        Ok(body) => match aws_flagged_accounts(body) {
+            Some(accounts) => {
+                report.checked.insert(AWS_ID.to_string());
+                let mut messages = Vec::new();
+                for account_id in accounts {
+                    // The summary already flagged this account, so a detail
+                    // call that fails or cannot be decoded still reports the
+                    // problem -- only the remediation text is lost.
+                    let detail = aws_issues_get(
+                        cfg,
+                        AWS_ACCOUNT_ISSUES_PATH,
+                        &[("aws_account_id", account_id.as_str())],
+                    )
+                    .await
+                    .ok()
+                    .and_then(|body| aws_account_messages(&account_id, body));
+                    match detail {
+                        Some(account_messages) => messages.extend(account_messages),
+                        None => messages.push(format!(
+                            "AWS account {account_id} has integration issues (details unavailable)"
+                        )),
+                    }
+                }
+                if !messages.is_empty() {
+                    report.issues.insert(AWS_ID.to_string(), messages);
                 }
             }
-            if !messages.is_empty() {
-                report.issues.insert(AWS_ID.to_string(), messages);
-            }
-        }
+            None => warn_decode("AWS"),
+        },
         Err(e) => warn_probe("AWS", &e),
     }
 
     match crate::raw_client::raw_get(cfg, OCI_ISSUES_PATH, &[]).await {
-        Ok(body) => {
-            report.checked.insert(OCI_ID.to_string());
-            let messages = oci_messages(body);
-            if !messages.is_empty() {
-                report.issues.insert(OCI_ID.to_string(), messages);
+        Ok(body) => match oci_messages(body) {
+            Some(messages) => {
+                report.checked.insert(OCI_ID.to_string());
+                if !messages.is_empty() {
+                    report.issues.insert(OCI_ID.to_string(), messages);
+                }
             }
-        }
+            None => warn_decode("Oracle Cloud Infrastructure"),
+        },
         Err(e) => {
             // A 404 here means no OCI tenancy is configured, which is a
             // definitive "nothing wrong", not a failed probe.
@@ -816,6 +834,16 @@ fn warn_probe(label: &str, error: &anyhow::Error) {
         return;
     }
     eprintln!("warning: could not read {label} integration health: {error}");
+}
+
+/// A probe that answers with a body pup cannot decode leaves health unknown,
+/// not healthy. The integration stays out of `HealthReport::checked`, so it is
+/// reported as unknown rather than `ok` and silently excluded from `--broken`.
+fn warn_decode(label: &str) {
+    eprintln!(
+        "warning: could not interpret the {label} integration health response; \
+         reporting its health as unknown"
+    );
 }
 
 // ---- Integrations list ----
@@ -888,23 +916,28 @@ pub async fn list(
         LIST_COLUMNS_WITH_HEALTH
     };
 
-    if cfg.output_format == crate::config::OutputFormat::Table {
-        if rows.is_empty() {
-            println!("No results found");
-            if broken {
-                eprintln!("{}", health_coverage_note(&health));
-            }
-            return Ok(());
-        }
+    // The empty-set message and the issue details below the table are prose for
+    // a human reading a rendered table. With `--jq` the caller asked for a
+    // projection, so the formatter handles the rows -- including an empty set,
+    // which jq turns into `0` or `[]` rather than a sentence -- and the details
+    // are suppressed because they would describe rows the projection dropped.
+    let human_table = cfg.output_format == crate::config::OutputFormat::Table && cfg.jq.is_none();
+
+    if human_table && rows.is_empty() {
+        println!("No results found");
+    } else {
         formatter::output_with_table(cfg, &rows, formatter::TableOptions::new(columns))?;
-        print_issue_details(&rows);
-        if broken {
-            eprintln!("{}", health_coverage_note(&health));
+        if human_table {
+            print_issue_details(&rows);
         }
-        return Ok(());
     }
 
-    formatter::output_with_table(cfg, &rows, formatter::TableOptions::new(columns))
+    // On stderr in every format, so a piped or machine-read `--broken` result
+    // still carries the caveat without anything non-parseable on stdout.
+    if broken {
+        eprintln!("{}", health_coverage_note(&health));
+    }
+    Ok(())
 }
 
 /// The table truncates long cells, so the full remediation text is printed
@@ -1196,7 +1229,7 @@ mod tests {
                 }
             }]
         });
-        let messages = super::gcp_messages(body);
+        let messages = super::gcp_messages(body).expect("decodable");
         assert_eq!(messages.len(), 1);
         assert!(messages[0].contains("[critical]"));
         assert!(messages[0].contains("proj-1"));
@@ -1207,7 +1240,7 @@ mod tests {
     #[test]
     fn test_gcp_messages_tolerates_null_issues() {
         let body = serde_json::json!({"data": [{"attributes": {"issues": null}}]});
-        assert!(super::gcp_messages(body).is_empty());
+        assert_eq!(super::gcp_messages(body), Some(Vec::new()));
     }
 
     #[test]
@@ -1221,14 +1254,14 @@ mod tests {
         });
         assert_eq!(
             super::aws_flagged_accounts(body),
-            vec!["111".to_string(), "222".to_string()]
+            Some(vec!["111".to_string(), "222".to_string()])
         );
     }
 
     #[test]
     fn test_aws_flagged_accounts_empty_when_no_issues() {
         let body = serde_json::json!({"data": {"attributes": {"account_level_issues": null}}});
-        assert!(super::aws_flagged_accounts(body).is_empty());
+        assert_eq!(super::aws_flagged_accounts(body), Some(Vec::new()));
     }
 
     #[test]
@@ -1239,7 +1272,7 @@ mod tests {
                 "log_collection_issues": [{"permission": "s3:GetObject", "last_reported_at": "now"}]
             }}
         });
-        let messages = super::aws_account_messages("111", body);
+        let messages = super::aws_account_messages("111", body).expect("decodable");
         assert_eq!(messages.len(), 1);
         assert!(messages[0].contains("ec2:Describe*"));
         assert!(messages[0].contains("s3:GetObject"));
@@ -1256,10 +1289,33 @@ mod tests {
                 }
             }]
         });
-        let messages = super::oci_messages(body);
+        let messages = super::oci_messages(body).expect("decodable");
         assert_eq!(messages.len(), 2);
         assert!(messages[0].contains("[critical] tenancy-1: auth key expired"));
         assert!(messages[1].contains("[warning]"));
+    }
+
+    /// An undecodable body must not read as "no issues": that would mark the
+    /// integration healthy and hide it from `--broken`.
+    #[test]
+    fn test_health_parsers_report_undecodable_bodies_as_unknown() {
+        let garbage = serde_json::json!({"data": "not the expected shape"});
+        assert_eq!(super::gcp_messages(garbage.clone()), None);
+        assert_eq!(super::aws_flagged_accounts(garbage.clone()), None);
+        assert_eq!(super::aws_account_messages("111", garbage.clone()), None);
+        assert_eq!(super::oci_messages(garbage), None);
+    }
+
+    /// The summary flagged this account, so detail that carries no issues must
+    /// still surface the problem rather than erase it.
+    #[test]
+    fn test_aws_account_messages_keeps_flag_when_detail_is_absent() {
+        let messages = super::aws_account_messages("111", serde_json::json!({"data": null}))
+            .expect("decodable");
+        assert_eq!(
+            messages,
+            vec!["AWS account 111 has integration issues".to_string()]
+        );
     }
 
     #[test]
@@ -1306,6 +1362,23 @@ mod tests {
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": [], "integrations": []}"#).await;
         super::list(&cfg, false, false, true, false, None)
+            .await
+            .unwrap();
+        cleanup_env();
+    }
+
+    /// With `--jq` the rows go to the formatter in every format, so the
+    /// projection is applied instead of being short-circuited by the
+    /// "No results found" message or decorated with unfiltered issue details.
+    #[tokio::test]
+    async fn test_integrations_list_table_with_jq_goes_through_the_formatter() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let mut cfg = test_config(&s.url());
+        cfg.output_format = crate::config::OutputFormat::Table;
+        cfg.jq = Some("length".to_string());
+        mock_all(&mut s, r#"{"data": [], "integrations": []}"#).await;
+        super::list(&cfg, false, false, false, false, None)
             .await
             .unwrap();
         cleanup_env();

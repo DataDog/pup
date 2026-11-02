@@ -6,7 +6,7 @@
 use std::io::Read;
 
 use anyhow::{bail, Result};
-use chrono::{NaiveDate, Utc};
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
@@ -50,6 +50,7 @@ fn parse_relative_duration_millis(input: &str) -> Result<i64> {
 ///   - Unix timestamp in seconds (10 digits or fewer) or milliseconds
 ///   - Calendar month: "2024-01"
 ///   - Calendar date: "2024-01-01"
+///   - Calendar hour: "2024-01-01T12"
 ///   - RFC3339: "2024-01-01T00:00:00Z"
 ///
 /// All relative times are interpreted as "ago from now".
@@ -59,7 +60,7 @@ pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
     let time_parse_error = || {
         anyhow::anyhow!(
             "unable to parse time: {input:?}\n\
-             Expected: now, now-1h, 1h, 30m, 7d, 5minutes, YYYY-MM, YYYY-MM-DD, RFC3339, or Unix timestamp"
+             Expected: now, now-1h, 1h, 30m, 7d, 5minutes, YYYY-MM, YYYY-MM-DD, YYYY-MM-DDThh, RFC3339, or Unix timestamp"
         )
     };
 
@@ -107,9 +108,19 @@ pub fn parse_time_to_unix_millis(input: &str) -> Result<i64> {
         return Ok(midnight.and_utc().timestamp_millis());
     }
 
+    // Calendar hour ("2024-01-01T12"), the format of the usage-metering APIs'
+    // hourly parameters. Fall through on failure: other 13-char inputs, such as
+    // "12345 minutes", are valid relative times.
+    if input.len() == 13 {
+        let hour = NaiveDateTime::parse_from_str(&format!("{input}:00"), "%Y-%m-%dT%H:%M");
+        if let Ok(hour) = hour {
+            return Ok(hour.and_utc().timestamp_millis());
+        }
+    }
+
     // RFC3339 timestamp
     if input.contains('T') {
-        let dt = chrono::DateTime::parse_from_rfc3339(input)?;
+        let dt = chrono::DateTime::parse_from_rfc3339(input).map_err(|_| time_parse_error())?;
         return Ok(dt.timestamp() * 1000);
     }
 
@@ -714,6 +725,35 @@ mod tests {
     }
 
     #[test]
+    fn test_calendar_hour() {
+        let ms = parse_time_to_unix_millis("2024-01-31T12").unwrap();
+        assert_eq!(ms, 1706702400000);
+    }
+
+    #[test]
+    fn test_calendar_hour_invalid() {
+        for input in [
+            "2024-01-31T24",
+            "2024-01-31T1",
+            "2024-02-30T12",
+            "2024-01-31Txx",
+        ] {
+            let err = parse_time_to_unix_millis(input).unwrap_err().to_string();
+            assert!(
+                err.contains("unable to parse time") && err.contains("YYYY-MM-DDThh"),
+                "unexpected error for {input}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_thirteen_char_relative_time_still_parses() {
+        let ms = parse_time_to_unix_millis("12345 minutes").unwrap();
+        let expected = (Utc::now().timestamp() - 12345 * 60) * 1000;
+        assert!((ms - expected).abs() < 2000);
+    }
+
+    #[test]
     fn test_invalid() {
         assert!(parse_time_to_unix_millis("invalid").is_err());
         assert!(parse_time_to_unix_millis("").is_err());
@@ -749,6 +789,18 @@ mod tests {
     fn test_parse_time_to_datetime_calendar_date() {
         let dt = parse_time_to_datetime("2024-01-01").unwrap();
         assert_eq!(dt.timestamp_millis(), 1704067200000);
+    }
+
+    #[test]
+    fn test_parse_time_to_datetime_calendar_hour() {
+        let dt = parse_time_to_datetime("2026-11-01T12").unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-11-01T12:00:00+00:00");
+    }
+
+    #[test]
+    fn test_parse_time_to_unix_calendar_hour() {
+        let secs = parse_time_to_unix("2026-11-01T12").unwrap();
+        assert_eq!(secs, 1793534400);
     }
 
     #[test]

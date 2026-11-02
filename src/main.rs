@@ -14280,7 +14280,7 @@ mod test_agent_schema {
         let commands = document["commands"].as_array().unwrap();
         let downtime = find_command(commands, &["downtime"]).expect("downtime command not found");
         // The generated `downtime get` and `downtime list` expose the spec's optional query
-        // parameters as flags.
+        // parameters as flags; optional booleans become switches that take no value.
         let get = if cfg!(generated_op = "downtime.get") {
             serde_json::json!({
                 "name": "get",
@@ -14288,7 +14288,12 @@ mod test_agent_schema {
                 "args": [{"name": "id", "type": "string", "required": true}],
                 "flags": [
                     {"name": "include", "type": "string", "required": false},
-                    {"name": "with-run-as", "type": "string", "required": false}
+                    {
+                        "name": "with-run-as",
+                        "type": "bool",
+                        "required": false,
+                        "arity": {"min": 0, "max": 0, "repeatable": false}
+                    }
                 ]
             })
         } else {
@@ -14303,7 +14308,12 @@ mod test_agent_schema {
                 "name": "list",
                 "read_only": true,
                 "flags": [
-                    {"name": "current-only", "type": "string", "required": false},
+                    {
+                        "name": "current-only",
+                        "type": "bool",
+                        "required": false,
+                        "arity": {"min": 0, "max": 0, "repeatable": false}
+                    },
                     {"name": "include", "type": "string", "required": false},
                     {"name": "page-limit", "type": "string", "required": false},
                     {"name": "page-offset", "type": "string", "required": false}

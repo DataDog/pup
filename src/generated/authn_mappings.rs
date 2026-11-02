@@ -106,12 +106,12 @@ pub async fn create(cfg: &Config, file: &str) -> Result<()> {
 ///
 /// Delete an AuthN Mapping specified by AuthN Mapping UUID.
 pub async fn delete(cfg: &Config, authn_mapping_id: String) -> Result<()> {
+    let resource_label = authn_mapping_id.to_string();
     let api = crate::make_api!(AuthNMappingsAPI, cfg);
     api.delete_authn_mapping(authn_mapping_id)
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete_authn_mapping: {:?}", e))?;
-    println!("authn-mappings delete: ok");
-    Ok(())
+    formatter::output_no_content(cfg, "authn-mappings delete", Some(&resource_label))
 }
 
 /// Get an AuthN Mapping by UUID

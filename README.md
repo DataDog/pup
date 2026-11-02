@@ -92,7 +92,7 @@ list of commands as built.
 | Static Analysis | ✅ | `static-analysis ast`, `static-analysis custom-rulesets`, `static-analysis sca`, `static-analysis coverage` | Code security analysis |
 | Audit Logs | ✅ | `audit-logs list`, `audit-logs search` | Full audit log search and listing |
 | Data Governance | ✅ | `data-governance scanner-rules list` | Sensitive data scanner rules |
-| Tag Governance | ✅ | `governance tag-rules list`, `governance tag-rules get`, `governance tag-rules score` | Tag rules and compliance scoring (`/api/v2/governance/tag_rules`) |
+| Governance | ✅ | `governance insights list`, `governance controls list/get`, `governance detections list/get/update/mitigate`, `governance limits list`, `governance best-practices list`, `governance tag-rules` | Governance Console and tag rules; detection writes support `--dry-run` |
 | CSM Threats | ✅ | `csm-threats` | Cloud Security Management threat rules and agent rules |
 | Sensitive Data Scanner | ✅ | `data-governance scanner-rules list` | Listed via Data Governance row above |
 | Agentless Scanning | ✅ | `agentless-scanning aws list/get/create/update/delete`, `agentless-scanning gcp list`, `agentless-scanning azure list` | Cloud agentless scanning configuration for AWS, GCP, and Azure |

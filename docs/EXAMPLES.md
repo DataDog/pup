@@ -1614,3 +1614,55 @@ default_to: now
 output_format: json
 table_max_width: 120
 ```
+
+## Governance
+
+Governance Console commands accept OAuth or API and application keys. For OAuth,
+opt in to the Console scope (default scopes stay unchanged):
+
+```bash
+pup auth login --extra-scopes governance_console_read
+pup governance insights list --product metrics --product logs
+pup governance controls list
+# Use a control id returned above, not a guessed detection type.
+pup governance controls get <detection-type>
+pup governance detections list <detection-type> --state active --page-size 5
+pup governance detections get <detection-id>
+pup governance limits list
+pup governance best-practices list --category security
+```
+
+Inspect the control's mitigations for a manual action and its permissions. Add
+any required OAuth scopes with `--extra-scopes`. Organizations need Governance
+Console access; see the [Governance Console documentation](https://docs.datadoghq.com/account_management/governance_console/).
+
+Preview a detection update before approving it:
+
+```bash
+pup governance detections update <detection-id> --state exception --dry-run
+# Review effects: exception state clears any mitigation deadline.
+# After explicit user approval of this exact request:
+pup governance detections update <detection-id> --state exception --yes
+```
+
+Keep the output's `previous` block for recovery. A future `--mitigate-after`
+deadline requires active state and RFC 3339. Empty `--assigned-to ""` and
+`--assigned-team ""` clear assignments. To restore an active detection with no
+deadline, set exception first, then active. To restore a future deadline, use
+`--state active --mitigate-after <previous-deadline>` and verify the result.
+
+Preview a mitigation with at most 25 detection ids of one type:
+
+```bash
+pup governance detections mitigate <detection-type> --ids <id1>,<id2> --mitigation-type <manual-id> --dry-run
+# Show the preview and obtain explicit user approval, then apply:
+pup governance detections mitigate <detection-type> --ids <id1>,<id2> --mitigation-type <manual-id> --yes
+pup governance detections list <detection-type> --state mitigation_in_progress,mitigated
+```
+
+Mitigations run asynchronously; acceptance is not completion. Never automatically
+resubmit a write. After “Outcome unknown,” inspect detection state and Audit Trail,
+then obtain new approval before any resubmission. AI agents auto-approve pup
+prompts, so they must obtain the user's approval themselves. `--read-only` blocks
+both writes, even with `--dry-run`. Existing tag-rule commands are unchanged and
+do not enforce the detection commands' safety checks.

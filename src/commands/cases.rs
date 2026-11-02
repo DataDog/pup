@@ -10,21 +10,21 @@ use datadog_api_client::datadogV2::model::{
     CaseAssignAttributes, CaseAssignRequest, CaseBulkUpdateRequest, CaseComment,
     CaseCommentAttributes, CaseCommentRequest, CaseCreate, CaseCreateAttributes,
     CaseCreateRelationships, CaseCreateRequest, CaseEmpty, CaseEmptyRequest, CaseInsightsRequest,
-    CaseLinkAttributes, CaseLinkCreate, CaseLinkCreateRequest, CaseLinkResourceType,
-    CaseNotificationRuleCreateRequest, CaseNotificationRuleUpdateRequest, CasePriority,
-    CaseResourceType, CaseStatus, CaseTypeCreateRequest, CaseTypeUpdateRequest,
-    CaseUpdateAttributesRequest, CaseUpdateCustomAttributeRequest, CaseUpdateDescription,
-    CaseUpdateDescriptionAttributes, CaseUpdateDescriptionRequest, CaseUpdateDueDate,
-    CaseUpdateDueDateAttributes, CaseUpdateDueDateRequest, CaseUpdatePriority,
-    CaseUpdatePriorityAttributes, CaseUpdatePriorityRequest, CaseUpdateResolvedReason,
-    CaseUpdateResolvedReasonAttributes, CaseUpdateResolvedReasonRequest, CaseUpdateStatus,
-    CaseUpdateStatusAttributes, CaseUpdateStatusRequest, CaseUpdateTitle,
-    CaseUpdateTitleAttributes, CaseUpdateTitleRequest, CaseViewCreateRequest,
-    CaseViewUpdateRequest, CustomAttributeConfigCreateRequest, CustomAttributeConfigUpdateRequest,
-    IncidentRelationshipData, IncidentResourceType, JiraIssueCreateRequest, JiraIssueLinkRequest,
-    NotebookCreateRequest, ProjectCreate, ProjectCreateAttributes, ProjectCreateRequest,
-    ProjectRelationship, ProjectRelationshipData, ProjectResourceType, ProjectUpdateRequest,
-    RelationshipToIncidentRequest, ServiceNowTicketCreateRequest,
+    CaseInvestigationNotebookCreateRequest, CaseLinkAttributes, CaseLinkCreate,
+    CaseLinkCreateRequest, CaseLinkResourceType, CaseNotificationRuleCreateRequest,
+    CaseNotificationRuleUpdateRequest, CasePriority, CaseResourceType, CaseStatus,
+    CaseTypeCreateRequest, CaseTypeUpdateRequest, CaseUpdateAttributesRequest,
+    CaseUpdateCustomAttributeRequest, CaseUpdateDescription, CaseUpdateDescriptionAttributes,
+    CaseUpdateDescriptionRequest, CaseUpdateDueDate, CaseUpdateDueDateAttributes,
+    CaseUpdateDueDateRequest, CaseUpdatePriority, CaseUpdatePriorityAttributes,
+    CaseUpdatePriorityRequest, CaseUpdateResolvedReason, CaseUpdateResolvedReasonAttributes,
+    CaseUpdateResolvedReasonRequest, CaseUpdateStatus, CaseUpdateStatusAttributes,
+    CaseUpdateStatusRequest, CaseUpdateTitle, CaseUpdateTitleAttributes, CaseUpdateTitleRequest,
+    CaseViewCreateRequest, CaseViewUpdateRequest, CustomAttributeConfigCreateRequest,
+    CustomAttributeConfigUpdateRequest, IncidentRelationshipData, IncidentResourceType,
+    JiraIssueCreateRequest, JiraIssueLinkRequest, ProjectCreate, ProjectCreateAttributes,
+    ProjectCreateRequest, ProjectRelationship, ProjectRelationshipData, ProjectResourceType,
+    ProjectUpdateRequest, RelationshipToIncidentRequest, ServiceNowTicketCreateRequest,
 };
 
 use crate::config::Config;
@@ -728,7 +728,7 @@ pub async fn incidents_link(cfg: &Config, case_id: &str, incident_id: &str) -> R
 
 pub async fn notebooks_create(cfg: &Config, case_id: &str, file: &str) -> Result<()> {
     let api = make_api(cfg);
-    let body: NotebookCreateRequest = crate::util::read_json_file(file)?;
+    let body: CaseInvestigationNotebookCreateRequest = crate::util::read_json_file(file)?;
     api.create_case_notebook(case_id.to_string(), body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to create notebook for case: {e:?}"))?;

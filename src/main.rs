@@ -51,6 +51,7 @@ use std::io::IsTerminal;
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
 pub(crate) struct Cli {
     /// Output format (json, table, yaml, csv, tsv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
+    /// `pup integrations ... list` defaults to table on a terminal; redirected output stays json.
     #[arg(short, long, global = true)]
     output: Option<String>,
     /// Auto-approve destructive operations
@@ -1831,12 +1832,19 @@ enum Commands {
     /// Jira, and many others for notifications and workflow automation.
     ///
     /// CAPABILITIES:
+    ///   • List the integration catalog with configuration status
+    ///   • Find configured, broken, or pup-manageable integrations
     ///   • List Slack integrations
     ///   • Manage PagerDuty integrations
     ///   • Configure webhook integrations
-    ///   • View integration status
     ///
     /// EXAMPLES:
+    ///   # List integrations configured in this organization
+    ///   pup integrations list --configured
+    ///
+    ///   # List integrations that need attention
+    ///   pup integrations list --broken
+    ///
     ///   # List Slack integrations
     ///   pup integrations slack list
     ///
@@ -9807,12 +9815,124 @@ enum StatusPageThirdPartyActions {
 // ---- Integrations ----
 #[derive(Subcommand)]
 enum IntegrationActions {
-    /// List all configured integrations
-    List,
+    /// List integrations, their configuration status, and any problems
+    ///
+    /// Lists the full Datadog integration catalog by default. Each row shows
+    /// the integration name, whether it is configured in your organization,
+    /// and the pup command that manages it. A `health` column is added when a
+    /// health probe ran (`--configured` / `--broken`), and problem text is
+    /// printed in full below the table.
+    ///
+    /// `status` is configuration state (configured / available) and `health`
+    /// is operational state (ok / error); a configured integration can be
+    /// unhealthy. Catalog IDs and raw issue text stay in `-o json` for agents.
+    ///
+    /// Health data is only available for Amazon Web Services, Google Cloud,
+    /// and Oracle Cloud Infrastructure; other integrations are never reported
+    /// as broken.
+    ///
+    /// Prints a table when run in a terminal. Redirected or piped output stays
+    /// JSON, and `-o json` forces it anywhere.
+    ///
+    /// EXAMPLES:
+    ///   # Everything Datadog supports
+    ///   pup integrations list
+    ///
+    ///   # Machine-readable, even on a terminal
+    ///   pup integrations list --configured -o json
+    ///
+    ///   # Only what is configured in this organization
+    ///   pup integrations list --configured
+    ///
+    ///   # Only what is not configured yet
+    ///   pup integrations list --available
+    ///
+    ///   # Only integrations that need attention
+    ///   pup integrations list --broken
+    ///
+    ///   # Only integrations pup can configure for you
+    ///   pup integrations list --manageable
+    #[command(verbatim_doc_comment)]
+    List {
+        #[arg(
+            long,
+            conflicts_with_all = ["available", "broken"],
+            help = "Show only integrations configured in this organization"
+        )]
+        configured: bool,
+        #[arg(
+            long,
+            conflicts_with_all = ["configured", "broken"],
+            help = "Show only integrations not yet configured in this organization"
+        )]
+        available: bool,
+        #[arg(
+            long,
+            conflicts_with_all = ["configured", "available"],
+            help = "Show only integrations reporting problems (AWS, Google Cloud, and Oracle Cloud Infrastructure only)"
+        )]
+        broken: bool,
+        #[arg(long, help = "Show only integrations pup can configure and manage")]
+        manageable: bool,
+        #[arg(long, help = "Search by integration ID or name (case-insensitive)")]
+        search: Option<String>,
+    },
+    /// Manage Cloudflare integration
+    Cloudflare {
+        #[command(subcommand)]
+        action: CloudflareActions,
+    },
+    /// Manage Confluent Cloud integration
+    #[command(name = "confluent-cloud")]
+    ConfluentCloud {
+        #[command(subcommand)]
+        action: ConfluentCloudActions,
+    },
+    /// Manage Databricks integration
+    Databricks {
+        #[command(subcommand)]
+        action: DatabricksActions,
+    },
+    /// Manage Elastic Cloud integration
+    #[command(name = "elastic-cloud")]
+    ElasticCloud {
+        #[command(subcommand)]
+        action: ElasticCloudActions,
+    },
+    /// Manage Fastly integration
+    Fastly {
+        #[command(subcommand)]
+        action: FastlyActions,
+    },
     /// Manage Jira integration
     Jira {
         #[command(subcommand)]
         action: JiraActions,
+    },
+    /// Manage Okta integration
+    Okta {
+        #[command(subcommand)]
+        action: OktaActions,
+    },
+    /// Manage Salesforce integration
+    Salesforce {
+        #[command(subcommand)]
+        action: SalesforceActions,
+    },
+    /// Manage Snowflake integration
+    Snowflake {
+        #[command(subcommand)]
+        action: SnowflakeActions,
+    },
+    /// Manage Atlassian Statuspage integration
+    Statuspage {
+        #[command(subcommand)]
+        action: StatuspageActions,
+    },
+    /// Manage Twilio integration
+    Twilio {
+        #[command(subcommand)]
+        action: TwilioActions,
     },
     /// Manage ServiceNow integration
     Servicenow {
@@ -9867,6 +9987,262 @@ enum IntegrationAwsActions {
         #[command(subcommand)]
         action: CloudAuthActions,
     },
+}
+
+/// Account CRUD shared by every SaaS integration whose API exposes a flat
+/// list/get/create/update/delete account resource.
+#[derive(Subcommand)]
+enum IntegrationAccountActions {
+    /// List configured accounts
+    List,
+    /// Get an account
+    Get { account_id: String },
+    /// Create an account
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update an account
+    Update {
+        account_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete an account
+    Delete { account_id: String },
+}
+
+#[derive(Subcommand)]
+enum OktaActions {
+    /// Manage Okta accounts
+    Accounts {
+        #[command(subcommand)]
+        action: IntegrationAccountActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum CloudflareActions {
+    /// Manage Cloudflare accounts
+    Accounts {
+        #[command(subcommand)]
+        action: IntegrationAccountActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum DatabricksActions {
+    /// Manage Databricks accounts
+    Accounts {
+        #[command(subcommand)]
+        action: IntegrationAccountActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum ElasticCloudActions {
+    /// Manage Elastic Cloud accounts
+    Accounts {
+        #[command(subcommand)]
+        action: IntegrationAccountActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum SnowflakeActions {
+    /// Manage Snowflake accounts
+    Accounts {
+        #[command(subcommand)]
+        action: IntegrationAccountActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum TwilioActions {
+    /// Manage Twilio accounts
+    Accounts {
+        #[command(subcommand)]
+        action: IntegrationAccountActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfluentCloudActions {
+    /// Manage Confluent Cloud accounts
+    Accounts {
+        #[command(subcommand)]
+        action: IntegrationAccountActions,
+    },
+    /// Manage monitored Confluent Cloud resources
+    Resources {
+        #[command(subcommand)]
+        action: ConfluentResourceActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfluentResourceActions {
+    /// List resources monitored under an account
+    List { account_id: String },
+    /// Get a monitored resource
+    Get {
+        account_id: String,
+        resource_id: String,
+    },
+    /// Add a resource to an account
+    Create {
+        account_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update a monitored resource
+    Update {
+        account_id: String,
+        resource_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Remove a resource from an account
+    Delete {
+        account_id: String,
+        resource_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum FastlyActions {
+    /// Manage Fastly accounts
+    Accounts {
+        #[command(subcommand)]
+        action: IntegrationAccountActions,
+    },
+    /// Manage monitored Fastly services
+    Services {
+        #[command(subcommand)]
+        action: FastlyServiceActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum FastlyServiceActions {
+    /// List services monitored under an account
+    List { account_id: String },
+    /// Get a monitored service
+    Get {
+        account_id: String,
+        service_id: String,
+    },
+    /// Add a service to an account
+    Create {
+        account_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update a monitored service
+    Update {
+        account_id: String,
+        service_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Remove a service from an account
+    Delete {
+        account_id: String,
+        service_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum StatuspageActions {
+    /// Manage the Atlassian Statuspage account (one per organization)
+    Account {
+        #[command(subcommand)]
+        action: StatuspageAccountActions,
+    },
+    /// Manage monitored Statuspage URLs
+    #[command(name = "url-settings")]
+    UrlSettings {
+        #[command(subcommand)]
+        action: StatuspageUrlSettingActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum StatuspageAccountActions {
+    /// Get the Statuspage account
+    Get,
+    /// Create the Statuspage account
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update the Statuspage account
+    Update {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete the Statuspage account
+    Delete,
+}
+
+#[derive(Subcommand)]
+enum StatuspageUrlSettingActions {
+    /// List monitored Statuspage URLs
+    List,
+    /// Add a Statuspage URL
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update a Statuspage URL
+    Update {
+        setting_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Remove a Statuspage URL
+    Delete { setting_id: String },
+}
+
+#[derive(Subcommand)]
+enum SalesforceActions {
+    /// Manage connected Salesforce organizations
+    Organizations {
+        #[command(subcommand)]
+        action: SalesforceOrganizationActions,
+    },
+    /// Manage Salesforce incident templates
+    Templates {
+        #[command(subcommand)]
+        action: SalesforceTemplateActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum SalesforceOrganizationActions {
+    /// List connected Salesforce organizations
+    List,
+    /// Disconnect a Salesforce organization
+    Delete { org_id: String },
+}
+
+#[derive(Subcommand)]
+enum SalesforceTemplateActions {
+    /// List Salesforce incident templates
+    List,
+    /// Create a Salesforce incident template
+    Create {
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Update a Salesforce incident template
+    Update {
+        template_id: String,
+        #[arg(long, help = "JSON file with request body (required)")]
+        file: String,
+    },
+    /// Delete a Salesforce incident template
+    Delete { template_id: String },
 }
 
 #[derive(Subcommand)]
@@ -15424,6 +15800,13 @@ fn reject_jq_with_markdown(jq_flag_passed: bool, markdown: bool) -> anyhow::Resu
     Ok(())
 }
 
+/// Commands that render as a table when the user has expressed no preference.
+/// Every listing under `pup integrations` is a human-facing inventory, so the
+/// table view is the useful default there; JSON stays one `-o json` away.
+fn defaults_to_table(full_path: &str) -> bool {
+    full_path.starts_with("integrations ") && full_path.ends_with(" list")
+}
+
 fn resolve_output_format(
     flag: Option<&str>,
     resolved: config::OutputFormat,
@@ -15473,6 +15856,31 @@ mod resolve_output_format_tests {
         // PUP_OUTPUT) must survive instead of being clobbered by a default.
         let got = resolve_output_format(None, OutputFormat::Yaml).unwrap();
         assert_eq!(got, OutputFormat::Yaml);
+    }
+
+    #[test]
+    fn integrations_listings_default_to_table() {
+        for path in [
+            "integrations list",
+            "integrations okta accounts list",
+            "integrations statuspage url-settings list",
+            "integrations salesforce organizations list",
+        ] {
+            assert!(super::defaults_to_table(path), "{path} should be a table");
+        }
+    }
+
+    #[test]
+    fn non_listings_and_other_commands_stay_json() {
+        for path in [
+            "integrations okta accounts get",
+            "integrations okta accounts create",
+            "monitors list",
+            "cloud aws list",
+            "list",
+        ] {
+            assert!(!super::defaults_to_table(path), "{path} should stay JSON");
+        }
     }
 
     #[test]
@@ -15671,6 +16079,21 @@ async fn main_inner() -> anyhow::Result<()> {
     let interactive = std::io::stdin().is_terminal();
     #[cfg(target_arch = "wasm32")]
     let interactive = false;
+
+    // Apply the per-command table default. An explicit `--output`, `DD_OUTPUT` /
+    // `PUP_OUTPUT`, or `output:` in the config file all win over it. Redirected
+    // stdout stays JSON so pipes and agent callers keep parsing a document
+    // rather than suddenly receiving a rendered table, and `--jq` opts out
+    // because a projected result is usually a scalar, not a row set.
+    #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+    if cli.output.is_none()
+        && !jq_flag_passed
+        && std::io::stdout().is_terminal()
+        && !settings::output_format_pinned()
+        && get_full_subcommand_path(&matches).is_some_and(|p| defaults_to_table(&p))
+    {
+        cfg.output_format = config::OutputFormat::Table;
+    }
 
     // Durable trust allowlist from the config file, sourced once for all gate calls.
     #[cfg(not(feature = "browser"))]
@@ -19149,9 +19572,304 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Integrations { action } => {
             cfg.validate_auth()?;
             match action {
-                IntegrationActions::List => {
-                    commands::integrations::list(&cfg).await?;
+                IntegrationActions::List {
+                    configured,
+                    available,
+                    broken,
+                    manageable,
+                    search,
+                } => {
+                    commands::integrations::list(
+                        &cfg,
+                        configured,
+                        available,
+                        broken,
+                        manageable,
+                        search.as_deref(),
+                    )
+                    .await?;
                 }
+                IntegrationActions::Cloudflare { action } => match action {
+                    CloudflareActions::Accounts { action } => match action {
+                        IntegrationAccountActions::List => {
+                            commands::cloudflare::accounts_list(&cfg).await?
+                        }
+                        IntegrationAccountActions::Get { account_id } => {
+                            commands::cloudflare::accounts_get(&cfg, &account_id).await?
+                        }
+                        IntegrationAccountActions::Create { file } => {
+                            commands::cloudflare::accounts_create(&cfg, &file).await?
+                        }
+                        IntegrationAccountActions::Update { account_id, file } => {
+                            commands::cloudflare::accounts_update(&cfg, &account_id, &file).await?
+                        }
+                        IntegrationAccountActions::Delete { account_id } => {
+                            commands::cloudflare::accounts_delete(&cfg, &account_id).await?
+                        }
+                    },
+                },
+                IntegrationActions::Databricks { action } => match action {
+                    DatabricksActions::Accounts { action } => match action {
+                        IntegrationAccountActions::List => {
+                            commands::databricks::accounts_list(&cfg).await?
+                        }
+                        IntegrationAccountActions::Get { account_id } => {
+                            commands::databricks::accounts_get(&cfg, &account_id).await?
+                        }
+                        IntegrationAccountActions::Create { file } => {
+                            commands::databricks::accounts_create(&cfg, &file).await?
+                        }
+                        IntegrationAccountActions::Update { account_id, file } => {
+                            commands::databricks::accounts_update(&cfg, &account_id, &file).await?
+                        }
+                        IntegrationAccountActions::Delete { account_id } => {
+                            commands::databricks::accounts_delete(&cfg, &account_id).await?
+                        }
+                    },
+                },
+                IntegrationActions::ElasticCloud { action } => match action {
+                    ElasticCloudActions::Accounts { action } => match action {
+                        IntegrationAccountActions::List => {
+                            commands::elastic_cloud::accounts_list(&cfg).await?
+                        }
+                        IntegrationAccountActions::Get { account_id } => {
+                            commands::elastic_cloud::accounts_get(&cfg, &account_id).await?
+                        }
+                        IntegrationAccountActions::Create { file } => {
+                            commands::elastic_cloud::accounts_create(&cfg, &file).await?
+                        }
+                        IntegrationAccountActions::Update { account_id, file } => {
+                            commands::elastic_cloud::accounts_update(&cfg, &account_id, &file)
+                                .await?
+                        }
+                        IntegrationAccountActions::Delete { account_id } => {
+                            commands::elastic_cloud::accounts_delete(&cfg, &account_id).await?
+                        }
+                    },
+                },
+                IntegrationActions::Okta { action } => match action {
+                    OktaActions::Accounts { action } => match action {
+                        IntegrationAccountActions::List => {
+                            commands::okta::accounts_list(&cfg).await?
+                        }
+                        IntegrationAccountActions::Get { account_id } => {
+                            commands::okta::accounts_get(&cfg, &account_id).await?
+                        }
+                        IntegrationAccountActions::Create { file } => {
+                            commands::okta::accounts_create(&cfg, &file).await?
+                        }
+                        IntegrationAccountActions::Update { account_id, file } => {
+                            commands::okta::accounts_update(&cfg, &account_id, &file).await?
+                        }
+                        IntegrationAccountActions::Delete { account_id } => {
+                            commands::okta::accounts_delete(&cfg, &account_id).await?
+                        }
+                    },
+                },
+                IntegrationActions::Snowflake { action } => match action {
+                    SnowflakeActions::Accounts { action } => match action {
+                        IntegrationAccountActions::List => {
+                            commands::snowflake::accounts_list(&cfg).await?
+                        }
+                        IntegrationAccountActions::Get { account_id } => {
+                            commands::snowflake::accounts_get(&cfg, &account_id).await?
+                        }
+                        IntegrationAccountActions::Create { file } => {
+                            commands::snowflake::accounts_create(&cfg, &file).await?
+                        }
+                        IntegrationAccountActions::Update { account_id, file } => {
+                            commands::snowflake::accounts_update(&cfg, &account_id, &file).await?
+                        }
+                        IntegrationAccountActions::Delete { account_id } => {
+                            commands::snowflake::accounts_delete(&cfg, &account_id).await?
+                        }
+                    },
+                },
+                IntegrationActions::Twilio { action } => match action {
+                    TwilioActions::Accounts { action } => match action {
+                        IntegrationAccountActions::List => {
+                            commands::twilio::accounts_list(&cfg).await?
+                        }
+                        IntegrationAccountActions::Get { account_id } => {
+                            commands::twilio::accounts_get(&cfg, &account_id).await?
+                        }
+                        IntegrationAccountActions::Create { file } => {
+                            commands::twilio::accounts_create(&cfg, &file).await?
+                        }
+                        IntegrationAccountActions::Update { account_id, file } => {
+                            commands::twilio::accounts_update(&cfg, &account_id, &file).await?
+                        }
+                        IntegrationAccountActions::Delete { account_id } => {
+                            commands::twilio::accounts_delete(&cfg, &account_id).await?
+                        }
+                    },
+                },
+                IntegrationActions::ConfluentCloud { action } => match action {
+                    ConfluentCloudActions::Accounts { action } => match action {
+                        IntegrationAccountActions::List => {
+                            commands::confluent_cloud::accounts_list(&cfg).await?
+                        }
+                        IntegrationAccountActions::Get { account_id } => {
+                            commands::confluent_cloud::accounts_get(&cfg, &account_id).await?
+                        }
+                        IntegrationAccountActions::Create { file } => {
+                            commands::confluent_cloud::accounts_create(&cfg, &file).await?
+                        }
+                        IntegrationAccountActions::Update { account_id, file } => {
+                            commands::confluent_cloud::accounts_update(&cfg, &account_id, &file)
+                                .await?
+                        }
+                        IntegrationAccountActions::Delete { account_id } => {
+                            commands::confluent_cloud::accounts_delete(&cfg, &account_id).await?
+                        }
+                    },
+                    ConfluentCloudActions::Resources { action } => match action {
+                        ConfluentResourceActions::List { account_id } => {
+                            commands::confluent_cloud::resources_list(&cfg, &account_id).await?
+                        }
+                        ConfluentResourceActions::Get {
+                            account_id,
+                            resource_id,
+                        } => {
+                            commands::confluent_cloud::resources_get(
+                                &cfg,
+                                &account_id,
+                                &resource_id,
+                            )
+                            .await?
+                        }
+                        ConfluentResourceActions::Create { account_id, file } => {
+                            commands::confluent_cloud::resources_create(&cfg, &account_id, &file)
+                                .await?
+                        }
+                        ConfluentResourceActions::Update {
+                            account_id,
+                            resource_id,
+                            file,
+                        } => {
+                            commands::confluent_cloud::resources_update(
+                                &cfg,
+                                &account_id,
+                                &resource_id,
+                                &file,
+                            )
+                            .await?
+                        }
+                        ConfluentResourceActions::Delete {
+                            account_id,
+                            resource_id,
+                        } => {
+                            commands::confluent_cloud::resources_delete(
+                                &cfg,
+                                &account_id,
+                                &resource_id,
+                            )
+                            .await?
+                        }
+                    },
+                },
+                IntegrationActions::Fastly { action } => match action {
+                    FastlyActions::Accounts { action } => match action {
+                        IntegrationAccountActions::List => {
+                            commands::fastly::accounts_list(&cfg).await?
+                        }
+                        IntegrationAccountActions::Get { account_id } => {
+                            commands::fastly::accounts_get(&cfg, &account_id).await?
+                        }
+                        IntegrationAccountActions::Create { file } => {
+                            commands::fastly::accounts_create(&cfg, &file).await?
+                        }
+                        IntegrationAccountActions::Update { account_id, file } => {
+                            commands::fastly::accounts_update(&cfg, &account_id, &file).await?
+                        }
+                        IntegrationAccountActions::Delete { account_id } => {
+                            commands::fastly::accounts_delete(&cfg, &account_id).await?
+                        }
+                    },
+                    FastlyActions::Services { action } => match action {
+                        FastlyServiceActions::List { account_id } => {
+                            commands::fastly::services_list(&cfg, &account_id).await?
+                        }
+                        FastlyServiceActions::Get {
+                            account_id,
+                            service_id,
+                        } => commands::fastly::services_get(&cfg, &account_id, &service_id).await?,
+                        FastlyServiceActions::Create { account_id, file } => {
+                            commands::fastly::services_create(&cfg, &account_id, &file).await?
+                        }
+                        FastlyServiceActions::Update {
+                            account_id,
+                            service_id,
+                            file,
+                        } => {
+                            commands::fastly::services_update(&cfg, &account_id, &service_id, &file)
+                                .await?
+                        }
+                        FastlyServiceActions::Delete {
+                            account_id,
+                            service_id,
+                        } => {
+                            commands::fastly::services_delete(&cfg, &account_id, &service_id)
+                                .await?
+                        }
+                    },
+                },
+                IntegrationActions::Statuspage { action } => match action {
+                    StatuspageActions::Account { action } => match action {
+                        StatuspageAccountActions::Get => {
+                            commands::statuspage::account_get(&cfg).await?
+                        }
+                        StatuspageAccountActions::Create { file } => {
+                            commands::statuspage::account_create(&cfg, &file).await?
+                        }
+                        StatuspageAccountActions::Update { file } => {
+                            commands::statuspage::account_update(&cfg, &file).await?
+                        }
+                        StatuspageAccountActions::Delete => {
+                            commands::statuspage::account_delete(&cfg).await?
+                        }
+                    },
+                    StatuspageActions::UrlSettings { action } => match action {
+                        StatuspageUrlSettingActions::List => {
+                            commands::statuspage::url_settings_list(&cfg).await?
+                        }
+                        StatuspageUrlSettingActions::Create { file } => {
+                            commands::statuspage::url_settings_create(&cfg, &file).await?
+                        }
+                        StatuspageUrlSettingActions::Update { setting_id, file } => {
+                            commands::statuspage::url_settings_update(&cfg, &setting_id, &file)
+                                .await?
+                        }
+                        StatuspageUrlSettingActions::Delete { setting_id } => {
+                            commands::statuspage::url_settings_delete(&cfg, &setting_id).await?
+                        }
+                    },
+                },
+                IntegrationActions::Salesforce { action } => match action {
+                    SalesforceActions::Organizations { action } => match action {
+                        SalesforceOrganizationActions::List => {
+                            commands::salesforce::organizations_list(&cfg).await?
+                        }
+                        SalesforceOrganizationActions::Delete { org_id } => {
+                            commands::salesforce::organizations_delete(&cfg, &org_id).await?
+                        }
+                    },
+                    SalesforceActions::Templates { action } => match action {
+                        SalesforceTemplateActions::List => {
+                            commands::salesforce::templates_list(&cfg).await?
+                        }
+                        SalesforceTemplateActions::Create { file } => {
+                            commands::salesforce::templates_create(&cfg, &file).await?
+                        }
+                        SalesforceTemplateActions::Update { template_id, file } => {
+                            commands::salesforce::templates_update(&cfg, &template_id, &file)
+                                .await?
+                        }
+                        SalesforceTemplateActions::Delete { template_id } => {
+                            commands::salesforce::templates_delete(&cfg, &template_id).await?
+                        }
+                    },
+                },
                 IntegrationActions::Jira { action } => match action {
                     JiraActions::Accounts { action } => match action {
                         JiraAccountActions::List => {

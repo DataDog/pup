@@ -31,6 +31,18 @@ pup logs search --query="status:error" --from="1h"   # Sniff out errors
 pup metrics query --query="avg:system.cpu.user{*}"   # Track the metrics tail
 ```
 
+## Set Up Datadog in Your Project
+
+`pup setup` walks you through instrumenting a project with Datadog (APM, Docker, ECS, Error Tracking, and more). It runs Datadog's AI Setup CLI with `npx`, so it needs [Node.js](https://nodejs.org/en/download) 22 or newer, and it signs you in to Datadog if you aren't already.
+
+```bash
+pup setup                    # Start an interactive setup
+pup setup --product apm      # Set up a specific product
+pup setup --help             # List products and their flags
+```
+
+Agents and CI can run it non-interactively: `pup setup --headless` scans the repository and sets up the top recommended product, and `pup setup --headless --recommend-only` prints the recommendations as JSON without changing anything.
+
 :dog: **TL;DR**: We built a comprehensive CLI so AI agents can use Datadog like a pro. Give your agent a pup. They're housetrained, loyal, and know way more tricks than you'd expect.
 
 *P.S. No actual puppies were harmed in the making of this CLI. Just a lot of Rust code and API endpoints.*

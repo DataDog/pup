@@ -18,6 +18,18 @@ npm install -g @datadog/pup
 pup --help
 ```
 
+## Set up Datadog in your project
+
+`pup setup` walks you through instrumenting a project with Datadog (APM, Docker, ECS, Error Tracking, and more). It needs Node.js 22 or newer and signs you in to Datadog if you aren't already.
+
+```bash
+npx @datadog/pup setup                  # Start an interactive setup
+npx @datadog/pup setup --product apm    # Set up a specific product
+npx @datadog/pup setup --help           # List products and their flags
+```
+
+For agents and CI, `--headless` scans the repository and sets up the top recommended product; add `--recommend-only` to print the recommendations as JSON without changing anything.
+
 ## How it works
 
 This package contains a small Node.js launcher. The native pup binary ships in a separate package per platform, listed as `optionalDependencies`, so npm downloads only the one matching your machine:

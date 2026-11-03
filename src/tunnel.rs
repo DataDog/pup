@@ -215,28 +215,30 @@ struct SshHandler {
     tcp_writers: HashMap<ChannelId, tokio::net::tcp::OwnedWriteHalf>,
 }
 
+impl SshHandler {
+    fn authorize_public_key(&self, user: &str, public_key: &PublicKey) -> Auth {
+        if self.test_ids.iter().any(|test_id| test_id == user)
+            && public_key == &self.client_public_key
+        {
+            Auth::Accept
+        } else {
+            Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            }
+        }
+    }
+}
+
 impl Handler for SshHandler {
     type Error = anyhow::Error;
 
     async fn auth_publickey(
         &mut self,
         user: &str,
-        public_key: &PublicKey,
+        key: russh::server::VerifiedPublicKey<'_>,
     ) -> Result<Auth, Self::Error> {
-        if !self.test_ids.contains(&user.to_string()) {
-            return Ok(Auth::Reject {
-                proceed_with_methods: None,
-                partial_success: false,
-            });
-        }
-        if public_key == &self.client_public_key {
-            Ok(Auth::Accept)
-        } else {
-            Ok(Auth::Reject {
-                proceed_with_methods: None,
-                partial_success: false,
-            })
-        }
+        Ok(self.authorize_public_key(user, key.public_key))
     }
 
     async fn channel_open_session(
@@ -324,5 +326,61 @@ impl Handler for SshHandler {
     ) -> Result<(), Self::Error> {
         self.tcp_writers.remove(&channel);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn public_key() -> PublicKey {
+        let mut rng = OsRng;
+        let key = SshKey::random(
+            &mut rng,
+            Algorithm::Ecdsa {
+                curve: EcdsaCurve::NistP256,
+            },
+        )
+        .expect("generate test SSH key");
+        let private_key = key.to_openssh(LineEnding::LF).expect("encode test SSH key");
+        decode_secret_key(private_key.as_str(), None)
+            .expect("decode test SSH key")
+            .public_key()
+            .clone()
+    }
+
+    fn handler(client_public_key: PublicKey) -> SshHandler {
+        SshHandler {
+            test_ids: Arc::new(vec!["allowed-test".to_string()]),
+            client_public_key,
+            tcp_writers: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn accepts_stored_client_key_for_allowed_test() {
+        let key = public_key();
+        let handler = handler(key.clone());
+
+        assert!(matches!(
+            handler.authorize_public_key("allowed-test", &key),
+            Auth::Accept
+        ));
+    }
+
+    #[test]
+    fn rejects_other_key_and_unknown_test() {
+        let stored_key = public_key();
+        let other_key = public_key();
+        let handler = handler(stored_key);
+
+        assert!(matches!(
+            handler.authorize_public_key("allowed-test", &other_key),
+            Auth::Reject { .. }
+        ));
+        assert!(matches!(
+            handler.authorize_public_key("unknown-test", &handler.client_public_key),
+            Auth::Reject { .. }
+        ));
     }
 }

@@ -3,6 +3,9 @@
 pub mod authn_mappings;
 pub mod domain_allowlist;
 pub mod downtime;
+pub mod gen_api_management;
+pub mod gen_status_pages;
+pub mod gen_usage;
 pub mod writes;
 
 use anyhow::Result;
@@ -20,10 +23,28 @@ pub enum GeneratedCommand {
         #[command(subcommand)]
         action: domain_allowlist::Command,
     },
+    /// Manage gen_api_management resources
+    GenApiManagement {
+        #[command(subcommand)]
+        action: gen_api_management::Command,
+    },
+    /// Manage gen_status_pages resources
+    GenStatusPages {
+        #[command(subcommand)]
+        action: gen_status_pages::Command,
+    },
+    /// Manage gen_usage resources
+    GenUsage {
+        #[command(subcommand)]
+        action: gen_usage::Command,
+    },
 }
 
 pub async fn run(cfg: &Config, command: GeneratedCommand) -> Result<()> {
     match command {
         GeneratedCommand::DomainAllowlist { action } => domain_allowlist::run(cfg, action).await,
+        GeneratedCommand::GenApiManagement { action } => gen_api_management::run(cfg, action).await,
+        GeneratedCommand::GenStatusPages { action } => gen_status_pages::run(cfg, action).await,
+        GeneratedCommand::GenUsage { action } => gen_usage::run(cfg, action).await,
     }
 }

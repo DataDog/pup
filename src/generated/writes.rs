@@ -7,4 +7,6 @@ pub const WRITE_COMMANDS: &[&str] = &[
     "authn-mappings update",
     "downtime cancel",
     "downtime create",
+    "gen-api-management delete",
+    "gen-status-pages delete",
 ];

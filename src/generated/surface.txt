@@ -11,3 +11,11 @@ downtime.cancel
 downtime.create
 downtime.get
 downtime.list
+gen-api-management
+gen-api-management.delete
+gen-api-management.get
+gen-status-pages
+gen-status-pages.delete
+gen-status-pages.get
+gen-usage
+gen-usage.get

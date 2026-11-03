@@ -25,12 +25,13 @@ pub async fn ask(
 
     let app_base = format!("https://{}", cfg.auth_host());
 
+    let access_token = cfg.bearer_token().await?;
     let agent_id = match agent_id {
         Some(id) if !id.is_empty() => id,
         _ => {
             lassie::resolve_agent_id(
                 &app_base,
-                cfg.access_token.as_deref(),
+                access_token.as_deref(),
                 cfg.api_key.as_deref(),
                 cfg.app_key.as_deref(),
                 auto_create,
@@ -116,7 +117,7 @@ async fn send_turn(
                 "application/json"
             },
         );
-    let req = add_auth(req, cfg)?;
+    let req = add_auth(req, cfg).await?;
 
     let resp = req
         .json(&body)
@@ -251,10 +252,11 @@ fn extract_text(val: &serde_json::Value) -> String {
 
 /// Convenience wrapper that extracts credentials from `Config`.
 #[cfg(not(target_arch = "wasm32"))]
-fn add_auth(req: reqwest::RequestBuilder, cfg: &Config) -> Result<reqwest::RequestBuilder> {
+async fn add_auth(req: reqwest::RequestBuilder, cfg: &Config) -> Result<reqwest::RequestBuilder> {
+    let access_token = cfg.bearer_token().await?;
     lassie::add_auth(
         req,
-        cfg.access_token.as_deref(),
+        access_token.as_deref(),
         cfg.api_key.as_deref(),
         cfg.app_key.as_deref(),
     )

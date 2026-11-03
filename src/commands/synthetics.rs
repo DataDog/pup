@@ -27,12 +27,12 @@ fn synthetics_intake_base_url(cfg: &Config) -> String {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn build_auth_headers(cfg: &Config) -> anyhow::Result<reqwest::header::HeaderMap> {
+async fn build_auth_headers(cfg: &Config) -> anyhow::Result<reqwest::header::HeaderMap> {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     let mut headers = HeaderMap::new();
 
     // Prefer OAuth2 bearer token, falling back to API + app keys.
-    if let Some(token) = cfg.access_token.as_ref() {
+    if let Some(token) = cfg.bearer_token().await? {
         headers.insert(
             reqwest::header::AUTHORIZATION,
             HeaderValue::from_str(&format!("Bearer {token}"))?,
@@ -73,7 +73,6 @@ pub async fn tests_run(
         anyhow::bail!("at least one public ID is required");
     }
 
-    let auth_headers = build_auth_headers(cfg)?;
     let intake_url = synthetics_intake_base_url(cfg);
     let client = reqwest::Client::new();
 
@@ -89,7 +88,7 @@ pub async fn tests_run(
         let tunnel_resp = client
             .get(format!("{intake_url}/synthetics/ci/tunnel"))
             .query(&query)
-            .headers(auth_headers.clone())
+            .headers(build_auth_headers(cfg).await?)
             .send()
             .await?;
         if !tunnel_resp.status().is_success() {
@@ -132,7 +131,7 @@ pub async fn tests_run(
     eprintln!("Triggering {} test(s)...", public_ids.len());
     let trigger_resp = client
         .post(format!("{intake_url}/synthetics/tests/trigger/ci"))
-        .headers(auth_headers.clone())
+        .headers(build_auth_headers(cfg).await?)
         .header("X-Trigger-App", TRIGGER_APP)
         .json(&trigger_payload)
         .send()
@@ -163,7 +162,7 @@ pub async fn tests_run(
 
         let batch_resp = client
             .get(&poll_url)
-            .headers(auth_headers.clone())
+            .headers(build_auth_headers(cfg).await?)
             .send()
             .await?;
         if !batch_resp.status().is_success() {
@@ -1025,37 +1024,43 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn test_build_auth_headers_prefers_bearer() {
+    #[tokio::test]
+    async fn test_build_auth_headers_prefers_bearer() {
         let mut cfg = test_config("http://unused.local");
         cfg.access_token = Some("tok-123".into());
-        let headers = super::build_auth_headers(&cfg).expect("bearer headers");
+        let headers = super::build_auth_headers(&cfg)
+            .await
+            .expect("bearer headers");
         assert_eq!(headers.get("authorization").unwrap(), "Bearer tok-123");
         assert!(headers.get("dd-api-key").is_none());
         assert!(headers.get("dd-application-key").is_none());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn test_build_auth_headers_falls_back_to_api_keys() {
+    #[tokio::test]
+    async fn test_build_auth_headers_falls_back_to_api_keys() {
         let mut cfg = test_config("http://unused.local");
         cfg.access_token = None;
         cfg.api_key = Some("api-1".into());
         cfg.app_key = Some("app-1".into());
-        let headers = super::build_auth_headers(&cfg).expect("api-key headers");
+        let headers = super::build_auth_headers(&cfg)
+            .await
+            .expect("api-key headers");
         assert_eq!(headers.get("dd-api-key").unwrap(), "api-1");
         assert_eq!(headers.get("dd-application-key").unwrap(), "app-1");
         assert!(headers.get("authorization").is_none());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn test_build_auth_headers_requires_some_auth() {
+    #[tokio::test]
+    async fn test_build_auth_headers_requires_some_auth() {
         let mut cfg = test_config("http://unused.local");
         cfg.access_token = None;
         cfg.api_key = None;
         cfg.app_key = None;
-        let err = super::build_auth_headers(&cfg).expect_err("should require auth");
+        let err = super::build_auth_headers(&cfg)
+            .await
+            .expect_err("should require auth");
         assert!(err.to_string().contains("requires authentication"));
     }
 

@@ -13,7 +13,7 @@ pub async fn get(cfg: &Config, path: &str, query: &[(&str, String)]) -> Result<s
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.get(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg).await?;
     if !query.is_empty() {
         req = req.query(query);
     }
@@ -25,7 +25,7 @@ pub async fn post(cfg: &Config, path: &str, body: &serde_json::Value) -> Result<
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.post(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg).await?;
     req = req.json(body);
     send(req).await
 }
@@ -35,7 +35,7 @@ pub async fn put(cfg: &Config, path: &str, body: &serde_json::Value) -> Result<s
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.put(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg).await?;
     req = req.json(body);
     send(req).await
 }
@@ -49,7 +49,7 @@ pub async fn patch(
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.patch(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg).await?;
     req = req.json(body);
     send(req).await
 }
@@ -59,7 +59,7 @@ pub async fn delete(cfg: &Config, path: &str) -> Result<serde_json::Value> {
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.delete(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg).await?;
     send(req).await
 }
 
@@ -73,13 +73,13 @@ pub async fn delete_with_body(
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
     let mut req = client.delete(&url);
-    req = apply_auth(req, cfg)?;
+    req = apply_auth(req, cfg).await?;
     req = req.json(body);
     send(req).await
 }
 
-fn apply_auth(req: reqwest::RequestBuilder, cfg: &Config) -> Result<reqwest::RequestBuilder> {
-    if let Some(token) = &cfg.access_token {
+async fn apply_auth(req: reqwest::RequestBuilder, cfg: &Config) -> Result<reqwest::RequestBuilder> {
+    if let Some(token) = cfg.bearer_token().await? {
         Ok(req.header("Authorization", format!("Bearer {token}")))
     } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
         Ok(req
@@ -125,6 +125,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -160,6 +162,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -199,6 +203,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -233,6 +239,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -267,6 +275,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -301,6 +311,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -334,6 +346,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -368,6 +382,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: Some("test-bearer-token".into()),
@@ -400,6 +416,8 @@ mod tests {
         let _lock = lock_env().await;
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -428,6 +446,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,
@@ -462,6 +482,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-key".into()),
             app_key: Some("test-app".into()),
             access_token: None,

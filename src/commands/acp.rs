@@ -33,7 +33,7 @@ pub async fn serve(
     cfg.validate_auth()?;
 
     let app_base = format!("https://{}", cfg.auth_host());
-    let access_token = cfg.access_token.clone();
+    let access_token = cfg.bearer_token().await?;
     let api_key = cfg.api_key.clone();
     let app_key = cfg.app_key.clone();
 
@@ -72,11 +72,18 @@ pub async fn serve(
         let (stream, peer_addr) = listener.accept().await?;
         let app_base = app_base.clone();
         let agent_id = agent_id.clone();
-        let access_token = access_token.clone();
+        let cfg = cfg.clone();
         let api_key = api_key.clone();
         let app_key = app_key.clone();
 
         tokio::spawn(async move {
+            let access_token = match cfg.bearer_token().await {
+                Ok(token) => token,
+                Err(error) => {
+                    eprintln!("[{peer_addr}] Authentication failed: {error}");
+                    return;
+                }
+            };
             if let Err(e) = handle_connection(
                 stream,
                 peer_addr,

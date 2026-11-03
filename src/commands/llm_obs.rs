@@ -1499,6 +1499,8 @@ mod tests {
         let _lock = lock_env().await;
         std::env::set_var("DD_TOKEN_STORAGE", "file");
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2202,6 +2204,8 @@ mod tests {
             r#"{"data":{"type":"datasets","attributes":{"name":"x"}}}"#,
         );
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2288,6 +2292,8 @@ mod tests {
     async fn test_llm_obs_experiments_summary_no_auth() {
         let _lock = lock_env().await;
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2436,6 +2442,8 @@ mod tests {
     async fn test_llm_obs_experiments_events_get_no_auth() {
         let _lock = lock_env().await;
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -2971,6 +2979,8 @@ mod tests {
     async fn test_llm_obs_spans_search_no_auth() {
         let _lock = lock_env().await;
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -5035,6 +5045,8 @@ mod tests {
         let _lock = lock_env().await;
         std::env::set_var("DD_TOKEN_STORAGE", "file");
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,
@@ -5384,6 +5396,8 @@ mod tests {
         let _lock = lock_env().await;
         std::env::set_var("DD_TOKEN_STORAGE", "file");
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: None,

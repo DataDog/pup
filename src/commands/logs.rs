@@ -1393,6 +1393,8 @@ mod tests {
         std::env::set_var("PUP_MOCK_SERVER", server.url());
 
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: Some("token".into()),
@@ -1455,6 +1457,8 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         std::env::set_var("PUP_MOCK_SERVER", server.url());
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: Some("token".into()),

@@ -72,7 +72,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | reference-tables | list, get, create, batch-query | src/commands/reference_tables.rs | ✅ |
 | network | flows list, devices (list, get, interfaces, tags), interfaces (list, update) | src/commands/network.rs | ✅ |
 | cloud | aws, gcp, azure, oci | src/commands/cloud.rs | ✅ |
-| integrations | slack, pagerduty, webhooks, jira, servicenow | src/commands/integrations.rs | ✅ |
+| integrations | list (--configured, --available, --broken, --manageable, --search), slack, pagerduty, webhooks, jira, servicenow, google-chat, ms-teams, okta, cloudflare, databricks, elastic-cloud, snowflake, twilio, confluent-cloud, fastly, statuspage, salesforce | src/commands/integrations.rs | ✅ |
 | misc | ip-ranges, status | src/commands/misc.rs | ✅ |
 | cases | create, get, search, count, aggregate, assign, unassign, archive, update-*, comments, watchers, links, views, types, custom-attributes, projects (automation-rules, notification-rules, favorites), jira, servicenow, incidents, notebooks, insights, move | src/commands/cases.rs | ✅ |
 | status-pages | pages, components, degradations | src/commands/status_pages.rs | ✅ |
@@ -244,7 +244,11 @@ pup infrastructure hosts list
 
 ### Cloud & Integrations
 - **cloud** - Cloud providers (aws, gcp, azure, oci)
-- **integrations** - Third-party integrations (slack, pagerduty, webhooks, jira, servicenow)
+- **integrations** - Third-party integrations (list, slack, pagerduty, webhooks, jira, servicenow, google-chat, ms-teams, okta, cloudflare, databricks, elastic-cloud, snowflake, twilio, confluent-cloud, fastly, statuspage, salesforce)
+  - `list` shows the full catalog by default; `--configured`, `--available`, `--broken`, `--manageable`, and `--search` narrow it (the first three are mutually exclusive). Table columns are name, `status` (configured / available), the pup `manage` command, and `health` (ok / error) when a probe ran. Catalog IDs and full issue text are omitted from the table but kept in `-o json`. Health data backing `--broken` is only available for Amazon Web Services, Google Cloud, and Oracle Cloud Infrastructure.
+  - Every `pup integrations ... list` renders as a table in a terminal; redirected/piped output and `--jq` stay JSON, and `-o json` forces JSON anywhere.
+  - Account CRUD subcommands (`okta`, `cloudflare`, `databricks`, `elastic-cloud`, `snowflake`, `twilio`, `confluent-cloud`, `fastly`, `statuspage`, `salesforce`) take request bodies via `--file <json>` so credentials stay out of shell history.
+  - `statuspage` manages the Atlassian Statuspage integration; Datadog's own Status Pages product is `pup status-pages`.
 
 ### Development & Quality
 - **cicd** - CI/CD visibility (pipelines, events, tests, dora, flaky-tests)

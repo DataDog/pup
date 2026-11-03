@@ -563,6 +563,17 @@ pub fn configured_trusted_sites() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// True when the user has pinned an output format somewhere ambient: the
+/// `DD_OUTPUT` / `PUP_OUTPUT` env vars or `output:` in the config file. Lets a
+/// command apply its own default format without overriding a stated preference.
+/// The `--output` flag is checked by the caller, which still has it.
+#[cfg(not(feature = "browser"))]
+pub fn output_format_pinned() -> bool {
+    env_or("DD_OUTPUT", None)
+        .or_else(|| env_or("PUP_OUTPUT", load_config_file().and_then(|c| c.output)))
+        .is_some()
+}
+
 /// Returns `true` when `site` may receive credentials without an interactive
 /// prompt: it is Datadog-owned, or opted in via `PUP_TRUST_SITE` or the
 /// `trusted_sites` config list. This is the non-interactive subset of the

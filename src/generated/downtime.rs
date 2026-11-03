@@ -45,7 +45,7 @@ pub enum Command {
         ///
         /// **Note**: This feature is currently in Preview and may not be available for all organizations.
         #[arg(long = "with-run-as")]
-        with_run_as: Option<bool>,
+        with_run_as: bool,
     },
     /// Get all downtimes
     ///
@@ -53,7 +53,7 @@ pub enum Command {
     List {
         /// Only return downtimes that are active when the request is made.
         #[arg(long = "current-only")]
-        current_only: Option<bool>,
+        current_only: bool,
         /// Comma-separated list of resource paths for related resources to include in the response. Supported resource
         /// paths are `created_by` and `monitor`.
         #[arg(long = "include")]
@@ -91,12 +91,12 @@ pub async fn run(cfg: &Config, command: Command) -> Result<()> {
 ///
 /// **Note**: Downtimes canceled through the API are no longer active, but are retained for approximately two days before being permanently removed. The downtime may still appear in search results until it is permanently removed.
 pub async fn cancel(cfg: &Config, downtime_id: String) -> Result<()> {
+    let resource_label = downtime_id.to_string();
     let api = crate::make_api!(DowntimesAPI, cfg);
     api.cancel_downtime(downtime_id)
         .await
         .map_err(|e| anyhow::anyhow!("failed to cancel_downtime: {:?}", e))?;
-    println!("downtime cancel: ok");
-    Ok(())
+    formatter::output_no_content(cfg, "downtime cancel", Some(&resource_label))
 }
 
 /// Schedule a downtime
@@ -119,15 +119,15 @@ pub async fn get(
     cfg: &Config,
     downtime_id: String,
     include: Option<String>,
-    with_run_as: Option<bool>,
+    with_run_as: bool,
 ) -> Result<()> {
     let api = crate::make_api!(DowntimesAPI, cfg);
     let mut params = GetDowntimeOptionalParams::default();
     if let Some(v) = include {
         params = params.include(v);
     }
-    if let Some(v) = with_run_as {
-        params = params.with_run_as(v);
+    if with_run_as {
+        params = params.with_run_as(true);
     }
     let resp = api
         .get_downtime(downtime_id, params)
@@ -141,15 +141,15 @@ pub async fn get(
 /// Get all scheduled downtimes.
 pub async fn list(
     cfg: &Config,
-    current_only: Option<bool>,
+    current_only: bool,
     include: Option<String>,
     page_offset: Option<i64>,
     page_limit: Option<i64>,
 ) -> Result<()> {
     let api = crate::make_api!(DowntimesAPI, cfg);
     let mut params = ListDowntimesOptionalParams::default();
-    if let Some(v) = current_only {
-        params = params.current_only(v);
+    if current_only {
+        params = params.current_only(true);
     }
     if let Some(v) = include {
         params = params.include(v);
@@ -183,7 +183,7 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
         let _mock = mock_any(&mut server, "GET", r##"{"data": {"attributes": {"created": "2024-01-01T00:00:00+00:00", "display_timezone": "America/New_York", "message": "Message about the downtime", "modified": "2024-01-01T00:00:00+00:00", "monitor_identifier": {"monitor_tags": ["*"]}, "mute_first_recovery_notification": false, "notify_end_states": ["alert", "warn"], "notify_end_types": ["canceled", "expired"], "scope": "env:(staging OR prod) AND datacenter:us-east-1", "status": "active"}, "id": "00000000-0000-1234-0000-000000000000", "type": "downtime"}}"##).await;
-        let result = super::get(&cfg, "test".to_string(), None, None).await;
+        let result = super::get(&cfg, "test".to_string(), None, false).await;
         assert!(result.is_ok(), "get failed: {:?}", result.err());
         cleanup_env();
     }
@@ -194,7 +194,7 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
         let _mock = mock_any(&mut server, "GET", r##"{"data": [{"attributes": {"created": "2024-01-01T00:00:00+00:00", "display_timezone": "America/New_York", "message": "Message about the downtime", "modified": "2024-01-01T00:00:00+00:00", "monitor_identifier": {"monitor_tags": ["*"]}, "mute_first_recovery_notification": false, "notify_end_states": ["alert", "warn"], "notify_end_types": ["canceled", "expired"], "scope": "env:(staging OR prod) AND datacenter:us-east-1", "status": "active"}, "id": "00000000-0000-1234-0000-000000000000", "type": "downtime"}], "meta": {"page": {"total_filtered_count": 1}}}"##).await;
-        let result = super::list(&cfg, None, None, None, None).await;
+        let result = super::list(&cfg, false, None, None, None).await;
         assert!(result.is_ok(), "list failed: {:?}", result.err());
         cleanup_env();
     }

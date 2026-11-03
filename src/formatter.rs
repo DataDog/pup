@@ -52,6 +52,45 @@ pub fn output_with_table<T: Serialize>(
     format_and_print_with_table(data, &cfg.output_format, cfg.jq.as_deref(), table)
 }
 
+/// Report success for an operation whose response has no body (e.g. a 204 delete).
+///
+/// JSON and YAML print the default envelope with `data: null`, so stdout stays
+/// parseable. Table, CSV, TSV, and `--no-envelope` leave stdout empty and print a
+/// one-line confirmation on stderr, naming the resource (the path parameter values)
+/// when there is one: `<command> <resource>: success`.
+pub fn output_no_content(
+    cfg: &crate::config::Config,
+    command: &str,
+    resource: Option<&str>,
+) -> Result<()> {
+    if crate::output::metadata_visible(&cfg.output_format) {
+        let meta = Metadata {
+            command: Some(command.to_string()),
+            ..Default::default()
+        };
+        // No jq: there is no body to filter, and a filter such as `.[]` would fail on
+        // `null` after the request already succeeded.
+        return format_and_print_with(
+            &serde_json::Value::Null,
+            &cfg.output_format,
+            None,
+            Some(&meta),
+            None,
+        );
+    }
+    match resource {
+        Some(resource) => eprintln!("{command} {resource}: success"),
+        None => eprintln!("{command}: success"),
+    }
+    // pup prints the --verbose rate-limit block from output::print_value, which this
+    // branch never reaches.
+    #[cfg(not(feature = "browser"))]
+    if crate::rate_limit::verbose_enabled() {
+        crate::rate_limit::eprint_verbose_response(&cfg.output_format)?;
+    }
+    Ok(())
+}
+
 /// Convenience wrapper for commands that add envelope metadata.
 pub fn output_with_meta<T: Serialize>(
     cfg: &crate::config::Config,

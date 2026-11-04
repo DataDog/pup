@@ -11,3 +11,7 @@ downtime.cancel
 downtime.create
 downtime.get
 downtime.list
+security-agent-investigations
+security-agent-investigations.count
+security-agent-investigations.get
+security-agent-investigations.list

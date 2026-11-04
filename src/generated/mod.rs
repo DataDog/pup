@@ -3,6 +3,7 @@
 pub mod authn_mappings;
 pub mod domain_allowlist;
 pub mod downtime;
+pub mod security_agent_investigations;
 pub mod writes;
 
 use anyhow::Result;
@@ -20,10 +21,18 @@ pub enum GeneratedCommand {
         #[command(subcommand)]
         action: domain_allowlist::Command,
     },
+    /// Manage security_agent_investigations resources
+    SecurityAgentInvestigations {
+        #[command(subcommand)]
+        action: security_agent_investigations::Command,
+    },
 }
 
 pub async fn run(cfg: &Config, command: GeneratedCommand) -> Result<()> {
     match command {
         GeneratedCommand::DomainAllowlist { action } => domain_allowlist::run(cfg, action).await,
+        GeneratedCommand::SecurityAgentInvestigations { action } => {
+            security_agent_investigations::run(cfg, action).await
+        }
     }
 }

@@ -14643,6 +14643,33 @@ mod test_agent_schema {
     }
 
     #[test]
+    fn historical_jobs_write_classification() {
+        assert!(is_write_command(
+            "security historical-jobs convert",
+            "convert"
+        ));
+        assert!(!is_write_command("security rules convert", "convert"));
+        let schema = get_schema();
+        let commands = schema["commands"].as_array().unwrap();
+        for action in ["run", "cancel", "delete", "convert"] {
+            let command = find_command(commands, &["security", "historical-jobs", action]).unwrap();
+            assert_eq!(command["read_only"], false, "{action}");
+        }
+        for path in [
+            &["security", "historical-jobs", "list"][..],
+            &["security", "historical-jobs", "get"],
+            &["security", "histsignals", "search"],
+            &["security", "histsignals", "get"],
+        ] {
+            assert_eq!(
+                find_command(commands, path).unwrap()["read_only"],
+                true,
+                "{path:?}"
+            );
+        }
+    }
+
+    #[test]
     fn is_write_command_governance_schema() {
         let schema = get_schema();
         let commands = schema["commands"].as_array().unwrap();
@@ -15757,13 +15784,21 @@ pub(crate) fn get_full_subcommand_path(matches: &clap::ArgMatches) -> Option<Str
     }
 }
 
+/// Hand-written writes whose leaf name is not a write verb elsewhere
+/// (e.g. `security rules convert` is a read-only Terraform conversion).
+const HAND_WRITTEN_WRITE_COMMANDS: &[&str] = &["security historical-jobs convert"];
+
 /// Classifies a command as a write, consulting `write_commands` (full command
 /// paths, e.g. "downtimes mute") first and falling back to the leaf-name
 /// vocabulary. Split out from `is_write_command` so the precedence rule is
 /// testable independently of the generator's (empty, until first generation)
 /// `WRITE_COMMANDS` list.
 fn classify_write(full_path: &str, leaf: &str, write_commands: &[&str]) -> bool {
-    write_commands.contains(&full_path) || is_write_command_name(leaf)
+    write_commands.contains(&full_path)
+        || HAND_WRITTEN_WRITE_COMMANDS
+            .iter()
+            .any(|p| full_path == *p || full_path.ends_with(&format!(" {p}")))
+        || is_write_command_name(leaf)
 }
 
 /// Returns true if a command is a write, consulting the spec-derived fact in

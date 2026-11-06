@@ -889,8 +889,7 @@ pub async fn historical_jobs_cancel(cfg: &Config, job_id: &str) -> Result<()> {
     api.cancel_historical_job(job_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to cancel historical job '{job_id}': {e:?}"))?;
-    println!("Historical job '{job_id}' canceled.");
-    Ok(())
+    formatter::output_no_content(cfg, "security historical-jobs cancel", Some(job_id))
 }
 
 pub async fn historical_jobs_delete(cfg: &Config, job_id: &str) -> Result<()> {
@@ -898,8 +897,7 @@ pub async fn historical_jobs_delete(cfg: &Config, job_id: &str) -> Result<()> {
     api.delete_historical_job(job_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete historical job '{job_id}': {e:?}"))?;
-    println!("Historical job '{job_id}' deleted.");
-    Ok(())
+    formatter::output_no_content(cfg, "security historical-jobs delete", Some(job_id))
 }
 
 fn parse_convert_severity(s: &str) -> Result<SecurityMonitoringRuleSeverity> {
@@ -935,7 +933,7 @@ pub async fn historical_jobs_convert(
     let body = ConvertJobResultsToSignalsRequest::new().data(
         ConvertJobResultsToSignalsData::new()
             .attributes(ConvertJobResultsToSignalsAttributes::new(
-                histsignal_ids.clone(),
+                histsignal_ids,
                 notifications,
                 message,
                 severity,
@@ -948,11 +946,7 @@ pub async fn historical_jobs_convert(
     api.convert_job_result_to_signal(body)
         .await
         .map_err(|e| anyhow::anyhow!("failed to convert histsignals to signals: {e:?}"))?;
-    println!(
-        "Converted {} histsignal(s) to signals.",
-        histsignal_ids.len()
-    );
-    Ok(())
+    formatter::output_no_content(cfg, "security historical-jobs convert", None)
 }
 
 /// Start of the default search window for a job: its definition `from`

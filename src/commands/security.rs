@@ -16,19 +16,21 @@ use datadog_api_client::datadogV2::api_security_monitoring::{
     ListSecurityMonitoringRulesOptionalParams, ListSecurityMonitoringSuppressionsOptionalParams,
     SearchSecurityMonitoringSignalsOptionalParams, SecurityMonitoringAPI,
 };
+#[cfg(not(generated_op = "security.findings.mute"))]
+use datadog_api_client::datadogV2::model::MuteFindingsRequest;
 use datadog_api_client::datadogV2::model::{
     ApplicationSecurityWafCustomRuleCreateRequest, ApplicationSecurityWafCustomRuleUpdateRequest,
     ApplicationSecurityWafExclusionFilterCreateRequest,
-    ApplicationSecurityWafExclusionFilterUpdateRequest, MuteFindingsRequest,
-    RestrictionPolicyUpdateRequest, SecurityMonitoringRuleBulkExportAttributes,
-    SecurityMonitoringRuleBulkExportData, SecurityMonitoringRuleBulkExportDataType,
-    SecurityMonitoringRuleBulkExportPayload, SecurityMonitoringRuleConvertBulkPayload,
-    SecurityMonitoringRuleConvertPayload, SecurityMonitoringRuleSort,
-    SecurityMonitoringSignalListRequest, SecurityMonitoringSignalListRequestFilter,
-    SecurityMonitoringSignalListRequestPage, SecurityMonitoringSignalsSort,
-    SecurityMonitoringSuppressionCreateRequest, SecurityMonitoringSuppressionSort,
-    SecurityMonitoringSuppressionUpdateRequest, SecurityMonitoringTerraformBulkExportRequest,
-    SecurityMonitoringTerraformConvertRequest, SecurityMonitoringTerraformResourceType,
+    ApplicationSecurityWafExclusionFilterUpdateRequest, RestrictionPolicyUpdateRequest,
+    SecurityMonitoringRuleBulkExportAttributes, SecurityMonitoringRuleBulkExportData,
+    SecurityMonitoringRuleBulkExportDataType, SecurityMonitoringRuleBulkExportPayload,
+    SecurityMonitoringRuleConvertBulkPayload, SecurityMonitoringRuleConvertPayload,
+    SecurityMonitoringRuleSort, SecurityMonitoringSignalListRequest,
+    SecurityMonitoringSignalListRequestFilter, SecurityMonitoringSignalListRequestPage,
+    SecurityMonitoringSignalsSort, SecurityMonitoringSuppressionCreateRequest,
+    SecurityMonitoringSuppressionSort, SecurityMonitoringSuppressionUpdateRequest,
+    SecurityMonitoringTerraformBulkExportRequest, SecurityMonitoringTerraformConvertRequest,
+    SecurityMonitoringTerraformResourceType,
 };
 
 const SCHEMA_URL: &str = "https://docs.datadoghq.com/security/guide/findings-schema.md";
@@ -409,6 +411,7 @@ pub async fn findings_search(cfg: &Config, query: Option<String>, limit: i64) ->
 /// Mute or unmute security findings (stable, SDK #1519/#1660).
 /// Accepts up to 100 finding IDs per request. The `--file` must contain a
 /// JSON body shaped as `MuteFindingsRequest` (see Datadog docs).
+#[cfg(not(generated_op = "security.findings.mute"))]
 pub async fn findings_mute(cfg: &Config, file: &str) -> Result<()> {
     let body: MuteFindingsRequest = util::read_json_file(file)?;
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
@@ -1645,6 +1648,7 @@ mod tests {
             .contains("invalid --sort value"));
     }
 
+    #[cfg(not(generated_op = "security.findings.mute"))]
     #[tokio::test]
     async fn test_findings_mute_ok() {
         let _lock = lock_env().await;
@@ -1668,6 +1672,7 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[cfg(not(generated_op = "security.findings.mute"))]
     #[tokio::test]
     async fn test_findings_mute_error() {
         let _lock = lock_env().await;

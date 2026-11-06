@@ -64,6 +64,7 @@ pub async fn ask(question: &str, out: &mut impl Write) -> Result<()> {
     let mut buffer = String::new();
     let mut bytes_stream = resp.bytes_stream();
     let mut saw_done = false;
+    let mut writer = AnswerWriter::new(out);
 
     // SSE framing follows the same pattern as bits.rs: accumulate chunks,
     // split on \n\n event boundaries, strip "data: " prefix per line.
@@ -83,8 +84,8 @@ pub async fn ask(question: &str, out: &mut impl Write) -> Result<()> {
                     saw_done = true;
                     break 'outer;
                 }
-                if let Some(text) = extract_sse_content(data_str) {
-                    if !emit(out, &text)? {
+                if let Some(event) = extract_sse_event(data_str) {
+                    if !writer.write_event(&event)? {
                         return Ok(());
                     }
                 }
@@ -99,8 +100,8 @@ pub async fn ask(question: &str, out: &mut impl Write) -> Result<()> {
         };
         if data_str.trim() == "[DONE]" {
             saw_done = true;
-        } else if let Some(text) = extract_sse_content(data_str) {
-            if !emit(out, &text)? {
+        } else if let Some(event) = extract_sse_event(data_str) {
+            if !writer.write_event(&event)? {
                 return Ok(());
             }
         }
@@ -111,26 +112,95 @@ pub async fn ask(question: &str, out: &mut impl Write) -> Result<()> {
             "Warning: Docs AI stream ended without a completion signal — the response may be truncated."
         );
     }
-    writeln!(out).map_err(|e| anyhow::anyhow!("Failed to write Docs AI response: {e}"))?;
+    writer.finish()?;
     Ok(())
 }
 
-/// Write `text` to `out` and flush. Returns `Ok(false)` on `BrokenPipe` (caller
-/// should stop and return `Ok(())`), `Ok(true)` on success, `Err` on other I/O errors.
-fn emit(out: &mut impl Write, text: &str) -> Result<bool> {
-    if let Err(e) = writeln!(out, "{text}") {
-        if e.kind() == std::io::ErrorKind::BrokenPipe {
-            return Ok(false);
+/// A single renderable event from the Docs AI stream.
+///
+/// The distinction matters for line breaks: `Status` events are self-contained
+/// progress messages that each occupy a line, while `Fragment` events are
+/// sub-word pieces of one continuous answer and must be concatenated verbatim.
+/// Terminating every event with a newline splits the answer mid-word at
+/// whatever boundary the network happened to chunk on.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DocsEvent {
+    /// Progress message (e.g. "Searching documentation..."); stands on its own line.
+    Status(String),
+    /// A piece of the streamed answer; concatenate with its neighbors, no newline.
+    Fragment(String),
+}
+
+/// Streams Docs AI events to `out`, inserting line breaks only where they belong.
+///
+/// Tracks whether the last byte written was a newline so that a status message
+/// never lands mid-answer and the output ends with exactly one trailing newline.
+struct AnswerWriter<'a, W: Write> {
+    out: &'a mut W,
+    wrote_any: bool,
+    ends_with_newline: bool,
+}
+
+impl<'a, W: Write> AnswerWriter<'a, W> {
+    fn new(out: &'a mut W) -> Self {
+        Self {
+            out,
+            wrote_any: false,
+            ends_with_newline: true,
         }
-        return Err(anyhow::anyhow!("Failed to write Docs AI response: {e}"));
     }
-    if let Err(e) = out.flush() {
-        if e.kind() == std::io::ErrorKind::BrokenPipe {
-            return Ok(false);
+
+    /// Returns `Ok(false)` on `BrokenPipe` (caller should stop and return
+    /// `Ok(())`), `Ok(true)` on success, `Err` on other I/O errors.
+    fn write_event(&mut self, event: &DocsEvent) -> Result<bool> {
+        match event {
+            DocsEvent::Status(text) => {
+                if !self.ends_with_newline && !self.write_raw("\n")? {
+                    return Ok(false);
+                }
+                if !self.write_raw(text)? || !self.write_raw("\n")? {
+                    return Ok(false);
+                }
+                self.ends_with_newline = true;
+            }
+            DocsEvent::Fragment(text) => {
+                if text.is_empty() {
+                    return Ok(true);
+                }
+                if !self.write_raw(text)? {
+                    return Ok(false);
+                }
+                self.ends_with_newline = text.ends_with('\n');
+            }
         }
-        return Err(anyhow::anyhow!("Failed to write Docs AI response: {e}"));
+        self.wrote_any = true;
+        Ok(true)
     }
-    Ok(true)
+
+    /// Terminate the output with exactly one newline, if anything was written
+    /// and it did not already end with one.
+    fn finish(&mut self) -> Result<()> {
+        if self.wrote_any && !self.ends_with_newline {
+            self.write_raw("\n")?;
+        }
+        Ok(())
+    }
+
+    fn write_raw(&mut self, text: &str) -> Result<bool> {
+        if let Err(e) = write!(self.out, "{text}") {
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                return Ok(false);
+            }
+            return Err(anyhow::anyhow!("Failed to write Docs AI response: {e}"));
+        }
+        if let Err(e) = self.out.flush() {
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                return Ok(false);
+            }
+            return Err(anyhow::anyhow!("Failed to write Docs AI response: {e}"));
+        }
+        Ok(true)
+    }
 }
 
 /// Extract text content from a single SSE data line.
@@ -148,6 +218,31 @@ pub(crate) fn extract_sse_content(data_str: &str) -> Option<String> {
         .or_else(|| val.get("text"))
         .and_then(|v| v.as_str())?;
     Some(text.to_string())
+}
+
+/// Classify a single SSE data line into a renderable event.
+///
+/// The live stream tags events with a `type`: `thinking` carries progress
+/// messages and `markdown_fragment` carries answer text. Untyped or
+/// unrecognized shapes are treated as answer text, since concatenation is the
+/// right default for content and a stray status line is the rarer case.
+/// Frames with no printable content (e.g. `feedback_token`) yield `None`.
+pub(crate) fn extract_sse_event(data_str: &str) -> Option<DocsEvent> {
+    let text = extract_sse_content(data_str)?;
+    let event_type = serde_json::from_str::<serde_json::Value>(data_str)
+        .ok()
+        .and_then(|v| {
+            v.pointer("/data/attributes/type")
+                .or_else(|| v.pointer("/attributes/type"))
+                .or_else(|| v.get("type"))
+                .and_then(|t| t.as_str())
+                .map(str::to_string)
+        });
+
+    match event_type.as_deref() {
+        Some("thinking") => Some(DocsEvent::Status(text)),
+        _ => Some(DocsEvent::Fragment(text)),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +299,48 @@ mod tests {
         assert_eq!(extract_sse_content(r#"{"other":"value"}"#), None);
     }
 
+    // --- extract_sse_event classification tests ---
+
+    #[test]
+    fn classify_thinking_as_status() {
+        let json = r#"{"type":"thinking","content":"Searching documentation..."}"#;
+        assert_eq!(
+            extract_sse_event(json),
+            Some(DocsEvent::Status("Searching documentation...".to_string()))
+        );
+    }
+
+    #[test]
+    fn classify_markdown_fragment_as_fragment() {
+        let json = r#"{"type":"markdown_fragment","content":"est introduction to nav"}"#;
+        assert_eq!(
+            extract_sse_event(json),
+            Some(DocsEvent::Fragment("est introduction to nav".to_string()))
+        );
+    }
+
+    #[test]
+    fn classify_untyped_content_as_fragment() {
+        assert_eq!(
+            extract_sse_event(r#"{"content":"flat content"}"#),
+            Some(DocsEvent::Fragment("flat content".to_string()))
+        );
+        assert_eq!(
+            extract_sse_event(r#"{"data":{"attributes":{"content":"nested"}}}"#),
+            Some(DocsEvent::Fragment("nested".to_string()))
+        );
+    }
+
+    #[test]
+    fn classify_returns_none_without_printable_content() {
+        // feedback_token carries no content/text field.
+        assert_eq!(
+            extract_sse_event(r#"{"type":"feedback_token","token":"abc"}"#),
+            None
+        );
+        assert_eq!(extract_sse_event("not json"), None);
+    }
+
     // --- ask() integration tests via mockito ---
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -234,10 +371,166 @@ mod tests {
         std::env::remove_var("PUP_DOCS_AI_URL");
 
         result.expect("ask() should succeed");
-        assert!(
-            buf.starts_with(b"Hello\n, world\n"),
-            "output should contain streamed content, one event per line"
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "Hello, world\n",
+            "answer fragments must be concatenated verbatim, not one per line"
         );
+    }
+
+    /// Regression test for the newline-per-delta bug: the Docs AI stream splits
+    /// the answer on sub-word token boundaries, so terminating each event with a
+    /// newline broke words and URLs at whatever point the network chunked on.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn ask_does_not_split_words_or_urls_across_fragments() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().await;
+
+        let mut server = mockito::Server::new_async().await;
+        let sse_body = concat!(
+            "data: {\"type\":\"markdown_fragment\",\"content\":\"Monitoring a Kub\"}\n\n",
+            "data: {\"type\":\"markdown_fragment\",\"content\":\"ernetes Cluster: https://docs.datadog\"}\n\n",
+            "data: {\"type\":\"markdown_fragment\",\"content\":\"hq.com/containers/\"}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let _mock = server
+            .mock("POST", "/api/unstable/docs-ai/chat")
+            .with_status(200)
+            .with_header("content-type", "text/event-stream")
+            .with_body(sse_body)
+            .create_async()
+            .await;
+
+        std::env::set_var(
+            "PUP_DOCS_AI_URL",
+            format!("{}/api/unstable/docs-ai/chat", server.url()),
+        );
+        let mut buf = Vec::new();
+        let result = ask("what is a monitor?", &mut buf).await;
+        std::env::remove_var("PUP_DOCS_AI_URL");
+
+        result.expect("ask() should succeed");
+        let out = String::from_utf8(buf).unwrap();
+        assert_eq!(
+            out,
+            "Monitoring a Kubernetes Cluster: https://docs.datadoghq.com/containers/\n"
+        );
+        assert!(out.contains("Kubernetes"), "word must not be split");
+        assert!(
+            out.contains("https://docs.datadoghq.com/containers/"),
+            "URL must not be split"
+        );
+    }
+
+    /// Progress events are self-contained messages, so they keep their own line
+    /// even though answer fragments do not.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn ask_puts_each_thinking_event_on_its_own_line() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().await;
+
+        let mut server = mockito::Server::new_async().await;
+        let sse_body = concat!(
+            "data: {\"type\":\"thinking\",\"content\":\"Searching documentation...\"}\n\n",
+            "data: {\"type\":\"thinking\",\"content\":\"Generating answer...\"}\n\n",
+            "data: {\"type\":\"markdown_fragment\",\"content\":\"An ans\"}\n\n",
+            "data: {\"type\":\"markdown_fragment\",\"content\":\"wer.\"}\n\n",
+            "data: {\"type\":\"feedback_token\",\"token\":\"abc123\"}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let _mock = server
+            .mock("POST", "/api/unstable/docs-ai/chat")
+            .with_status(200)
+            .with_header("content-type", "text/event-stream")
+            .with_body(sse_body)
+            .create_async()
+            .await;
+
+        std::env::set_var(
+            "PUP_DOCS_AI_URL",
+            format!("{}/api/unstable/docs-ai/chat", server.url()),
+        );
+        let mut buf = Vec::new();
+        let result = ask("what is a monitor?", &mut buf).await;
+        std::env::remove_var("PUP_DOCS_AI_URL");
+
+        result.expect("ask() should succeed");
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "Searching documentation...\nGenerating answer...\nAn answer.\n",
+            "status lines stay separate; the feedback token is not printed"
+        );
+    }
+
+    /// A status event arriving after answer text must not be appended mid-line.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn ask_breaks_line_before_status_following_a_fragment() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().await;
+
+        let mut server = mockito::Server::new_async().await;
+        let sse_body = concat!(
+            "data: {\"type\":\"markdown_fragment\",\"content\":\"partial\"}\n\n",
+            "data: {\"type\":\"thinking\",\"content\":\"Still working...\"}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let _mock = server
+            .mock("POST", "/api/unstable/docs-ai/chat")
+            .with_status(200)
+            .with_header("content-type", "text/event-stream")
+            .with_body(sse_body)
+            .create_async()
+            .await;
+
+        std::env::set_var(
+            "PUP_DOCS_AI_URL",
+            format!("{}/api/unstable/docs-ai/chat", server.url()),
+        );
+        let mut buf = Vec::new();
+        let result = ask("what is a monitor?", &mut buf).await;
+        std::env::remove_var("PUP_DOCS_AI_URL");
+
+        result.expect("ask() should succeed");
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "partial\nStill working...\n"
+        );
+    }
+
+    /// Output ends with exactly one newline whether or not the last fragment
+    /// already supplied one.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn ask_ends_with_exactly_one_newline() {
+        for (last_fragment, label) in [
+            ("tail", "no trailing newline"),
+            ("tail\\n", "trailing newline"),
+        ] {
+            let _guard = crate::test_utils::ENV_LOCK.lock().await;
+
+            let mut server = mockito::Server::new_async().await;
+            let sse_body = format!(
+                "data: {{\"type\":\"markdown_fragment\",\"content\":\"{last_fragment}\"}}\n\ndata: [DONE]\n\n"
+            );
+            let _mock = server
+                .mock("POST", "/api/unstable/docs-ai/chat")
+                .with_status(200)
+                .with_header("content-type", "text/event-stream")
+                .with_body(sse_body)
+                .create_async()
+                .await;
+
+            std::env::set_var(
+                "PUP_DOCS_AI_URL",
+                format!("{}/api/unstable/docs-ai/chat", server.url()),
+            );
+            let mut buf = Vec::new();
+            let result = ask("what is a monitor?", &mut buf).await;
+            std::env::remove_var("PUP_DOCS_AI_URL");
+
+            result.expect("ask() should succeed");
+            assert_eq!(String::from_utf8(buf).unwrap(), "tail\n", "case: {label}");
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]

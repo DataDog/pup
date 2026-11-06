@@ -16,6 +16,8 @@ use datadog_api_client::datadogV2::api_security_monitoring::{
     ListSecurityMonitoringRulesOptionalParams, ListSecurityMonitoringSuppressionsOptionalParams,
     SearchSecurityMonitoringSignalsOptionalParams, SecurityMonitoringAPI,
 };
+#[cfg(not(generated_op = "security.findings.mute"))]
+use datadog_api_client::datadogV2::model::MuteFindingsRequest;
 use datadog_api_client::datadogV2::model::{
     ApplicationSecurityWafCustomRuleCreateRequest, ApplicationSecurityWafCustomRuleUpdateRequest,
     ApplicationSecurityWafExclusionFilterCreateRequest,
@@ -30,8 +32,6 @@ use datadog_api_client::datadogV2::model::{
     SecurityMonitoringTerraformBulkExportRequest, SecurityMonitoringTerraformConvertRequest,
     SecurityMonitoringTerraformResourceType,
 };
-#[cfg(not(generated_op = "security.findings.mute"))]
-use datadog_api_client::datadogV2::model::MuteFindingsRequest;
 
 const SCHEMA_URL: &str = "https://docs.datadoghq.com/security/guide/findings-schema.md";
 const SCHEMA_SECTION_MARKER: &str = "## Schema Reference";

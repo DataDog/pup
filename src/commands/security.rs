@@ -12,18 +12,23 @@ use datadog_api_client::datadogV2::api_restriction_policies::{
     RestrictionPoliciesAPI, UpdateRestrictionPolicyOptionalParams,
 };
 use datadog_api_client::datadogV2::api_security_monitoring::{
-    GetIndicatorOfCompromiseOptionalParams, ListIndicatorsOfCompromiseOptionalParams,
+    GetIndicatorOfCompromiseOptionalParams, GetSecurityMonitoringHistsignalsByJobIdOptionalParams,
+    ListHistoricalJobsOptionalParams, ListIndicatorsOfCompromiseOptionalParams,
     ListSecurityMonitoringRulesOptionalParams, ListSecurityMonitoringSuppressionsOptionalParams,
+    SearchSecurityMonitoringHistsignalsOptionalParams,
     SearchSecurityMonitoringSignalsOptionalParams, SecurityMonitoringAPI,
 };
 use datadog_api_client::datadogV2::model::{
     ApplicationSecurityWafCustomRuleCreateRequest, ApplicationSecurityWafCustomRuleUpdateRequest,
     ApplicationSecurityWafExclusionFilterCreateRequest,
-    ApplicationSecurityWafExclusionFilterUpdateRequest, MuteFindingsRequest,
-    RestrictionPolicyUpdateRequest, SecurityMonitoringRuleBulkExportAttributes,
-    SecurityMonitoringRuleBulkExportData, SecurityMonitoringRuleBulkExportDataType,
-    SecurityMonitoringRuleBulkExportPayload, SecurityMonitoringRuleConvertBulkPayload,
-    SecurityMonitoringRuleConvertPayload, SecurityMonitoringRuleSort,
+    ApplicationSecurityWafExclusionFilterUpdateRequest, ConvertJobResultsToSignalsAttributes,
+    ConvertJobResultsToSignalsData, ConvertJobResultsToSignalsDataType,
+    ConvertJobResultsToSignalsRequest, HistoricalJobResponse, MuteFindingsRequest,
+    RestrictionPolicyUpdateRequest, RunHistoricalJobRequest,
+    SecurityMonitoringRuleBulkExportAttributes, SecurityMonitoringRuleBulkExportData,
+    SecurityMonitoringRuleBulkExportDataType, SecurityMonitoringRuleBulkExportPayload,
+    SecurityMonitoringRuleConvertBulkPayload, SecurityMonitoringRuleConvertPayload,
+    SecurityMonitoringRuleSeverity, SecurityMonitoringRuleSort,
     SecurityMonitoringSignalListRequest, SecurityMonitoringSignalListRequestFilter,
     SecurityMonitoringSignalListRequestPage, SecurityMonitoringSignalsSort,
     SecurityMonitoringSuppressionCreateRequest, SecurityMonitoringSuppressionSort,
@@ -826,6 +831,222 @@ pub async fn restriction_policy_delete(cfg: &Config, resource_id: &str) -> Resul
     Ok(())
 }
 
+// ---- Cloud SIEM historical jobs ----
+
+const HISTORICAL_JOBS_MAX_PAGE_SIZE: i64 = 100;
+const CONVERT_MAX_IDS: usize = 200;
+const CONVERT_MAX_MESSAGE_LEN: usize = 35000;
+
+pub async fn historical_jobs_run(cfg: &Config, file: &str) -> Result<()> {
+    let body: RunHistoricalJobRequest = util::read_json_file(file)?;
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+    let resp = api
+        .run_historical_job(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to run historical job: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn historical_jobs_list(
+    cfg: &Config,
+    query: Option<String>,
+    page_size: i64,
+    page_number: i64,
+    sort: Option<String>,
+) -> Result<()> {
+    if !(1..=HISTORICAL_JOBS_MAX_PAGE_SIZE).contains(&page_size) {
+        anyhow::bail!(
+            "--page-size must be between 1 and {HISTORICAL_JOBS_MAX_PAGE_SIZE}, got {page_size}"
+        );
+    }
+    if page_number < 0 {
+        anyhow::bail!("--page-number must be 0 or greater, got {page_number}");
+    }
+    let mut params = ListHistoricalJobsOptionalParams::default()
+        .page_size(page_size)
+        .page_number(page_number);
+    params.filter_query = query;
+    params.sort = sort;
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+    let resp = api
+        .list_historical_jobs(params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to list historical jobs: {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn historical_jobs_get(cfg: &Config, job_id: &str) -> Result<()> {
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+    let resp = api
+        .get_historical_job(job_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get historical job '{job_id}': {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn historical_jobs_cancel(cfg: &Config, job_id: &str) -> Result<()> {
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+    api.cancel_historical_job(job_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to cancel historical job '{job_id}': {e:?}"))?;
+    println!("Historical job '{job_id}' canceled.");
+    Ok(())
+}
+
+pub async fn historical_jobs_delete(cfg: &Config, job_id: &str) -> Result<()> {
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+    api.delete_historical_job(job_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete historical job '{job_id}': {e:?}"))?;
+    println!("Historical job '{job_id}' deleted.");
+    Ok(())
+}
+
+fn parse_convert_severity(s: &str) -> Result<SecurityMonitoringRuleSeverity> {
+    Ok(match s {
+        "critical" => SecurityMonitoringRuleSeverity::CRITICAL,
+        "high" => SecurityMonitoringRuleSeverity::HIGH,
+        "medium" => SecurityMonitoringRuleSeverity::MEDIUM,
+        "low" => SecurityMonitoringRuleSeverity::LOW,
+        "info" => SecurityMonitoringRuleSeverity::INFO,
+        other => anyhow::bail!(
+            "invalid --severity value: {other:?}\nExpected: critical, high, medium, low, or info"
+        ),
+    })
+}
+
+pub async fn historical_jobs_convert(
+    cfg: &Config,
+    histsignal_ids: Vec<String>,
+    severity: &str,
+    message: String,
+    notifications: Vec<String>,
+) -> Result<()> {
+    if histsignal_ids.is_empty() || histsignal_ids.len() > CONVERT_MAX_IDS {
+        anyhow::bail!(
+            "--histsignal-id must be given 1 to {CONVERT_MAX_IDS} times, got {}",
+            histsignal_ids.len()
+        );
+    }
+    if message.chars().count() > CONVERT_MAX_MESSAGE_LEN {
+        anyhow::bail!("--message must be at most {CONVERT_MAX_MESSAGE_LEN} characters");
+    }
+    let severity = parse_convert_severity(severity)?;
+    let body = ConvertJobResultsToSignalsRequest::new().data(
+        ConvertJobResultsToSignalsData::new()
+            .attributes(ConvertJobResultsToSignalsAttributes::new(
+                histsignal_ids.clone(),
+                notifications,
+                message,
+                severity,
+            ))
+            .type_(
+                ConvertJobResultsToSignalsDataType::HISTORICALDETECTIONSJOBRESULTSIGNALCONVERSION,
+            ),
+    );
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+    api.convert_job_result_to_signal(body)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to convert histsignals to signals: {e:?}"))?;
+    println!(
+        "Converted {} histsignal(s) to signals.",
+        histsignal_ids.len()
+    );
+    Ok(())
+}
+
+/// Start of the default search window for a job: its definition `from`
+/// (epoch ms), falling back to its creation time.
+fn job_window_start(job: &HistoricalJobResponse) -> Option<chrono::DateTime<chrono::Utc>> {
+    let attrs = job.data.as_ref()?.attributes.as_ref()?;
+    if let Some(def) = &attrs.job_definition {
+        if let Some(dt) = chrono::DateTime::from_timestamp_millis(def.from) {
+            return Some(dt);
+        }
+    }
+    let created = attrs.created_at.as_deref()?;
+    chrono::DateTime::parse_from_rfc3339(created)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc))
+}
+
+pub async fn histsignals_search(
+    cfg: &Config,
+    query: Option<String>,
+    job_id: Option<String>,
+    from: Option<String>,
+    to: String,
+    limit: i32,
+    sort: Option<String>,
+) -> Result<()> {
+    let sort_val = match sort.as_deref().unwrap_or("-timestamp") {
+        "timestamp" | "asc" => SecurityMonitoringSignalsSort::TIMESTAMP_ASCENDING,
+        "-timestamp" | "desc" => SecurityMonitoringSignalsSort::TIMESTAMP_DESCENDING,
+        other => anyhow::bail!(
+            "invalid --sort value: {other:?}\nExpected: timestamp (ascending) or -timestamp (descending)"
+        ),
+    };
+    if !(1..=1000).contains(&limit) {
+        anyhow::bail!("--limit must be between 1 and 1000, got {limit}");
+    }
+    let to_dt = util_ext::parse_time_to_datetime(&to)?;
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+
+    let Some(job_id) = job_id else {
+        let from_dt = util_ext::parse_time_to_datetime(from.as_deref().unwrap_or("1h"))?;
+        let mut filter = SecurityMonitoringSignalListRequestFilter::new()
+            .from(from_dt)
+            .to(to_dt);
+        if let Some(q) = query {
+            filter = filter.query(q);
+        }
+        let body = SecurityMonitoringSignalListRequest::new()
+            .filter(filter)
+            .page(SecurityMonitoringSignalListRequestPage::new().limit(limit))
+            .sort(sort_val);
+        let resp = api
+            .search_security_monitoring_histsignals(
+                SearchSecurityMonitoringHistsignalsOptionalParams::default().body(body),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to search histsignals: {e:?}"))?;
+        return formatter::output(cfg, &resp);
+    };
+
+    let from_dt = match from {
+        Some(f) => util_ext::parse_time_to_datetime(&f)?,
+        None => {
+            let job = api
+                .get_historical_job(job_id.clone())
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to get historical job '{job_id}': {e:?}"))?;
+            job_window_start(&job).ok_or_else(|| {
+                anyhow::anyhow!("historical job '{job_id}' has no start time; pass --from")
+            })?
+        }
+    };
+    let mut params = GetSecurityMonitoringHistsignalsByJobIdOptionalParams::default()
+        .filter_from(from_dt)
+        .filter_to(to_dt)
+        .sort(sort_val)
+        .page_limit(limit);
+    params.filter_query = query;
+    let resp = api
+        .get_security_monitoring_histsignals_by_job_id(job_id.clone(), params)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to search histsignals for job '{job_id}': {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
+pub async fn histsignals_get(cfg: &Config, histsignal_id: &str) -> Result<()> {
+    let api = crate::make_api!(SecurityMonitoringAPI, cfg);
+    let resp = api
+        .get_security_monitoring_histsignal(histsignal_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get histsignal '{histsignal_id}': {e:?}"))?;
+    formatter::output(cfg, &resp)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
@@ -1624,6 +1845,196 @@ mod tests {
         assert!(result.is_err(), "expected error for 404 response");
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_historical_jobs_list_rejects_page_size() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        for size in [0, 101] {
+            let err = super::historical_jobs_list(&cfg, None, size, 0, None)
+                .await
+                .unwrap_err();
+            assert!(err
+                .to_string()
+                .contains("--page-size must be between 1 and 100"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_historical_jobs_list_ok() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("GET", "/api/v2/siem-historical-detections/jobs")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("page[size]".into(), "25".into()),
+                mockito::Matcher::UrlEncoded("filter[query]".into(), "status:running".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[],"meta":{"totalCount":0}}"#)
+            .create_async()
+            .await;
+        let result =
+            super::historical_jobs_list(&cfg, Some("status:running".into()), 25, 0, None).await;
+        assert!(result.is_ok(), "list failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_historical_jobs_get_not_found() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("GET", "/api/v2/siem-historical-detections/jobs/missing")
+            .with_status(404)
+            .with_body(r#"{"errors":["Not Found"]}"#)
+            .create_async()
+            .await;
+        let result = super::historical_jobs_get(&cfg, "missing").await;
+        assert!(result.is_err());
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_historical_jobs_convert_validation() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        let err = super::historical_jobs_convert(&cfg, vec![], "high", "m".into(), vec![])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("1 to 200"));
+        let ids = (0..201).map(|i| i.to_string()).collect();
+        let err = super::historical_jobs_convert(&cfg, ids, "high", "m".into(), vec![])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("1 to 200"));
+        let err =
+            super::historical_jobs_convert(&cfg, vec!["a".into()], "urgent", "m".into(), vec![])
+                .await
+                .unwrap_err();
+        assert!(err.to_string().contains("invalid --severity"));
+        let err = super::historical_jobs_convert(
+            &cfg,
+            vec!["a".into()],
+            "high",
+            "x".repeat(35001),
+            vec![],
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("at most 35000"));
+    }
+
+    #[tokio::test]
+    async fn test_historical_jobs_convert_ok() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let mock = server
+            .mock("POST", "/api/v2/siem-historical-detections/jobs/signal_convert")
+            .match_body(mockito::Matcher::PartialJsonString(
+                r#"{"data":{"attributes":{"jobResultIds":["h1"],"signalSeverity":"critical","signalMessage":"msg","notifications":["@me"]}}}"#.into(),
+            ))
+            .with_status(204)
+            .create_async()
+            .await;
+        let result = super::historical_jobs_convert(
+            &cfg,
+            vec!["h1".into()],
+            "critical",
+            "msg".into(),
+            vec!["@me".into()],
+        )
+        .await;
+        assert!(result.is_ok(), "convert failed: {:?}", result.err());
+        mock.assert_async().await;
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[test]
+    fn test_job_window_start() {
+        let job: HistoricalJobResponse = serde_json::from_str(
+            r#"{"data":{"attributes":{"createdAt":"2026-01-02T00:00:00Z","jobDefinition":{"cases":[],"from":1700000000000,"index":"main","message":"m","name":"n","queries":[],"to":1700003600000}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            super::job_window_start(&job).unwrap().timestamp_millis(),
+            1700000000000
+        );
+        let job: HistoricalJobResponse =
+            serde_json::from_str(r#"{"data":{"attributes":{"createdAt":"2026-01-02T00:00:00Z"}}}"#)
+                .unwrap();
+        assert_eq!(
+            super::job_window_start(&job).unwrap().to_rfc3339(),
+            "2026-01-02T00:00:00+00:00"
+        );
+        let job: HistoricalJobResponse = serde_json::from_str(r#"{"data":{}}"#).unwrap();
+        assert!(super::job_window_start(&job).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_histsignals_search_job_defaults_window_to_job_start() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let job = server
+            .mock("GET", "/api/v2/siem-historical-detections/jobs/j1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":{"id":"j1","attributes":{"createdAt":"2023-11-14T22:13:20Z"}}}"#)
+            .create_async()
+            .await;
+        let signals = server
+            .mock(
+                "GET",
+                "/api/v2/siem-historical-detections/jobs/j1/histsignals",
+            )
+            .match_query(mockito::Matcher::UrlEncoded(
+                "filter[from]".into(),
+                "2023-11-14T22:13:20.000Z".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+        let result =
+            super::histsignals_search(&cfg, None, Some("j1".into()), None, "now".into(), 10, None)
+                .await;
+        assert!(result.is_ok(), "search failed: {:?}", result.err());
+        job.assert_async().await;
+        signals.assert_async().await;
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_histsignals_search_invalid_args() {
+        let _lock = lock_env().await;
+        let cfg = test_config("http://unused.local");
+        let err =
+            super::histsignals_search(&cfg, None, None, None, "now".into(), 10, Some("x".into()))
+                .await
+                .unwrap_err();
+        assert!(err.to_string().contains("invalid --sort value"));
+        let err = super::histsignals_search(&cfg, None, None, None, "now".into(), 0, None)
+            .await
+            .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("--limit must be between 1 and 1000"));
     }
 
     #[tokio::test]

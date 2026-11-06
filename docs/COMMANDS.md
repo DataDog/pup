@@ -51,7 +51,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | processes | list | src/commands/processes.rs | ✅ |
 | users | list, get, roles, service-accounts (create, app-keys CRUD) | src/commands/users.rs | ✅ |
 | notebooks | list, get, create, update, edit, diff, delete (get/create/update/edit accept `--markdown`), annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
-| security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
+| security | rules, signals, historical-jobs, histsignals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |
 | idp | kinds (list, describe), entities (query), assist, find, owner, deps, register, migrate-schema | src/commands/idp/ | ✅ |
@@ -234,7 +234,9 @@ pup infrastructure hosts list
   - `profiles list` and `profiles download` are enabled only for design-partner organizations (Datadog-side enrollment); other orgs get HTTP 403 "not enabled for this organization" (exit code 403). The remaining profiling commands work for every org.
 
 ### Security & Compliance
-- **security** - Security monitoring (rules, signals, findings, content-packs, risk-scores)
+- **security** - Security monitoring (rules, signals, historical-jobs, histsignals, findings, content-packs, risk-scores)
+  - `pup security historical-jobs run|list|get|cancel|delete|convert` — Run detection rules over past logs (Preview). `list` defaults to 25 jobs per page (max 100); `convert` takes 1-200 `--histsignal-id`, `--severity critical|high|medium|low|info`, and `--message` (max 35000 chars)
+  - `pup security histsignals search|get` — Read historical job matches (Preview). `search --job-id <id>` without `--from` searches from the job's start time (or creation time) to now; use `pup security signals` for real-time signals
   - `pup security findings mute --file <body.json>` — Mute or unmute up to 100 findings (stable, SDK #1519/#1660)
   - `pup security rules bulk-convert --file <payload.json>` — Bulk convert existing rules to Terraform ZIP archive (SDK #1675)
 - **static-analysis** - Code security (custom-rulesets, custom-rules)

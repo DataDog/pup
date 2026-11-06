@@ -302,6 +302,17 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.list_org_group_policy_configs",
     // Security Findings (1)
     "v2.list_findings",
+    // Cloud SIEM Historical Jobs (10)
+    "v2.run_historical_job",
+    "v2.list_historical_jobs",
+    "v2.get_historical_job",
+    "v2.cancel_historical_job",
+    "v2.delete_historical_job",
+    "v2.convert_job_result_to_signal",
+    "v2.list_security_monitoring_histsignals",
+    "v2.search_security_monitoring_histsignals",
+    "v2.get_security_monitoring_histsignal",
+    "v2.get_security_monitoring_histsignals_by_job_id",
     // SLO Status (1)
     "v2.get_slo_status",
     // Flaky Tests (4)
@@ -563,7 +574,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 207);
+        assert_eq!(UNSTABLE_OPS.len(), 217);
     }
 
     #[test]

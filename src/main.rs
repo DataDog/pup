@@ -2705,10 +2705,16 @@ enum Commands {
     ///   vulnerabilities, secrets, identity risks). They represent current state.
     ///   Use `pup security findings`.
     ///
+    ///   Histsignals — Matches from historical jobs, which run detection rules
+    ///   over past logs. They do not notify until converted to signals.
+    ///   Use `pup security historical-jobs` and `pup security histsignals`.
+    ///
     /// COMMANDS:
     ///   Query & Investigate:
     ///     findings           Search and analyze security findings (posture, vulns, misconfigs)
     ///     signals            Search and analyze real-time security detections
+    ///     historical-jobs    Run detection rules over past logs (Preview)
+    ///     histsignals        Search histsignals produced by historical jobs (Preview)
     ///     risk-scores        List entity risk scores
     ///
     ///   Configure:
@@ -6230,6 +6236,27 @@ enum SecurityActions {
         #[command(subcommand)]
         action: SecuritySignalActions,
     },
+    /// Run detection rules over past logs (Cloud SIEM historical jobs, Preview)
+    ///
+    /// A historical job runs a detection rule over logs from a past time range
+    /// and stores its matches as histsignals. Histsignals are separate from
+    /// real-time signals: they do not notify anyone until you convert them.
+    /// Use `pup security signals` for real-time detections and
+    /// `pup security histsignals` to read the results of a job.
+    #[command(name = "historical-jobs")]
+    HistoricalJobs {
+        #[command(subcommand)]
+        action: SecurityHistoricalJobActions,
+    },
+    /// Search histsignals produced by historical jobs (Preview)
+    ///
+    /// Histsignals are the matches a historical job finds in past logs. Use
+    /// these commands to review job results; use `pup security signals` for
+    /// real-time signals.
+    Histsignals {
+        #[command(subcommand)]
+        action: SecurityHistsignalActions,
+    },
     /// List entity risk scores
     #[command(name = "risk-scores")]
     RiskScores {
@@ -6462,6 +6489,105 @@ enum SecuritySignalActions {
     SuggestedActions {
         /// Security signal ID
         signal_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SecurityHistoricalJobActions {
+    /// Run a historical job from a JSON file
+    ///
+    /// The file must contain a RunHistoricalJobRequest body: either a
+    /// `jobDefinition` (rule queries, cases, `from`/`to` in epoch milliseconds
+    /// UTC, index, name, message) or a `fromRule` that reuses an existing
+    /// detection rule over a time range.
+    Run {
+        #[arg(
+            long,
+            help = "JSON file with the RunHistoricalJobRequest body (required)"
+        )]
+        file: String,
+    },
+    /// List historical jobs
+    List {
+        #[arg(long, help = "Filter jobs with a search query")]
+        query: Option<String>,
+        #[arg(long, default_value_t = 25, help = "Jobs per page (1-100)")]
+        page_size: i64,
+        #[arg(long, default_value_t = 0, help = "Page number, starting at 0")]
+        page_number: i64,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Sort field; prefix with - for descending order"
+        )]
+        sort: Option<String>,
+    },
+    /// Get a historical job, including its status and definition
+    Get {
+        /// Historical job ID
+        job_id: String,
+    },
+    /// Cancel a running historical job
+    Cancel {
+        /// Historical job ID
+        job_id: String,
+    },
+    /// Delete a historical job and its histsignals
+    Delete {
+        /// Historical job ID
+        job_id: String,
+    },
+    /// Convert histsignals into real-time security signals
+    ///
+    /// The new signals appear in `pup security signals` and send the given
+    /// notifications. You must pass 1 to 200 histsignal IDs.
+    Convert {
+        #[arg(
+            long = "histsignal-id",
+            required = true,
+            help = "Histsignal ID to convert; repeat for 1-200 IDs"
+        )]
+        histsignal_ids: Vec<String>,
+        #[arg(long, help = "Signal severity: critical, high, medium, low, or info")]
+        severity: String,
+        #[arg(long, help = "Signal message, at most 35000 characters")]
+        message: String,
+        #[arg(long = "notification", help = "Notification handle; may be repeated")]
+        notifications: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum SecurityHistsignalActions {
+    /// Search histsignals
+    ///
+    /// With --job-id, searches only that job's histsignals. Histsignals carry
+    /// the time the job emitted them, not the time of the matched logs, so
+    /// without --from the window starts at the job's `from` time (or its
+    /// creation time) and ends now (UTC). Without --job-id, --from defaults
+    /// to 1h.
+    Search {
+        #[arg(long, help = "Search query using log search syntax")]
+        query: Option<String>,
+        #[arg(long, help = "Only return histsignals from this historical job")]
+        job_id: Option<String>,
+        #[arg(long, help = "Start time (e.g. 1h, 7d, RFC3339)")]
+        from: Option<String>,
+        #[arg(long, default_value = "now", help = "End time")]
+        to: String,
+        #[arg(long, default_value_t = 100, help = "Maximum results (1-1000)")]
+        limit: i32,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Sort order: timestamp (ascending) or -timestamp (descending)"
+        )]
+        sort: Option<String>,
+    },
+    /// Get a histsignal
+    Get {
+        /// Histsignal ID
+        histsignal_id: String,
     },
 }
 
@@ -17656,6 +17782,68 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                     SecuritySignalActions::SuggestedActions { signal_id } => {
                         commands::security::signals_suggested_actions(&cfg, &signal_id).await?;
+                    }
+                },
+                SecurityActions::HistoricalJobs { action } => match action {
+                    SecurityHistoricalJobActions::Run { file } => {
+                        commands::security::historical_jobs_run(&cfg, &file).await?;
+                    }
+                    SecurityHistoricalJobActions::List {
+                        query,
+                        page_size,
+                        page_number,
+                        sort,
+                    } => {
+                        commands::security::historical_jobs_list(
+                            &cfg,
+                            query,
+                            page_size,
+                            page_number,
+                            sort,
+                        )
+                        .await?;
+                    }
+                    SecurityHistoricalJobActions::Get { job_id } => {
+                        commands::security::historical_jobs_get(&cfg, &job_id).await?;
+                    }
+                    SecurityHistoricalJobActions::Cancel { job_id } => {
+                        commands::security::historical_jobs_cancel(&cfg, &job_id).await?;
+                    }
+                    SecurityHistoricalJobActions::Delete { job_id } => {
+                        commands::security::historical_jobs_delete(&cfg, &job_id).await?;
+                    }
+                    SecurityHistoricalJobActions::Convert {
+                        histsignal_ids,
+                        severity,
+                        message,
+                        notifications,
+                    } => {
+                        commands::security::historical_jobs_convert(
+                            &cfg,
+                            histsignal_ids,
+                            &severity,
+                            message,
+                            notifications,
+                        )
+                        .await?;
+                    }
+                },
+                SecurityActions::Histsignals { action } => match action {
+                    SecurityHistsignalActions::Search {
+                        query,
+                        job_id,
+                        from,
+                        to,
+                        limit,
+                        sort,
+                    } => {
+                        commands::security::histsignals_search(
+                            &cfg, query, job_id, from, to, limit, sort,
+                        )
+                        .await?;
+                    }
+                    SecurityHistsignalActions::Get { histsignal_id } => {
+                        commands::security::histsignals_get(&cfg, &histsignal_id).await?;
                     }
                 },
                 SecurityActions::Findings { action } => match action {

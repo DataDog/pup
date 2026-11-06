@@ -6,6 +6,7 @@ mod surface;
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(generated_tag, values(any()))");
     println!("cargo::rustc-check-cfg=cfg(generated_op, values(any()))");
+    println!("cargo::rustc-check-cfg=cfg(generated_subtag, values(any()))");
 
     let surface_path = "src/generated/surface.txt";
     println!("cargo::rerun-if-changed={surface_path}");

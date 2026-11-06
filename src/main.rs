@@ -93,6 +93,9 @@ pub(crate) struct Cli {
 ///
 /// Merge hosts should opt in only while their generated commands are present:
 /// `#[cfg(generated_tag = "<tag>")] { cmd = cmd.mut_subcommand("<tag>", sort_subcommands_by_name); }`
+///
+/// Subtag hosts nest the same opt-in:
+/// `#[cfg(generated_subtag = "<tag>/<subtag>")] { cmd = cmd.mut_subcommand("<tag>", |c| c.mut_subcommand("<subtag>", sort_subcommands_by_name)); }`
 fn sort_subcommands_by_name(command: clap::Command) -> clap::Command {
     command.mut_subcommands(|subcommand| subcommand.display_order(0))
 }

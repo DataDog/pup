@@ -115,6 +115,16 @@ pub(crate) fn cli_command() -> clap::Command {
     {
         cmd = cmd.mut_subcommand("downtime", sort_subcommands_by_name);
     }
+    #[cfg(generated_tag = "security")]
+    {
+        cmd = cmd.mut_subcommand("security", sort_subcommands_by_name);
+    }
+    #[cfg(generated_subtag = "security/findings")]
+    {
+        cmd = cmd.mut_subcommand("security", |c| {
+            c.mut_subcommand("findings", sort_subcommands_by_name)
+        });
+    }
     cmd
 }
 
@@ -6304,6 +6314,9 @@ enum SecurityActions {
         #[command(subcommand)]
         action: SecurityTerraformActions,
     },
+    #[cfg(generated_tag = "security")]
+    #[command(flatten)]
+    Generated(crate::generated::security::Command),
 }
 
 #[derive(Subcommand)]
@@ -6514,10 +6527,14 @@ enum SecurityFindingActions {
         limit: i64,
     },
     /// Mute or unmute security findings (up to 100 per request)
+    #[cfg(not(generated_op = "security.findings.mute"))]
     Mute {
         #[arg(long, help = "JSON file with MuteFindingsRequest body (required)")]
         file: String,
     },
+    #[cfg(generated_subtag = "security/findings")]
+    #[command(flatten)]
+    Generated(crate::generated::security::findings::Command),
 }
 
 #[derive(Subcommand)]
@@ -17677,8 +17694,13 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::security::findings_analyze(&cfg, &query, &from, &to, limit)
                             .await?;
                     }
+                    #[cfg(not(generated_op = "security.findings.mute"))]
                     SecurityFindingActions::Mute { file } => {
                         commands::security::findings_mute(&cfg, &file).await?;
+                    }
+                    #[cfg(generated_subtag = "security/findings")]
+                    SecurityFindingActions::Generated(action) => {
+                        crate::generated::security::findings::run(&cfg, action).await?
                     }
                 },
                 SecurityActions::ContentPacks { action } => match action {
@@ -17834,6 +17856,10 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::security::terraform_convert(&cfg, &resource_type, &file).await?;
                     }
                 },
+                #[cfg(generated_tag = "security")]
+                SecurityActions::Generated(action) => {
+                    crate::generated::security::run(&cfg, action).await?
+                }
             }
         }
         // --- AuthN Mappings ---

@@ -660,15 +660,20 @@ fn test_shared_display_order_sorts_flattened_nested_subcommands_in_help() {
 #[path = "../build/surface.rs"]
 mod surface;
 
-/// Parse `src/generated/surface.txt` into CLI path segments (dot-joined lines
-/// split into per-depth clap subcommand names). Missing file means no paths,
-/// matching `build/surface.rs`'s behavior for an ungenerated checkout.
+/// Parse `src/generated/surface.txt` into CLI path segments. Missing file means
+/// no paths, matching `build/surface.rs`'s behavior for an ungenerated checkout.
 fn generated_surface_paths() -> Vec<Vec<String>> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated/surface.txt");
     surface::generated_cfgs(path)
         .into_iter()
-        .map(|(_, line)| line.split('.').map(str::to_owned).collect())
+        .map(|(_, line)| surface_segments(&line))
         .collect()
+}
+
+/// Split a surface line into per-depth clap subcommand names: ops are
+/// dot-joined (`tag.op`) and subtags are slash-joined (`tag/subtag`).
+fn surface_segments(line: &str) -> Vec<String> {
+    line.split(['.', '/']).map(str::to_owned).collect()
 }
 
 /// Assert every path resolves as a chain of subcommands under `top`. Returns
@@ -741,6 +746,29 @@ fn test_reachable_surface_paths_accepts_nested_op_chain() {
     let paths = vec![vec!["domain-allowlist".to_owned(), "get".to_owned()]];
 
     assert_eq!(reachable_surface_paths(&paths, &top), Ok(()));
+}
+
+#[test]
+fn test_surface_cfg_key_maps_line_shapes() {
+    assert_eq!(surface::cfg_key("users"), "generated_tag");
+    assert_eq!(surface::cfg_key("users.list"), "generated_op");
+    assert_eq!(surface::cfg_key("users/accounts"), "generated_subtag");
+}
+
+#[test]
+fn test_reachable_surface_paths_checks_subtag_line() {
+    let top = clap::Command::new("pup")
+        .subcommand(clap::Command::new("users").subcommand(clap::Command::new("accounts")));
+
+    let reachable = vec![surface_segments("users/accounts")];
+    assert_eq!(reachable_surface_paths(&reachable, &top), Ok(()));
+
+    let unreachable = vec![surface_segments("users/teams")];
+    let error = reachable_surface_paths(&unreachable, &top).expect_err("missing subtag must fail");
+    assert!(
+        error.contains("no subcommand `teams` under `users`"),
+        "unexpected error: {error}"
+    );
 }
 
 #[test]

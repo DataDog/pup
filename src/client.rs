@@ -418,30 +418,6 @@ static UNSTABLE_OPS: &[&str] = &[
     "v2.star_model_lab_project",
     "v2.unpin_model_lab_run",
     "v2.unstar_model_lab_project",
-    // Databricks Integration (5)
-    "v2.create_databricks_integration_account",
-    "v2.delete_databricks_integration_account",
-    "v2.get_databricks_integration_account",
-    "v2.list_databricks_integration_accounts",
-    "v2.update_databricks_integration_account",
-    // Elastic Cloud Integration (5)
-    "v2.create_elastic_cloud_integration_account",
-    "v2.delete_elastic_cloud_integration_account",
-    "v2.get_elastic_cloud_integration_account",
-    "v2.list_elastic_cloud_integration_accounts",
-    "v2.update_elastic_cloud_integration_account",
-    // Snowflake Integration (5)
-    "v2.create_snowflake_integration_account",
-    "v2.delete_snowflake_integration_account",
-    "v2.get_snowflake_integration_account",
-    "v2.list_snowflake_integration_accounts",
-    "v2.update_snowflake_integration_account",
-    // Twilio Integration (5)
-    "v2.create_twilio_integration_account",
-    "v2.delete_twilio_integration_account",
-    "v2.get_twilio_integration_account",
-    "v2.list_twilio_integration_accounts",
-    "v2.update_twilio_integration_account",
 ];
 
 #[cfg(test)]
@@ -563,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_unstable_ops_count() {
-        assert_eq!(UNSTABLE_OPS.len(), 207);
+        assert_eq!(UNSTABLE_OPS.len(), 187);
     }
 
     #[test]

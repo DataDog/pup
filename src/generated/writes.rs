@@ -7,4 +7,7 @@ pub const WRITE_COMMANDS: &[&str] = &[
     "authn-mappings update",
     "downtime cancel",
     "downtime create",
+    "security historical-jobs cancel",
+    "security historical-jobs convert",
+    "security historical-jobs delete",
 ];

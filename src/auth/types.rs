@@ -119,6 +119,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
 /// Default OAuth scopes requested during login.
 pub fn default_scopes() -> Vec<&'static str> {
     vec![
+        "assistant_access",
         // APM
         "apm_generate_metrics",
         "apm_read",

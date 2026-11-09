@@ -150,6 +150,8 @@ pub fn default_scopes() -> Vec<&'static str> {
         // BITS
         "bits_investigations_read",
         "bits_investigations_write",
+        // Bits CLI
+        "assistant_access",
         // Cases
         "cases_read",
         "cases_write",

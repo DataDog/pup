@@ -10066,11 +10066,6 @@ enum IntegrationActions {
         #[command(subcommand)]
         action: OktaActions,
     },
-    /// Manage Salesforce integration
-    Salesforce {
-        #[command(subcommand)]
-        action: SalesforceActions,
-    },
     /// Manage Snowflake integration
     Snowflake {
         #[command(subcommand)]
@@ -10354,47 +10349,6 @@ enum StatuspageUrlSettingActions {
     },
     /// Remove a Statuspage URL
     Delete { setting_id: String },
-}
-
-#[derive(Subcommand)]
-enum SalesforceActions {
-    /// Manage connected Salesforce organizations
-    Organizations {
-        #[command(subcommand)]
-        action: SalesforceOrganizationActions,
-    },
-    /// Manage Salesforce incident templates
-    Templates {
-        #[command(subcommand)]
-        action: SalesforceTemplateActions,
-    },
-}
-
-#[derive(Subcommand)]
-enum SalesforceOrganizationActions {
-    /// List connected Salesforce organizations
-    List,
-    /// Disconnect a Salesforce organization
-    Delete { org_id: String },
-}
-
-#[derive(Subcommand)]
-enum SalesforceTemplateActions {
-    /// List Salesforce incident templates
-    List,
-    /// Create a Salesforce incident template
-    Create {
-        #[arg(long, help = "JSON file with request body (required)")]
-        file: String,
-    },
-    /// Update a Salesforce incident template
-    Update {
-        template_id: String,
-        #[arg(long, help = "JSON file with request body (required)")]
-        file: String,
-    },
-    /// Delete a Salesforce incident template
-    Delete { template_id: String },
 }
 
 #[derive(Subcommand)]
@@ -16217,7 +16171,6 @@ mod resolve_output_format_tests {
             "integrations list",
             "integrations okta accounts list",
             "integrations statuspage url-settings list",
-            "integrations salesforce organizations list",
         ] {
             assert!(super::defaults_to_table(path), "{path} should be a table");
         }
@@ -20192,31 +20145,6 @@ async fn main_inner() -> anyhow::Result<()> {
                         }
                         StatuspageUrlSettingActions::Delete { setting_id } => {
                             commands::statuspage::url_settings_delete(&cfg, &setting_id).await?
-                        }
-                    },
-                },
-                IntegrationActions::Salesforce { action } => match action {
-                    SalesforceActions::Organizations { action } => match action {
-                        SalesforceOrganizationActions::List => {
-                            commands::salesforce::organizations_list(&cfg).await?
-                        }
-                        SalesforceOrganizationActions::Delete { org_id } => {
-                            commands::salesforce::organizations_delete(&cfg, &org_id).await?
-                        }
-                    },
-                    SalesforceActions::Templates { action } => match action {
-                        SalesforceTemplateActions::List => {
-                            commands::salesforce::templates_list(&cfg).await?
-                        }
-                        SalesforceTemplateActions::Create { file } => {
-                            commands::salesforce::templates_create(&cfg, &file).await?
-                        }
-                        SalesforceTemplateActions::Update { template_id, file } => {
-                            commands::salesforce::templates_update(&cfg, &template_id, &file)
-                                .await?
-                        }
-                        SalesforceTemplateActions::Delete { template_id } => {
-                            commands::salesforce::templates_delete(&cfg, &template_id).await?
                         }
                     },
                 },

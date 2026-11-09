@@ -2140,7 +2140,7 @@ fn test_continuation_flags_read_each_commands_own_flags() {
     assert_eq!(flags("logs search").cursor.as_deref(), Some("--cursor"));
     assert_eq!(
         flags("deployment-gates gates list").cursor.as_deref(),
-        Some("--page-cursor")
+        Some("--cursor")
     );
     assert_eq!(
         flags("llm-obs patterns points").cursor.as_deref(),
@@ -2149,6 +2149,91 @@ fn test_continuation_flags_read_each_commands_own_flags() {
     let monitors_search = flags("monitors search");
     assert_eq!(monitors_search.page.as_deref(), Some("--page"));
     assert!(monitors_search.cursor.is_none());
+    for path in ["users list", "cases search", "ddsql schema columns"] {
+        assert_eq!(flags(path).page.as_deref(), Some("--page"), "{path}");
+    }
+}
+
+fn parses(args: &[&str]) -> Result<clap::ArgMatches, clap::Error> {
+    crate::cli_command().try_get_matches_from(std::iter::once("pup").chain(args.iter().copied()))
+}
+
+#[test]
+fn test_cli_command_debug_assert() {
+    crate::cli_command().debug_assert();
+}
+
+#[test]
+fn test_migrated_commands_accept_new_and_legacy_pagination_flags() {
+    let ok: &[&[&str]] = &[
+        &[
+            "deployment-gates",
+            "gates",
+            "list",
+            "--cursor",
+            "c",
+            "--page-size",
+            "5",
+        ],
+        &[
+            "deployment-gates",
+            "gates",
+            "list",
+            "--page-cursor",
+            "c",
+            "--limit",
+            "5",
+        ],
+        &[
+            "cicd",
+            "flaky-tests",
+            "search",
+            "--page-token",
+            "c",
+            "--limit",
+            "5",
+        ],
+        &[
+            "llm-obs",
+            "projects",
+            "list",
+            "--cursor",
+            "c",
+            "--page-size",
+            "5",
+        ],
+        &["monitors", "search", "--page", "1", "--page-size", "5"],
+        &["monitors", "search", "--per-page", "5"],
+        &["users", "list", "--page-number", "1", "--page-size", "5"],
+        &["users", "list", "--limit", "5"],
+        &["cases", "search", "--page-number", "1", "--per-page", "5"],
+        &[
+            "ddsql", "schema", "tables", "--offset", "50", "--limit", "25",
+        ],
+        &[
+            "ddsql",
+            "schema",
+            "columns",
+            "--table-id",
+            "t",
+            "--page",
+            "2",
+        ],
+        &[
+            "llm-obs",
+            "experiments",
+            "events",
+            "list",
+            "e1",
+            "--offset",
+            "20",
+        ],
+    ];
+    for args in ok {
+        assert!(parses(args).is_ok(), "should parse: {args:?}");
+    }
+    assert!(parses(&["users", "list", "--page", "1", "--page-number", "1"]).is_err());
+    assert!(parses(&["ddsql", "schema", "tables", "--offset", "1", "--page", "1"]).is_err());
 }
 
 #[test]

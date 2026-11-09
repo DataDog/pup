@@ -15559,15 +15559,24 @@ pub(crate) fn continuation_flags(root: &clap::Command, path: &str) -> output::Co
     else {
         return output::ContinuationFlags::default();
     };
-    let flag = |matches: fn(&str) -> bool| {
+    // Commands using the shared pagination args are found by arg id; the rest
+    // fall back to guessing from the flag name.
+    let by_id = |id: &str| {
+        leaf.get_arguments()
+            .find(|arg| arg.get_id() == id)
+            .and_then(clap::Arg::get_long)
+            .map(|long| format!("--{long}"))
+    };
+    let guess = |matches: fn(&str) -> bool| {
         leaf.get_arguments()
             .filter_map(clap::Arg::get_long)
             .find(|long| matches(long))
             .map(|long| format!("--{long}"))
     };
     output::ContinuationFlags {
-        cursor: flag(|long| long.ends_with("cursor") || long == "page-token"),
-        page: flag(|long| long == "page"),
+        cursor: by_id(pagination::CURSOR_ARG)
+            .or_else(|| guess(|long| long.ends_with("cursor") || long == "page-token")),
+        page: by_id(pagination::PAGE_ARG).or_else(|| guess(|long| long == "page")),
     }
 }
 

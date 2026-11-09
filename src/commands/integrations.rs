@@ -275,10 +275,6 @@ const MANAGED_BY: &[(&str, &str)] = &[
     ("microsoft-teams", "pup integrations ms-teams handles list"),
     (OCI_ID, "pup cloud oci --help"),
     ("okta", "pup integrations okta accounts list"),
-    (
-        "salesforce",
-        "pup integrations salesforce organizations list",
-    ),
     ("servicenow", "pup integrations servicenow instances list"),
     ("slack", "pup integrations slack list"),
     ("snowflake-web", "pup integrations snowflake accounts list"),

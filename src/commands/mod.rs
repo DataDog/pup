@@ -95,7 +95,6 @@ pub mod reference_tables;
 pub mod rum;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod runbooks;
-pub mod salesforce;
 pub mod scorecards;
 pub mod seats;
 pub mod security;

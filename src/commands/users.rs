@@ -19,6 +19,14 @@ const USER_LIST_COLUMNS: &[&str] = &[
     "attributes.modified_at",
 ];
 
+pub const LIST_PAGING: crate::pagination::PageSpec = crate::pagination::PageSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: Some(10),
+        max: Some(100),
+    },
+    base: crate::pagination::IndexBase::Zero,
+};
+
 pub async fn list(cfg: &Config, page_size: i64, page_number: i64) -> Result<()> {
     let api = crate::make_api!(UsersAPI, cfg);
     let resp = api

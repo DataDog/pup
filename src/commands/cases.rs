@@ -62,6 +62,14 @@ fn make_api(cfg: &Config) -> CaseManagementAPI {
 // Core case operations
 // ---------------------------------------------------------------------------
 
+pub const SEARCH_PAGING: crate::pagination::PageSpec = crate::pagination::PageSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: Some(10),
+        max: None,
+    },
+    base: crate::pagination::IndexBase::One,
+};
+
 pub async fn search(
     cfg: &Config,
     query: Option<String>,

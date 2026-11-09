@@ -3324,10 +3324,8 @@ enum MonitorActions {
     Search {
         #[arg(long, help = "Search query string")]
         query: Option<String>,
-        #[arg(long, default_value_t = 0, help = "Page number")]
-        page: i64,
-        #[arg(long, default_value_t = 30, help = "Results per page")]
-        per_page: i64,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
         #[arg(long, allow_hyphen_values = true, help = "Sort order")]
         sort: Option<String>,
     },
@@ -5416,10 +5414,8 @@ enum TagRulesActions {
 enum UserActions {
     /// List users
     List {
-        #[arg(long, default_value_t = 10, help = "Results per page (max 100)")]
-        page_size: i64,
-        #[arg(long, default_value_t = 0, help = "Page number (0-indexed)")]
-        page_number: i64,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
     },
     /// Get user details
     Get { user_id: String },
@@ -7042,10 +7038,8 @@ enum CaseActions {
     Search {
         #[arg(long, help = "Search query")]
         query: Option<String>,
-        #[arg(long, default_value_t = 10, help = "Results per page")]
-        page_size: i64,
-        #[arg(long, default_value_t = 1, help = "Page number (1-indexed)")]
-        page_number: i64,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
     },
     /// Get case details
     Get { case_id: String },
@@ -16436,11 +16430,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 MonitorActions::Search {
                     query,
-                    page,
-                    per_page,
+                    paging,
                     sort,
                 } => {
-                    commands::monitors::search(&cfg, query, page, per_page, sort).await?;
+                    let p = paging.resolve(&commands::monitors::SEARCH_PAGING)?;
+                    commands::monitors::search(&cfg, query, p.api_page()?, p.page_size()?, sort)
+                        .await?;
                 }
                 MonitorActions::Delete { monitor_id } => {
                     commands::monitors::delete(&cfg, monitor_id).await?;
@@ -17306,10 +17301,10 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Users { action } => {
             cfg.validate_auth()?;
             match action {
-                UserActions::List {
-                    page_size,
-                    page_number,
-                } => commands::users::list(&cfg, page_size, page_number).await?,
+                UserActions::List { paging } => {
+                    let p = paging.resolve(&commands::users::LIST_PAGING)?;
+                    commands::users::list(&cfg, p.page_size()?, p.api_page()?).await?
+                }
                 UserActions::Get { user_id } => commands::users::get(&cfg, &user_id).await?,
                 UserActions::Roles { action } => match action {
                     UserRoleActions::List {
@@ -18037,12 +18032,9 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Cases { action } => {
             cfg.validate_auth()?;
             match action {
-                CaseActions::Search {
-                    query,
-                    page_size,
-                    page_number,
-                } => {
-                    commands::cases::search(&cfg, query, page_size, page_number).await?;
+                CaseActions::Search { query, paging } => {
+                    let p = paging.resolve(&commands::cases::SEARCH_PAGING)?;
+                    commands::cases::search(&cfg, query, p.page_size()?, p.api_page()?).await?;
                 }
                 CaseActions::Get { case_id } => commands::cases::get(&cfg, &case_id).await?,
                 CaseActions::Create {

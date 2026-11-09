@@ -208,18 +208,18 @@ fn is_rate_limited(err: &anyhow::Error) -> bool {
     err.to_string().contains("HTTP 429 Too Many Requests")
 }
 
-/// Envelope metadata for one page of schema results. `next_offset` is set
+/// Envelope metadata for one page of schema results. `next_page` is set
 /// only when more results exist and no warning (such as a rate-limited
-/// reference search) makes the offset unreliable; pass it back with `--offset`.
+/// reference search) makes the page unreliable; pass it back with `--page`.
 fn page_metadata(
-    returned: usize,
     offset: usize,
+    limit: usize,
     truncated: bool,
     warnings: &[&str],
 ) -> formatter::Metadata {
     formatter::Metadata {
         truncated,
-        next_offset: (truncated && warnings.is_empty()).then(|| offset.saturating_add(returned)),
+        next_page: (truncated && warnings.is_empty()).then(|| (offset / limit.max(1)) as u64 + 1),
         warnings: warnings.iter().map(|w| (*w).to_string()).collect(),
         ..Default::default()
     }
@@ -456,6 +456,14 @@ pub async fn spec(cfg: &Config) -> Result<()> {
     }
 }
 
+pub const SCHEMA_PAGING: crate::pagination::PageSpec = crate::pagination::PageSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: Some(100),
+        max: None,
+    },
+    base: crate::pagination::IndexBase::Zero,
+};
+
 pub async fn schema_tables(
     cfg: &Config,
     query: Option<&str>,
@@ -484,7 +492,7 @@ pub async fn schema_tables(
     let paged: Vec<DdsqlSchemaTable> = items.into_iter().skip(offset).take(limit).collect();
     let truncated = references_truncated || offset.saturating_add(paged.len()) < total;
     let warnings: Vec<&str> = rate_limit_note.into_iter().collect();
-    let meta = page_metadata(paged.len(), offset, truncated, &warnings);
+    let meta = page_metadata(offset, limit, truncated, &warnings);
     formatter::output_with_meta(cfg, &paged, &meta)
 }
 
@@ -510,11 +518,7 @@ pub async fn schema_columns(
     let total = columns.len();
     let paged: Vec<DdsqlSchemaColumn> = columns.into_iter().skip(offset).take(limit).collect();
     let truncated = offset.saturating_add(paged.len()) < total;
-    formatter::output_with_meta(
-        cfg,
-        &paged,
-        &page_metadata(paged.len(), offset, truncated, &[]),
-    )
+    formatter::output_with_meta(cfg, &paged, &page_metadata(offset, limit, truncated, &[]))
 }
 
 /// Build a request for the Advanced Query API (tabular/scalar endpoint).
@@ -835,22 +839,23 @@ mod tests {
     use crate::test_support::{cleanup_env, lock_env, test_config};
 
     #[test]
-    fn test_page_metadata_sets_next_offset_when_truncated() {
-        let meta = page_metadata(2, 10, true, &[]);
+    fn test_page_metadata_sets_next_page_when_truncated() {
+        let meta = page_metadata(20, 10, true, &[]);
         assert!(meta.truncated);
-        assert_eq!(meta.next_offset, Some(12));
+        assert_eq!(meta.next_page, Some(3));
+        assert_eq!(meta.next_offset, None);
         assert!(meta.warnings.is_empty());
     }
 
     #[test]
-    fn test_page_metadata_withholds_next_offset_with_warnings_or_on_last_page() {
-        let meta = page_metadata(1, 0, true, &["rate limited"]);
+    fn test_page_metadata_withholds_next_page_with_warnings_or_on_last_page() {
+        let meta = page_metadata(0, 1, true, &["rate limited"]);
         assert!(meta.truncated);
-        assert_eq!(meta.next_offset, None);
+        assert_eq!(meta.next_page, None);
         assert_eq!(meta.warnings, ["rate limited"]);
-        let meta = page_metadata(1, 0, false, &[]);
+        let meta = page_metadata(0, 1, false, &[]);
         assert!(!meta.truncated);
-        assert_eq!(meta.next_offset, None);
+        assert_eq!(meta.next_page, None);
     }
 
     #[test]

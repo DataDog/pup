@@ -4796,14 +4796,8 @@ enum DdsqlSchemaActions {
     Tables {
         #[arg(long, help = "Case-insensitive substring filter for table names")]
         query: Option<String>,
-        #[arg(
-            long,
-            default_value_t = 100,
-            help = "Maximum number of tables to return"
-        )]
-        limit: usize,
-        #[arg(long, default_value_t = 0, help = "Number of tables to skip")]
-        offset: usize,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
     },
     /// Show columns for a DDSQL table
     Columns {
@@ -4812,14 +4806,8 @@ enum DdsqlSchemaActions {
             help = "Table ID, for example public.aws.ec2_instance or reference_tables.my_table"
         )]
         table_id: String,
-        #[arg(
-            long,
-            default_value_t = 100,
-            help = "Maximum number of columns to return"
-        )]
-        limit: usize,
-        #[arg(long, default_value_t = 0, help = "Number of columns to skip")]
-        offset: usize,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
     },
 }
 
@@ -11959,10 +11947,8 @@ enum LlmObsExperimentsEventsActions {
     /// List events for an experiment with optional filtering and sorting
     List {
         experiment_id: String,
-        #[arg(long, default_value = "20", help = "Number of events to return")]
-        limit: u32,
-        #[arg(long, default_value = "0", help = "Offset for pagination")]
-        offset: u32,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
         #[arg(long, help = "Filter by dimension key")]
         filter_dimension_key: Option<String>,
         #[arg(
@@ -21046,20 +21032,25 @@ async fn main_inner() -> anyhow::Result<()> {
                     commands::ddsql::spec(&cfg).await?;
                 }
                 DdsqlActions::Schema { action } => match action {
-                    DdsqlSchemaActions::Tables {
-                        query,
-                        limit,
-                        offset,
-                    } => {
-                        commands::ddsql::schema_tables(&cfg, query.as_deref(), limit, offset)
-                            .await?;
+                    DdsqlSchemaActions::Tables { query, paging } => {
+                        let p = paging.resolve(&commands::ddsql::SCHEMA_PAGING)?;
+                        commands::ddsql::schema_tables(
+                            &cfg,
+                            query.as_deref(),
+                            p.page_size()?,
+                            p.offset()?,
+                        )
+                        .await?;
                     }
-                    DdsqlSchemaActions::Columns {
-                        table_id,
-                        limit,
-                        offset,
-                    } => {
-                        commands::ddsql::schema_columns(&cfg, &table_id, limit, offset).await?;
+                    DdsqlSchemaActions::Columns { table_id, paging } => {
+                        let p = paging.resolve(&commands::ddsql::SCHEMA_PAGING)?;
+                        commands::ddsql::schema_columns(
+                            &cfg,
+                            &table_id,
+                            p.page_size()?,
+                            p.offset()?,
+                        )
+                        .await?;
                     }
                 },
             }
@@ -21740,19 +21731,19 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsExperimentsActions::Events { action } => match action {
                         LlmObsExperimentsEventsActions::List {
                             experiment_id,
-                            limit,
-                            offset,
+                            paging,
                             filter_dimension_key,
                             filter_dimension_value,
                             filter_metric_label,
                             sort_by_metric,
                             sort_direction,
                         } => {
+                            let p = paging.resolve(&commands::llm_obs::EVENTS_PAGING)?;
                             commands::llm_obs::experiments_events_list(
                                 &cfg,
                                 &experiment_id,
-                                limit,
-                                offset,
+                                p.page_size()?,
+                                p.offset()?,
                                 filter_dimension_key,
                                 filter_dimension_value,
                                 filter_metric_label,

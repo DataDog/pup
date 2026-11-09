@@ -389,6 +389,14 @@ pub async fn experiments_summary(cfg: &Config, experiment_id: &str) -> Result<()
     formatter::output(cfg, &resp)
 }
 
+pub const EVENTS_PAGING: crate::pagination::PageSpec = crate::pagination::PageSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: Some(20),
+        max: None,
+    },
+    base: crate::pagination::IndexBase::Zero,
+};
+
 #[allow(clippy::too_many_arguments)]
 pub async fn experiments_events_list(
     cfg: &Config,

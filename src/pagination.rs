@@ -91,7 +91,7 @@ fn convert<T: TryFrom<u64>>(name: &str, v: u64) -> Result<T> {
     T::try_from(v).map_err(|_| anyhow::anyhow!("{name} value {v} is too large"))
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ResolvedCursor {
     pub cursor: Option<String>,
     page_size: Option<u64>,

@@ -274,6 +274,13 @@ pub async fn dora_patch_deployment(cfg: &Config, deployment_id: &str, file: &str
 
 // ---- Flaky Tests ----
 
+pub const FLAKY_TESTS_PAGING: crate::pagination::CursorSpec = crate::pagination::CursorSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: Some(100),
+        max: None,
+    },
+};
+
 pub async fn flaky_tests_search(
     cfg: &Config,
     query: Option<String>,

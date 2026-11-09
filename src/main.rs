@@ -8488,10 +8488,8 @@ enum CicdFlakyTestActions {
     Search {
         #[arg(long, help = "Search query")]
         query: Option<String>,
-        #[arg(long, help = "Pagination cursor")]
-        cursor: Option<String>,
-        #[arg(long, default_value_t = 100, help = "Maximum results")]
-        limit: i64,
+        #[command(flatten)]
+        paging: pagination::CursorArgs,
         #[arg(
             long,
             allow_hyphen_values = true,
@@ -9183,12 +9181,8 @@ enum DeploymentGatesActions {
 enum DeploymentGatesGateActions {
     /// List all deployment gates
     List {
-        /// Pagination cursor
-        #[arg(long)]
-        page_cursor: Option<String>,
-        /// Page size (1-1000, default 50)
-        #[arg(long)]
-        page_size: Option<i64>,
+        #[command(flatten)]
+        paging: pagination::CursorArgs,
     },
     /// Get a deployment gate by ID
     Get { gate_id: String },
@@ -11909,10 +11903,8 @@ enum LlmObsProjectsActions {
         filter_id: Option<String>,
         #[arg(long, help = "Filter by project name")]
         filter_name: Option<String>,
-        #[arg(long, help = "Maximum number of projects to return per page")]
-        limit: Option<u32>,
-        #[arg(long, help = "Pagination cursor from a prior call")]
-        cursor: Option<String>,
+        #[command(flatten)]
+        paging: pagination::CursorArgs,
     },
 }
 
@@ -19024,11 +19016,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 CicdActions::FlakyTests { action } => match action {
                     CicdFlakyTestActions::Search {
                         query,
-                        cursor,
-                        limit,
+                        paging,
                         sort,
                     } => {
-                        commands::cicd::flaky_tests_search(&cfg, query, cursor, limit, sort)
+                        let p = paging.resolve(&commands::cicd::FLAKY_TESTS_PAGING)?;
+                        let limit = p.page_size_opt()?.unwrap_or(100);
+                        commands::cicd::flaky_tests_search(&cfg, query, p.cursor, limit, sort)
                             .await?;
                     }
                     CicdFlakyTestActions::Update { file } => {
@@ -19365,11 +19358,14 @@ async fn main_inner() -> anyhow::Result<()> {
             cfg.validate_auth()?;
             match action {
                 DeploymentGatesActions::Gates { action } => match action {
-                    DeploymentGatesGateActions::List {
-                        page_cursor,
-                        page_size,
-                    } => {
-                        commands::deployment_gates::list(&cfg, page_cursor, page_size).await?;
+                    DeploymentGatesGateActions::List { paging } => {
+                        let p = paging.resolve(&commands::deployment_gates::LIST_PAGING)?;
+                        commands::deployment_gates::list(
+                            &cfg,
+                            p.cursor.clone(),
+                            p.page_size_opt()?,
+                        )
+                        .await?;
                     }
                     DeploymentGatesGateActions::Get { gate_id } => {
                         commands::deployment_gates::get(&cfg, &gate_id).await?;
@@ -21716,17 +21712,10 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsProjectsActions::List {
                         filter_id,
                         filter_name,
-                        limit,
-                        cursor,
+                        paging,
                     } => {
-                        commands::llm_obs::projects_list(
-                            &cfg,
-                            filter_id,
-                            filter_name,
-                            limit,
-                            cursor,
-                        )
-                        .await?;
+                        let p = paging.resolve(&commands::llm_obs::PROJECTS_PAGING)?;
+                        commands::llm_obs::projects_list(&cfg, filter_id, filter_name, &p).await?;
                     }
                 },
                 LlmObsActions::Experiments { action } => match action {

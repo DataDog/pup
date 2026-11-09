@@ -20,6 +20,13 @@ fn make_api(cfg: &Config) -> DeploymentGatesAPI {
 // Gates CRUD
 // ---------------------------------------------------------------------------
 
+pub const LIST_PAGING: crate::pagination::CursorSpec = crate::pagination::CursorSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: None,
+        max: Some(1000),
+    },
+};
+
 pub async fn list(cfg: &Config, page_cursor: Option<String>, page_size: Option<i64>) -> Result<()> {
     let api = make_api(cfg);
     let mut params = ListDeploymentGatesOptionalParams::default();

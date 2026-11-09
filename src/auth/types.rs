@@ -119,7 +119,6 @@ pub fn read_only_scopes() -> Vec<&'static str> {
 /// Default OAuth scopes requested during login.
 pub fn default_scopes() -> Vec<&'static str> {
     vec![
-        "assistant_access",
         // APM
         "apm_generate_metrics",
         "apm_read",
@@ -151,6 +150,8 @@ pub fn default_scopes() -> Vec<&'static str> {
         // BITS
         "bits_investigations_read",
         "bits_investigations_write",
+        // Bits CLI
+        "assistant_access",
         // Cases
         "cases_read",
         "cases_write",

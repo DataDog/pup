@@ -14002,6 +14002,23 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "setup"
 }
 
+/// Page size rules of the commands migrated to the shared pagination args,
+/// keyed by full command path. Their clap args carry no default (it is applied
+/// in `resolve()`), so the agent schema reads type, default and max from here.
+fn migrated_page_size_spec(full_path: &str) -> Option<pagination::PageSizeSpec> {
+    Some(match full_path {
+        "deployment-gates gates list" => commands::deployment_gates::LIST_PAGING.size,
+        "cicd flaky-tests search" => commands::cicd::FLAKY_TESTS_PAGING.size,
+        "llm-obs projects list" => commands::llm_obs::PROJECTS_PAGING.size,
+        "monitors search" => commands::monitors::SEARCH_PAGING.size,
+        "users list" => commands::users::LIST_PAGING.size,
+        "cases search" => commands::cases::SEARCH_PAGING.size,
+        "ddsql schema tables" | "ddsql schema columns" => commands::ddsql::SCHEMA_PAGING.size,
+        "llm-obs experiments events list" => commands::llm_obs::EVENTS_PAGING.size,
+        _ => return None,
+    })
+}
+
 fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
     let mut obj = serde_json::Map::new();
     let name = cmd.get_name().to_string();
@@ -14060,11 +14077,17 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
     }
 
     // Flags (named --flags only, excluding positional args and globals)
+    let page_size_spec = migrated_page_size_spec(&full_path);
     let flags: Vec<serde_json::Value> = cmd
         .get_arguments()
         .filter(|a| {
             let id = a.get_id().as_str();
-            id != "help" && id != "version" && !a.is_global_set() && a.get_long().is_some()
+            id != "help"
+                && id != "version"
+                && !a.is_global_set()
+                && a.get_long().is_some()
+                // Hidden legacy pagination flags stay out of migrated commands' schema.
+                && !(page_size_spec.is_some() && a.is_hide_set())
         })
         .map(|a| {
             let mut flag = serde_json::Map::new();
@@ -14086,6 +14109,13 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
                     "string"
                 }
             };
+            let is_page_size = page_size_spec.is_some() && a.get_long() == Some("page-size");
+            let is_page = a.get_id().as_str() == pagination::PAGE_ARG;
+            let type_str = if is_page_size || is_page {
+                "int"
+            } else {
+                type_str
+            };
             flag.insert("type".into(), serde_json::json!(type_str));
             flag.insert("required".into(), serde_json::json!(a.is_required_set()));
             flag.insert("arity".into(), build_arg_arity(a));
@@ -14094,6 +14124,14 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
                     "default".into(),
                     serde_json::json!(def.to_str().unwrap_or("").to_string()),
                 );
+            }
+            if let (true, Some(spec)) = (is_page_size, page_size_spec) {
+                if let Some(d) = spec.default {
+                    flag.insert("default".into(), serde_json::json!(d.to_string()));
+                }
+                if let Some(m) = spec.max {
+                    flag.insert("max".into(), serde_json::json!(m));
+                }
             }
             if let Some(help) = a.get_help() {
                 flag.insert("description".into(), serde_json::json!(help.to_string()));
@@ -14250,6 +14288,59 @@ fn build_cli_surface(cmd: &clap::Command) -> serde_json::Value {
 #[cfg(test)]
 mod test_agent_schema {
     use super::*;
+
+    fn flag_of(path: &[&str], flag: &str) -> Option<serde_json::Value> {
+        let schema = get_schema();
+        let cmd = find_command(schema["commands"].as_array().unwrap(), path)?;
+        cmd["flags"]
+            .as_array()?
+            .iter()
+            .find(|f| f["name"] == flag)
+            .cloned()
+    }
+
+    #[test]
+    fn migrated_pagination_flags_report_int_type_and_spec_defaults() {
+        for (path, default) in [
+            (vec!["users", "list"], Some("10")),
+            (vec!["cases", "search"], Some("10")),
+            (vec!["monitors", "search"], Some("30")),
+            (vec!["deployment-gates", "gates", "list"], None),
+        ] {
+            let f = flag_of(&path, "--page-size").unwrap_or_else(|| panic!("{path:?}"));
+            assert_eq!(f["type"], "int", "{path:?}");
+            assert_eq!(f["default"].as_str(), default, "{path:?}");
+        }
+        assert_eq!(
+            flag_of(&["users", "list"], "--page-size").unwrap()["max"],
+            100
+        );
+        assert_eq!(
+            flag_of(&["deployment-gates", "gates", "list"], "--page-size").unwrap()["max"],
+            1000
+        );
+        assert_eq!(
+            flag_of(&["monitors", "search"], "--page").unwrap()["type"],
+            "int"
+        );
+        // Spec with no default / no max reports neither.
+        let f = flag_of(&["monitors", "search"], "--page-size").unwrap();
+        assert!(f.get("max").is_none());
+        assert_eq!(
+            flag_of(&["llm-obs", "projects", "list"], "--cursor").unwrap()["type"],
+            "string"
+        );
+    }
+
+    #[test]
+    fn migrated_pagination_schema_hides_legacy_flags() {
+        for flag in ["--offset", "--page-number", "--per-page", "--limit"] {
+            assert!(flag_of(&["users", "list"], flag).is_none(), "{flag}");
+        }
+        assert!(flag_of(&["ddsql", "schema", "tables"], "--offset").is_none());
+        // Unmigrated commands keep their own page-size flag untouched.
+        assert!(flag_of(&["synthetics", "tests", "list"], "--page-number").is_some());
+    }
 
     fn get_schema() -> serde_json::Value {
         let cmd = Cli::command();

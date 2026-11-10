@@ -11,3 +11,17 @@ downtime.cancel
 downtime.create
 downtime.get
 downtime.list
+security
+security.findings.assign
+security.findings.attach-case
+security.findings.attach-jira-issue
+security.findings.attach-linear-issue
+security.findings.attach-servicenow-ticket
+security.findings.create-cases
+security.findings.create-jira-issues
+security.findings.create-linear-issues
+security.findings.create-servicenow-tickets
+security.findings.detach-case
+security.findings.mute
+security.findings.override-severity
+security/findings

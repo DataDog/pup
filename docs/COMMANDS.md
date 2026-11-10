@@ -187,6 +187,30 @@ in parentheses so `OR` alternatives cannot escape the kind. `--field` selects
 attributes and `--include` expands relations. Output is normalized and bounded
 for agents by default; pass `--raw` for the original JSON:API response.
 
+### Pagination
+
+Paginated commands that have been migrated share two sets of flags:
+
+- **Cursor style:** `--cursor` and `--page-size`. Pass `metadata.next_cursor` back with `--cursor`.
+- **Page style:** `--page` (0-based) and `--page-size`. `metadata.next_page` is the value to pass to `--page`.
+
+Hidden aliases keep older invocations working: `--page-cursor`, `--page-token` and `--limit` for cursor style; `--per-page` and `--limit` for page style. `--page-number` is also still accepted; its value goes to the API unchanged (so `cases search --page-number 1` is still the first page). `--offset` is accepted too and converted to a page: `--offset 50 --page-size 25` is `--page 2`. An offset that is not a multiple of the page size is an error that names the `--page` value to use.
+
+`--page-size` must be at least 1 and at most the command's maximum; the default is the command's previous default. `next_action` in the output envelope names the command's real paging flag.
+
+| Command | Style | Default page size | Max |
+|---|---|---|---|
+| `deployment-gates gates list` | cursor | server default | 1000 |
+| `cicd flaky-tests search` | cursor | 100 | none |
+| `llm-obs projects list` | cursor | server default | none |
+| `monitors search` | page | 30 | none |
+| `users list` | page | 10 | 100 |
+| `cases search` | page | 10 | none |
+| `ddsql schema tables` / `columns` | page | 100 | none |
+| `llm-obs experiments events list` | page | 20 | none |
+
+`ddsql schema tables` and `columns` now report `metadata.next_page` instead of `metadata.next_offset`. Other paginated commands keep their current flags until they are migrated.
+
 ### Create/Update/Delete
 ```bash
 pup <domain> create [--flags]

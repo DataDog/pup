@@ -49,7 +49,7 @@ pub struct PageSpec {
 #[derive(Args, Clone, Debug, Default)]
 pub struct CursorArgs {
     /// Cursor from a previous response's metadata.next_cursor
-    #[arg(long = "cursor", id = CURSOR_ARG, aliases = ["page-cursor", "page-token"])]
+    #[arg(long = "cursor", id = CURSOR_ARG, value_name = "CURSOR", aliases = ["page-cursor", "page-token"])]
     pub cursor: Option<String>,
     /// Results per page
     #[arg(long = "page-size", alias = "limit")]
@@ -59,7 +59,7 @@ pub struct CursorArgs {
 #[derive(Args, Clone, Debug, Default)]
 pub struct PageArgs {
     /// Page number (0-based)
-    #[arg(long = "page", id = PAGE_ARG)]
+    #[arg(long = "page", id = PAGE_ARG, value_name = "PAGE")]
     pub page: Option<u64>,
     /// Results per page
     #[arg(long = "page-size", aliases = ["per-page", "limit"])]
@@ -171,6 +171,7 @@ impl PageArgs {
 
 impl ResolvedPage {
     /// 0-based page index.
+    #[cfg(test)]
     pub fn page(&self) -> u64 {
         self.page
     }
@@ -185,12 +186,6 @@ impl ResolvedPage {
             Some(n) => convert("--page-size", n),
             None => bail!("--page-size is required for this command"),
         }
-    }
-
-    pub fn page_size_opt<T: TryFrom<u64>>(&self) -> Result<Option<T>> {
-        self.page_size
-            .map(|n| convert("--page-size", n))
-            .transpose()
     }
 
     /// Result offset (page × page size).

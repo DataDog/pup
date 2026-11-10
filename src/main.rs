@@ -2510,7 +2510,7 @@ enum Commands {
     ///     --query "service:my-service" --from 1h
     ///   pup profiling explore callgraph --profile-type cpu-time \
     ///     --query "service:my-service" --from 1h
-    ///   pup profiling explore timeline --profile-id prof-123 --event-id evt-id-456
+    ///   pup profiling explore timeline --query "profile-id:prof-123"
     ///   pup profiling --header "test-drive-hummer-aurora: 1" services list --from 1h
     ///
     /// AUTHENTICATION:
@@ -4976,7 +4976,7 @@ enum ProfilingExploreActions {
         #[arg(
             long,
             default_value = "",
-            help = "Filter query; required unless --trace-id or --profile-id is set"
+            help = "Filter query scoping the flame graph (include profile-id:<id> to target a single specific profile); required unless --trace-id is set"
         )]
         query: String,
         #[arg(
@@ -5000,16 +5000,6 @@ enum ProfilingExploreActions {
             help = "Approximate span time, e.g. a Unix timestamp or RFC3339 (required with --trace-id)"
         )]
         time_hint: Option<String>,
-        #[arg(
-            long,
-            help = "Existing profile ID to scope the query instead of --query (used together with --event-id)"
-        )]
-        profile_id: Option<String>,
-        #[arg(
-            long,
-            help = "Event ID to scope the query (used together with --profile-id)"
-        )]
-        event_id: Option<String>,
         #[arg(long, help = "Aggregation attribute/dimension, e.g. a custom tag")]
         attribute: Option<String>,
         #[arg(
@@ -5064,7 +5054,7 @@ enum ProfilingExploreActions {
         #[arg(
             long,
             default_value = "",
-            help = "Filter query; required unless --trace-id or --profile-id is set"
+            help = "Filter query scoping the call graph (include profile-id:<id> to target a single specific profile); required unless --trace-id is set"
         )]
         query: String,
         #[arg(
@@ -5088,16 +5078,6 @@ enum ProfilingExploreActions {
             help = "Approximate span time, e.g. a Unix timestamp or RFC3339 (required with --trace-id)"
         )]
         time_hint: Option<String>,
-        #[arg(
-            long,
-            help = "Existing profile ID to scope the query instead of --query (used together with --event-id)"
-        )]
-        profile_id: Option<String>,
-        #[arg(
-            long,
-            help = "Event ID to scope the query (used together with --profile-id)"
-        )]
-        event_id: Option<String>,
         #[arg(
             long,
             default_value_t = 5.0,
@@ -5127,7 +5107,7 @@ enum ProfilingExploreActions {
         #[arg(
             long,
             default_value = "",
-            help = "Filter query; required with --runtime-id"
+            help = "Filter query scoping the timeline (may include runtime-id:<id> or profile-id:<id> terms); required unless --trace-id is set"
         )]
         query: String,
         #[arg(
@@ -5142,11 +5122,6 @@ enum ProfilingExploreActions {
             help = "End time: 1h, 5min, 2hours, RFC3339, Unix timestamp, or 'now'"
         )]
         to: String,
-        #[arg(
-            long,
-            help = "Runtime ID of the process to scope the timeline to (requires --query)"
-        )]
-        runtime_id: Option<String>,
         #[arg(long, help = "Trace ID to scope the timeline to a span")]
         trace_id: Option<String>,
         #[arg(long, help = "Span ID (required with --trace-id)")]
@@ -5156,16 +5131,6 @@ enum ProfilingExploreActions {
             help = "Approximate span time, e.g. a Unix timestamp or RFC3339 (required with --trace-id)"
         )]
         time_hint: Option<String>,
-        #[arg(
-            long,
-            help = "Existing profile ID to scope the timeline to (used together with --event-id)"
-        )]
-        profile_id: Option<String>,
-        #[arg(
-            long,
-            help = "Event ID to scope the timeline (used together with --profile-id)"
-        )]
-        event_id: Option<String>,
         #[arg(long, help = "Max number of lane groups (or lanes) to return")]
         limit_lanes: Option<i32>,
         #[arg(
@@ -22341,8 +22306,6 @@ async fn main_inner() -> anyhow::Result<()> {
                         trace_id,
                         span_id,
                         time_hint,
-                        profile_id,
-                        event_id,
                         attribute,
                         percent_cutoff,
                         limit_top_stacktraces,
@@ -22363,8 +22326,6 @@ async fn main_inner() -> anyhow::Result<()> {
                             trace_id,
                             span_id,
                             time_hint,
-                            profile_id,
-                            event_id,
                             attribute,
                             percent_cutoff,
                             limit_top_stacktraces,
@@ -22387,8 +22348,6 @@ async fn main_inner() -> anyhow::Result<()> {
                         trace_id,
                         span_id,
                         time_hint,
-                        profile_id,
-                        event_id,
                         percent_cutoff,
                         limit_top_nodes,
                         max_node_details,
@@ -22403,8 +22362,6 @@ async fn main_inner() -> anyhow::Result<()> {
                             trace_id,
                             span_id,
                             time_hint,
-                            profile_id,
-                            event_id,
                             percent_cutoff,
                             limit_top_nodes,
                             max_node_details,
@@ -22417,12 +22374,9 @@ async fn main_inner() -> anyhow::Result<()> {
                         query,
                         from,
                         to,
-                        runtime_id,
                         trace_id,
                         span_id,
                         time_hint,
-                        profile_id,
-                        event_id,
                         limit_lanes,
                         focus_event_type,
                         focus_from,
@@ -22435,12 +22389,9 @@ async fn main_inner() -> anyhow::Result<()> {
                             query,
                             from,
                             to,
-                            runtime_id,
                             trace_id,
                             span_id,
                             time_hint,
-                            profile_id,
-                            event_id,
                             limit_lanes,
                             focus_event_type,
                             focus_from,

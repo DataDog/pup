@@ -191,8 +191,6 @@ pub async fn explore_flamegraph(
     trace_id: Option<String>,
     span_id: Option<String>,
     time_hint: Option<String>,
-    profile_id: Option<String>,
-    event_id: Option<String>,
     attribute: Option<String>,
     percent_cutoff: f64,
     limit_top_stacktraces: i32,
@@ -205,13 +203,8 @@ pub async fn explore_flamegraph(
     bypass_kind_truncation: bool,
     extra_headers: &[(&str, &str)],
 ) -> Result<()> {
-    if trace_id.is_none() && profile_id.is_none() && query.trim().is_empty() {
-        anyhow::bail!(
-            "one of --query, --trace-id, or --profile-id is required to scope the flame graph"
-        );
-    }
-    if profile_id.is_some() != event_id.is_some() {
-        anyhow::bail!("--profile-id and --event-id must be used together");
+    if trace_id.is_none() && query.trim().is_empty() {
+        anyhow::bail!("one of --query or --trace-id is required to scope the flame graph");
     }
     let trace_context = trace_context_json(trace_id, span_id, time_hint)?;
 
@@ -232,13 +225,6 @@ pub async fn explore_flamegraph(
     if let Some(trace_context) = trace_context {
         body["traceContext"] = trace_context;
     }
-    if let Some(profile_id) = profile_id {
-        body["profileContext"] = json!({
-            "profileId": profile_id,
-            "eventId": event_id,
-        });
-    }
-
     let resp = raw_client::raw_post_with_headers(
         cfg,
         &format!("{BASE}/explore/flamegraph"),
@@ -260,21 +246,14 @@ pub async fn explore_callgraph(
     trace_id: Option<String>,
     span_id: Option<String>,
     time_hint: Option<String>,
-    profile_id: Option<String>,
-    event_id: Option<String>,
     percent_cutoff: f64,
     limit_top_nodes: i32,
     max_node_details: i32,
     frame_filter: Option<String>,
     extra_headers: &[(&str, &str)],
 ) -> Result<()> {
-    if trace_id.is_none() && profile_id.is_none() && query.trim().is_empty() {
-        anyhow::bail!(
-            "one of --query, --trace-id, or --profile-id is required to scope the call graph"
-        );
-    }
-    if profile_id.is_some() != event_id.is_some() {
-        anyhow::bail!("--profile-id and --event-id must be used together");
+    if trace_id.is_none() && query.trim().is_empty() {
+        anyhow::bail!("one of --query or --trace-id is required to scope the call graph");
     }
     let trace_context = trace_context_json(trace_id, span_id, time_hint)?;
 
@@ -289,13 +268,6 @@ pub async fn explore_callgraph(
     if let Some(trace_context) = trace_context {
         body["traceContext"] = trace_context;
     }
-    if let Some(profile_id) = profile_id {
-        body["profileContext"] = json!({
-            "profileId": profile_id,
-            "eventId": event_id,
-        });
-    }
-
     let resp = raw_client::raw_post_with_headers(
         cfg,
         &format!("{BASE}/explore/callgraph"),
@@ -313,12 +285,9 @@ pub async fn explore_timeline(
     query: String,
     from: String,
     to: String,
-    runtime_id: Option<String>,
     trace_id: Option<String>,
     span_id: Option<String>,
     time_hint: Option<String>,
-    profile_id: Option<String>,
-    event_id: Option<String>,
     limit_lanes: Option<i32>,
     focus_event_type: Option<String>,
     focus_from: Option<String>,
@@ -327,21 +296,11 @@ pub async fn explore_timeline(
     critical_path: bool,
     extra_headers: &[(&str, &str)],
 ) -> Result<()> {
-    let scopes = [
-        runtime_id.is_some(),
-        trace_id.is_some(),
-        profile_id.is_some(),
-    ];
-    if scopes.iter().filter(|s| **s).count() != 1 {
-        anyhow::bail!(
-            "exactly one of --runtime-id, --trace-id, or --profile-id is required to scope the timeline"
-        );
-    }
-    if profile_id.is_some() != event_id.is_some() {
-        anyhow::bail!("--profile-id and --event-id must be used together");
-    }
-    if runtime_id.is_some() && query.trim().is_empty() {
-        anyhow::bail!("--query is required with --runtime-id");
+    // Scoping rides in the query (runtime-id:<id>/profile-id:<id> terms) or
+    // traceContext; the backend's runtimeId/profileContext request parts are
+    // deprecated and no longer sent.
+    if trace_id.is_none() && query.trim().is_empty() {
+        anyhow::bail!("one of --query or --trace-id is required to scope the timeline");
     }
     if critical_path && trace_id.is_none() {
         anyhow::bail!("--critical-path requires --trace-id");
@@ -354,17 +313,8 @@ pub async fn explore_timeline(
     let mut body = json!({
         "filter": filter_json(&query, &from, &to)?,
     });
-    if let Some(runtime_id) = runtime_id {
-        body["runtimeId"] = json!(runtime_id);
-    }
     if let Some(trace_context) = trace_context {
         body["traceContext"] = trace_context;
-    }
-    if let Some(profile_id) = profile_id {
-        body["profileContext"] = json!({
-            "profileId": profile_id,
-            "eventId": event_id,
-        });
     }
     if let Some(limit_lanes) = limit_lanes {
         body["limitLanes"] = json!(limit_lanes);
@@ -1048,8 +998,6 @@ mod tests {
         Option<String>,
         Option<String>,
         Option<String>,
-        Option<String>,
-        Option<String>,
         f64,
         i32,
         i32,
@@ -1067,8 +1015,6 @@ mod tests {
             "service:my-service".into(),
             "1h".into(),
             "now".into(),
-            None,
-            None,
             None,
             None,
             None,
@@ -1103,8 +1049,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1125,8 +1069,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1164,8 +1106,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1186,8 +1126,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1205,7 +1143,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("one of --query, --trace-id, or --profile-id"));
+            .contains("one of --query or --trace-id"));
 
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
@@ -1237,8 +1175,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1259,8 +1195,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1302,8 +1236,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1324,8 +1256,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1371,8 +1301,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1393,8 +1321,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1432,8 +1358,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1454,8 +1378,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1501,8 +1423,6 @@ mod tests {
             _trace_id,
             _span_id,
             _time_hint,
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1523,8 +1443,6 @@ mod tests {
             Some("trace-abc".into()),
             Some("span-123".into()),
             Some("1700000000".into()),
-            profile_id,
-            event_id,
             attribute,
             percent_cutoff,
             limit_top_stacktraces,
@@ -1543,6 +1461,79 @@ mod tests {
             "explore_flamegraph with trace context failed: {:?}",
             result.err()
         );
+
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
+    #[tokio::test]
+    async fn test_profiling_explore_flamegraph_profile_id_scopes_via_query() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("POST", "/api/unstable/profiling/pup/explore/flamegraph")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "filter": {"query": "profile-id:prof-123 (service:my-service)"},
+                "profileType": "cpu-time"
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"sortedStacktracesWithValues":[],"visualizationLink":{"title":"","url":""}}"#,
+            )
+            .create_async()
+            .await;
+
+        let (
+            profile_type,
+            _query,
+            from,
+            to,
+            _trace_id,
+            _span_id,
+            _time_hint,
+            attribute,
+            percent_cutoff,
+            limit_top_stacktraces,
+            max_stack_trace_size,
+            frame_regex_filter,
+            endpoint_regex_filter,
+            attribute_values_regex_filter,
+            frame_format,
+            frame_grouping,
+            bypass_kind_truncation,
+        ) = flamegraph_args();
+        let result = super::explore_flamegraph(
+            &cfg,
+            profile_type,
+            "profile-id:prof-123 (service:my-service)".into(),
+            from,
+            to,
+            None,
+            None,
+            None,
+            attribute,
+            percent_cutoff,
+            limit_top_stacktraces,
+            max_stack_trace_size,
+            frame_regex_filter,
+            endpoint_regex_filter,
+            attribute_values_regex_filter,
+            frame_format,
+            frame_grouping,
+            bypass_kind_truncation,
+            &[],
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "explore_flamegraph with profile-id failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
 
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
@@ -1623,8 +1614,6 @@ mod tests {
         Option<String>,
         Option<String>,
         Option<String>,
-        Option<String>,
-        Option<String>,
         f64,
         i32,
         i32,
@@ -1637,8 +1626,6 @@ mod tests {
             "service:my-service".into(),
             "1h".into(),
             "now".into(),
-            None,
-            None,
             None,
             None,
             None,
@@ -1667,8 +1654,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1683,8 +1668,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1716,8 +1699,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1732,8 +1713,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1745,56 +1724,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("one of --query, --trace-id, or --profile-id"));
-
-        cleanup_env();
-        std::env::remove_var("DD_TOKEN_STORAGE");
-    }
-
-    #[tokio::test]
-    async fn test_profiling_explore_callgraph_requires_profile_id_and_event_id_together() {
-        let _lock = lock_env().await;
-        std::env::set_var("DD_TOKEN_STORAGE", "file");
-        let cfg = test_config("http://unused.local");
-
-        let (
-            profile_type,
-            query,
-            from,
-            to,
-            trace_id,
-            span_id,
-            time_hint,
-            _profile_id,
-            _event_id,
-            percent_cutoff,
-            limit_top_nodes,
-            max_node_details,
-            frame_filter,
-        ) = callgraph_args();
-        let result = super::explore_callgraph(
-            &cfg,
-            profile_type,
-            query,
-            from,
-            to,
-            trace_id,
-            span_id,
-            time_hint,
-            Some("prof-123".into()),
-            None,
-            percent_cutoff,
-            limit_top_nodes,
-            max_node_details,
-            frame_filter,
-            &[],
-        )
-        .await;
-        assert!(result.is_err(), "expected a profile-id/event-id error");
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("--profile-id and --event-id must be used together"));
+            .contains("one of --query or --trace-id"));
 
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
@@ -1818,8 +1748,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1834,8 +1762,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1875,8 +1801,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1891,8 +1815,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1924,8 +1846,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1940,8 +1860,6 @@ mod tests {
             trace_id,
             span_id,
             time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1981,8 +1899,6 @@ mod tests {
             _trace_id,
             _span_id,
             _time_hint,
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -1997,8 +1913,6 @@ mod tests {
             Some("trace-abc".into()),
             Some("span-123".into()),
             Some("1700000000".into()),
-            profile_id,
-            event_id,
             percent_cutoff,
             limit_top_nodes,
             max_node_details,
@@ -2016,19 +1930,75 @@ mod tests {
         std::env::remove_var("DD_TOKEN_STORAGE");
     }
 
+    #[tokio::test]
+    async fn test_profiling_explore_callgraph_profile_id_scopes_via_query() {
+        let _lock = lock_env().await;
+        std::env::set_var("DD_TOKEN_STORAGE", "file");
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+
+        let mock = server
+            .mock("POST", "/api/unstable/profiling/pup/explore/callgraph")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "filter": {"query": "profile-id:prof-123 (service:my-service)"},
+                "profileType": "cpu-time"
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"sortedNodes":[],"totalValue":{"value":0.0,"unit":"nanoseconds","isPerMinute":false},"totalMatchingValue":{"value":0.0,"unit":"nanoseconds","isPerMinute":false},"duration":0.0,"numberOfProfiles":0,"totalNodeCount":0,"totalEdgeCount":0,"visualizationLink":{"title":"","url":""}}"#)
+            .create_async()
+            .await;
+
+        let (
+            profile_type,
+            _query,
+            from,
+            to,
+            _trace_id,
+            _span_id,
+            _time_hint,
+            percent_cutoff,
+            limit_top_nodes,
+            max_node_details,
+            frame_filter,
+        ) = callgraph_args();
+        let result = super::explore_callgraph(
+            &cfg,
+            profile_type,
+            "profile-id:prof-123 (service:my-service)".into(),
+            from,
+            to,
+            None,
+            None,
+            None,
+            percent_cutoff,
+            limit_top_nodes,
+            max_node_details,
+            frame_filter,
+            &[],
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "explore_callgraph with profile-id failed: {:?}",
+            result.err()
+        );
+        mock.assert_async().await;
+
+        cleanup_env();
+        std::env::remove_var("DD_TOKEN_STORAGE");
+    }
+
     // ---- explore timeline ----
 
     const TIMELINE_RESPONSE: &str = r#"{"laneGroups":[],"timeRange":{"startNs":0,"endNs":0},"totalDuration":{"value":0.0,"unit":"nanoseconds","isPerMinute":false},"visualizationLink":{"title":"","url":""}}"#;
 
-    /// Arguments for `explore_timeline`, defaulting to profile-id scoping.
+    /// Arguments for `explore_timeline`, defaulting to profile-id query scoping.
     struct TimelineArgs {
         query: String,
-        runtime_id: Option<String>,
         trace_id: Option<String>,
         span_id: Option<String>,
         time_hint: Option<String>,
-        profile_id: Option<String>,
-        event_id: Option<String>,
         limit_lanes: Option<i32>,
         focus_event_type: Option<String>,
         focus_from: Option<String>,
@@ -2040,13 +2010,10 @@ mod tests {
     impl Default for TimelineArgs {
         fn default() -> Self {
             Self {
-                query: "".into(),
-                runtime_id: None,
+                query: "profile-id:prof-123".into(),
                 trace_id: None,
                 span_id: None,
                 time_hint: None,
-                profile_id: Some("prof-123".into()),
-                event_id: Some("evt-456".into()),
                 limit_lanes: None,
                 focus_event_type: None,
                 focus_from: None,
@@ -2064,12 +2031,9 @@ mod tests {
                 self.query,
                 "1h".into(),
                 "now".into(),
-                self.runtime_id,
                 self.trace_id,
                 self.span_id,
                 self.time_hint,
-                self.profile_id,
-                self.event_id,
                 self.limit_lanes,
                 self.focus_event_type,
                 self.focus_from,
@@ -2113,14 +2077,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_profiling_explore_timeline_profile_context_ok() {
+    async fn test_profiling_explore_timeline_profile_id_scopes_via_query() {
         let _lock = lock_env().await;
         std::env::set_var("DD_TOKEN_STORAGE", "file");
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
         let mock = timeline_mock(
             &mut server,
-            serde_json::json!({"profileContext": {"profileId": "prof-123", "eventId": "evt-456"}}),
+            serde_json::json!({"filter": {"query": "profile-id:prof-123"}}),
         )
         .await;
 
@@ -2137,7 +2101,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_profiling_explore_timeline_runtime_id_sends_optional_fields() {
+    async fn test_profiling_explore_timeline_sends_optional_fields() {
         let _lock = lock_env().await;
         std::env::set_var("DD_TOKEN_STORAGE", "file");
         let mut server = mockito::Server::new_async().await;
@@ -2145,8 +2109,7 @@ mod tests {
         let mock = timeline_mock(
             &mut server,
             serde_json::json!({
-                "runtimeId": "rt-1",
-                "filter": {"query": "service:my-service"},
+                "filter": {"query": "runtime-id:rt-1 (service:my-service)"},
                 "limitLanes": 3,
                 "focusEventType": "CPU",
                 "focusStartTime": "2023-11-14T22:13:20+00:00",
@@ -2157,10 +2120,7 @@ mod tests {
         .await;
 
         let result = TimelineArgs {
-            query: "service:my-service".into(),
-            runtime_id: Some("rt-1".into()),
-            profile_id: None,
-            event_id: None,
+            query: "runtime-id:rt-1 (service:my-service)".into(),
             limit_lanes: Some(3),
             focus_event_type: Some("CPU".into()),
             focus_from: Some("2023-11-14T22:13:20Z".into()),
@@ -2197,11 +2157,10 @@ mod tests {
         .await;
 
         let result = TimelineArgs {
+            query: "".into(),
             trace_id: Some("trace-abc".into()),
             span_id: Some("span-123".into()),
             time_hint: Some("1700000000".into()),
-            profile_id: None,
-            event_id: None,
             critical_path: true,
             ..Default::default()
         }
@@ -2222,50 +2181,10 @@ mod tests {
     async fn test_profiling_explore_timeline_requires_scope() {
         assert_timeline_validation_error(
             TimelineArgs {
-                profile_id: None,
-                event_id: None,
+                query: "".into(),
                 ..Default::default()
             },
-            "exactly one of --runtime-id, --trace-id, or --profile-id",
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn test_profiling_explore_timeline_rejects_multiple_scopes() {
-        assert_timeline_validation_error(
-            TimelineArgs {
-                query: "service:my-service".into(),
-                runtime_id: Some("rt-1".into()),
-                ..Default::default()
-            },
-            "exactly one of --runtime-id, --trace-id, or --profile-id",
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn test_profiling_explore_timeline_requires_profile_id_and_event_id_together() {
-        assert_timeline_validation_error(
-            TimelineArgs {
-                event_id: None,
-                ..Default::default()
-            },
-            "--profile-id and --event-id must be used together",
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn test_profiling_explore_timeline_runtime_id_requires_query() {
-        assert_timeline_validation_error(
-            TimelineArgs {
-                runtime_id: Some("rt-1".into()),
-                profile_id: None,
-                event_id: None,
-                ..Default::default()
-            },
-            "--query is required with --runtime-id",
+            "one of --query or --trace-id",
         )
         .await;
     }
@@ -2288,8 +2207,6 @@ mod tests {
             TimelineArgs {
                 trace_id: Some("trace-abc".into()),
                 span_id: Some("span-123".into()),
-                profile_id: None,
-                event_id: None,
                 ..Default::default()
             },
             "--trace-id requires both --span-id and --time-hint",
@@ -2340,9 +2257,7 @@ mod tests {
         let _mock = server
             .mock("POST", mockito::Matcher::Any)
             .with_status(400)
-            .with_body(
-                r#"{"errors":["runtimeId, traceContext, or profileContext must be present"]}"#,
-            )
+            .with_body(r#"{"errors":["traceContext or a non-empty filter.query must be present"]}"#)
             .create_async()
             .await;
 

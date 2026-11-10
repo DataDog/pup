@@ -1,3 +1,6 @@
+agent-health
+agent-health.get
+agent-health.list
 authn-mappings
 authn-mappings.create
 authn-mappings.delete

@@ -325,10 +325,10 @@ pup profiling explore flamegraph \
   --from="1h" --to="now" \
   --frame-format="full"
 
-# Scoped to a specific profile event instead of --query (--profile-id and --event-id are required together)
+# Scoped to a specific profile via a query term instead of tag filters
 pup profiling explore flamegraph \
   --profile-type="cpu-time" \
-  --profile-id="prof-123" --event-id="AwAAAaB7..." \
+  --query="profile-id:prof-123" \
   --from="1h" --to="now"
 ```
 
@@ -352,13 +352,12 @@ pup profiling explore callgraph \
 ```bash
 # Summarize a single profile's timeline (top lane groups by activity)
 pup profiling explore timeline \
-  --profile-id="prof-123" --event-id="AwAAAaB7..."
+  --query="profile-id:prof-123"
 
 # Recent timeline of one process, drilling into one lane group
 # (use a "groupName" returned by a previous call)
 pup profiling explore timeline \
-  --runtime-id="0b1c2d3e-..." \
-  --query="service:my-service" \
+  --query="runtime-id:0b1c2d3e-... service:my-service" \
   --from="15m" --to="now" \
   --focus-lane-group="<groupName>"
 

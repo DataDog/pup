@@ -194,7 +194,7 @@ Paginated commands that have been migrated share two sets of flags:
 - **Cursor style:** `--cursor` and `--page-size`. Pass `metadata.next_cursor` back with `--cursor`.
 - **Page style:** `--page` (0-based) and `--page-size`. `metadata.next_page` is the value to pass to `--page`.
 
-Hidden aliases keep older invocations working: `--page-cursor`, `--page-token` and `--limit` for cursor style; `--per-page` and `--limit` for page style. `--page-number` is also still accepted; its value goes to the API unchanged (so `cases search --page-number 1` is still the first page). `--offset` is accepted too and converted to a page: `--offset 50 --page-size 25` is `--page 2`. An offset that is not a multiple of the page size is an error that names the `--page` value to use.
+Hidden aliases keep older invocations working: `--page-cursor`, `--page-token` and `--limit` for cursor style; `--per-page` and `--limit` for page style. `--page-number` is also still accepted; its value goes to the API unchanged (so `cases search --page-number 1` is still the first page). `--offset` is accepted too and converted to a page: `--offset 50 --page-size 25` is `--page 2`. An offset that is not a multiple of the page size is an error that names the `--page` value to use. On `ddsql schema tables`/`columns` and `llm-obs experiments events list`, `--offset` must be an exact multiple of the page size.
 
 `--page-size` must be at least 1 and at most the command's maximum; the default is the command's previous default. `next_action` in the output envelope names the command's real paging flag.
 

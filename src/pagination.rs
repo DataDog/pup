@@ -56,6 +56,11 @@ pub struct CursorArgs {
     pub page_size: Option<u64>,
 }
 
+/// Page-style flags.
+///
+/// The hidden legacy `--page-number N` is passed to the API unchanged, so it
+/// means API page N in the command's own index base. `0` on a 1-based API
+/// saturates to the first page (API page 1), the same as `--page 0`.
 #[derive(Args, Clone, Debug, Default)]
 pub struct PageArgs {
     /// Page number (0-based)
@@ -161,11 +166,15 @@ impl PageArgs {
         if page > 0 && page_size.is_none() {
             bail!("--page/--offset needs --page-size for this command");
         }
-        Ok(ResolvedPage {
+        let resolved = ResolvedPage {
             page,
             page_size,
             base: spec.base,
-        })
+        };
+        // Reject unrepresentable values here, before any API call.
+        resolved.checked_api_page()?;
+        resolved.checked_offset()?;
+        Ok(resolved)
     }
 }
 
@@ -178,7 +187,20 @@ impl ResolvedPage {
 
     /// Page number in the API's own index base.
     pub fn api_page<T: TryFrom<u64>>(&self) -> Result<T> {
-        convert("--page", self.page + self.base.value())
+        convert("--page", self.checked_api_page()?)
+    }
+
+    fn checked_api_page(&self) -> Result<u64> {
+        self.page
+            .checked_add(self.base.value())
+            .ok_or_else(|| anyhow::anyhow!("--page {} is too large", self.page))
+    }
+
+    fn checked_offset(&self) -> Result<u64> {
+        let size = self.page_size.unwrap_or(0);
+        self.page.checked_mul(size).ok_or_else(|| {
+            anyhow::anyhow!("--page {} is too large for --page-size {size}", self.page)
+        })
     }
 
     pub fn page_size<T: TryFrom<u64>>(&self) -> Result<T> {
@@ -190,8 +212,7 @@ impl ResolvedPage {
 
     /// Result offset (page × page size).
     pub fn offset<T: TryFrom<u64>>(&self) -> Result<T> {
-        let size = self.page_size.unwrap_or(0);
-        convert("offset", self.page * size)
+        convert("offset", self.checked_offset()?)
     }
 }
 
@@ -323,6 +344,51 @@ mod tests {
         assert!(e.contains("--page 1"), "{e}");
         let r = p(&["--offset", "50"]).unwrap().resolve(&PS).unwrap();
         assert_eq!(r.page(), 2);
+    }
+
+    #[test]
+    fn huge_page_rejected_in_resolve() {
+        let max = u64::MAX.to_string();
+        // 1-based: page + 1 overflows.
+        let spec = PageSpec {
+            size: NOSIZE,
+            base: IndexBase::One,
+        };
+        let e = p(&["--page", &max])
+            .unwrap()
+            .resolve(&spec)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("too large") || e.contains("needs --page-size"),
+            "{e}"
+        );
+        let spec = PageSpec {
+            size: PageSizeSpec {
+                default: Some(10),
+                max: None,
+            },
+            base: IndexBase::One,
+        };
+        let e = p(&["--page", &max])
+            .unwrap()
+            .resolve(&spec)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("too large"), "{e}");
+        // 0-based with a page size: page * size overflows.
+        let e = p(&["--page", &max, "--page-size", "25"])
+            .unwrap()
+            .resolve(&PS)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("too large"), "{e}");
+    }
+
+    #[test]
+    fn page_number_zero_saturates_on_one_based() {
+        let r = p(&["--page-number", "0"]).unwrap().resolve(&PS1).unwrap();
+        assert_eq!(r.api_page::<i64>().unwrap(), 1);
     }
 
     #[test]

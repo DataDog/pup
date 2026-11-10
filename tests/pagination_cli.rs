@@ -183,3 +183,27 @@ fn hint_uses_the_commands_own_cursor_flag() {
     assert!(!stderr.contains("--cursor="), "{stderr}");
     request.assert();
 }
+
+#[test]
+fn huge_page_fails_cleanly_before_any_request() {
+    // No mock registered: any request would fail differently (or hit the network).
+    let server = Server::new();
+    for args in [
+        vec!["cases", "search", "--page", "18446744073709551615"],
+        vec![
+            "ddsql",
+            "schema",
+            "columns",
+            "--table-id",
+            "x",
+            "--page",
+            "18446744073709551615",
+        ],
+    ] {
+        let output = pup(&server, &args);
+        let err = stderr(&output);
+        assert!(!output.status.success(), "{args:?} should fail");
+        assert!(err.contains("too large"), "{args:?}: {err}");
+        assert!(!err.contains("panicked"), "{args:?}: {err}");
+    }
+}

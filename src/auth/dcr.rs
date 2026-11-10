@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use super::types::{ClientCredentials, TokenSet};
 
-#[cfg(not(target_arch = "wasm32"))]
 pub const DCR_CLIENT_NAME: &str = "datadog-pup-cli";
 // DCR_REDIRECT_PORTS is referenced from main.rs::resolve_callback_port, which
 // runs on both native and wasm builds (the wasm login() stub bails before

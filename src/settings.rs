@@ -705,6 +705,12 @@ pub fn load_token_from_storage(site: &str, org: Option<&str>) -> Option<String> 
             let store = lock.as_ref()?;
             store.save_tokens(site, org, &new_tokens).ok()?;
             eprintln!("🔄 Access token refreshed automatically.");
+            if let Some(warning) = creds
+                .as_ref()
+                .and_then(|c| new_tokens.legacy_client_warning(c, org))
+            {
+                eprintln!("{warning}");
+            }
             Some(new_tokens.access_token)
         }
         ResolvedToken::Expired => {
@@ -779,7 +785,7 @@ where
         None => return ResolvedToken::Expired,
     };
 
-    match refresh_fn(&tokens.refresh_token, creds) {
+    match refresh_fn(&tokens.refresh_token, &tokens.refresh_credentials(creds)) {
         Some(new_tokens) => ResolvedToken::Refreshed(new_tokens),
         None => ResolvedToken::Expired,
     }
@@ -2597,6 +2603,20 @@ profiles:
             }
             _ => panic!("expected Refreshed"),
         }
+    }
+
+    // `pup auth login` for one org can replace the site's client; other org
+    // sessions must keep refreshing with the client that issued their token.
+    #[test]
+    fn test_resolve_token_refreshes_with_token_client_id() {
+        let mut tokens = make_token_set(7200, 3600, "refresh");
+        tokens.client_id = "issuing-client-id".into();
+        let creds = make_creds();
+        let result = super::resolve_token(tokens, Some(&creds), |_, c| {
+            assert_eq!(c.client_id, "issuing-client-id");
+            Some(make_refreshed_token_set())
+        });
+        assert!(matches!(result, super::ResolvedToken::Refreshed(_)));
     }
 
     #[test]

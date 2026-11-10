@@ -27,6 +27,38 @@ impl TokenSet {
         let expires_at = self.issued_at + self.expires_in;
         now >= (expires_at - 300) // 5-minute safety buffer
     }
+
+    /// Client credentials to refresh this token with. A refresh token only works
+    /// with the client that issued it, which may no longer be the site's client
+    /// (ex: `pup auth login` for another org re-registered it).
+    pub fn refresh_credentials(&self, site_creds: &ClientCredentials) -> ClientCredentials {
+        let mut creds = site_creds.clone();
+        if !self.client_id.is_empty() {
+            creds.client_id = self.client_id.clone();
+        }
+        creds
+    }
+
+    /// Returns a hint to log in again when this token was issued by a legacy
+    /// OAuth client rather than the site's current `DCR_CLIENT_NAME` client.
+    pub fn legacy_client_warning(
+        &self,
+        site_creds: &ClientCredentials,
+        org: Option<&str>,
+    ) -> Option<String> {
+        let label = if !self.client_id.is_empty() && self.client_id != site_creds.client_id {
+            &self.client_id
+        } else if site_creds.client_name != super::dcr::DCR_CLIENT_NAME {
+            &site_creds.client_name
+        } else {
+            return None;
+        };
+        let org_flag = org.map(|o| format!(" --org {o}")).unwrap_or_default();
+        Some(format!(
+            "⚠️  This session uses a legacy OAuth client ('{label}') with fewer permissions. \
+             Run 'pup auth login{org_flag}' to switch."
+        ))
+    }
 }
 
 /// DCR client credentials (cross-compatible with Go/TypeScript versions).
@@ -323,6 +355,71 @@ mod tests {
             issued_at: chrono::Utc::now().timestamp() - issued_ago_secs,
             scope: String::new(),
             client_id: String::new(),
+        }
+    }
+
+    fn site_creds(client_name: &str) -> ClientCredentials {
+        ClientCredentials {
+            client_id: "site-client".into(),
+            client_name: client_name.into(),
+            redirect_uris: vec![],
+            registered_at: 0,
+            site: "datadoghq.com".into(),
+        }
+    }
+
+    fn token_from(client_id: &str) -> TokenSet {
+        TokenSet {
+            client_id: client_id.into(),
+            ..make_token(0, 3600)
+        }
+    }
+
+    const CURRENT: &str = crate::auth::dcr::DCR_CLIENT_NAME;
+    const LEGACY: &str = "datadog-api-claude-plugin";
+
+    #[test]
+    fn test_refresh_credentials_uses_token_client_id() {
+        let creds = token_from("issuing-client").refresh_credentials(&site_creds(CURRENT));
+        assert_eq!(creds.client_id, "issuing-client");
+        assert_eq!(creds.site, "datadoghq.com");
+    }
+
+    #[test]
+    fn test_refresh_credentials_falls_back_to_site_client_when_token_has_none() {
+        let creds = token_from("").refresh_credentials(&site_creds(CURRENT));
+        assert_eq!(creds.client_id, "site-client");
+    }
+
+    #[test]
+    fn test_legacy_client_warning_none_for_current_client() {
+        let creds = site_creds(CURRENT);
+        assert_eq!(
+            token_from("site-client").legacy_client_warning(&creds, None),
+            None
+        );
+        assert_eq!(token_from("").legacy_client_warning(&creds, None), None);
+    }
+
+    #[test]
+    fn test_legacy_client_warning_token_from_other_client_shows_its_id() {
+        let msg = token_from("old-client")
+            .legacy_client_warning(&site_creds(CURRENT), Some("prod-child"))
+            .unwrap();
+        assert_eq!(
+            msg,
+            "⚠️  This session uses a legacy OAuth client ('old-client') with fewer permissions. \
+             Run 'pup auth login --org prod-child' to switch."
+        );
+    }
+
+    #[test]
+    fn test_legacy_client_warning_site_client_with_legacy_name() {
+        let creds = site_creds(LEGACY);
+        for token in [token_from(""), token_from("site-client")] {
+            let msg = token.legacy_client_warning(&creds, None).unwrap();
+            assert!(msg.contains("('datadog-api-claude-plugin')"), "{msg}");
+            assert!(msg.ends_with("Run 'pup auth login' to switch."), "{msg}");
         }
     }
 

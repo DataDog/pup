@@ -138,6 +138,14 @@ pub async fn diff(
     util_ext::format_resource_diff(cfg, &live, &candidate, &options)
 }
 
+pub const SEARCH_PAGING: crate::pagination::PageSpec = crate::pagination::PageSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: Some(30),
+        max: None,
+    },
+    base: crate::pagination::IndexBase::Zero,
+};
+
 pub async fn search(
     cfg: &Config,
     query: Option<String>,

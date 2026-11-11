@@ -284,7 +284,7 @@ JSON output is wrapped in an envelope:
 
 - `data`: the payload. A response with a top-level `data` keeps it in place, along with its other keys (`meta`, `links`, `included`). Any other response (for example a v1 array or the metrics query body) becomes `data` as a whole.
 - `metadata.truncated`: always present. `true` means more results exist; never treat such a result as complete. `false` means pup knows of no more results: not every API reports truncation, so check the command's own paging fields when completeness matters.
-- `metadata.next_cursor` / `metadata.next_offset`: where the next page starts, when pup recognizes the response's paging fields. Pass the cursor back with the command's cursor flag (`--cursor` for most commands; `next_action` names the right one, such as `--page-token`) and the offset with `--offset`. They are present even when `--jq` filters out the response's own paging fields.
+- `metadata.next_cursor` / `metadata.next_page` / `metadata.next_offset`: where the next page starts, when pup recognizes the response's paging fields. Pass the cursor back with the command's cursor flag (`--cursor` for most commands; `next_action` names the right one, such as `--page-token` for commands not yet migrated), `next_page` with `--page`, and `next_offset` with `--offset` (commands not yet migrated). They are present even when `--jq` filters out the response's own paging fields.
 - `metadata.next_action`: the suggested next command, when there is one.
 - `metadata.count`: number of items in `data` when it is a list (or a command-specific count).
 - `metadata.warnings`: non-fatal problems, such as a rate-limited partial lookup.

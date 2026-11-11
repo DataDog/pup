@@ -62,6 +62,14 @@ fn make_api(cfg: &Config) -> CaseManagementAPI {
 // Core case operations
 // ---------------------------------------------------------------------------
 
+pub const SEARCH_PAGING: crate::pagination::PageSpec = crate::pagination::PageSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: Some(10),
+        max: None,
+    },
+    base: crate::pagination::IndexBase::One,
+};
+
 pub async fn search(
     cfg: &Config,
     query: Option<String>,
@@ -1086,6 +1094,59 @@ mod tests {
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": []}"#).await;
         let _ = super::search(&cfg, None, 10, 0).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_search_page_zero_sends_api_page_one() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let m = s
+            .mock("GET", mockito::Matcher::Regex(r"^/api/v2/cases".into()))
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("page[number]".into(), "1".into()),
+                mockito::Matcher::UrlEncoded("page[size]".into(), "10".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+        let p = crate::pagination::PageArgs::default()
+            .resolve(&super::SEARCH_PAGING)
+            .unwrap();
+        let r = super::search(&cfg, None, p.page_size().unwrap(), p.api_page().unwrap()).await;
+        assert!(r.is_ok(), "{:?}", r.err());
+        m.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_cases_search_page_number_zero_sends_api_page_one() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let m = s
+            .mock("GET", mockito::Matcher::Regex(r"^/api/v2/cases".into()))
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("page[number]".into(), "1".into()),
+                mockito::Matcher::UrlEncoded("page[size]".into(), "10".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+        let p = crate::pagination::PageArgs {
+            page_number: Some(0),
+            ..Default::default()
+        }
+        .resolve(&super::SEARCH_PAGING)
+        .unwrap();
+        let r = super::search(&cfg, None, p.page_size().unwrap(), p.api_page().unwrap()).await;
+        assert!(r.is_ok(), "{:?}", r.err());
+        m.assert_async().await;
         cleanup_env();
     }
 

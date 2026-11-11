@@ -32,12 +32,18 @@ pub async fn projects_create(cfg: &Config, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+pub const PROJECTS_PAGING: crate::pagination::CursorSpec = crate::pagination::CursorSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: None,
+        max: None,
+    },
+};
+
 pub async fn projects_list(
     cfg: &Config,
     filter_id: Option<String>,
     filter_name: Option<String>,
-    limit: Option<u32>,
-    cursor: Option<String>,
+    paging: &crate::pagination::ResolvedCursor,
 ) -> Result<()> {
     let mut query: Vec<(&str, String)> = Vec::new();
     if let Some(ref id) = filter_id {
@@ -46,12 +52,7 @@ pub async fn projects_list(
     if let Some(ref name) = filter_name {
         query.push(("filter[name]", name.clone()));
     }
-    if let Some(l) = limit {
-        query.push(("page[limit]", l.to_string()));
-    }
-    if let Some(ref c) = cursor {
-        query.push(("page[cursor]", c.clone()));
-    }
+    query.extend(paging.query_params("page[cursor]", "page[limit]"));
     let query_refs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let resp = raw_client::raw_get(cfg, "/api/v2/llm-obs/v1/projects", &query_refs)
         .await
@@ -387,6 +388,14 @@ pub async fn experiments_summary(cfg: &Config, experiment_id: &str) -> Result<()
         .map_err(|e| anyhow::anyhow!("failed to get experiment summary: {e:?}"))?;
     formatter::output(cfg, &resp)
 }
+
+pub const EVENTS_PAGING: crate::pagination::PageSpec = crate::pagination::PageSpec {
+    size: crate::pagination::PageSizeSpec {
+        default: Some(20),
+        max: None,
+    },
+    base: crate::pagination::IndexBase::Zero,
+};
 
 #[allow(clippy::too_many_arguments)]
 pub async fn experiments_events_list(
@@ -1463,7 +1472,7 @@ mod tests {
         let body = r#"{"data":[{"id":"proj-1","type":"projects","attributes":{"name":"my-project","description":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}}]}"#;
         let _mock = mock_any(&mut server, "GET", body).await;
 
-        let result = super::projects_list(&cfg, None, None, None, None).await;
+        let result = super::projects_list(&cfg, None, None, &Default::default()).await;
         assert!(result.is_ok(), "projects_list failed: {:?}", result.err());
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
@@ -1484,7 +1493,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result = super::projects_list(&cfg, None, None, None, None).await;
+        let result = super::projects_list(&cfg, None, None, &Default::default()).await;
         assert!(
             result.is_err(),
             "expected error but got ok: {:?}",
@@ -1510,7 +1519,7 @@ mod tests {
             read_only: false,
             jq: None,
         };
-        let result = super::projects_list(&cfg, None, None, None, None).await;
+        let result = super::projects_list(&cfg, None, None, &Default::default()).await;
         assert!(result.is_err(), "should fail without auth");
         cleanup_env();
         std::env::remove_var("DD_TOKEN_STORAGE");
@@ -1530,7 +1539,7 @@ mod tests {
             r#"{"data":[{"id":"p1","type":"llm_obs_projects"}]}"#,
         )
         .await;
-        let result = super::projects_list(&cfg, None, None, None, None).await;
+        let result = super::projects_list(&cfg, None, None, &Default::default()).await;
         assert!(
             result.is_ok(),
             "should tolerate missing nullable fields: {:?}",
@@ -1562,12 +1571,17 @@ mod tests {
             .create_async()
             .await;
 
+        let paging = crate::pagination::CursorArgs {
+            cursor: Some("cursor-abc".into()),
+            page_size: Some(5),
+        }
+        .resolve(&super::PROJECTS_PAGING)
+        .unwrap();
         let result = super::projects_list(
             &cfg,
             Some("proj-1".into()),
             Some("my-project".into()),
-            Some(5),
-            Some("cursor-abc".into()),
+            &paging,
         )
         .await;
         assert!(

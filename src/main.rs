@@ -11,6 +11,7 @@ mod filter;
 mod formatter;
 mod generated;
 mod output;
+mod pagination;
 mod rate_limit;
 mod raw_client;
 #[cfg(not(target_arch = "wasm32"))]
@@ -3322,10 +3323,8 @@ enum MonitorActions {
     Search {
         #[arg(long, help = "Search query string")]
         query: Option<String>,
-        #[arg(long, default_value_t = 0, help = "Page number")]
-        page: i64,
-        #[arg(long, default_value_t = 30, help = "Results per page")]
-        per_page: i64,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
         #[arg(long, allow_hyphen_values = true, help = "Sort order")]
         sort: Option<String>,
     },
@@ -4796,14 +4795,8 @@ enum DdsqlSchemaActions {
     Tables {
         #[arg(long, help = "Case-insensitive substring filter for table names")]
         query: Option<String>,
-        #[arg(
-            long,
-            default_value_t = 100,
-            help = "Maximum number of tables to return"
-        )]
-        limit: usize,
-        #[arg(long, default_value_t = 0, help = "Number of tables to skip")]
-        offset: usize,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
     },
     /// Show columns for a DDSQL table
     Columns {
@@ -4812,14 +4805,8 @@ enum DdsqlSchemaActions {
             help = "Table ID, for example public.aws.ec2_instance or reference_tables.my_table"
         )]
         table_id: String,
-        #[arg(
-            long,
-            default_value_t = 100,
-            help = "Maximum number of columns to return"
-        )]
-        limit: usize,
-        #[arg(long, default_value_t = 0, help = "Number of columns to skip")]
-        offset: usize,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
     },
 }
 
@@ -5379,10 +5366,8 @@ enum TagRulesActions {
 enum UserActions {
     /// List users
     List {
-        #[arg(long, default_value_t = 10, help = "Results per page (max 100)")]
-        page_size: i64,
-        #[arg(long, default_value_t = 0, help = "Page number (0-indexed)")]
-        page_number: i64,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
     },
     /// Get user details
     Get { user_id: String },
@@ -7005,10 +6990,8 @@ enum CaseActions {
     Search {
         #[arg(long, help = "Search query")]
         query: Option<String>,
-        #[arg(long, default_value_t = 10, help = "Results per page")]
-        page_size: i64,
-        #[arg(long, default_value_t = 1, help = "Page number (1-indexed)")]
-        page_number: i64,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
     },
     /// Get case details
     Get { case_id: String },
@@ -8451,10 +8434,8 @@ enum CicdFlakyTestActions {
     Search {
         #[arg(long, help = "Search query")]
         query: Option<String>,
-        #[arg(long, help = "Pagination cursor")]
-        cursor: Option<String>,
-        #[arg(long, default_value_t = 100, help = "Maximum results")]
-        limit: i64,
+        #[command(flatten)]
+        paging: pagination::CursorArgs,
         #[arg(
             long,
             allow_hyphen_values = true,
@@ -9146,12 +9127,8 @@ enum DeploymentGatesActions {
 enum DeploymentGatesGateActions {
     /// List all deployment gates
     List {
-        /// Pagination cursor
-        #[arg(long)]
-        page_cursor: Option<String>,
-        /// Page size (1-1000, default 50)
-        #[arg(long)]
-        page_size: Option<i64>,
+        #[command(flatten)]
+        paging: pagination::CursorArgs,
     },
     /// Get a deployment gate by ID
     Get { gate_id: String },
@@ -11872,10 +11849,8 @@ enum LlmObsProjectsActions {
         filter_id: Option<String>,
         #[arg(long, help = "Filter by project name")]
         filter_name: Option<String>,
-        #[arg(long, help = "Maximum number of projects to return per page")]
-        limit: Option<u32>,
-        #[arg(long, help = "Pagination cursor from a prior call")]
-        cursor: Option<String>,
+        #[command(flatten)]
+        paging: pagination::CursorArgs,
     },
 }
 
@@ -11936,10 +11911,8 @@ enum LlmObsExperimentsEventsActions {
     /// List events for an experiment with optional filtering and sorting
     List {
         experiment_id: String,
-        #[arg(long, default_value = "20", help = "Number of events to return")]
-        limit: u32,
-        #[arg(long, default_value = "0", help = "Offset for pagination")]
-        offset: u32,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
         #[arg(long, help = "Filter by dimension key")]
         filter_dimension_key: Option<String>,
         #[arg(
@@ -13994,6 +13967,23 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "setup"
 }
 
+/// Page size rules of the commands migrated to the shared pagination args,
+/// keyed by full command path. Their clap args carry no default (it is applied
+/// in `resolve()`), so the agent schema reads type, default and max from here.
+fn migrated_page_size_spec(full_path: &str) -> Option<pagination::PageSizeSpec> {
+    Some(match full_path {
+        "deployment-gates gates list" => commands::deployment_gates::LIST_PAGING.size,
+        "cicd flaky-tests search" => commands::cicd::FLAKY_TESTS_PAGING.size,
+        "llm-obs projects list" => commands::llm_obs::PROJECTS_PAGING.size,
+        "monitors search" => commands::monitors::SEARCH_PAGING.size,
+        "users list" => commands::users::LIST_PAGING.size,
+        "cases search" => commands::cases::SEARCH_PAGING.size,
+        "ddsql schema tables" | "ddsql schema columns" => commands::ddsql::SCHEMA_PAGING.size,
+        "llm-obs experiments events list" => commands::llm_obs::EVENTS_PAGING.size,
+        _ => return None,
+    })
+}
+
 fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::Value {
     let mut obj = serde_json::Map::new();
     let name = cmd.get_name().to_string();
@@ -14052,11 +14042,17 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
     }
 
     // Flags (named --flags only, excluding positional args and globals)
+    let page_size_spec = migrated_page_size_spec(&full_path);
     let flags: Vec<serde_json::Value> = cmd
         .get_arguments()
         .filter(|a| {
             let id = a.get_id().as_str();
-            id != "help" && id != "version" && !a.is_global_set() && a.get_long().is_some()
+            id != "help"
+                && id != "version"
+                && !a.is_global_set()
+                && a.get_long().is_some()
+                // Hidden legacy pagination flags stay out of migrated commands' schema.
+                && !(page_size_spec.is_some() && a.is_hide_set())
         })
         .map(|a| {
             let mut flag = serde_json::Map::new();
@@ -14078,6 +14074,13 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
                     "string"
                 }
             };
+            let is_page_size = page_size_spec.is_some() && a.get_long() == Some("page-size");
+            let is_page = a.get_id().as_str() == pagination::PAGE_ARG;
+            let type_str = if is_page_size || is_page {
+                "int"
+            } else {
+                type_str
+            };
             flag.insert("type".into(), serde_json::json!(type_str));
             flag.insert("required".into(), serde_json::json!(a.is_required_set()));
             flag.insert("arity".into(), build_arg_arity(a));
@@ -14086,6 +14089,14 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
                     "default".into(),
                     serde_json::json!(def.to_str().unwrap_or("").to_string()),
                 );
+            }
+            if let (true, Some(spec)) = (is_page_size, page_size_spec) {
+                if let Some(d) = spec.default {
+                    flag.insert("default".into(), serde_json::json!(d.to_string()));
+                }
+                if let Some(m) = spec.max {
+                    flag.insert("max".into(), serde_json::json!(m));
+                }
             }
             if let Some(help) = a.get_help() {
                 flag.insert("description".into(), serde_json::json!(help.to_string()));
@@ -14242,6 +14253,59 @@ fn build_cli_surface(cmd: &clap::Command) -> serde_json::Value {
 #[cfg(test)]
 mod test_agent_schema {
     use super::*;
+
+    fn flag_of(path: &[&str], flag: &str) -> Option<serde_json::Value> {
+        let schema = get_schema();
+        let cmd = find_command(schema["commands"].as_array().unwrap(), path)?;
+        cmd["flags"]
+            .as_array()?
+            .iter()
+            .find(|f| f["name"] == flag)
+            .cloned()
+    }
+
+    #[test]
+    fn migrated_pagination_flags_report_int_type_and_spec_defaults() {
+        for (path, default) in [
+            (vec!["users", "list"], Some("10")),
+            (vec!["cases", "search"], Some("10")),
+            (vec!["monitors", "search"], Some("30")),
+            (vec!["deployment-gates", "gates", "list"], None),
+        ] {
+            let f = flag_of(&path, "--page-size").unwrap_or_else(|| panic!("{path:?}"));
+            assert_eq!(f["type"], "int", "{path:?}");
+            assert_eq!(f["default"].as_str(), default, "{path:?}");
+        }
+        assert_eq!(
+            flag_of(&["users", "list"], "--page-size").unwrap()["max"],
+            100
+        );
+        assert_eq!(
+            flag_of(&["deployment-gates", "gates", "list"], "--page-size").unwrap()["max"],
+            1000
+        );
+        assert_eq!(
+            flag_of(&["monitors", "search"], "--page").unwrap()["type"],
+            "int"
+        );
+        // Spec with no default / no max reports neither.
+        let f = flag_of(&["monitors", "search"], "--page-size").unwrap();
+        assert!(f.get("max").is_none());
+        assert_eq!(
+            flag_of(&["llm-obs", "projects", "list"], "--cursor").unwrap()["type"],
+            "string"
+        );
+    }
+
+    #[test]
+    fn migrated_pagination_schema_hides_legacy_flags() {
+        for flag in ["--offset", "--page-number", "--per-page", "--limit"] {
+            assert!(flag_of(&["users", "list"], flag).is_none(), "{flag}");
+        }
+        assert!(flag_of(&["ddsql", "schema", "tables"], "--offset").is_none());
+        // Unmigrated commands keep their own page-size flag untouched.
+        assert!(flag_of(&["synthetics", "tests", "list"], "--page-number").is_some());
+    }
 
     fn get_schema() -> serde_json::Value {
         let cmd = Cli::command();
@@ -15550,15 +15614,24 @@ pub(crate) fn continuation_flags(root: &clap::Command, path: &str) -> output::Co
     else {
         return output::ContinuationFlags::default();
     };
-    let flag = |matches: fn(&str) -> bool| {
+    // Commands using the shared pagination args are found by arg id; the rest
+    // fall back to guessing from the flag name.
+    let by_id = |id: &str| {
+        leaf.get_arguments()
+            .find(|arg| arg.get_id() == id)
+            .and_then(clap::Arg::get_long)
+            .map(|long| format!("--{long}"))
+    };
+    let guess = |matches: fn(&str) -> bool| {
         leaf.get_arguments()
             .filter_map(clap::Arg::get_long)
             .find(|long| matches(long))
             .map(|long| format!("--{long}"))
     };
     output::ContinuationFlags {
-        cursor: flag(|long| long.ends_with("cursor") || long == "page-token"),
-        page: flag(|long| long == "page"),
+        cursor: by_id(pagination::CURSOR_ARG)
+            .or_else(|| guess(|long| long.ends_with("cursor") || long == "page-token")),
+        page: by_id(pagination::PAGE_ARG).or_else(|| guess(|long| long == "page")),
     }
 }
 
@@ -16407,11 +16480,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 }
                 MonitorActions::Search {
                     query,
-                    page,
-                    per_page,
+                    paging,
                     sort,
                 } => {
-                    commands::monitors::search(&cfg, query, page, per_page, sort).await?;
+                    let p = paging.resolve(&commands::monitors::SEARCH_PAGING)?;
+                    commands::monitors::search(&cfg, query, p.api_page()?, p.page_size()?, sort)
+                        .await?;
                 }
                 MonitorActions::Delete { monitor_id } => {
                     commands::monitors::delete(&cfg, monitor_id).await?;
@@ -17277,10 +17351,10 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Users { action } => {
             cfg.validate_auth()?;
             match action {
-                UserActions::List {
-                    page_size,
-                    page_number,
-                } => commands::users::list(&cfg, page_size, page_number).await?,
+                UserActions::List { paging } => {
+                    let p = paging.resolve(&commands::users::LIST_PAGING)?;
+                    commands::users::list(&cfg, p.page_size()?, p.api_page()?).await?
+                }
                 UserActions::Get { user_id } => commands::users::get(&cfg, &user_id).await?,
                 UserActions::Roles { action } => match action {
                     UserRoleActions::List {
@@ -18008,12 +18082,9 @@ async fn main_inner() -> anyhow::Result<()> {
         Commands::Cases { action } => {
             cfg.validate_auth()?;
             match action {
-                CaseActions::Search {
-                    query,
-                    page_size,
-                    page_number,
-                } => {
-                    commands::cases::search(&cfg, query, page_size, page_number).await?;
+                CaseActions::Search { query, paging } => {
+                    let p = paging.resolve(&commands::cases::SEARCH_PAGING)?;
+                    commands::cases::search(&cfg, query, p.page_size()?, p.api_page()?).await?;
                 }
                 CaseActions::Get { case_id } => commands::cases::get(&cfg, &case_id).await?,
                 CaseActions::Create {
@@ -18987,11 +19058,12 @@ async fn main_inner() -> anyhow::Result<()> {
                 CicdActions::FlakyTests { action } => match action {
                     CicdFlakyTestActions::Search {
                         query,
-                        cursor,
-                        limit,
+                        paging,
                         sort,
                     } => {
-                        commands::cicd::flaky_tests_search(&cfg, query, cursor, limit, sort)
+                        let p = paging.resolve(&commands::cicd::FLAKY_TESTS_PAGING)?;
+                        let limit = p.page_size_opt()?.unwrap_or(100);
+                        commands::cicd::flaky_tests_search(&cfg, query, p.cursor, limit, sort)
                             .await?;
                     }
                     CicdFlakyTestActions::Update { file } => {
@@ -19328,11 +19400,14 @@ async fn main_inner() -> anyhow::Result<()> {
             cfg.validate_auth()?;
             match action {
                 DeploymentGatesActions::Gates { action } => match action {
-                    DeploymentGatesGateActions::List {
-                        page_cursor,
-                        page_size,
-                    } => {
-                        commands::deployment_gates::list(&cfg, page_cursor, page_size).await?;
+                    DeploymentGatesGateActions::List { paging } => {
+                        let p = paging.resolve(&commands::deployment_gates::LIST_PAGING)?;
+                        commands::deployment_gates::list(
+                            &cfg,
+                            p.cursor.clone(),
+                            p.page_size_opt()?,
+                        )
+                        .await?;
                     }
                     DeploymentGatesGateActions::Get { gate_id } => {
                         commands::deployment_gates::get(&cfg, &gate_id).await?;
@@ -21021,20 +21096,25 @@ async fn main_inner() -> anyhow::Result<()> {
                     commands::ddsql::spec(&cfg).await?;
                 }
                 DdsqlActions::Schema { action } => match action {
-                    DdsqlSchemaActions::Tables {
-                        query,
-                        limit,
-                        offset,
-                    } => {
-                        commands::ddsql::schema_tables(&cfg, query.as_deref(), limit, offset)
-                            .await?;
+                    DdsqlSchemaActions::Tables { query, paging } => {
+                        let p = paging.resolve(&commands::ddsql::SCHEMA_PAGING)?;
+                        commands::ddsql::schema_tables(
+                            &cfg,
+                            query.as_deref(),
+                            p.page_size()?,
+                            p.offset()?,
+                        )
+                        .await?;
                     }
-                    DdsqlSchemaActions::Columns {
-                        table_id,
-                        limit,
-                        offset,
-                    } => {
-                        commands::ddsql::schema_columns(&cfg, &table_id, limit, offset).await?;
+                    DdsqlSchemaActions::Columns { table_id, paging } => {
+                        let p = paging.resolve(&commands::ddsql::SCHEMA_PAGING)?;
+                        commands::ddsql::schema_columns(
+                            &cfg,
+                            &table_id,
+                            p.page_size()?,
+                            p.offset()?,
+                        )
+                        .await?;
                     }
                 },
             }
@@ -21679,17 +21759,10 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsProjectsActions::List {
                         filter_id,
                         filter_name,
-                        limit,
-                        cursor,
+                        paging,
                     } => {
-                        commands::llm_obs::projects_list(
-                            &cfg,
-                            filter_id,
-                            filter_name,
-                            limit,
-                            cursor,
-                        )
-                        .await?;
+                        let p = paging.resolve(&commands::llm_obs::PROJECTS_PAGING)?;
+                        commands::llm_obs::projects_list(&cfg, filter_id, filter_name, &p).await?;
                     }
                 },
                 LlmObsActions::Experiments { action } => match action {
@@ -21722,19 +21795,19 @@ async fn main_inner() -> anyhow::Result<()> {
                     LlmObsExperimentsActions::Events { action } => match action {
                         LlmObsExperimentsEventsActions::List {
                             experiment_id,
-                            limit,
-                            offset,
+                            paging,
                             filter_dimension_key,
                             filter_dimension_value,
                             filter_metric_label,
                             sort_by_metric,
                             sort_direction,
                         } => {
+                            let p = paging.resolve(&commands::llm_obs::EVENTS_PAGING)?;
                             commands::llm_obs::experiments_events_list(
                                 &cfg,
                                 &experiment_id,
-                                limit,
-                                offset,
+                                p.page_size()?,
+                                p.offset()?,
                                 filter_dimension_key,
                                 filter_dimension_value,
                                 filter_metric_label,

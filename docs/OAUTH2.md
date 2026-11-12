@@ -241,6 +241,8 @@ commands. The list below is illustrative — see
 
 ### APM/Traces
 - `apm_read` - Read APM data and traces
+- `apm_retention_filter_read` - Read APM retention filters
+- `apm_retention_filter_write` - Create/update/delete APM retention filters
 
 ### IDP Entity Graph
 - `repo_info_read` - Read repository context connected to entities

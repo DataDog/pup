@@ -38,12 +38,13 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          set -euo pipefail
+          # Fail safe: any detection error leaves lean=false so the full suite runs.
           lean=false
           if [[ "$HEAD_REF" == release/v* && -n "$PR" ]]; then
-            files="$(gh api --paginate "repos/${{ github.repository }}/pulls/${PR}/files" --jq '.[].filename' | sort)"
-            if [[ "$files" == "$(printf 'Cargo.lock\nCargo.toml\nplugin.json' | sort)" ]]; then
-              lean=true
+            if files="$(gh api --paginate "repos/${{ github.repository }}/pulls/${PR}/files" --jq '.[].filename' 2>/dev/null)" && [[ -n "$files" ]]; then
+              if [[ "$(printf '%s\n' "$files" | sort)" == "$(printf 'Cargo.lock\nCargo.toml\nplugin.json')" ]]; then
+                lean=true
+              fi
             fi
           fi
           echo "lean=$lean" >> "$GITHUB_OUTPUT"

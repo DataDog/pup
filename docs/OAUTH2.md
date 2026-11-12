@@ -349,6 +349,9 @@ pup auth login --site ap1.datadoghq.com
 # AP2
 pup auth login --site ap2.datadoghq.com
 
+# UK1
+pup auth login --site uk1.datadoghq.com
+
 # Gov
 pup auth login --site ddog-gov.com
 

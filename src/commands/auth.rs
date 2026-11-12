@@ -1106,6 +1106,14 @@ mod tests {
             resolve_effective_site("datadoghq.com", Some("us3.datadoghq.com")),
             "us3.datadoghq.com"
         );
+        assert_eq!(
+            resolve_effective_site("uk1.datadoghq.com", Some("datadoghq.eu")),
+            "datadoghq.eu"
+        );
+        assert_eq!(
+            resolve_effective_site("uk1.datadoghq.com", Some("evil.com")),
+            "uk1.datadoghq.com"
+        );
     }
 
     #[test]

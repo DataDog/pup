@@ -12,6 +12,12 @@ downtime.create
 downtime.get
 downtime.list
 security
+security.dynamic-severity.affecting
+security.dynamic-severity.create
+security.dynamic-severity.delete
+security.dynamic-severity.get
+security.dynamic-severity.list
+security.dynamic-severity.update
 security.findings.assign
 security.findings.attach-case
 security.findings.attach-jira-issue
@@ -24,4 +30,5 @@ security.findings.create-servicenow-tickets
 security.findings.detach-case
 security.findings.mute
 security.findings.override-severity
+security/dynamic-severity
 security/findings

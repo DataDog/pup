@@ -12,6 +12,17 @@
 //!
 //! const monitors = await pup.monitors_list(null, 'env:prod', 50);
 //! ```
+//!
+//! On a page served from the Datadog app domain, use the session cookie instead:
+//!
+//! ```js
+//! const opts = new PupClientOptions('datadoghq.com');
+//! opts.session_origin = location.origin;
+//! opts.csrf_token = document.getElementById('_authentication_token')?.value;
+//! ```
+//!
+//! Setting `access_token` alongside `session_origin` sends it as a Bearer token
+//! to the same origin without the cookie.
 
 #[cfg(feature = "browser")]
 mod api;
@@ -45,6 +56,14 @@ pub struct PupClientOptions {
     pub api_key: Option<String>,
     #[wasm_bindgen(getter_with_clone)]
     pub app_key: Option<String>,
+    /// Same-origin base URL: the page origin (e.g. `location.origin`).
+    /// Authenticates with the session cookie, or with `access_token` as a
+    /// Bearer token if set. Cannot be combined with `api_key` / `app_key`.
+    #[wasm_bindgen(getter_with_clone)]
+    pub session_origin: Option<String>,
+    /// CSRF token sent as `x-csrf-token` in session mode (needed for writes).
+    #[wasm_bindgen(getter_with_clone)]
+    pub csrf_token: Option<String>,
 }
 
 #[cfg(feature = "browser")]
@@ -57,6 +76,8 @@ impl PupClientOptions {
             access_token: None,
             api_key: None,
             app_key: None,
+            session_origin: None,
+            csrf_token: None,
         }
     }
 }
@@ -77,8 +98,25 @@ impl PupClient {
     /// Create a new PupClient from options.
     #[wasm_bindgen(constructor)]
     pub fn new(opts: PupClientOptions) -> Result<PupClient, JsError> {
-        let cfg =
+        let session = match opts.session_origin {
+            Some(origin) => {
+                if opts.api_key.is_some() || opts.app_key.is_some() {
+                    return Err(JsError::new(
+                        "session_origin cannot be combined with api_key or app_key",
+                    ));
+                }
+                let origin = settings::validate_session_origin(&origin)
+                    .map_err(|e| JsError::new(&e.to_string()))?;
+                Some(settings::BrowserSession {
+                    origin,
+                    csrf_token: opts.csrf_token,
+                })
+            }
+            None => None,
+        };
+        let mut cfg =
             config::Config::from_params(opts.site, opts.access_token, opts.api_key, opts.app_key);
+        cfg.browser_session = session;
         cfg.validate_auth()
             .map_err(|e| JsError::new(&e.to_string()))?;
         Ok(PupClient { cfg })
@@ -298,9 +336,12 @@ impl PupClient {
     }
 }
 
-/// Convert a serde_json::Value to a native JS object via serde-wasm-bindgen.
+/// Convert a serde_json::Value to a plain JS value via `JSON.parse`, matching
+/// what `await response.json()` returns: objects (not `Map`s), and integers
+/// above 2^53 (e.g. log IDs) rounded like any JS client instead of erroring.
 #[cfg(feature = "browser")]
 fn to_js(val: &serde_json::Value) -> Result<JsValue, JsError> {
-    serde_wasm_bindgen::to_value(val)
-        .map_err(|e| JsError::new(&format!("serialization error: {e}")))
+    let text = serde_json::to_string(val)
+        .map_err(|e| JsError::new(&format!("serialization error: {e}")))?;
+    js_sys::JSON::parse(&text).map_err(|_| JsError::new("serialization error: JSON.parse failed"))
 }

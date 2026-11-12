@@ -24,6 +24,41 @@ pub struct Config {
     pub read_only: bool,
     /// jq expression applied to command output before formatting (`--jq` flag).
     pub jq: Option<String>,
+    /// Browser WASM only: authenticate with the page's same-origin session
+    /// cookie instead of keys or a bearer token.
+    #[cfg(feature = "browser")]
+    pub browser_session: Option<BrowserSession>,
+}
+
+/// Same-origin requests for the browser WASM build.
+///
+/// Without an access token, the browser attaches the `dogweb` session cookie
+/// itself and pup sends no credential headers (the edge rejects a cookie mixed
+/// with API/app keys); unsafe methods also need the page's CSRF token in
+/// `x-csrf-token`. With an access token, pup sends it as a Bearer token and
+/// omits the cookie.
+#[cfg(feature = "browser")]
+pub struct BrowserSession {
+    /// Validated `https://{datadog host}` origin, e.g. `https://app.datadoghq.com`.
+    pub origin: String,
+    pub csrf_token: Option<String>,
+}
+
+/// Validate the page origin used as the API base URL in browser session mode.
+///
+/// Requires `https://` and a bare Datadog-owned host (no port, path, query or
+/// userinfo), so a session-mode client can only target Datadog's own app
+/// domain. Returns the origin without a trailing slash.
+#[cfg_attr(not(feature = "browser"), allow(dead_code))]
+pub fn validate_session_origin(origin: &str) -> Result<String> {
+    let trimmed = origin.trim().trim_end_matches('/');
+    let Some(host) = trimmed.strip_prefix("https://") else {
+        bail!("session origin must start with https://: {origin:?}");
+    };
+    if host.contains(':') || !is_datadog_owned_host(host) {
+        bail!("session origin must be a Datadog-owned host without a port: {origin:?}");
+    }
+    Ok(format!("https://{host}"))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -231,6 +266,7 @@ impl Config {
             auto_approve: false,
             read_only: false,
             jq: None,
+            browser_session: None,
         }
     }
 
@@ -339,6 +375,10 @@ impl Config {
 
     /// Validate that sufficient auth credentials are configured.
     pub fn validate_auth(&self) -> Result<()> {
+        #[cfg(feature = "browser")]
+        if self.browser_session.is_some() {
+            return Ok(());
+        }
         if self.access_token.is_none() && (self.api_key.is_none() || self.app_key.is_none()) {
             #[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
             if has_stored_refresh_token(&self.site, self.org.as_deref()) {
@@ -416,6 +456,10 @@ impl Config {
             if let Ok(mock) = std::env::var("PUP_MOCK_SERVER") {
                 return mock;
             }
+        }
+        #[cfg(feature = "browser")]
+        if let Some(session) = &self.browser_session {
+            return session.origin.clone();
         }
         format!("https://{}", self.api_host())
     }
@@ -1039,6 +1083,36 @@ mod tests {
             auto_approve: false,
             read_only: false,
             jq: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_session_origin_accepts_datadog_app_hosts() {
+        for (input, want) in [
+            ("https://app.datadoghq.com", "https://app.datadoghq.com"),
+            ("https://app.datadoghq.com/", "https://app.datadoghq.com"),
+            ("https://us5.datadoghq.com", "https://us5.datadoghq.com"),
+            ("https://app.datadoghq.eu", "https://app.datadoghq.eu"),
+            ("https://dd.datad0g.com", "https://dd.datad0g.com"),
+        ] {
+            assert_eq!(validate_session_origin(input).unwrap(), want, "{input}");
+        }
+    }
+
+    #[test]
+    fn test_validate_session_origin_rejects_unsafe_origins() {
+        for input in [
+            "",
+            "app.datadoghq.com",
+            "http://app.datadoghq.com",
+            "https://evil.com",
+            "https://datadoghq.com.evil.com",
+            "https://app.datadoghq.com:8443",
+            "https://app.datadoghq.com/api",
+            "https://user@app.datadoghq.com",
+            "https://evil.com/x.datadoghq.com",
+        ] {
+            assert!(validate_session_origin(input).is_err(), "{input:?}");
         }
     }
 

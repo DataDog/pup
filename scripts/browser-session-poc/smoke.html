@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>pup session-auth smoke test</title>
+<!-- Local check of request shape: window.fetch is stubbed, nothing leaves the page. -->
+<pre id="out">running…</pre>
+<script type="module">
+import init, { PupClient, PupClientOptions } from './pkg/pup_wasm.js';
+
+const captured = [];
+const realFetch = window.fetch.bind(window);
+window.fetch = async (input, initArg) => {
+    if (input instanceof Request && input.url.startsWith('https://')) {
+        captured.push({
+            method: input.method,
+            url: input.url,
+            credentials: input.credentials,
+            headers: Object.fromEntries(input.headers.entries()),
+        });
+        const resp = new Response('{"ok":true,"id":12892963783401019241,"nested":{"name":"m"}}', { status: 200, headers: { 'content-type': 'application/json' } });
+        // reqwest parses Response.url, which is empty on a constructed Response.
+        Object.defineProperty(resp, 'url', { value: input.url });
+        return resp;
+    }
+    return realFetch(input, initArg);
+};
+
+function make(fields) {
+    const opts = new PupClientOptions('datadoghq.com');
+    Object.assign(opts, fields);
+    return new PupClient(opts);
+}
+
+function rejects(fields) {
+    try { make(fields); return null; } catch (e) { return String(e.message ?? e); }
+}
+
+await init();
+const pup = make({ session_origin: 'https://app.datadoghq.com', csrf_token: 'abc123' });
+const listed = await pup.monitors_list(null, null, 5n);
+await pup.raw_post('/api/v1/monitor/validate', '{}');
+await make({ session_origin: 'https://app.datadoghq.com' }).raw_get('/api/v1/monitor');
+await make({ session_origin: 'https://app.datadoghq.com', access_token: 'tok' }).raw_get('/api/v1/monitor');
+
+window.smoke = {
+    captured,
+    conversion: {
+        isPlainObject: Object.getPrototypeOf(listed) === Object.prototype,
+        nestedName: listed.nested?.name,
+        bigIdType: typeof listed.id,
+        stringified: JSON.stringify(listed),
+    },
+    rejections: {
+        httpOrigin: rejects({ session_origin: 'http://app.datadoghq.com' }),
+        foreignOrigin: rejects({ session_origin: 'https://evil.com' }),
+        localhostOrigin: rejects({ session_origin: location.origin }),
+        mixedWithApiKey: rejects({ session_origin: 'https://app.datadoghq.com', api_key: 'k', app_key: 'a' }),
+        noAuthAtAll: rejects({}),
+    },
+};
+document.getElementById('out').textContent = JSON.stringify(window.smoke, null, 2);
+</script>

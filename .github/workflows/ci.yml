@@ -28,30 +28,27 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
     outputs:
       lean: ${{ steps.detect.outputs.lean }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - id: detect
         env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_REF: ${{ github.head_ref }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          # Fail safe: any detection error leaves lean=false so the full suite runs.
-          lean=false
-          if [[ "$HEAD_REF" == release/v* && -n "$PR" ]]; then
-            if files="$(gh api --paginate "repos/${{ github.repository }}/pulls/${PR}/files" --jq '.[].filename' 2>/dev/null)" && [[ -n "$files" ]]; then
-              if [[ "$(printf '%s\n' "$files" | sort)" == "$(printf 'Cargo.lock\nCargo.toml\nplugin.json')" ]]; then
-                lean=true
-              fi
-            fi
-          fi
-          echo "lean=$lean" >> "$GITHUB_OUTPUT"
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/detect-lean.sh
 
   check-test-coverage:
     name: Check, Test & Coverage
     needs: scope
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,6 +97,8 @@ jobs:
           path: lcov.info
       - name: Lean release check (version bump only)
         if: needs.scope.outputs.lean == 'true'
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           v="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
@@ -107,6 +106,7 @@ jobs:
           lv="$(awk '/^name = "pup"$/{getline; print; exit}' Cargo.lock | sed 's/version = "\(.*\)"/\1/')"
           echo "Cargo.toml=$v plugin.json=$pv Cargo.lock=$lv"
           test -n "$v" && test "$v" = "$pv" && test "$v" = "$lv"
+          test "$HEAD_REF" = "release/v$v"
           rustup toolchain install stable --profile minimal
           rustup default stable
           cargo check --locked
@@ -116,7 +116,7 @@ jobs:
   # builds every target on push.
   cross-compile-linux:
     name: Cross Compile (Linux)
-    if: ${{ !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
+    if: ${{ !cancelled() && !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
     needs: scope
     runs-on: ubuntu-latest
     env:
@@ -201,7 +201,7 @@ jobs:
 
   cross-compile-macos:
     name: Cross Compile (macOS)
-    if: ${{ !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
+    if: ${{ !cancelled() && !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
     needs: scope
     runs-on: macos-latest
     steps:
@@ -250,7 +250,7 @@ jobs:
 
   cross-compile-windows:
     name: Cross Compile (Windows)
-    if: ${{ !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
+    if: ${{ !cancelled() && !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
     needs: scope
     runs-on: windows-latest
     defaults:
@@ -296,6 +296,7 @@ jobs:
   npm-packaging:
     name: npm Packaging
     needs: scope
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -310,6 +311,7 @@ jobs:
   wasm:
     name: WASM (WASI + Browser)
     needs: scope
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

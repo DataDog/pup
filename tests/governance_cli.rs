@@ -1,4 +1,7 @@
 //! Governance safety and output contracts through the real CLI, without live writes.
+// Release executables compile out the PUP_MOCK_SERVER override used here.
+#![cfg(debug_assertions)]
+
 use mockito::{Matcher, Server};
 use serde_json::{json, Value};
 use std::io::{Read, Write};

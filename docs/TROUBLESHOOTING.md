@@ -669,4 +669,9 @@ pup auth login --site mycompany.datadoghq.com
 ```
 
 **Note:** `DD_HOST` is not recognized by pup. Use `DD_SITE` instead.
-For local test servers, use `PUP_MOCK_SERVER=http://127.0.0.1:PORT` (supports `http://`).
+For local test servers with a debug build (`cargo build`), use
+`PUP_MOCK_SERVER=http://127.0.0.1:PORT` (supports `http://`). The override is
+compiled out of release executables (`cargo build --release`), which ignore it.
+Use the standard proxy environment variables or an HTTPS gateway via `DD_SITE`
+with release builds. See [HTTP_PROXY_PLAN.md](HTTP_PROXY_PLAN.md) for the proxy
+options and proposed validation plan.

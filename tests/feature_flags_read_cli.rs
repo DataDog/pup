@@ -1,4 +1,7 @@
 //! Regression coverage for reading feature flags with environment targeting.
+// Release executables compile out the PUP_MOCK_SERVER override used here.
+#![cfg(debug_assertions)]
+
 #[path = "support/idp_cli.rs"]
 mod support;
 

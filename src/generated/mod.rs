@@ -5,6 +5,7 @@
 #![allow(clippy::too_many_arguments, clippy::large_enum_variant)]
 
 pub mod authn_mappings;
+pub mod datastores;
 pub mod domain_allowlist;
 pub mod downtime;
 pub mod security;
@@ -20,6 +21,11 @@ use crate::config::Config;
 /// for new commands.
 #[derive(clap::Subcommand)]
 pub enum GeneratedCommand {
+    /// Manage datastores resources
+    Datastores {
+        #[command(subcommand)]
+        action: datastores::Command,
+    },
     /// Manage domain_allowlist resources
     DomainAllowlist {
         #[command(subcommand)]
@@ -29,6 +35,7 @@ pub enum GeneratedCommand {
 
 pub async fn run(cfg: &Config, command: GeneratedCommand) -> Result<()> {
     match command {
+        GeneratedCommand::Datastores { action } => datastores::run(cfg, action).await,
         GeneratedCommand::DomainAllowlist { action } => domain_allowlist::run(cfg, action).await,
     }
 }

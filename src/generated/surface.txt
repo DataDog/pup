@@ -4,6 +4,17 @@ authn-mappings.delete
 authn-mappings.get
 authn-mappings.list
 authn-mappings.update
+datastores
+datastores.create
+datastores.delete
+datastores.delete-item
+datastores.delete-items
+datastores.get
+datastores.list
+datastores.list-items
+datastores.update
+datastores.update-item
+datastores.write-items
 domain-allowlist
 domain-allowlist.get
 downtime

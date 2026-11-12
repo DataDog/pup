@@ -265,7 +265,8 @@ OAuth2 provides secure, browser-based authentication with automatic token refres
 ```bash
 # Set your Datadog site (optional, defaults to datadoghq.com).
 # Common values: datadoghq.com, datadoghq.eu, us3.datadoghq.com,
-# us5.datadoghq.com, ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com.
+# us5.datadoghq.com, ap1.datadoghq.com, ap2.datadoghq.com,
+# uk1.datadoghq.com, ddog-gov.com.
 # Other Datadog sites are also accepted.
 export DD_SITE="datadoghq.com"
 

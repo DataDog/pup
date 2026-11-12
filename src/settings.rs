@@ -796,6 +796,7 @@ pub const KNOWN_SITES: &[&str] = &[
     "us5.datadoghq.com",
     "ap1.datadoghq.com",
     "ap2.datadoghq.com",
+    "uk1.datadoghq.com",
     "datadoghq.eu",
     "ddog-gov.com",
     "datad0g.com", // staging
@@ -884,10 +885,11 @@ pub fn api_host_for(site: &str) -> String {
 /// Bare sites whose browser and OAuth UI live on `app.{site}`.
 ///
 /// Regional sites are not in this list. `us3.datadoghq.com`, `us5.datadoghq.com`,
-/// `ap1.datadoghq.com`, `ap2.datadoghq.com`, and any other non-bare subdomain of
-/// `datadoghq.com`, `datad0g.com`, or `datadoghq.eu` serve the UI on the site
-/// host itself. Prefixing `app.` onto those hosts opens a different browser
-/// session than the one the SAML assertion consumer service posts back to.
+/// `ap1.datadoghq.com`, `ap2.datadoghq.com`, `uk1.datadoghq.com`, and any other
+/// non-bare subdomain of `datadoghq.com`, `datad0g.com`, or `datadoghq.eu` serve
+/// the UI on the site host itself. Prefixing `app.` onto those hosts opens a
+/// different browser session than the one the SAML assertion consumer service
+/// posts back to.
 ///
 /// `ddog-gov.com` stays here because the GovCloud UI is `app.ddog-gov.com`.
 pub const APP_PREFIX_SITES: &[&str] = &[
@@ -1379,6 +1381,7 @@ mod tests {
             "us5.datadoghq.com",
             "ap1.datadoghq.com",
             "ap2.datadoghq.com",
+            "uk1.datadoghq.com",
         ] {
             assert_eq!(auth_host_for(site), site);
             // API routing is unchanged: regional sites still use api.{site}.

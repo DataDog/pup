@@ -46,6 +46,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "apm_read",
         "continuous_profiler_read",
         "apm_remote_configuration_read",
+        "apm_retention_filter_read",
         "apm_service_catalog_read",
         "apm_service_ingest_read",
         "appsec_protect_read",
@@ -124,6 +125,8 @@ pub fn default_scopes() -> Vec<&'static str> {
         "apm_read",
         "apm_remote_configuration_read",
         "apm_remote_configuration_write",
+        "apm_retention_filter_read",
+        "apm_retention_filter_write",
         "apm_service_catalog_read",
         "apm_service_catalog_write",
         "apm_service_ingest_read",
@@ -411,6 +414,20 @@ mod tests {
     fn test_read_only_scopes_excludes_apm_generate_metrics() {
         let ro = read_only_scopes();
         assert!(!ro.contains(&"apm_generate_metrics"));
+    }
+
+    #[test]
+    fn test_default_scopes_apm_retention_filters() {
+        let scopes = default_scopes();
+        assert!(scopes.contains(&"apm_retention_filter_read"));
+        assert!(scopes.contains(&"apm_retention_filter_write"));
+    }
+
+    #[test]
+    fn test_read_only_scopes_apm_retention_filters() {
+        let ro = read_only_scopes();
+        assert!(ro.contains(&"apm_retention_filter_read"));
+        assert!(!ro.contains(&"apm_retention_filter_write"));
     }
 
     #[test]

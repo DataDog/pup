@@ -254,6 +254,19 @@ cp target/release/pup /usr/local/bin/pup
 
 Download pre-built binaries from the [latest release](https://github.com/DataDog/pup/releases/latest).
 
+### Update Notices
+
+The native CLI checks GitHub for the latest stable Pup release at most once every
+24 hours when you run it. When a newer version is available, Pup prints the latest
+version, the installed version, and a release link to **stderr**, keeping stdout
+available for command output.
+
+Checks time out after two seconds and failures are silent. Attempts, including
+failed requests, are recorded in `version-check` in Pup's configuration directory
+(respecting `PUP_CONFIG_DIR`); concurrent invocations share the same daily limit.
+If that state cannot be saved, the check is skipped. Set `PUP_NO_UPDATE_CHECK=1`
+to disable checks, for example in CI or offline environments.
+
 ## Authentication
 
 Pup supports two authentication methods. **OAuth2 is preferred** and will be used automatically if you've logged in.

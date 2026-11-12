@@ -25,6 +25,8 @@ mod useragent;
 mod util;
 mod util_ext;
 mod version;
+#[cfg(not(target_arch = "wasm32"))]
+mod version_check;
 
 #[cfg(test)]
 mod test_commands;
@@ -15571,6 +15573,7 @@ mod reset_sigpipe_tests {
 #[tokio::main]
 async fn main() {
     reset_sigpipe();
+    version_check::check().await;
     if let Err(err) = main_inner().await {
         let (msg, code) = rate_limit::cli_error(&err);
         eprintln!("Error: {msg}");

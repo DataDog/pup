@@ -5,6 +5,7 @@ fn run(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_pup"))
         .arg("--no-envelope")
         .args(args)
+        .env("PUP_NO_UPDATE_CHECK", "1")
         .env(
             "PUP_CONFIG_DIR",
             std::env::temp_dir().join(format!("pup-startup-fixture-{}", std::process::id())),
@@ -94,4 +95,29 @@ fn agent_surface_dispatches_versioned_projection() {
     let document: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("surface output must be valid JSON");
     assert_eq!(document["format_version"], 1);
+}
+
+#[test]
+fn recent_version_check_keeps_stdout_and_stderr_unchanged() {
+    let dir = std::env::temp_dir().join(format!("pup-version-cache-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+    let state = dir.join("version-check");
+    std::fs::write(&state, &now).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_pup"))
+        .arg("version")
+        .env("PUP_CONFIG_DIR", &dir)
+        .env_remove("PUP_NO_UPDATE_CHECK")
+        .output()
+        .expect("execute pup");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).starts_with("Pup "));
+    assert!(output.stderr.is_empty());
+    assert_eq!(std::fs::read_to_string(&state).unwrap(), now);
+    std::fs::remove_dir_all(dir).unwrap();
 }

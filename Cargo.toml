@@ -136,7 +136,7 @@ zip = { version = "9", default-features = false, features = ["deflate"], optiona
 
 # Datadog API client — pinned to a git rev
 # Use default-features = false; feature sets are activated per-target via features above
-datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "06c7e6865b9f0ffeef04bd602f913bc5b1e8dfc0", optional = true, default-features = false }
+datadog-api-client = { git = "https://github.com/DataDog/datadog-api-client-rust", rev = "29e68061a810b7df7438436313adce6188e310bc", optional = true, default-features = false }
 
 # HTTP middleware (version-matched to DD client; compiles on all targets)
 reqwest-middleware = "0.5"

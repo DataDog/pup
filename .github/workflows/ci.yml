@@ -21,12 +21,41 @@ env:
   BUILD_DIR: ${{ startsWith(github.head_ref, 'release/') && 'release' || 'debug' }}
 
 jobs:
+  # Release version-bump PRs (release/v* touching only Cargo.toml, Cargo.lock and
+  # plugin.json) run lean: every job still reports, but heavy steps are skipped.
+  scope:
+    name: Scope
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      lean: ${{ steps.detect.outputs.lean }}
+    steps:
+      - id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          lean=false
+          if [[ "$HEAD_REF" == release/v* && -n "$PR" ]]; then
+            files="$(gh api --paginate "repos/${{ github.repository }}/pulls/${PR}/files" --jq '.[].filename' | sort)"
+            if [[ "$files" == "$(printf 'Cargo.lock\nCargo.toml\nplugin.json' | sort)" ]]; then
+              lean=true
+            fi
+          fi
+          echo "lean=$lean" >> "$GITHUB_OUTPUT"
+
   check-test-coverage:
     name: Check, Test & Coverage
+    needs: scope
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: needs.scope.outputs.lean != 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index/
@@ -36,31 +65,50 @@ jobs:
           key: cargo-ubuntu-check-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-ubuntu-check-
       - name: Cache cargo-llvm-cov
+        if: needs.scope.outputs.lean != 'true'
         id: cache-llvm-cov
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin/cargo-llvm-cov
           key: cargo-llvm-cov-${{ runner.os }}
       - name: Install Rust
+        if: needs.scope.outputs.lean != 'true'
         run: |
           rustup toolchain install stable --profile minimal --component clippy,rustfmt,llvm-tools-preview
           rustup default stable
       - name: Format check
+        if: needs.scope.outputs.lean != 'true'
         run: cargo fmt --check
       - name: Clippy
+        if: needs.scope.outputs.lean != 'true'
         run: cargo clippy --all-targets -- -D warnings
       - name: Install cargo-llvm-cov
-        if: steps.cache-llvm-cov.outputs.cache-hit != 'true'
+        if: needs.scope.outputs.lean != 'true' && (steps.cache-llvm-cov.outputs.cache-hit != 'true')
         run: cargo install cargo-llvm-cov
       - name: Test with coverage
+        if: needs.scope.outputs.lean != 'true'
         run: cargo llvm-cov --lcov --output-path lcov.info --ignore-filename-regex 'main\.rs|auth/' -- --test-threads=1
       - name: Coverage summary
+        if: needs.scope.outputs.lean != 'true'
         run: cargo llvm-cov report --ignore-filename-regex 'main\.rs|auth/'
       - name: Upload coverage artifact
+        if: needs.scope.outputs.lean != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-report
           path: lcov.info
+      - name: Lean release check (version bump only)
+        if: needs.scope.outputs.lean == 'true'
+        run: |
+          set -euo pipefail
+          v="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          pv="$(sed -n 's/^  "version": "\(.*\)".*/\1/p' plugin.json | head -1)"
+          lv="$(awk '/^name = "pup"$/{getline; print; exit}' Cargo.lock | sed 's/version = "\(.*\)"/\1/')"
+          echo "Cargo.toml=$v plugin.json=$pv Cargo.lock=$lv"
+          test -n "$v" && test "$v" = "$pv" && test "$v" = "$lv"
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo check --locked
 
   # Generated client-bump PRs only change platform-independent API client code, which
   # the host build above already compiles. They skip the cross-compile jobs; main still
@@ -68,17 +116,20 @@ jobs:
   cross-compile-linux:
     name: Cross Compile (Linux)
     if: ${{ !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
+    needs: scope
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "-C target-feature=+crt-static"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust
+        if: needs.scope.outputs.lean != 'true'
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: needs.scope.outputs.lean != 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index/
@@ -88,10 +139,13 @@ jobs:
           key: cargo-ubuntu-cross-linux-musl-${{ env.BUILD_DIR }}-${{ hashFiles('**/Cargo.lock') }}
           # Release PRs fall back to main's debug cache for the registry and git deps.
           restore-keys: cargo-ubuntu-cross-linux-musl-debug-
-      - uses: ./.github/actions/install-musl-toolchain
+      - if: needs.scope.outputs.lean != 'true'
+        uses: ./.github/actions/install-musl-toolchain
       - name: Build x86_64 musl
+        if: needs.scope.outputs.lean != 'true'
         run: cargo build $BUILD_FLAGS --target x86_64-unknown-linux-musl --features vendored-openssl
       - name: Smoke test auth token credential command
+        if: needs.scope.outputs.lean != 'true'
         run: |
           set -euo pipefail
           bin=target/x86_64-unknown-linux-musl/$BUILD_DIR/pup
@@ -120,6 +174,7 @@ jobs:
           test ! -s "$config_dir/stdout"
           grep -q 'no token available' "$config_dir/stderr"
       - name: Verify x86_64 static linkage
+        if: needs.scope.outputs.lean != 'true'
         run: |
           file target/x86_64-unknown-linux-musl/$BUILD_DIR/pup
           if readelf -d target/x86_64-unknown-linux-musl/$BUILD_DIR/pup | grep -q "(NEEDED)"; then
@@ -127,8 +182,10 @@ jobs:
             exit 1
           fi
       - name: Build aarch64 musl
+        if: needs.scope.outputs.lean != 'true'
         run: cargo build $BUILD_FLAGS --target aarch64-unknown-linux-musl --features vendored-openssl
       - name: Verify aarch64 static linkage
+        if: needs.scope.outputs.lean != 'true'
         run: |
           file target/aarch64-unknown-linux-musl/$BUILD_DIR/pup
           if readelf -d target/aarch64-unknown-linux-musl/$BUILD_DIR/pup | grep -q "(NEEDED)"; then
@@ -136,6 +193,7 @@ jobs:
             exit 1
           fi
       - name: Report sizes
+        if: needs.scope.outputs.lean != 'true'
         run: |
           ls -lh target/x86_64-unknown-linux-musl/$BUILD_DIR/pup
           ls -lh target/aarch64-unknown-linux-musl/$BUILD_DIR/pup
@@ -143,10 +201,12 @@ jobs:
   cross-compile-macos:
     name: Cross Compile (macOS)
     if: ${{ !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
+    needs: scope
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: needs.scope.outputs.lean != 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index/
@@ -157,11 +217,13 @@ jobs:
           # Release PRs fall back to main's debug cache for the registry and git deps.
           restore-keys: cargo-cross-macos-debug-
       - name: Install Rust
+        if: needs.scope.outputs.lean != 'true'
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add x86_64-apple-darwin aarch64-apple-darwin
       - name: Build all targets
+        if: needs.scope.outputs.lean != 'true'
         run: |
           PIDS=()
           for target in x86_64-apple-darwin aarch64-apple-darwin; do
@@ -178,6 +240,7 @@ jobs:
           done
           exit $status
       - name: Report sizes
+        if: needs.scope.outputs.lean != 'true'
         run: |
           for target in x86_64-apple-darwin aarch64-apple-darwin; do
             echo "${target}:"
@@ -187,13 +250,15 @@ jobs:
   cross-compile-windows:
     name: Cross Compile (Windows)
     if: ${{ !startsWith(github.head_ref, 'datadog-api-spec/generated/') }}
+    needs: scope
     runs-on: windows-latest
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: needs.scope.outputs.lean != 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index/
@@ -204,41 +269,51 @@ jobs:
           # Release PRs fall back to main's debug cache, which also warms the test build.
           restore-keys: cargo-windows-debug-
       - name: Enable long paths
+        if: needs.scope.outputs.lean != 'true'
         run: git config --global core.longpaths true
       - name: Install NASM
+        if: needs.scope.outputs.lean != 'true'
         run: |
           choco install nasm -y
           echo "C:\Program Files\NASM" >> "$GITHUB_PATH"
       - name: Install Rust
+        if: needs.scope.outputs.lean != 'true'
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
       # Debug runs get the binary from `cargo test`, which builds it for the CLI tests.
       - name: Build
-        if: env.BUILD_DIR == 'release'
+        if: needs.scope.outputs.lean != 'true' && (env.BUILD_DIR == 'release')
         run: cargo build --release
       - name: Run tests
+        if: needs.scope.outputs.lean != 'true'
         run: cargo test --verbose -- --test-threads=1
       - name: Report binary size
+        if: needs.scope.outputs.lean != 'true'
         run: ls -lh "target/${BUILD_DIR}/pup.exe"
 
   npm-packaging:
     name: npm Packaging
+    needs: scope
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: needs.scope.outputs.lean != 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       - name: Test launcher and package builder
+        if: needs.scope.outputs.lean != 'true'
         run: node --test 'npm/**/*.test.js'
 
   wasm:
     name: WASM (WASI + Browser)
+    needs: scope
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: needs.scope.outputs.lean != 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index/
@@ -248,24 +323,29 @@ jobs:
           key: cargo-ubuntu-wasm-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-ubuntu-wasm-
       - name: Install Rust
+        if: needs.scope.outputs.lean != 'true'
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add wasm32-wasip2 wasm32-unknown-unknown
       - name: Cache wasm-pack
+        if: needs.scope.outputs.lean != 'true'
         id: cache-wasm-pack
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin/wasm-pack
           key: wasm-pack-${{ runner.os }}
       - name: Build WASI
+        if: needs.scope.outputs.lean != 'true'
         run: cargo build --target wasm32-wasip2 --no-default-features --features wasi --release
       - name: Install wasm-pack
-        if: steps.cache-wasm-pack.outputs.cache-hit != 'true'
+        if: needs.scope.outputs.lean != 'true' && (steps.cache-wasm-pack.outputs.cache-hit != 'true')
         run: cargo install wasm-pack
       - name: Build browser WASM
+        if: needs.scope.outputs.lean != 'true'
         run: wasm-pack build --target web --no-default-features --features browser
       - name: Report sizes
+        if: needs.scope.outputs.lean != 'true'
         run: |
           echo "WASI:"
           ls -lh target/wasm32-wasip2/release/pup.wasm

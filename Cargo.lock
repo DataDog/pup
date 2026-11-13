@@ -3482,6 +3482,7 @@ dependencies = [
  "reqwest",
  "reqwest-middleware",
  "russh",
+ "semver",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

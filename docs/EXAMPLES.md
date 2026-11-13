@@ -2,6 +2,15 @@
 
 Common workflows and usage patterns for Pup CLI.
 
+## Version Checks
+
+Pup checks for updates at most once every 24 hours and reports newer stable
+versions on stderr. To skip the check for a command:
+
+```bash
+PUP_NO_UPDATE_CHECK=1 pup version
+```
+
 ## Authentication
 
 ### OAuth2 Login (Recommended)

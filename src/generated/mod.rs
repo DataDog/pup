@@ -9,6 +9,7 @@ pub mod datastores;
 pub mod domain_allowlist;
 pub mod downtime;
 pub mod security;
+pub mod sensitive_data_scanner;
 pub mod writes;
 
 use anyhow::Result;
@@ -31,11 +32,19 @@ pub enum GeneratedCommand {
         #[command(subcommand)]
         action: domain_allowlist::Command,
     },
+    /// Manage sensitive_data_scanner resources
+    SensitiveDataScanner {
+        #[command(subcommand)]
+        action: sensitive_data_scanner::Command,
+    },
 }
 
 pub async fn run(cfg: &Config, command: GeneratedCommand) -> Result<()> {
     match command {
         GeneratedCommand::Datastores { action } => datastores::run(cfg, action).await,
         GeneratedCommand::DomainAllowlist { action } => domain_allowlist::run(cfg, action).await,
+        GeneratedCommand::SensitiveDataScanner { action } => {
+            sensitive_data_scanner::run(cfg, action).await
+        }
     }
 }

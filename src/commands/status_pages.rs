@@ -406,10 +406,7 @@ fn build_sparkline(provider: &ThirdPartyProvider, now_ms: i64) -> String {
 }
 
 fn format_third_party_table(providers: &[ThirdPartyProvider]) -> String {
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64;
+    let now_ms = chrono::Utc::now().timestamp_millis();
 
     // Compute visible column widths (ANSI codes must not influence these).
     let wp = providers

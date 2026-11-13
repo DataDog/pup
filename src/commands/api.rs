@@ -147,13 +147,19 @@ pub async fn run(
     let body: Option<Vec<u8>> = if let Some(path) = input {
         if path == "-" {
             let mut buf = Vec::new();
+            #[cfg(feature = "browser")]
+            crate::browser_io::stdin_cursor().read_to_end(&mut buf)?;
+            #[cfg(not(feature = "browser"))]
             std::io::stdin().read_to_end(&mut buf)?;
             Some(buf)
         } else {
-            Some(
-                std::fs::read(path)
-                    .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}"))?,
-            )
+            #[cfg(feature = "browser")]
+            let bytes = crate::browser_io::read_file_bytes(path)
+                .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}"))?;
+            #[cfg(not(feature = "browser"))]
+            let bytes = std::fs::read(path)
+                .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}"))?;
+            Some(bytes)
         }
     } else if is_body_method && (!typed_fields.is_empty() || !string_fields.is_empty()) {
         let mut obj = serde_json::Map::new();

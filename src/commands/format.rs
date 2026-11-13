@@ -28,6 +28,9 @@ pub struct FormatOptions<'a> {
 /// `count`, `command`, and `next_action` override the envelope's metadata; unset
 /// fields are derived from the document as for any other command.
 pub fn run(cfg: &Config, input: Option<&str>, options: FormatOptions<'_>) -> Result<()> {
+    #[cfg(feature = "browser")]
+    let raw = read_input(input, crate::browser_io::stdin_cursor())?;
+    #[cfg(not(feature = "browser"))]
     let raw = read_input(input, std::io::stdin().lock())?;
     render(cfg, &raw, options)
 }
@@ -37,8 +40,18 @@ pub fn run(cfg: &Config, input: Option<&str>, options: FormatOptions<'_>) -> Res
 /// stdin path can be tested without touching the process's real stdin.
 fn read_input(input: Option<&str>, reader: impl Read) -> Result<String> {
     match input {
-        Some(path) if path != "-" => std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}")),
+        Some(path) if path != "-" => {
+            #[cfg(feature = "browser")]
+            {
+                crate::browser_io::read_file_string(path)
+                    .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}"))
+            }
+            #[cfg(not(feature = "browser"))]
+            {
+                std::fs::read_to_string(path)
+                    .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}"))
+            }
+        }
         _ => crate::util_ext::read_to_string(reader, "failed to read JSON from stdin"),
     }
 }

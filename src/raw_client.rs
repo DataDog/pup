@@ -457,6 +457,20 @@ pub fn apply_auth(
     method: &str,
     path: &str,
 ) -> anyhow::Result<reqwest::RequestBuilder> {
+    #[cfg(feature = "browser")]
+    if let Some(session) = &cfg.browser_session {
+        if let Some(token) = &cfg.access_token {
+            return Ok(req
+                .fetch_credentials_omit()
+                .header("Authorization", format!("Bearer {token}")));
+        }
+        let req = req.fetch_credentials_same_origin();
+        return Ok(match &session.csrf_token {
+            Some(token) => req.header("x-csrf-token", token.as_str()),
+            None => req,
+        });
+    }
+
     // Events post is also in the broader OAuth-excluded table, so handle its
     // API-key-only requirement before the fallback branch that adds both keys.
     if requires_api_key_only(method, path) {

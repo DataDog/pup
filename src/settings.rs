@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 /// Runtime configuration with precedence: flag > env > file > default.
+#[derive(Clone)]
 pub struct Config {
     pub api_key: Option<String>,
     pub app_key: Option<String>,
@@ -38,6 +39,7 @@ pub struct Config {
 /// `x-csrf-token`. With an access token, pup sends it as a Bearer token and
 /// omits the cookie.
 #[cfg(feature = "browser")]
+#[derive(Clone)]
 pub struct BrowserSession {
     /// Validated `https://{datadog host}` origin, e.g. `https://app.datadoghq.com`.
     pub origin: String,

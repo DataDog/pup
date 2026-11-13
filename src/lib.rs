@@ -24,8 +24,22 @@
 //! Setting `access_token` alongside `session_origin` sends it as a Bearer token
 //! to the same origin without the cookie.
 
+#![cfg_attr(
+    feature = "browser",
+    allow(dead_code, unused_imports, unused_variables)
+)]
+
+#[cfg(feature = "browser")]
+#[macro_use]
+mod browser_io;
 #[cfg(feature = "browser")]
 mod api;
+#[cfg(feature = "browser")]
+mod auth;
+#[cfg(feature = "browser")]
+mod client;
+#[cfg(feature = "browser")]
+mod commands;
 #[cfg(feature = "browser")]
 mod config;
 #[cfg(feature = "browser")]
@@ -33,14 +47,65 @@ mod filter;
 #[cfg(feature = "browser")]
 mod formatter;
 #[cfg(feature = "browser")]
+mod generated;
+#[cfg(feature = "browser")]
 mod output;
 #[cfg(feature = "browser")]
+mod pagination;
+#[cfg(feature = "browser")]
+mod rate_limit;
+#[cfg(feature = "browser")]
+mod raw_client;
+#[cfg(feature = "browser")]
 mod settings;
+#[cfg(feature = "browser")]
+mod useragent;
+#[cfg(feature = "browser")]
+mod util;
+#[cfg(feature = "browser")]
+mod util_ext;
 #[cfg(feature = "browser")]
 mod version;
 
 #[cfg(feature = "browser")]
+include!("main.rs");
+
+#[cfg(feature = "browser")]
 use wasm_bindgen::prelude::*;
+
+#[cfg(feature = "browser")]
+fn parse_files_json(
+    files_json: Option<String>,
+) -> Result<std::collections::HashMap<String, Vec<u8>>, JsError> {
+    let Some(raw) = files_json.filter(|s| !s.is_empty()) else {
+        return Ok(std::collections::HashMap::new());
+    };
+    let map: std::collections::HashMap<String, String> = serde_json::from_str(&raw)
+        .map_err(|e| JsError::new(&format!("invalid files_json: {e}")))?;
+    Ok(map.into_iter().map(|(k, v)| (k, v.into_bytes())).collect())
+}
+
+/// Execute `pup` with no credentials (offline `--help`, `version`, `agent schema`,
+/// `format`, `docs api`, etc.; API commands return pup's real auth error).
+#[cfg(feature = "browser")]
+#[wasm_bindgen]
+pub async fn run_unauthenticated_cli(
+    site: String,
+    args: Vec<String>,
+    stdin: Option<String>,
+    files_json: Option<String>,
+) -> Result<JsValue, JsError> {
+    let files = parse_files_json(files_json)?;
+    browser_io::setup_invocation(stdin, files);
+    let cfg = config::Config::from_params(site, None, None, None);
+    let exit_code = run_browser_cli(args, cfg).await;
+    let (stdout, stderr) = browser_io::take_output();
+    to_js(&serde_json::json!({
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+    }))
+}
 
 // ---------------------------------------------------------------------------
 // PupClientOptions — JS-constructible configuration
@@ -285,6 +350,25 @@ impl PupClient {
     /// Perform a raw DELETE request.
     pub async fn raw_delete(&self, path: String) -> Result<JsValue, JsError> {
         self.do_delete(&path).await
+    }
+
+    /// Execute any `pup` command (reads, writes, `--jq`, `-o table`, `--file`,
+    /// piped stdin) against this client's session or token configuration.
+    pub async fn run_cli(
+        &self,
+        args: Vec<String>,
+        stdin: Option<String>,
+        files_json: Option<String>,
+    ) -> Result<JsValue, JsError> {
+        let files = parse_files_json(files_json)?;
+        browser_io::setup_invocation(stdin, files);
+        let exit_code = run_browser_cli(args, self.cfg.clone()).await;
+        let (stdout, stderr) = browser_io::take_output();
+        to_js(&serde_json::json!({
+            "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+        }))
     }
 }
 

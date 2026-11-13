@@ -143,7 +143,7 @@ pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuratio
 /// `raw_client::OAUTH_EXCLUDED_ENDPOINTS`) pass `false` so the SDK falls back
 /// to API key headers from the `Configuration`.
 ///
-/// Returns `None` on WASM targets; callers use the SDK default client there.
+/// Returns `None` on WASI targets; browser WASM delegates to `browser_io`.
 pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddleware> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -161,6 +161,10 @@ pub fn make_dd_client(cfg: &Config, send_bearer: bool) -> Option<ClientWithMiddl
             }
         }
         return Some(builder.build());
+    }
+    #[cfg(feature = "browser")]
+    {
+        return crate::browser_io::make_dd_client(cfg, send_bearer);
     }
     #[allow(unreachable_code)]
     {

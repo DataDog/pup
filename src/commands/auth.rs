@@ -424,7 +424,10 @@ pub fn status(cfg: &Config) -> Result<()> {
     // In WASM, just report env var status
     with_storage(|store| {
         let json = match store.load_tokens(site, org)? {
-            Some(tokens) => oauth_status_json(site, org, &tokens),
+            Some(tokens) => {
+                let creds = store.load_client_credentials(site)?;
+                oauth_status_json(site, org, &tokens, creds.as_ref())
+            }
             None => build_non_oauth_status(cfg),
         };
         println!("{}", serde_json::to_string_pretty(&json).unwrap());
@@ -440,6 +443,7 @@ fn oauth_status_json(
     site: &str,
     org: Option<&str>,
     tokens: &crate::auth::types::TokenSet,
+    creds: Option<&crate::auth::types::ClientCredentials>,
 ) -> serde_json::Value {
     let expires_at_ts = tokens.issued_at + tokens.expires_in;
     let org_label = org_suffix(org);
@@ -460,6 +464,12 @@ fn oauth_status_json(
         )
     };
 
+    let legacy_warning = creds.and_then(|c| tokens.legacy_client_warning(c, org));
+    let status_message = match &legacy_warning {
+        Some(warning) => format!("{status_message}. {warning}"),
+        None => status_message,
+    };
+
     let expires_at = chrono::DateTime::from_timestamp(expires_at_ts, 0)
         .map(|dt| dt.with_timezone(&chrono::Local).to_rfc3339())
         .unwrap_or_default();
@@ -468,6 +478,7 @@ fn oauth_status_json(
         "authenticated": true,
         "expires_at": expires_at,
         "has_refresh": !tokens.refresh_token.is_empty(),
+        "legacy_client": legacy_warning.is_some(),
         "org": org,
         "scopes": sorted_scopes(&tokens.scope),
         "site": site,
@@ -572,7 +583,7 @@ pub async fn refresh(cfg: &Config) -> Result<()> {
 
     let dcr_client = dcr::DcrClient::new(site);
     let new_tokens = dcr_client
-        .refresh_token(&tokens.refresh_token, &creds)
+        .refresh_token(&tokens.refresh_token, &tokens.refresh_credentials(&creds))
         .await?;
 
     let location = with_storage(|store| {
@@ -588,6 +599,9 @@ pub async fn refresh(cfg: &Config) -> Result<()> {
     eprintln!("✅ Token refreshed successfully!");
     eprintln!("   Access token expires: {expires_at}");
     eprintln!("   Token stored in: {location}");
+    if let Some(warning) = tokens.legacy_client_warning(&creds, org) {
+        eprintln!("{warning}");
+    }
 
     Ok(())
 }
@@ -964,7 +978,7 @@ mod tests {
     fn test_oauth_status_json_expired_puts_warning_in_status_message() {
         let now = chrono::Utc::now().timestamp();
         let tokens = token_set(now - 7200, 3600, "refresh");
-        let json = oauth_status_json("datadoghq.com", None, &tokens);
+        let json = oauth_status_json("datadoghq.com", None, &tokens, None);
 
         assert_eq!(json["authenticated"], serde_json::json!(true));
         assert_eq!(json["status"], serde_json::json!("expired"));
@@ -985,7 +999,7 @@ mod tests {
     fn test_oauth_status_json_valid_includes_remaining_time() {
         let now = chrono::Utc::now().timestamp();
         let tokens = token_set(now, 3600, "refresh");
-        let json = oauth_status_json("datadoghq.com", Some("prod-child"), &tokens);
+        let json = oauth_status_json("datadoghq.com", Some("prod-child"), &tokens, None);
         let msg = status_message(&json);
 
         assert_eq!(json["status"], serde_json::json!("valid"));
@@ -995,11 +1009,44 @@ mod tests {
         assert_status_message_follows_status(&json);
     }
 
+    fn site_creds(client_name: &str) -> crate::auth::types::ClientCredentials {
+        crate::auth::types::ClientCredentials {
+            client_id: "client".into(),
+            client_name: client_name.into(),
+            redirect_uris: vec![],
+            registered_at: 0,
+            site: "datadoghq.com".into(),
+        }
+    }
+
+    #[test]
+    fn test_oauth_status_json_legacy_client_appends_hint() {
+        let now = chrono::Utc::now().timestamp();
+        let tokens = token_set(now, 3600, "refresh");
+        let creds = site_creds("datadog-api-claude-plugin");
+        let json = oauth_status_json("datadoghq.com", Some("prod-child"), &tokens, Some(&creds));
+
+        assert_eq!(json["legacy_client"], serde_json::json!(true));
+        assert!(status_message(&json).ends_with("Run 'pup auth login --org prod-child' to switch."));
+        assert_status_message_follows_status(&json);
+    }
+
+    #[test]
+    fn test_oauth_status_json_current_client_not_legacy() {
+        let now = chrono::Utc::now().timestamp();
+        let tokens = token_set(now, 3600, "refresh");
+        let creds = site_creds(crate::auth::dcr::DCR_CLIENT_NAME);
+        let json = oauth_status_json("datadoghq.com", None, &tokens, Some(&creds));
+
+        assert_eq!(json["legacy_client"], serde_json::json!(false));
+        assert!(!status_message(&json).contains("legacy"));
+    }
+
     #[test]
     fn test_oauth_status_json_empty_refresh_token_reports_has_refresh_false() {
         let now = chrono::Utc::now().timestamp();
         let tokens = token_set(now - 7200, 3600, "");
-        let json = oauth_status_json("datadoghq.com", None, &tokens);
+        let json = oauth_status_json("datadoghq.com", None, &tokens, None);
 
         assert_eq!(json["status"], serde_json::json!("expired"));
         assert_eq!(json["has_refresh"], serde_json::json!(false));

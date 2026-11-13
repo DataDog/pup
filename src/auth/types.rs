@@ -83,6 +83,7 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "apm_service_ingest_read",
         "appsec_protect_read",
         "appsec_vm_read",
+        "apps_datastore_read",
         "apps_run",
         "audit_logs_read",
         "aws_configuration_read",
@@ -172,6 +173,9 @@ pub fn default_scopes() -> Vec<&'static str> {
         // Entity graph security context
         "appsec_vm_read",
         // App Builder
+        "apps_datastore_manage",
+        "apps_datastore_read",
+        "apps_datastore_write",
         "apps_run",
         "apps_write",
         // Connections (required by App Builder GetApp)
@@ -505,6 +509,19 @@ mod tests {
         assert!(scopes.contains(&"security_monitoring_cws_agent_rules_write"));
         assert!(scopes.contains(&"telemetry_rules_read"));
         assert!(scopes.contains(&"telemetry_rules_create"));
+    }
+
+    #[test]
+    fn test_datastore_scopes() {
+        let scopes = default_scopes();
+        assert!(scopes.contains(&"apps_datastore_manage"));
+        assert!(scopes.contains(&"apps_datastore_read"));
+        assert!(scopes.contains(&"apps_datastore_write"));
+
+        let read_only = read_only_scopes();
+        assert!(read_only.contains(&"apps_datastore_read"));
+        assert!(!read_only.contains(&"apps_datastore_manage"));
+        assert!(!read_only.contains(&"apps_datastore_write"));
     }
 
     #[test]

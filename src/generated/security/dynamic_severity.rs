@@ -14,39 +14,39 @@ use crate::util;
 pub enum Command {
     /// Create a critical asset
     ///
-    /// Create a new critical asset.
+    /// Create a new dynamic severity rule (previously called critical assets).
     Create {
         #[arg(long = "file")]
         file: String,
     },
     /// Delete a critical asset
     ///
-    /// Delete a specific critical asset.
+    /// Delete a specific dynamic severity rule (previously called critical assets).
     Delete {
         /// The ID of the critical asset.
         critical_asset_id: String,
     },
     /// Get critical assets affecting a specific rule
     ///
-    /// Get the list of critical assets that affect a specific existing rule by the rule's ID.
+    /// Get the list of dynamic severity rules (previously called critical assets) that affect a specific existing rule by the rule's ID.
     Affecting {
         /// The ID of the rule.
         rule_id: String,
     },
     /// Get a critical asset
     ///
-    /// Get the details of a specific critical asset.
+    /// Get the details of a specific dynamic severity rule (previously called critical assets).
     Get {
         /// The ID of the critical asset.
         critical_asset_id: String,
     },
     /// Get all critical assets
     ///
-    /// Get the list of all critical assets.
+    /// Get the list of all dynamic severity rules (previously called critical assets).
     List {},
     /// Update a critical asset
     ///
-    /// Update a specific critical asset.
+    /// Update a specific dynamic severity rule (previously called critical assets).
     Update {
         /// The ID of the critical asset.
         critical_asset_id: String,
@@ -71,7 +71,7 @@ pub async fn run(cfg: &Config, command: Command) -> Result<()> {
 
 /// Create a critical asset
 ///
-/// Create a new critical asset.
+/// Create a new dynamic severity rule (previously called critical assets).
 pub async fn create(cfg: &Config, file: &str) -> Result<()> {
     let body: SecurityMonitoringCriticalAssetCreateRequest = util::read_json_file(file)?;
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
@@ -89,7 +89,7 @@ pub async fn create(cfg: &Config, file: &str) -> Result<()> {
 
 /// Delete a critical asset
 ///
-/// Delete a specific critical asset.
+/// Delete a specific dynamic severity rule (previously called critical assets).
 pub async fn delete(cfg: &Config, critical_asset_id: String) -> Result<()> {
     let resource_label = critical_asset_id.to_string();
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
@@ -110,7 +110,7 @@ pub async fn delete(cfg: &Config, critical_asset_id: String) -> Result<()> {
 
 /// Get critical assets affecting a specific rule
 ///
-/// Get the list of critical assets that affect a specific existing rule by the rule's ID.
+/// Get the list of dynamic severity rules (previously called critical assets) that affect a specific existing rule by the rule's ID.
 pub async fn affecting(cfg: &Config, rule_id: String) -> Result<()> {
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
     let resp = api
@@ -128,7 +128,7 @@ pub async fn affecting(cfg: &Config, rule_id: String) -> Result<()> {
 
 /// Get a critical asset
 ///
-/// Get the details of a specific critical asset.
+/// Get the details of a specific dynamic severity rule (previously called critical assets).
 pub async fn get(cfg: &Config, critical_asset_id: String) -> Result<()> {
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
     let resp = api
@@ -142,7 +142,7 @@ pub async fn get(cfg: &Config, critical_asset_id: String) -> Result<()> {
 
 /// Get all critical assets
 ///
-/// Get the list of all critical assets.
+/// Get the list of all dynamic severity rules (previously called critical assets).
 pub async fn list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);
     let resp = api
@@ -165,7 +165,7 @@ pub async fn list(cfg: &Config) -> Result<()> {
 
 /// Update a critical asset
 ///
-/// Update a specific critical asset.
+/// Update a specific dynamic severity rule (previously called critical assets).
 pub async fn update(cfg: &Config, critical_asset_id: String, file: &str) -> Result<()> {
     let body: SecurityMonitoringCriticalAssetUpdateRequest = util::read_json_file(file)?;
     let api = crate::make_api!(SecurityMonitoringAPI, cfg);

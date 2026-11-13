@@ -179,7 +179,7 @@ pub async fn run(
     // Datadog credentials are never sent to an arbitrary host (see above); the
     // request is sent unauthenticated and the caller may add headers via -H.
     if credentials_allowed {
-        req = crate::raw_client::apply_auth(req, cfg, &method_upper, &auth_path)?;
+        req = crate::raw_client::apply_auth(req, cfg, &method_upper, &auth_path).await?;
     } else if cfg.access_token.is_some() || cfg.api_key.is_some() {
         eprintln!(
             "warning: not sending Datadog credentials to non-Datadog host {:?}; \
@@ -961,6 +961,8 @@ mod tests {
         let _guard = crate::test_utils::ENV_LOCK.blocking_lock();
         std::env::remove_var("PUP_MOCK_SERVER");
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("k".into()),
             app_key: Some("a".into()),
             access_token: None,
@@ -1029,6 +1031,8 @@ mod tests {
         std::env::remove_var("PUP_MOCK_SERVER");
         let mut server = mockito::Server::new_async().await;
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: Some("test-api-key".into()),
             app_key: Some("test-app-key".into()),
             access_token: Some("bearer-token".into()),
@@ -1083,6 +1087,8 @@ mod tests {
         std::env::remove_var("PUP_MOCK_SERVER");
         let mut server = mockito::Server::new_async().await;
         let cfg = Config {
+            #[cfg(not(target_arch = "wasm32"))]
+            aws_wif_auth: None,
             api_key: None,
             app_key: None,
             access_token: Some("bearer-token".into()),

@@ -2,6 +2,7 @@
 
 mod cache;
 
+use std::future::Future;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -22,13 +23,38 @@ pub(crate) async fn check() {
     let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
         return;
     };
-    if let Ok(Some(notice)) =
-        check_at(&dir, RELEASE_URL, crate::version::VERSION, now.as_secs()).await
+    if let Ok(Ok(Some(notice))) = tokio::task::spawn_blocking(move || {
+        run_check(check_at(
+            &dir,
+            RELEASE_URL,
+            crate::version::VERSION,
+            now.as_secs(),
+        ))
+    })
+    .await
     {
         // A closed stderr must not affect the command's output or exit status.
         use std::io::Write;
         let _ = writeln!(std::io::stderr(), "{notice}");
     }
+}
+
+fn run_check(
+    check: impl Future<Output = anyhow::Result<Option<String>>>,
+) -> anyhow::Result<Option<String>> {
+    // Reqwest's system DNS resolver uses blocking Tokio tasks. Isolate those
+    // tasks so a stalled lookup cannot hold up the CLI runtime's shutdown.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("building version check runtime")?;
+    let result = runtime.block_on(async {
+        tokio::time::timeout(CHECK_TIMEOUT, check)
+            .await
+            .context("version check timed out")?
+    });
+    runtime.shutdown_background();
+    result
 }
 
 async fn check_at(
@@ -85,6 +111,38 @@ mod tests {
     use crate::test_support::TempDir;
 
     const NOW: u64 = 1_800_000_000;
+
+    #[test]
+    fn timed_out_check_does_not_wait_for_blocking_dns() {
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = run_check(async move {
+                let resolver = tokio::task::spawn_blocking(move || {
+                    started_tx.send(()).unwrap();
+                    let _ = release_rx.recv();
+                });
+                // Model a request timing out while its DNS task is still running.
+                tokio::time::timeout(CHECK_TIMEOUT / 2, resolver)
+                    .await
+                    .context("mock DNS resolution timed out")??;
+                Ok(None)
+            });
+            let _ = finished_tx.send(result);
+        });
+
+        let started = started_rx.recv_timeout(Duration::from_secs(5));
+        let finished = finished_rx.recv_timeout(CHECK_TIMEOUT + Duration::from_secs(1));
+        // Release the resolver even if shutdown regresses, so the test can fail
+        // without leaving a blocked worker behind.
+        drop(release_tx);
+        worker.join().unwrap();
+        started.expect("blocking resolver started");
+        assert!(finished
+            .expect("version check must finish before the resolver is released")
+            .is_err());
+    }
 
     #[test]
     fn compares_release_versions_by_semver_precedence() {

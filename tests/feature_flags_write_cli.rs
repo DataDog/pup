@@ -74,6 +74,7 @@ fn run(server: &Server, op: &Operation, input: Option<&str>, flags: &[&str], id:
         cmd.arg("--file").arg(file);
     }
     let output = cmd
+        .env("PUP_NO_UPDATE_CHECK", "1")
         .env("PUP_MOCK_SERVER", server.url())
         .env("DD_ACCESS_TOKEN", "local-fixture-token")
         .env("DD_SITE", "datadoghq.com")

@@ -60,6 +60,7 @@ fn run(url: &str, args: &[&str], stdin: &str, agent: bool) -> Output {
     // No inherited credentials, config, read-only settings, or agent markers.
     command
         .env_clear()
+        .env("PUP_NO_UPDATE_CHECK", "1")
         .env("PUP_CONFIG_DIR", &dir)
         .env("DD_SITE", "datadoghq.com")
         .env("PUP_MOCK_SERVER", url)

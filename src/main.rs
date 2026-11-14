@@ -15572,8 +15572,9 @@ mod reset_sigpipe_tests {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() {
-    reset_sigpipe();
+    // Keep Rust's ignored SIGPIPE while writing the optional stderr notice.
     version_check::check().await;
+    reset_sigpipe();
     if let Err(err) = main_inner().await {
         let (msg, code) = rate_limit::cli_error(&err);
         eprintln!("Error: {msg}");

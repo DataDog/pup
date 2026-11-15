@@ -5,6 +5,8 @@
 #![allow(clippy::too_many_arguments, clippy::large_enum_variant)]
 
 pub mod authn_mappings;
+pub mod cost_recommendation_custom_rules;
+pub mod cost_recommendation_notification_rules;
 pub mod datastores;
 pub mod domain_allowlist;
 pub mod downtime;
@@ -21,6 +23,16 @@ use crate::config::Config;
 /// for new commands.
 #[derive(clap::Subcommand)]
 pub enum GeneratedCommand {
+    /// Manage cost_recommendation_custom_rules resources
+    CostRecommendationCustomRules {
+        #[command(subcommand)]
+        action: cost_recommendation_custom_rules::Command,
+    },
+    /// Manage cost_recommendation_notification_rules resources
+    CostRecommendationNotificationRules {
+        #[command(subcommand)]
+        action: cost_recommendation_notification_rules::Command,
+    },
     /// Manage datastores resources
     Datastores {
         #[command(subcommand)]
@@ -35,6 +47,12 @@ pub enum GeneratedCommand {
 
 pub async fn run(cfg: &Config, command: GeneratedCommand) -> Result<()> {
     match command {
+        GeneratedCommand::CostRecommendationCustomRules { action } => {
+            cost_recommendation_custom_rules::run(cfg, action).await
+        }
+        GeneratedCommand::CostRecommendationNotificationRules { action } => {
+            cost_recommendation_notification_rules::run(cfg, action).await
+        }
         GeneratedCommand::Datastores { action } => datastores::run(cfg, action).await,
         GeneratedCommand::DomainAllowlist { action } => domain_allowlist::run(cfg, action).await,
     }

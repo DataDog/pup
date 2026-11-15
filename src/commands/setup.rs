@@ -11,7 +11,12 @@ use crate::extensions::exec;
 
 const AI_SETUP_PACKAGE: &str = "@datadog/ai-setup-cli";
 const AI_SETUP_BIN: &str = "ai-setup-cli";
-const AI_SETUP_DEFAULT_VERSION: &str = "latest";
+// Pinned to an exact release, not a dist-tag or range: AI Setup's API calls must be
+// covered by the scopes pup requests at login (default scopes plus LOGIN_EXTRA_SCOPES).
+// Only bump after checking the new release's API calls against those scopes and
+// running `pup setup` end to end on a fresh `pup auth login` session. A floating
+// `latest` once shipped a release that needed product_analytics_apps_write and 403'd.
+const AI_SETUP_DEFAULT_VERSION: &str = "2.0.38";
 const AI_SETUP_PACKAGE_ENV: &str = "PUP_SETUP_AI_SETUP_PACKAGE";
 const MIN_NODE_MAJOR: u32 = 22;
 const NODE_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
@@ -533,7 +538,7 @@ mod tests {
             args(&[
                 "-y",
                 "--package",
-                "@datadog/ai-setup-cli@latest",
+                "@datadog/ai-setup-cli@2.0.38",
                 "ai-setup-cli",
                 "--headless",
                 "--site",
@@ -676,11 +681,23 @@ mod tests {
     }
 
     #[test]
-    fn package_spec_defaults_to_latest() {
-        assert_eq!(package_spec(None).unwrap(), "@datadog/ai-setup-cli@latest");
+    fn package_spec_defaults_to_pinned_version() {
+        assert_eq!(package_spec(None).unwrap(), "@datadog/ai-setup-cli@2.0.38");
         assert_eq!(
             package_spec(Some("  ")).unwrap(),
-            "@datadog/ai-setup-cli@latest"
+            "@datadog/ai-setup-cli@2.0.38"
+        );
+    }
+
+    #[test]
+    fn default_version_is_an_exact_release() {
+        let parts: Vec<&str> = AI_SETUP_DEFAULT_VERSION.split('.').collect();
+        assert_eq!(parts.len(), 3, "{AI_SETUP_DEFAULT_VERSION}");
+        assert!(
+            parts
+                .iter()
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())),
+            "{AI_SETUP_DEFAULT_VERSION} must be an exact x.y.z release, not a tag or range"
         );
     }
 

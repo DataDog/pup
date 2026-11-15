@@ -12,15 +12,18 @@ use crate::extensions::exec;
 const AI_SETUP_PACKAGE: &str = "@datadog/ai-setup-cli";
 const AI_SETUP_BIN: &str = "ai-setup-cli";
 // Pinned to an exact release, not a dist-tag or range: AI Setup's API calls must be
-// covered by the scopes pup requests at login (default scopes plus LOGIN_EXTRA_SCOPES).
-// Only bump after checking the new release's API calls against those scopes and
-// running `pup setup` end to end on a fresh `pup auth login` session. A floating
-// `latest` once shipped a release that needed product_analytics_apps_write and 403'd.
+// covered by LOGIN_EXTRA_SCOPES. Only bump after checking the new release's API calls
+// against that list and running `pup setup` end to end on a fresh `pup auth login`
+// session. A floating `latest` once shipped a release that needed
+// product_analytics_apps_write and 403'd.
 const AI_SETUP_DEFAULT_VERSION: &str = "2.0.38";
 const AI_SETUP_PACKAGE_ENV: &str = "PUP_SETUP_AI_SETUP_PACKAGE";
 const MIN_NODE_MAJOR: u32 = 22;
 const NODE_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
-pub const LOGIN_EXTRA_SCOPES: &str = "api_keys_read,product_analytics_apps_write";
+// Every scope AI Setup needs, including ones already in pup's defaults: a session made
+// from a custom `scopes` config can lack them, and needs_login only checks this list.
+pub const LOGIN_EXTRA_SCOPES: &str = "api_keys_read,apm_read,hosts_read,incident_read,\
+    logs_read_data,metrics_read,product_analytics_apps_write,rum_apps_read,rum_apps_write";
 const TELEMETRY_TIMEOUT: Duration = Duration::from_secs(2);
 const TELEMETRY_EVENT: &str = "setup_prerequisite_missing";
 const TELEMETRY_SERVICE: &str = "setup-cli";
@@ -869,14 +872,19 @@ mod tests {
     #[tokio::test]
     async fn session_login_decision_follows_granted_scopes() {
         let _lock = lock_env().await;
+        let all = LOGIN_EXTRA_SCOPES.replace(',', " ");
+        let all_plus_more = format!("dashboards_read {all}");
+        let without = |scope: &str| all.replace(scope, "");
+        let no_rum_write = without("rum_apps_write");
+        let no_pa_write = without("product_analytics_apps_write");
+        let no_api_keys = without("api_keys_read");
         let cases = [
             (None, false),
-            (
-                Some("apm_read api_keys_read product_analytics_apps_write dashboards_read"),
-                false,
-            ),
-            (Some("apm_read api_keys_read dashboards_read"), true),
-            (Some("apm_read product_analytics_apps_write"), true),
+            (Some(all.as_str()), false),
+            (Some(all_plus_more.as_str()), false),
+            (Some(no_rum_write.as_str()), true),
+            (Some(no_pa_write.as_str()), true),
+            (Some(no_api_keys.as_str()), true),
             (Some("apm_read dashboards_read"), true),
             (Some(""), true),
         ];

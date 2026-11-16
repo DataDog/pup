@@ -377,9 +377,10 @@ impl Config {
 
     /// Returns the API host (e.g., `api.datadoghq.com`).
     ///
-    /// Delegates to [`api_host_for`] after handling the `PUP_MOCK_SERVER` override.
+    /// Delegates to [`api_host_for`]. Debug and unit-test builds also support
+    /// the `PUP_MOCK_SERVER` override; release executables compile it out.
     pub fn api_host(&self) -> String {
-        #[cfg(not(feature = "browser"))]
+        #[cfg(all(not(feature = "browser"), any(debug_assertions, test)))]
         {
             if let Ok(mock) = std::env::var("PUP_MOCK_SERVER") {
                 let host = mock
@@ -401,7 +402,8 @@ impl Config {
     }
 
     /// Returns the full API base URL (e.g., `https://api.datadoghq.com`).
-    /// Respects `PUP_MOCK_SERVER` for testing (native/WASI only).
+    /// Respects `PUP_MOCK_SERVER` in debug and unit-test builds (native/WASI
+    /// only). Release executables compile out the override entirely.
     ///
     /// Note: `api_base_url` and `api_host` handle `PUP_MOCK_SERVER` with
     /// intentionally different semantics. `api_host` strips the scheme and
@@ -411,7 +413,7 @@ impl Config {
     /// callers that need only the host (e.g. for SDK `server_variables["name"]`)
     /// should use `api_host`.
     pub fn api_base_url(&self) -> String {
-        #[cfg(not(feature = "browser"))]
+        #[cfg(all(not(feature = "browser"), any(debug_assertions, test)))]
         {
             if let Ok(mock) = std::env::var("PUP_MOCK_SERVER") {
                 return mock;
@@ -705,6 +707,12 @@ pub fn load_token_from_storage(site: &str, org: Option<&str>) -> Option<String> 
             let store = lock.as_ref()?;
             store.save_tokens(site, org, &new_tokens).ok()?;
             eprintln!("🔄 Access token refreshed automatically.");
+            if let Some(warning) = creds
+                .as_ref()
+                .and_then(|c| new_tokens.legacy_client_warning(c, org))
+            {
+                eprintln!("{warning}");
+            }
             Some(new_tokens.access_token)
         }
         ResolvedToken::Expired => {
@@ -779,7 +787,7 @@ where
         None => return ResolvedToken::Expired,
     };
 
-    match refresh_fn(&tokens.refresh_token, creds) {
+    match refresh_fn(&tokens.refresh_token, &tokens.refresh_credentials(creds)) {
         Some(new_tokens) => ResolvedToken::Refreshed(new_tokens),
         None => ResolvedToken::Expired,
     }
@@ -796,6 +804,7 @@ pub const KNOWN_SITES: &[&str] = &[
     "us5.datadoghq.com",
     "ap1.datadoghq.com",
     "ap2.datadoghq.com",
+    "uk1.datadoghq.com",
     "datadoghq.eu",
     "ddog-gov.com",
     "datad0g.com", // staging
@@ -884,10 +893,11 @@ pub fn api_host_for(site: &str) -> String {
 /// Bare sites whose browser and OAuth UI live on `app.{site}`.
 ///
 /// Regional sites are not in this list. `us3.datadoghq.com`, `us5.datadoghq.com`,
-/// `ap1.datadoghq.com`, `ap2.datadoghq.com`, and any other non-bare subdomain of
-/// `datadoghq.com`, `datad0g.com`, or `datadoghq.eu` serve the UI on the site
-/// host itself. Prefixing `app.` onto those hosts opens a different browser
-/// session than the one the SAML assertion consumer service posts back to.
+/// `ap1.datadoghq.com`, `ap2.datadoghq.com`, `uk1.datadoghq.com`, and any other
+/// non-bare subdomain of `datadoghq.com`, `datad0g.com`, or `datadoghq.eu` serve
+/// the UI on the site host itself. Prefixing `app.` onto those hosts opens a
+/// different browser session than the one the SAML assertion consumer service
+/// posts back to.
 ///
 /// `ddog-gov.com` stays here because the GovCloud UI is `app.ddog-gov.com`.
 pub const APP_PREFIX_SITES: &[&str] = &[
@@ -1379,6 +1389,7 @@ mod tests {
             "us5.datadoghq.com",
             "ap1.datadoghq.com",
             "ap2.datadoghq.com",
+            "uk1.datadoghq.com",
         ] {
             assert_eq!(auth_host_for(site), site);
             // API routing is unchanged: regional sites still use api.{site}.
@@ -2597,6 +2608,20 @@ profiles:
             }
             _ => panic!("expected Refreshed"),
         }
+    }
+
+    // `pup auth login` for one org can replace the site's client; other org
+    // sessions must keep refreshing with the client that issued their token.
+    #[test]
+    fn test_resolve_token_refreshes_with_token_client_id() {
+        let mut tokens = make_token_set(7200, 3600, "refresh");
+        tokens.client_id = "issuing-client-id".into();
+        let creds = make_creds();
+        let result = super::resolve_token(tokens, Some(&creds), |_, c| {
+            assert_eq!(c.client_id, "issuing-client-id");
+            Some(make_refreshed_token_set())
+        });
+        assert!(matches!(result, super::ResolvedToken::Refreshed(_)));
     }
 
     #[test]

@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use super::types::{ClientCredentials, TokenSet};
 
-#[cfg(not(target_arch = "wasm32"))]
 pub const DCR_CLIENT_NAME: &str = "datadog-pup-cli";
 // DCR_REDIRECT_PORTS is referenced from main.rs::resolve_callback_port, which
 // runs on both native and wasm builds (the wasm login() stub bails before
@@ -318,6 +317,7 @@ mod tests {
             "us5.datadoghq.com",
             "ap1.datadoghq.com",
             "ap2.datadoghq.com",
+            "uk1.datadoghq.com",
         ] {
             let client = DcrClient::new(site);
             let url = client.build_authorization_url(
@@ -453,8 +453,10 @@ mod tests {
         assert_eq!(staging.auth_host, "app.datad0g.com");
 
         // Regional canonical site: API still uses api.{site}; authorize does not.
-        let us3 = DcrClient::new("us3.datadoghq.com");
-        assert_eq!(us3.api_host, "api.us3.datadoghq.com");
-        assert_eq!(us3.auth_host, "us3.datadoghq.com");
+        for site in ["us3.datadoghq.com", "uk1.datadoghq.com"] {
+            let regional = DcrClient::new(site);
+            assert_eq!(regional.api_host, format!("api.{site}"));
+            assert_eq!(regional.auth_host, site);
+        }
     }
 }

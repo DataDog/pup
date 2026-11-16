@@ -2,6 +2,7 @@
   "authenticated": "bool",
   "expires_at": "<timestamp>",
   "has_refresh": "bool",
+  "legacy_client": "bool",
   "org": "NoneType",
   "scopes": [
     "<list>",

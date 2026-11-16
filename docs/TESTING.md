@@ -27,6 +27,20 @@ open target/llvm-cov/html/index.html  # macOS
 xdg-open target/llvm-cov/html/index.html  # Linux
 ```
 
+`PUP_MOCK_SERVER` is available in debug executables and unit-test builds only;
+it is compiled out of release executables. CLI suites that depend on this
+override are gated to debug builds so release tests cannot accidentally send
+their fixture requests to the live API. Unit tests retain their local mocks
+even under `cargo test --release`.
+
+Check the real executable for the presence (debug) or absence (release) of the
+mock-server environment lookup:
+
+```bash
+cargo test --test mock_server_build
+cargo test --release --test mock_server_build
+```
+
 ## Test Organization
 
 ### Module Tests (src/)

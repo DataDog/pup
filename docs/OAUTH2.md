@@ -241,6 +241,8 @@ commands. The list below is illustrative — see
 
 ### APM/Traces
 - `apm_read` - Read APM data and traces
+- `apm_retention_filter_read` - Read APM retention filters
+- `apm_retention_filter_write` - Create/update/delete APM retention filters
 
 ### IDP Entity Graph
 - `repo_info_read` - Read repository context connected to entities
@@ -346,6 +348,9 @@ pup auth login --site ap1.datadoghq.com
 
 # AP2
 pup auth login --site ap2.datadoghq.com
+
+# UK1
+pup auth login --site uk1.datadoghq.com
 
 # Gov
 pup auth login --site ddog-gov.com

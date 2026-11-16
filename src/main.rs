@@ -1986,7 +1986,7 @@ enum Commands {
     ///   • Search across different storage tiers (indexes, online-archives, flex)
     ///   • Manage log archives (CRUD operations)
     ///   • Manage custom destinations for logs
-    ///   • Create and manage log-based metrics
+    ///   • List, get, and delete log-based metrics
     ///   • Configure restriction queries for access control
     ///   • Manage logs saved views (experimental raw API)
     ///
@@ -2046,9 +2046,6 @@ enum Commands {
     ///
     ///   # List log-based metrics
     ///   pup logs metrics list
-    ///
-    ///   # Create a log-based metric
-    ///   pup logs metrics create --name="error.count" --query="status:error"
     ///
     ///   # List custom destinations
     ///   pup logs custom-destinations list

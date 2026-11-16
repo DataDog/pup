@@ -91,6 +91,8 @@ jobs:
       - uses: ./.github/actions/install-musl-toolchain
       - name: Build x86_64 musl
         run: cargo build $BUILD_FLAGS --target x86_64-unknown-linux-musl --features vendored-openssl
+      - name: Check mock-server build boundary
+        run: cargo test $BUILD_FLAGS --target x86_64-unknown-linux-musl --features vendored-openssl --test mock_server_build
       - name: Smoke test auth token credential command
         run: |
           set -euo pipefail

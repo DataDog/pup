@@ -2,6 +2,9 @@
 //! it in `metadata` (and keeps the response's own `meta`), `--no-envelope`
 //! prints the raw body, and formats that cannot show metadata say on stderr
 //! where the next page starts.
+// Release executables compile out the PUP_MOCK_SERVER override used here.
+#![cfg(debug_assertions)]
+
 #[path = "support/idp_cli.rs"]
 mod support;
 

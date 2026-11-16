@@ -1,4 +1,7 @@
 //! Write responses must preserve targeting arrays without SDK deserialization.
+// Release executables compile out the PUP_MOCK_SERVER override used here.
+#![cfg(debug_assertions)]
+
 use mockito::{Matcher, Server};
 use serde_json::{json, Value};
 use std::process::{Command, Output};

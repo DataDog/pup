@@ -341,3 +341,31 @@ jobs:
         run: gh workflow run npm-publish.yml --ref main -f tag="$GITHUB_REF_NAME" -f dry_run=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # ---------------------------------------------------------------------------
+  # Homebrew — dispatch the tap's formula update workflow, which opens the
+  # update/pup-<version> PR in datadog-labs/homebrew-pack.
+  # ---------------------------------------------------------------------------
+  homebrew:
+    name: Update Homebrew formula
+    needs: finalize
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # dd-octo-sts token exchange
+    steps:
+      - name: Get octo-sts token for homebrew-pack
+        id: octo-sts
+        uses: DataDog/dd-octo-sts-action@c85802a58e202b7e764b5441e4378c76043c8108
+        with:
+          scope: datadog-labs/homebrew-pack
+          policy: pup.release
+
+      - name: Dispatch update-pup-formula.yml
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh workflow run update-pup-formula.yml \
+            --repo datadog-labs/homebrew-pack \
+            --ref main \
+            -f version="$VERSION"
+        env:
+          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}

@@ -267,6 +267,10 @@ failed requests, are recorded in `version-check` in Pup's configuration director
 If that state cannot be saved, the check is skipped. Set `PUP_NO_UPDATE_CHECK=1`
 to disable checks, for example in CI or offline environments.
 
+On macOS, the timestamp file is `~/Library/Application Support/pup/version-check`,
+or `$PUP_CONFIG_DIR/version-check` when overridden. It contains the Unix timestamp
+of the last attempt.
+
 ## Authentication
 
 Pup supports two authentication methods. **OAuth2 is preferred** and will be used automatically if you've logged in.

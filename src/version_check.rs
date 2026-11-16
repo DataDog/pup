@@ -71,7 +71,7 @@ async fn check_at(
     let client = reqwest::Client::builder()
         .timeout(CHECK_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
-        .user_agent(format!("pup/{current}"))
+        .user_agent(crate::useragent::get())
         .build()
         .context("building release client")?;
     let release = client
@@ -178,11 +178,13 @@ mod tests {
 
     #[tokio::test]
     async fn fetches_once_and_checks_again_after_a_day() {
+        let _guard = crate::test_support::lock_env().await;
+        let user_agent = crate::useragent::get();
         let tmp = TempDir::new("version_check_success");
         let mut server = mockito::Server::new_async().await;
         let mock = server
             .mock("GET", "/latest")
-            .match_header("user-agent", "pup/2.4.4")
+            .match_header("user-agent", user_agent.as_str())
             .match_header("accept", "application/vnd.github+json")
             .match_header("authorization", mockito::Matcher::Missing)
             .with_header("content-type", "application/json")

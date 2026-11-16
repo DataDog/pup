@@ -7,7 +7,12 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const {parseCli, buildPlatformPackage, buildRootPackage} = require('./build-packages.js');
+const {
+	parseCli,
+	buildPlatformPackage,
+	buildRootPackage,
+	buildWasmPackage,
+} = require('./build-packages.js');
 const {PLATFORMS, platformPackageName} = require('../pup/lib/platforms.js');
 
 function tempDir() {
@@ -129,4 +134,34 @@ test('rejects invalid versions, unknown platforms, and missing directories', () 
 	const options = parseCli(['--version', '1.2.3', ...base]);
 	assert.deepEqual(options.platforms, Object.keys(PLATFORMS));
 	assert.equal(options.checksums.get('pup_1.2.3_Linux_x86_64.tar.gz'), 'a'.repeat(64));
+});
+
+test('builds @datadog/pup-wasm from pup_browser_wasm.tar.gz', () => {
+	const assets = tempDir();
+	const out = tempDir();
+	const staging = tempDir();
+	fs.writeFileSync(path.join(staging, 'pup_wasm.js'), 'export default function init() {}\n');
+	fs.writeFileSync(path.join(staging, 'pup_wasm.d.ts'), 'export default function init(): Promise<void>;\n');
+	fs.writeFileSync(path.join(staging, 'pup_wasm_bg.wasm'), Buffer.from([0x00, 0x61, 0x73, 0x6d]));
+	fs.writeFileSync(path.join(staging, 'pup_wasm_bg.wasm.d.ts'), 'export const memory: WebAssembly.Memory;\n');
+	const archive = path.join(assets, 'pup_browser_wasm.tar.gz');
+	execFileSync('tar', ['-czf', archive, '-C', staging, '.']);
+	fs.rmSync(staging, {recursive: true, force: true});
+	const sha256 = crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
+
+	const packageDir = buildWasmPackage({
+		version: '1.2.3',
+		assets,
+		checksums: new Map([['pup_browser_wasm.tar.gz', sha256]]),
+		out,
+	});
+
+	const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'));
+	assert.equal(manifest.name, '@datadog/pup-wasm');
+	assert.equal(manifest.version, '1.2.3');
+	assert.equal(manifest.type, 'module');
+	assert.equal(manifest.exports['./pup_wasm_bg.wasm'], './pup_wasm_bg.wasm');
+	assert.ok(fs.existsSync(path.join(packageDir, 'pup_wasm.js')));
+	assert.ok(fs.existsSync(path.join(packageDir, 'pup_wasm_bg.wasm')));
+	assert.ok(fs.existsSync(path.join(packageDir, 'LICENSE')));
 });

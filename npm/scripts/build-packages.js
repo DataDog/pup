@@ -13,6 +13,13 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const ROOT_PACKAGE_DIR = path.join(REPO_ROOT, 'npm', 'pup');
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const THIRD_PARTY_NOTICES = 'LICENSE-3rdparty.csv';
+const WASM_ARCHIVE_NAME = 'pup_browser_wasm.tar.gz';
+const WASM_PACKAGE_FILES = [
+	'pup_wasm.js',
+	'pup_wasm.d.ts',
+	'pup_wasm_bg.wasm',
+	'pup_wasm_bg.wasm.d.ts',
+];
 
 function parseCli(argv) {
 	const {values} = parseArgs({
@@ -144,6 +151,56 @@ function buildRootPackage({version, out}) {
 	return packageDir;
 }
 
+function buildWasmPackage({version, assets, checksums, out}) {
+	const archive = path.join(assets, WASM_ARCHIVE_NAME);
+	if (!fs.existsSync(archive)) {
+		throw new Error(`Missing release archive ${archive}`);
+	}
+
+	verifyArchive(archive, checksums);
+	const packageDir = path.join(out, 'wasm');
+	fs.mkdirSync(packageDir, {recursive: true});
+
+	const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pup-wasm-npm-'));
+	try {
+		execFileSync('tar', ['-xzf', archive, '-C', workDir]);
+		for (const file of WASM_PACKAGE_FILES) {
+			const src = path.join(workDir, file);
+			if (!fs.existsSync(src)) {
+				throw new Error(`Missing ${file} in ${WASM_ARCHIVE_NAME}`);
+			}
+
+			fs.copyFileSync(src, path.join(packageDir, file));
+		}
+	} finally {
+		fs.rmSync(workDir, {recursive: true, force: true});
+	}
+
+	fs.copyFileSync(path.join(REPO_ROOT, 'LICENSE'), path.join(packageDir, 'LICENSE'));
+	writeJson(path.join(packageDir, 'package.json'), {
+		name: '@datadog/pup-wasm',
+		version,
+		description: 'Browser WebAssembly build of the Datadog pup CLI',
+		license: 'Apache-2.0',
+		repository: {type: 'git', url: 'git+https://github.com/DataDog/pup.git'},
+		type: 'module',
+		main: 'pup_wasm.js',
+		module: 'pup_wasm.js',
+		types: 'pup_wasm.d.ts',
+		exports: {
+			'.': {
+				types: './pup_wasm.d.ts',
+				import: './pup_wasm.js',
+				default: './pup_wasm.js',
+			},
+			'./pup_wasm_bg.wasm': './pup_wasm_bg.wasm',
+			'./package.json': './package.json',
+		},
+		files: WASM_PACKAGE_FILES,
+	});
+	return packageDir;
+}
+
 function main() {
 	const options = parseCli(process.argv.slice(2));
 	fs.mkdirSync(options.out, {recursive: true});
@@ -152,6 +209,7 @@ function main() {
 	}
 
 	console.log(buildRootPackage(options));
+	console.log(buildWasmPackage(options));
 }
 
 if (require.main === module) {
@@ -163,4 +221,4 @@ if (require.main === module) {
 	}
 }
 
-module.exports = {parseCli, buildPlatformPackage, buildRootPackage};
+module.exports = {parseCli, buildPlatformPackage, buildRootPackage, buildWasmPackage};

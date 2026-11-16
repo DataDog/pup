@@ -148,7 +148,11 @@ jobs:
           cp target/wasm32-wasip2/release/pup.wasm wasm-out/pup_wasi.wasm
       - name: Build browser WASM
         run: |
-          wasm-pack build --target web --no-default-features --features browser
+          CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
+          CARGO_PROFILE_RELEASE_LTO=thin \
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+          CARGO_PROFILE_RELEASE_STRIP=symbols \
+            wasm-pack build --target web --no-default-features --features browser
           tar czf wasm-out/pup_browser_wasm.tar.gz -C pkg .
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

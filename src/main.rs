@@ -126,6 +126,26 @@ pub(crate) fn cli_command() -> clap::Command {
             c.mut_subcommand("findings", sort_subcommands_by_name)
         });
     }
+    #[cfg(generated_tag = "product-analytics")]
+    {
+        cmd = cmd.mut_subcommand("product-analytics", sort_subcommands_by_name);
+    }
+    #[cfg(generated_tag = "rum")]
+    {
+        cmd = cmd.mut_subcommand("rum", sort_subcommands_by_name);
+    }
+    #[cfg(generated_subtag = "rum/metrics")]
+    {
+        cmd = cmd.mut_subcommand("rum", |c| {
+            c.mut_subcommand("metrics", sort_subcommands_by_name)
+        });
+    }
+    #[cfg(generated_subtag = "rum/retention-filters")]
+    {
+        cmd = cmd.mut_subcommand("rum", |c| {
+            c.mut_subcommand("retention-filters", sort_subcommands_by_name)
+        });
+    }
     cmd
 }
 
@@ -7997,6 +8017,9 @@ enum RumActions {
         #[command(subcommand)]
         action: RumHeatmapActions,
     },
+    #[cfg(generated_tag = "rum")]
+    #[command(flatten)]
+    Generated(crate::generated::rum::Command),
 }
 
 #[derive(Subcommand)]
@@ -8060,37 +8083,49 @@ enum RumSessionActions {
 #[derive(Subcommand)]
 enum RumMetricActions {
     /// List all RUM custom metrics
+    #[cfg(not(generated_op = "rum.metrics.list"))]
     List,
     /// Get RUM custom metric details
+    #[cfg(not(generated_op = "rum.metrics.get"))]
     Get { metric_id: String },
     /// Create a RUM custom metric
+    #[cfg(not(generated_op = "rum.metrics.create"))]
     Create {
         #[arg(long)]
         file: String,
     },
     /// Update a RUM custom metric
+    #[cfg(not(generated_op = "rum.metrics.update"))]
     Update {
         metric_id: String,
         #[arg(long)]
         file: String,
     },
     /// Delete a RUM custom metric
+    #[cfg(not(generated_op = "rum.metrics.delete"))]
     Delete { metric_id: String },
+    #[cfg(generated_subtag = "rum/metrics")]
+    #[command(flatten)]
+    Generated(crate::generated::rum::metrics::Command),
 }
 
 #[derive(Subcommand)]
 enum RumRetentionFilterActions {
     /// List all retention filters
+    #[cfg(not(generated_op = "rum.retention-filters.list"))]
     List { app_id: String },
     /// Get retention filter details
+    #[cfg(not(generated_op = "rum.retention-filters.get"))]
     Get { app_id: String, filter_id: String },
     /// Create a retention filter
+    #[cfg(not(generated_op = "rum.retention-filters.create"))]
     Create {
         app_id: String,
         #[arg(long)]
         file: String,
     },
     /// Update a retention filter
+    #[cfg(not(generated_op = "rum.retention-filters.update"))]
     Update {
         app_id: String,
         filter_id: String,
@@ -8098,7 +8133,11 @@ enum RumRetentionFilterActions {
         file: String,
     },
     /// Delete a retention filter
+    #[cfg(not(generated_op = "rum.retention-filters.delete"))]
     Delete { app_id: String, filter_id: String },
+    #[cfg(generated_subtag = "rum/retention-filters")]
+    #[command(flatten)]
+    Generated(crate::generated::rum::retention_filters::Command),
 }
 
 #[derive(Subcommand)]
@@ -13133,6 +13172,9 @@ enum ProductAnalyticsActions {
         #[command(subcommand)]
         action: ProductAnalyticsQueryActions,
     },
+    #[cfg(generated_tag = "product-analytics")]
+    #[command(flatten)]
+    Generated(crate::generated::product_analytics::Command),
 }
 
 #[derive(Subcommand)]
@@ -18779,30 +18821,43 @@ async fn main_inner() -> anyhow::Result<()> {
                     }
                 },
                 RumActions::Metrics { action } => match action {
+                    #[cfg(not(generated_op = "rum.metrics.list"))]
                     RumMetricActions::List => commands::rum::metrics_list(&cfg).await?,
+                    #[cfg(not(generated_op = "rum.metrics.get"))]
                     RumMetricActions::Get { metric_id } => {
                         commands::rum::metrics_get(&cfg, &metric_id).await?;
                     }
+                    #[cfg(not(generated_op = "rum.metrics.create"))]
                     RumMetricActions::Create { file } => {
                         commands::rum::metrics_create(&cfg, &file).await?;
                     }
+                    #[cfg(not(generated_op = "rum.metrics.update"))]
                     RumMetricActions::Update { metric_id, file } => {
                         commands::rum::metrics_update(&cfg, &metric_id, &file).await?;
                     }
+                    #[cfg(not(generated_op = "rum.metrics.delete"))]
                     RumMetricActions::Delete { metric_id } => {
                         commands::rum::metrics_delete(&cfg, &metric_id).await?;
                     }
+                    #[cfg(generated_subtag = "rum/metrics")]
+                    RumMetricActions::Generated(action) => {
+                        crate::generated::rum::metrics::run(&cfg, action).await?
+                    }
                 },
                 RumActions::RetentionFilters { action } => match action {
+                    #[cfg(not(generated_op = "rum.retention-filters.list"))]
                     RumRetentionFilterActions::List { app_id } => {
                         commands::rum::retention_filters_list(&cfg, &app_id).await?;
                     }
+                    #[cfg(not(generated_op = "rum.retention-filters.get"))]
                     RumRetentionFilterActions::Get { app_id, filter_id } => {
                         commands::rum::retention_filters_get(&cfg, &app_id, &filter_id).await?;
                     }
+                    #[cfg(not(generated_op = "rum.retention-filters.create"))]
                     RumRetentionFilterActions::Create { app_id, file } => {
                         commands::rum::retention_filters_create(&cfg, &app_id, &file).await?;
                     }
+                    #[cfg(not(generated_op = "rum.retention-filters.update"))]
                     RumRetentionFilterActions::Update {
                         app_id,
                         filter_id,
@@ -18811,8 +18866,13 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::rum::retention_filters_update(&cfg, &app_id, &filter_id, &file)
                             .await?;
                     }
+                    #[cfg(not(generated_op = "rum.retention-filters.delete"))]
                     RumRetentionFilterActions::Delete { app_id, filter_id } => {
                         commands::rum::retention_filters_delete(&cfg, &app_id, &filter_id).await?;
+                    }
+                    #[cfg(generated_subtag = "rum/retention-filters")]
+                    RumRetentionFilterActions::Generated(action) => {
+                        crate::generated::rum::retention_filters::run(&cfg, action).await?
                     }
                 },
                 RumActions::Playlists { action } => match action {
@@ -18957,6 +19017,8 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::rum::heatmaps_query(&cfg, &view_name).await?;
                     }
                 },
+                #[cfg(generated_tag = "rum")]
+                RumActions::Generated(action) => crate::generated::rum::run(&cfg, action).await?,
             }
         }
         // --- CI/CD ---
@@ -21483,6 +21545,10 @@ async fn main_inner() -> anyhow::Result<()> {
                         commands::product_analytics::query_timeseries(&cfg, &file).await?;
                     }
                 },
+                #[cfg(generated_tag = "product-analytics")]
+                ProductAnalyticsActions::Generated(action) => {
+                    crate::generated::product_analytics::run(&cfg, action).await?
+                }
             }
         }
         // --- Static Analysis ---

@@ -8,6 +8,9 @@ pub mod authn_mappings;
 pub mod datastores;
 pub mod domain_allowlist;
 pub mod downtime;
+pub mod product_analytics_launches;
+pub mod product_analytics_monitors;
+pub mod product_analytics_segments;
 pub mod security;
 pub mod writes;
 
@@ -31,11 +34,35 @@ pub enum GeneratedCommand {
         #[command(subcommand)]
         action: domain_allowlist::Command,
     },
+    /// Manage product_analytics_launches resources
+    ProductAnalyticsLaunches {
+        #[command(subcommand)]
+        action: product_analytics_launches::Command,
+    },
+    /// Manage product_analytics_monitors resources
+    ProductAnalyticsMonitors {
+        #[command(subcommand)]
+        action: product_analytics_monitors::Command,
+    },
+    /// Manage product_analytics_segments resources
+    ProductAnalyticsSegments {
+        #[command(subcommand)]
+        action: product_analytics_segments::Command,
+    },
 }
 
 pub async fn run(cfg: &Config, command: GeneratedCommand) -> Result<()> {
     match command {
         GeneratedCommand::Datastores { action } => datastores::run(cfg, action).await,
         GeneratedCommand::DomainAllowlist { action } => domain_allowlist::run(cfg, action).await,
+        GeneratedCommand::ProductAnalyticsLaunches { action } => {
+            product_analytics_launches::run(cfg, action).await
+        }
+        GeneratedCommand::ProductAnalyticsMonitors { action } => {
+            product_analytics_monitors::run(cfg, action).await
+        }
+        GeneratedCommand::ProductAnalyticsSegments { action } => {
+            product_analytics_segments::run(cfg, action).await
+        }
     }
 }

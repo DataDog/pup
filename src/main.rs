@@ -2095,6 +2095,41 @@ enum Commands {
         #[command(subcommand)]
         action: LogsRestrictionActions,
     },
+    /// List and call tools through the MCP gateway
+    ///
+    /// The MCP gateway federates an organization's upstream MCP servers (GitHub,
+    /// Jira, Grafana and others) into one catalog. These commands use its REST
+    /// API, so scripts and agents can list and call those tools without an MCP
+    /// client.
+    ///
+    /// MODES:
+    ///   • No --slug: every server you may use, with names like github__search
+    ///   • Several slugs (--slug github,jira): only those servers, same names
+    ///   • One slug (--slug github): that server alone, under its own tool names
+    ///   Call a tool by the name tools list returned for the same --slug.
+    ///
+    /// EXAMPLES:
+    ///   # List the tools of every server you may use
+    ///   pup mcp-gateway tools list
+    ///
+    ///   # List only GitHub and Jira tools, and fetch the next page
+    ///   pup mcp-gateway tools list --slug github,jira
+    ///   pup mcp-gateway tools list --slug github,jira --cursor <nextCursor>
+    ///
+    ///   # Call a tool
+    ///   pup mcp-gateway tools call github__search_issues --args '{"query":"is:open"}'
+    ///   pup mcp-gateway tools call search_issues --slug github --file args.json
+    ///
+    /// AUTHENTICATION:
+    ///   Requires the mcp_read OAuth scope, and mcp_write to call tools. pup does
+    ///   not request them by default:
+    ///     pup auth login --extra-scopes mcp_read,mcp_write
+    ///   API keys (DD_API_KEY and DD_APP_KEY) work as well.
+    #[command(name = "mcp-gateway", verbatim_doc_comment)]
+    McpGateway {
+        #[command(subcommand)]
+        action: McpGatewayActions,
+    },
     /// Query and manage metrics
     ///
     /// Query time-series metrics, list available metrics, and manage metric metadata.
@@ -4021,6 +4056,46 @@ enum DebuggerProbeActions {
             help = "Comma-separated fields to include: message, captures, timestamp. Default: full debugger payload."
         )]
         fields: Option<String>,
+    },
+}
+
+// ---- MCP Gateway ----
+#[derive(Subcommand)]
+enum McpGatewayActions {
+    /// List and call the tools of your upstream MCP servers
+    Tools {
+        #[command(subcommand)]
+        action: McpGatewayToolActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum McpGatewayToolActions {
+    /// List one page of tools
+    List {
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Server slugs to list (comma-separated); one slug lists that server under its own tool names"
+        )]
+        slug: Vec<String>,
+        #[arg(long, help = "nextCursor from the previous page")]
+        cursor: Option<String>,
+    },
+    /// Call a tool
+    Call {
+        /// Tool name, as tools list returned it for the same --slug
+        name: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Server slugs, as passed to tools list"
+        )]
+        slug: Vec<String>,
+        #[arg(long, help = "Tool arguments as a JSON object")]
+        args: Option<String>,
+        #[arg(long, help = "JSON file with the tool arguments")]
+        file: Option<String>,
     },
 }
 
@@ -13948,6 +14023,7 @@ pub(crate) fn is_write_command_name(name: &str) -> bool {
         || name == "patch"
         || name.starts_with("patch-")
         || name == "run"
+        || name == "call"
         || name == "enable"
         || name == "disable"
         || name == "edit"
@@ -16916,6 +16992,32 @@ async fn main_inner() -> anyhow::Result<()> {
                     commands::debugger::context(&cfg, &service, env.as_deref(), fields.as_deref())
                         .await?;
                 }
+            }
+        }
+        // --- MCP Gateway ---
+        Commands::McpGateway { action } => {
+            cfg.validate_auth()?;
+            match action {
+                McpGatewayActions::Tools { action } => match action {
+                    McpGatewayToolActions::List { slug, cursor } => {
+                        commands::mcp_gateway::tools_list(&cfg, &slug, cursor.as_deref()).await?;
+                    }
+                    McpGatewayToolActions::Call {
+                        name,
+                        slug,
+                        args,
+                        file,
+                    } => {
+                        commands::mcp_gateway::tools_call(
+                            &cfg,
+                            &name,
+                            &slug,
+                            args.as_deref(),
+                            file.as_deref(),
+                        )
+                        .await?;
+                    }
+                },
             }
         }
         // --- Metrics ---

@@ -241,8 +241,12 @@ into either scope with `--extra-scopes`, for example:
 pup auth login --read-only --extra-scopes apps_run,data_scanner_read
 ```
 
-The profile retains `built_in_features` for Database Monitoring compatibility,
-so `--read-only` does not guarantee that Datadog will preselect Limited access.
+The profile retains `built_in_features`, which grants access to built-in Datadog
+features not covered by other permissions. Some commands still require it,
+including Database Monitoring queries. Because the consent page treats it as a
+write permission, `--read-only` still shows the Full or Limited access choice,
+with Full access selected by default. Choosing Limited drops `built_in_features`,
+which can break those commands.
 
 ### Dashboards
 - `dashboards_read` - Read dashboards

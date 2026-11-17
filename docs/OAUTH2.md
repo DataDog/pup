@@ -230,6 +230,20 @@ Pup requests OAuth scopes covering the read/write surface of supported
 commands. The list below is illustrative — see
 [`src/auth/`](../src/auth/) for the canonical, code-driven scope set:
 
+### Read-only login
+
+Use `pup auth login --read-only` to request the read-only scope profile.
+This profile excludes `apps_run`, which can run apps, and `data_scanner_read`,
+which grants access to sensitive scanner configurations and results. Opt back
+into either scope with `--extra-scopes`, for example:
+
+```bash
+pup auth login --read-only --extra-scopes apps_run,data_scanner_read
+```
+
+The profile retains `built_in_features` for Database Monitoring compatibility,
+so `--read-only` does not guarantee that Datadog will preselect Limited access.
+
 ### Dashboards
 - `dashboards_read` - Read dashboards
 - `dashboards_write` - Create/update/delete dashboards

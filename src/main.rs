@@ -15889,13 +15889,14 @@ mod resolve_login_scopes_tests {
     #[test]
     fn extra_scopes_append_to_read_only_defaults() {
         let got = with_no_config_file(|| {
-            resolve_login_scopes(None, Some("user_access_manage"), None, true)
+            resolve_login_scopes(None, Some("apps_run,data_scanner_read"), None, true)
         });
         let mut want: Vec<String> = crate::auth::types::read_only_scopes()
             .into_iter()
             .map(String::from)
             .collect();
-        want.push("user_access_manage".to_string());
+        want.push("apps_run".to_string());
+        want.push("data_scanner_read".to_string());
         assert_eq!(got, want);
     }
 

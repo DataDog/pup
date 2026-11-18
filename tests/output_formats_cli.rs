@@ -221,6 +221,7 @@ fn format(args: &[&str], stdin: &str) -> (String, String) {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_pup"))
         .arg("format")
         .args(args)
+        .env("PUP_NO_UPDATE_CHECK", "1")
         .env("DD_TOKEN_STORAGE", "file")
         .env_remove("PUP_NO_ENVELOPE")
         .env_remove("PUP_OUTPUT")

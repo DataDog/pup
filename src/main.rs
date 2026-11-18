@@ -25,6 +25,8 @@ mod useragent;
 mod util;
 mod util_ext;
 mod version;
+#[cfg(not(target_arch = "wasm32"))]
+mod version_check;
 
 #[cfg(test)]
 mod test_commands;
@@ -15567,6 +15569,8 @@ mod reset_sigpipe_tests {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() {
+    // Keep Rust's ignored SIGPIPE while writing the optional stderr notice.
+    version_check::check().await;
     reset_sigpipe();
     if let Err(err) = main_inner().await {
         let (msg, code) = rate_limit::cli_error(&err);

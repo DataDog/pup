@@ -31,6 +31,7 @@ fn run_runbook_with(name: &str, runbook: &str, globals: &[&str]) -> (bool, Strin
     let output = Command::new(env!("CARGO_BIN_EXE_pup"))
         .args(globals)
         .args(["runbooks", "run", name])
+        .env("PUP_NO_UPDATE_CHECK", "1")
         .env("PUP_CONFIG_DIR", &dir)
         .env("DD_TOKEN_STORAGE", "file")
         .env("DD_ACCESS_TOKEN", "local-fixture-token")
@@ -170,6 +171,7 @@ fn pup_payload_file_is_not_honored() {
     std::fs::write(&input, "[1]").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_pup"))
         .args(["format", "--input", input.to_str().unwrap()])
+        .env("PUP_NO_UPDATE_CHECK", "1")
         .env("PUP_PAYLOAD_FILE", &target)
         .env("DD_TOKEN_STORAGE", "file")
         .output()

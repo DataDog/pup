@@ -11,6 +11,7 @@ pub fn pup(server: &Server, args: &[&str]) -> Output {
     command
         .args(["--output", "json"])
         .args(args)
+        .env("PUP_NO_UPDATE_CHECK", "1")
         .env("PUP_MOCK_SERVER", server.url())
         .env("DD_ACCESS_TOKEN", "local-fixture-token")
         .env("DD_SITE", "datadoghq.com")

@@ -1,5 +1,7 @@
 use anyhow::{bail, Result};
-use datadog_api_client::datadogV2::api_rum::{ListRUMEventsOptionalParams, RUMAPI};
+use datadog_api_client::datadogV2::api_rum::{
+    GetRUMApplicationsOptionalParams, ListRUMEventsOptionalParams, RUMAPI,
+};
 #[cfg(not(all(
     generated_op = "rum.metrics.list",
     generated_op = "rum.metrics.get",
@@ -40,8 +42,9 @@ use datadog_api_client::datadogV2::model::RumRetentionFilterCreateRequest;
 use datadog_api_client::datadogV2::model::RumRetentionFilterUpdateRequest;
 use datadog_api_client::datadogV2::model::{
     Playlist, RUMApplicationCreate, RUMApplicationCreateAttributes, RUMApplicationCreateRequest,
-    RUMApplicationCreateType, RUMApplicationUpdateRequest, RUMQueryFilter, RUMQueryPageOptions,
-    RUMSearchEventsRequest, RUMSort, SessionIdArray, Watch, WatchData, WatchDataType,
+    RUMApplicationCreateType, RUMApplicationPlatformType, RUMApplicationUpdateRequest,
+    RUMQueryFilter, RUMQueryPageOptions, RUMSearchEventsRequest, RUMSort, SessionIdArray, Watch,
+    WatchData, WatchDataType,
 };
 
 use crate::config::Config;
@@ -52,7 +55,7 @@ use crate::util_ext;
 pub async fn apps_list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(RUMAPI, cfg);
     let resp = api
-        .get_rum_applications()
+        .get_rum_applications(GetRUMApplicationsOptionalParams::default())
         .await
         .map_err(|e| anyhow::anyhow!("failed to list RUM apps: {e:?}"))?;
     formatter::output(cfg, &resp)
@@ -71,7 +74,10 @@ pub async fn apps_create(cfg: &Config, name: &str, app_type: Option<String>) -> 
     let api = crate::make_api!(RUMAPI, cfg);
     let mut attrs = RUMApplicationCreateAttributes::new(name.to_string());
     if let Some(t) = app_type {
-        attrs = attrs.type_(t);
+        let platform: RUMApplicationPlatformType =
+            serde_json::from_value(serde_json::Value::String(t))
+                .map_err(|e| anyhow::anyhow!("invalid RUM app type: {e}"))?;
+        attrs = attrs.type_(platform);
     }
     let data = RUMApplicationCreate::new(attrs, RUMApplicationCreateType::RUM_APPLICATION_CREATE);
     let body = RUMApplicationCreateRequest::new(data);
@@ -104,8 +110,8 @@ pub async fn events_list(
     let to_dt = util_ext::parse_time_to_datetime(&to)?;
 
     let mut params = ListRUMEventsOptionalParams::default()
-        .filter_from(from_dt)
-        .filter_to(to_dt)
+        .filter_from(from_dt.timestamp_millis().to_string())
+        .filter_to(to_dt.timestamp_millis().to_string())
         .page_limit(limit);
     if let Some(q) = query {
         params = params.filter_query(q);
@@ -814,6 +820,114 @@ mod tests {
         let cfg = test_config(&s.url());
         mock_all(&mut s, r#"{"data": []}"#).await;
         let _ = super::events_list(&cfg, None, "1h".into(), "now".into(), 10).await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_apps_create_sends_platform_type() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let m = s
+            .mock("POST", "/api/v2/rum/applications")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "data": {"attributes": {"name": "app", "type": "react-native"}}
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{}")
+            .create_async()
+            .await;
+        let r = super::apps_create(&cfg, "app", Some("react-native".into())).await;
+        assert!(r.is_ok(), "{:?}", r.err());
+        m.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_apps_create_passes_through_unknown_platform_type() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let m = s
+            .mock("POST", "/api/v2/rum/applications")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "data": {"attributes": {"type": "some-future-platform"}}
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{}")
+            .create_async()
+            .await;
+        let r = super::apps_create(&cfg, "app", Some("some-future-platform".into())).await;
+        assert!(r.is_ok(), "{:?}", r.err());
+        m.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_apps_create_api_error() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let _m = s
+            .mock("POST", "/api/v2/rum/applications")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors": ["bad request"]}"#)
+            .create_async()
+            .await;
+        let r = super::apps_create(&cfg, "app", Some("browser".into())).await;
+        let err = r.expect_err("expected API error").to_string();
+        assert!(err.contains("failed to create RUM app"), "{err}");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_events_list_sends_millisecond_bounds() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let m = s
+            .mock("GET", "/api/v2/rum/events")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("filter[from]".into(), "1704067200000".into()),
+                mockito::Matcher::UrlEncoded("filter[to]".into(), "1704070800000".into()),
+                mockito::Matcher::UrlEncoded("page[limit]".into(), "5".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data": []}"#)
+            .create_async()
+            .await;
+        let r = super::events_list(
+            &cfg,
+            None,
+            "2024-01-01T00:00:00Z".into(),
+            "2024-01-01T01:00:00Z".into(),
+            5,
+        )
+        .await;
+        assert!(r.is_ok(), "{:?}", r.err());
+        m.assert_async().await;
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_rum_events_list_invalid_time() {
+        let _lock = lock_env().await;
+        let mut s = mockito::Server::new_async().await;
+        let cfg = test_config(&s.url());
+        let m = s
+            .mock("GET", mockito::Matcher::Any)
+            .match_query(mockito::Matcher::Any)
+            .expect(0)
+            .create_async()
+            .await;
+        let r = super::events_list(&cfg, None, "not-a-time".into(), "now".into(), 5).await;
+        let err = r.expect_err("expected time parse error").to_string();
+        assert!(err.contains("unable to parse time"), "{err}");
+        m.assert_async().await;
         cleanup_env();
     }
 

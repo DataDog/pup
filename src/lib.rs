@@ -73,16 +73,37 @@ include!("main.rs");
 #[cfg(feature = "browser")]
 use wasm_bindgen::prelude::*;
 
+/// A `files_json` value: a UTF-8 string, or `{"base64": "..."}` for binary contents.
+#[cfg(feature = "browser")]
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum VirtualFile {
+    Text(String),
+    Binary { base64: String },
+}
+
 #[cfg(feature = "browser")]
 fn parse_files_json(
     files_json: Option<String>,
 ) -> Result<std::collections::HashMap<String, Vec<u8>>, JsError> {
+    use base64::Engine;
+
     let Some(raw) = files_json.filter(|s| !s.is_empty()) else {
         return Ok(std::collections::HashMap::new());
     };
-    let map: std::collections::HashMap<String, String> = serde_json::from_str(&raw)
+    let map: std::collections::HashMap<String, VirtualFile> = serde_json::from_str(&raw)
         .map_err(|e| JsError::new(&format!("invalid files_json: {e}")))?;
-    Ok(map.into_iter().map(|(k, v)| (k, v.into_bytes())).collect())
+    map.into_iter()
+        .map(|(path, file)| {
+            let bytes = match file {
+                VirtualFile::Text(text) => text.into_bytes(),
+                VirtualFile::Binary { base64 } => base64::engine::general_purpose::STANDARD
+                    .decode(base64)
+                    .map_err(|e| JsError::new(&format!("invalid base64 for file {path:?}: {e}")))?,
+            };
+            Ok((path, bytes))
+        })
+        .collect()
 }
 
 #[cfg(feature = "browser")]

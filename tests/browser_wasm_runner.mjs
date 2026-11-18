@@ -318,3 +318,43 @@ test('virtual files_json and stdin work for dashboards widgets, idp register, dd
 		},
 	);
 });
+
+test('files_json base64 values upload binary image bytes unchanged', async () => {
+	const client = makeSessionClient();
+	const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff]);
+	let uploaded;
+
+	await withMockFetch(
+		async req => {
+			const {pathname} = new URL(req.url);
+			if (req.method === 'POST' && pathname === '/api/ui/images') {
+				return jsonResponse({
+					data: {attributes: {upload_url: 'https://storage.example/put', img_uuid: 'img-1'}},
+				});
+			}
+			if (req.method === 'PUT' && req.url === 'https://storage.example/put') {
+				uploaded = Buffer.from(await req.arrayBuffer());
+				return new Response('', {status: 200});
+			}
+			if (req.method === 'POST' && pathname === '/api/ui/image_status/img-1') {
+				return jsonResponse({});
+			}
+			return jsonResponse({errors: [`unexpected ${req.method} ${req.url}`]}, 500);
+		},
+		async () => {
+			const res = await client.run_cli(
+				['notebooks', 'images', 'upload', 'shot.png', '--no-envelope'],
+				undefined,
+				JSON.stringify({'shot.png': {base64: png.toString('base64')}}),
+			);
+			assert.equal(res.exit_code, 0, res.stderr);
+			assert.deepEqual(uploaded, png);
+			assert.equal(JSON.parse(res.stdout).img_uuid, 'img-1');
+		},
+	);
+
+	await assert.rejects(
+		client.run_cli(['notebooks', 'images', 'upload', 'shot.png'], undefined, JSON.stringify({'shot.png': {base64: '%%%'}})),
+		/invalid base64 for file "shot.png"/,
+	);
+});

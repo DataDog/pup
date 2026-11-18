@@ -7809,6 +7809,11 @@ struct NotebookDiscoveryOptions {
 
 #[derive(Subcommand)]
 enum NotebookActions {
+    /// Manage notebook folders (preview collection API)
+    Folders {
+        #[command(subcommand)]
+        action: NotebookFolderActions,
+    },
     /// Search notebooks by optional text and structured filters
     #[command(alias = "list")]
     Search {
@@ -7906,6 +7911,46 @@ enum NotebookActions {
         #[command(subcommand)]
         action: NotebookImagesActions,
     },
+}
+
+#[derive(Subcommand)]
+enum NotebookFolderActions {
+    /// List folders visible in the organization
+    List {
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        page: u32,
+        #[arg(long, default_value_t = 25, value_parser = clap::value_parser!(u32).range(1..=100))]
+        page_size: u32,
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long)]
+        root_only: bool,
+    },
+    /// Get a folder and its contents
+    Get {
+        folder_id: uuid::Uuid,
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=10))]
+        depth: u32,
+    },
+    /// Create a folder
+    Create {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Change a folder's name or description
+    Update {
+        folder_id: uuid::Uuid,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, conflicts_with = "clear_description")]
+        description: Option<String>,
+        #[arg(long)]
+        clear_description: bool,
+    },
+    /// Delete a folder without deleting its notebooks
+    Delete { folder_id: uuid::Uuid },
 }
 
 /// Images embedded in notebook cells (e.g. markdown cell content referencing
@@ -18683,6 +18728,41 @@ async fn main_inner() -> anyhow::Result<()> {
             cfg.validate_auth()?;
             match action {
                 NotebookActions::Annotations { action } => run_annotations(&cfg, action).await?,
+                NotebookActions::Folders { action } => match action {
+                    NotebookFolderActions::List {
+                        page,
+                        page_size,
+                        query,
+                        root_only,
+                    } => {
+                        commands::folders::list(&cfg, page, page_size, query.as_deref(), root_only)
+                            .await?;
+                    }
+                    NotebookFolderActions::Get { folder_id, depth } => {
+                        commands::folders::get(&cfg, folder_id, depth).await?;
+                    }
+                    NotebookFolderActions::Create { name, description } => {
+                        commands::folders::create(&cfg, &name, description.as_deref()).await?;
+                    }
+                    NotebookFolderActions::Update {
+                        folder_id,
+                        name,
+                        description,
+                        clear_description,
+                    } => {
+                        commands::folders::update(
+                            &cfg,
+                            folder_id,
+                            name.as_deref(),
+                            description.as_deref(),
+                            clear_description,
+                        )
+                        .await?;
+                    }
+                    NotebookFolderActions::Delete { folder_id } => {
+                        commands::folders::delete(&cfg, folder_id).await?;
+                    }
+                },
                 NotebookActions::Search { query, options } => {
                     commands::notebooks::search(
                         &cfg,

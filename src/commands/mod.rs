@@ -61,6 +61,7 @@ pub mod extension;
 pub mod fastly;
 pub mod feature_flags;
 pub mod fleet;
+pub mod folders;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod format;
 pub mod google_chat;

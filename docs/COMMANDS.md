@@ -50,7 +50,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | logs-restriction | list, get, create, update, delete, roles (list, add) | src/commands/logs_restriction.rs | ✅ |
 | processes | list | src/commands/processes.rs | ✅ |
 | users | list, get, roles, service-accounts (create, app-keys CRUD) | src/commands/users.rs | ✅ |
-| notebooks | list, get, create, update, edit, diff, delete (get/create/update/edit accept `--markdown`), annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
+| notebooks | list, get, create, update, edit, diff, delete (get/create/update/edit accept `--markdown`), folders (list, get, create, update, delete), annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/folders.rs, src/commands/annotations.rs | ✅ |
 | security | rules, signals, findings, content-packs, risk-scores | src/commands/security.rs | ✅ |
 | organizations | get, list | src/commands/organizations.rs | ✅ |
 | service-catalog | list, get | src/commands/service_catalog.rs | ✅ |
@@ -359,6 +359,26 @@ expression for each command as `returns.jq_root`.
 steps) bypass `format_and_print` and do not honor `--jq`.
 
 ## Recent Enhancements
+
+### Notebook folders (preview)
+
+Folder commands use `/api/unstable/collections` and require the notebook folders
+feature to be enabled for the organization. The route and response contract may
+change during preview. Folder IDs are UUIDs; notebook IDs remain numeric.
+
+```bash
+pup notebooks folders list --root-only
+pup notebooks folders list --query "Weekly" --page 2 --page-size 50
+pup notebooks folders get <folder-uuid> --depth 2
+pup notebooks folders create --name "Weekly reports" --description "Team reports"
+pup notebooks folders update <folder-uuid> --name "Monthly reports"
+pup notebooks folders update <folder-uuid> --clear-description
+pup notebooks folders delete <folder-uuid>
+```
+
+Deleting a folder does not delete its notebooks. These commands manage folder
+metadata only; adding, removing, and moving folder contents are not yet available
+as dedicated commands. Use `pup api` for those endpoints in the meantime.
 
 ### Notebooks — Markdown representation (experimental)
 

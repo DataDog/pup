@@ -1,5 +1,12 @@
 use anyhow::{bail, Result};
 use datadog_api_client::datadogV2::api_rum::{ListRUMEventsOptionalParams, RUMAPI};
+#[cfg(not(all(
+    generated_op = "rum.metrics.list",
+    generated_op = "rum.metrics.get",
+    generated_op = "rum.metrics.create",
+    generated_op = "rum.metrics.update",
+    generated_op = "rum.metrics.delete"
+)))]
 use datadog_api_client::datadogV2::api_rum_metrics::RumMetricsAPI;
 use datadog_api_client::datadogV2::api_rum_replay_heatmaps::{
     ListReplayHeatmapSnapshotsOptionalParams, RumReplayHeatmapsAPI,
@@ -15,13 +22,26 @@ use datadog_api_client::datadogV2::api_rum_replay_viewership::{
     ListRumReplaySessionWatchersOptionalParams,
     ListRumReplayViewershipHistorySessionsOptionalParams, RumReplayViewershipAPI,
 };
+#[cfg(not(all(
+    generated_op = "rum.retention-filters.list",
+    generated_op = "rum.retention-filters.get",
+    generated_op = "rum.retention-filters.create",
+    generated_op = "rum.retention-filters.update",
+    generated_op = "rum.retention-filters.delete",
+)))]
 use datadog_api_client::datadogV2::api_rum_retention_filters::RumRetentionFiltersAPI;
+#[cfg(not(generated_op = "rum.metrics.create"))]
+use datadog_api_client::datadogV2::model::RumMetricCreateRequest;
+#[cfg(not(generated_op = "rum.metrics.update"))]
+use datadog_api_client::datadogV2::model::RumMetricUpdateRequest;
+#[cfg(not(generated_op = "rum.retention-filters.create"))]
+use datadog_api_client::datadogV2::model::RumRetentionFilterCreateRequest;
+#[cfg(not(generated_op = "rum.retention-filters.update"))]
+use datadog_api_client::datadogV2::model::RumRetentionFilterUpdateRequest;
 use datadog_api_client::datadogV2::model::{
     Playlist, RUMApplicationCreate, RUMApplicationCreateAttributes, RUMApplicationCreateRequest,
     RUMApplicationCreateType, RUMApplicationUpdateRequest, RUMQueryFilter, RUMQueryPageOptions,
-    RUMSearchEventsRequest, RUMSort, RumMetricCreateRequest, RumMetricUpdateRequest,
-    RumRetentionFilterCreateRequest, RumRetentionFilterUpdateRequest, SessionIdArray, Watch,
-    WatchData, WatchDataType,
+    RUMSearchEventsRequest, RUMSort, SessionIdArray, Watch, WatchData, WatchDataType,
 };
 
 use crate::config::Config;
@@ -145,6 +165,7 @@ pub async fn apps_update(cfg: &Config, app_id: &str, file: &str) -> Result<()> {
 
 // ---- RUM Metrics ----
 
+#[cfg(not(generated_op = "rum.metrics.list"))]
 pub async fn metrics_list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(RumMetricsAPI, cfg);
     let resp = api
@@ -154,6 +175,7 @@ pub async fn metrics_list(cfg: &Config) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "rum.metrics.get"))]
 pub async fn metrics_get(cfg: &Config, metric_id: &str) -> Result<()> {
     let api = crate::make_api!(RumMetricsAPI, cfg);
     let resp = api
@@ -163,6 +185,7 @@ pub async fn metrics_get(cfg: &Config, metric_id: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "rum.metrics.create"))]
 pub async fn metrics_create(cfg: &Config, file: &str) -> Result<()> {
     let api = crate::make_api!(RumMetricsAPI, cfg);
     let body: RumMetricCreateRequest = crate::util::read_json_file(file)?;
@@ -173,6 +196,7 @@ pub async fn metrics_create(cfg: &Config, file: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "rum.metrics.update"))]
 pub async fn metrics_update(cfg: &Config, metric_id: &str, file: &str) -> Result<()> {
     let api = crate::make_api!(RumMetricsAPI, cfg);
     let body: RumMetricUpdateRequest = crate::util::read_json_file(file)?;
@@ -183,6 +207,7 @@ pub async fn metrics_update(cfg: &Config, metric_id: &str, file: &str) -> Result
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "rum.metrics.delete"))]
 pub async fn metrics_delete(cfg: &Config, metric_id: &str) -> Result<()> {
     let api = crate::make_api!(RumMetricsAPI, cfg);
     api.delete_rum_metric(metric_id.to_string())
@@ -194,6 +219,7 @@ pub async fn metrics_delete(cfg: &Config, metric_id: &str) -> Result<()> {
 
 // ---- RUM Retention Filters ----
 
+#[cfg(not(generated_op = "rum.retention-filters.list"))]
 pub async fn retention_filters_list(cfg: &Config, app_id: &str) -> Result<()> {
     let api = crate::make_api!(RumRetentionFiltersAPI, cfg);
     let resp = api
@@ -203,6 +229,7 @@ pub async fn retention_filters_list(cfg: &Config, app_id: &str) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "rum.retention-filters.get"))]
 pub async fn retention_filters_get(cfg: &Config, app_id: &str, filter_id: &str) -> Result<()> {
     let api = crate::make_api!(RumRetentionFiltersAPI, cfg);
     let resp = api
@@ -212,6 +239,7 @@ pub async fn retention_filters_get(cfg: &Config, app_id: &str, filter_id: &str) 
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "rum.retention-filters.create"))]
 pub async fn retention_filters_create(cfg: &Config, app_id: &str, file: &str) -> Result<()> {
     let api = crate::make_api!(RumRetentionFiltersAPI, cfg);
     let body: RumRetentionFilterCreateRequest = crate::util::read_json_file(file)?;
@@ -222,6 +250,7 @@ pub async fn retention_filters_create(cfg: &Config, app_id: &str, file: &str) ->
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "rum.retention-filters.update"))]
 pub async fn retention_filters_update(
     cfg: &Config,
     app_id: &str,
@@ -237,6 +266,7 @@ pub async fn retention_filters_update(
     formatter::output(cfg, &resp)
 }
 
+#[cfg(not(generated_op = "rum.retention-filters.delete"))]
 pub async fn retention_filters_delete(cfg: &Config, app_id: &str, filter_id: &str) -> Result<()> {
     let api = crate::make_api!(RumRetentionFiltersAPI, cfg);
     api.delete_retention_filter(app_id.to_string(), filter_id.to_string())
@@ -733,6 +763,7 @@ mod tests {
         cleanup_env();
     }
 
+    #[cfg(not(generated_op = "rum.metrics.list"))]
     #[tokio::test]
     async fn test_rum_metrics_list() {
         let _lock = lock_env().await;
@@ -743,6 +774,7 @@ mod tests {
         cleanup_env();
     }
 
+    #[cfg(not(generated_op = "rum.metrics.get"))]
     #[tokio::test]
     async fn test_rum_metrics_get() {
         let _lock = lock_env().await;
@@ -753,6 +785,7 @@ mod tests {
         cleanup_env();
     }
 
+    #[cfg(not(generated_op = "rum.metrics.delete"))]
     #[tokio::test]
     async fn test_rum_metrics_delete() {
         let _lock = lock_env().await;
@@ -763,6 +796,7 @@ mod tests {
         cleanup_env();
     }
 
+    #[cfg(not(generated_op = "rum.retention-filters.list"))]
     #[tokio::test]
     async fn test_rum_retention_filters_list() {
         let _lock = lock_env().await;

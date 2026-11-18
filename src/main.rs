@@ -16370,9 +16370,7 @@ pub(crate) async fn run_browser_cli(raw_args: Vec<String>, base_cfg: config::Con
         Ok(m) => m,
         Err(err) => {
             return match err.kind() {
-                ErrorKind::DisplayHelp
-                | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
-                | ErrorKind::DisplayVersion => {
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
                     print!("{}", err.render());
                     0
                 }

@@ -234,8 +234,8 @@ fn markdown_create_document(content: &str, name: Option<&str>) -> String {
 
 fn read_markdown_file(file: &str) -> Result<String> {
     // The endpoints take a JSON file verbatim as prose, so catch it here.
-    let content =
-        std::fs::read_to_string(file).map_err(|e| anyhow::anyhow!("failed to read {file}: {e}"))?;
+    let content = crate::util_ext::read_file_to_string(file)
+        .map_err(|e| anyhow::anyhow!("failed to read {file}: {e}"))?;
     // A byte-order mark would otherwise survive `trim` and hide the leading
     // brace from the JSON check below.
     let trimmed = content.trim_start_matches('\u{feff}').trim();

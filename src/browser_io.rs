@@ -11,14 +11,22 @@ use reqwest_middleware::{ClientBuilder, ClientWithMiddleware, Middleware, Next};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{self, Cursor, Write};
+use std::time::Duration;
+use wasm_bindgen::JsCast;
 
 use crate::config::Config;
+
+static CLI_INVOCATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 thread_local! {
     static STDOUT_BUF: RefCell<String> = const { RefCell::new(String::new()) };
     static STDERR_BUF: RefCell<String> = const { RefCell::new(String::new()) };
     static STDIN_BUF: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static FILES_MAP: RefCell<HashMap<String, Vec<u8>>> = RefCell::new(HashMap::new());
+}
+
+pub async fn lock_invocation() -> tokio::sync::MutexGuard<'static, ()> {
+    CLI_INVOCATION_LOCK.lock().await
 }
 
 pub fn push_stdout(text: &str) {
@@ -38,6 +46,7 @@ pub fn setup_invocation(stdin: Option<String>, files: HashMap<String, Vec<u8>>) 
     FILES_MAP.with(|map| {
         *map.borrow_mut() = files;
     });
+    crate::rate_limit::store_last(None);
 }
 
 pub fn take_output() -> (String, String) {
@@ -70,6 +79,47 @@ pub fn read_file_bytes(path: &str) -> io::Result<Vec<u8>> {
 pub fn read_file_string(path: &str) -> io::Result<String> {
     let bytes = read_file_bytes(path)?;
     String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+/// Monotonic timestamp in milliseconds from `globalThis.performance.now()`,
+/// falling back to `Date.now()` in JS realms without `performance`.
+pub fn monotonic_now_ms() -> f64 {
+    let global = js_sys::global();
+    if let Ok(perf) = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("performance"))
+    {
+        if let Ok(now_fn) = js_sys::Reflect::get(&perf, &wasm_bindgen::JsValue::from_str("now")) {
+            if let Some(func) = now_fn.dyn_ref::<js_sys::Function>() {
+                if let Ok(val) = func.call0(&perf) {
+                    if let Some(ms) = val.as_f64() {
+                        return ms;
+                    }
+                }
+            }
+        }
+    }
+    js_sys::Date::now()
+}
+
+/// Non-blocking timer sleep backed by `globalThis.setTimeout`.
+pub async fn sleep(duration: Duration) {
+    let millis = duration.as_millis().min(i32::MAX as u128) as i32;
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        let global = js_sys::global();
+        if let Ok(val) =
+            js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("setTimeout"))
+        {
+            if let Some(set_timeout) = val.dyn_ref::<js_sys::Function>() {
+                if set_timeout
+                    .call2(&global, &resolve, &wasm_bindgen::JsValue::from(millis))
+                    .is_ok()
+                {
+                    return;
+                }
+            }
+        }
+        let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }
 
 pub struct StdoutWriter;

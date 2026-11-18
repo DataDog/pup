@@ -71,8 +71,8 @@ fn mime_for(format: &str) -> &'static str {
 
 pub async fn upload(cfg: &Config, file: &str, format: Option<&str>) -> Result<()> {
     let img_format = infer_format(file, format)?;
-    let bytes =
-        std::fs::read(file).with_context(|| format!("failed to read image file {file:?}"))?;
+    let bytes = crate::util_ext::read_file_bytes(file)
+        .with_context(|| format!("failed to read image file {file:?}"))?;
 
     let created = raw_client::raw_post_jsonapi(
         cfg,

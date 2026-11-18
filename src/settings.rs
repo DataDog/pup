@@ -417,6 +417,17 @@ impl Config {
         self.access_token.is_some()
     }
 
+    pub fn has_browser_session(&self) -> bool {
+        #[cfg(feature = "browser")]
+        {
+            self.browser_session.is_some()
+        }
+        #[cfg(not(feature = "browser"))]
+        {
+            false
+        }
+    }
+
     /// Returns the API host (e.g., `api.datadoghq.com`).
     ///
     /// Delegates to [`api_host_for`] after handling the `PUP_MOCK_SERVER` override.

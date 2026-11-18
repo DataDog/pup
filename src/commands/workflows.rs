@@ -108,7 +108,7 @@ pub async fn run(
         }
         (Some(json_str), None) => Some(serde_json::from_str(json_str)?),
         (None, Some(path)) => {
-            let contents = std::fs::read_to_string(path)
+            let contents = util_ext::read_file_to_string(path)
                 .map_err(|e| anyhow::anyhow!("failed to read payload file {path:?}: {e}"))?;
             Some(serde_json::from_str(&contents)?)
         }
@@ -143,17 +143,17 @@ pub async fn run(
 
     let timeout_duration =
         std::time::Duration::from_millis(util_ext::parse_duration_to_millis(timeout)? as u64);
-    let start = std::time::Instant::now();
+    let timer = util_ext::ElapsedTimer::start();
 
     loop {
-        if start.elapsed() > timeout_duration {
+        if timer.elapsed() > timeout_duration {
             return Err(anyhow::anyhow!(
                 "timed out after {} waiting for instance {instance_id}",
                 timeout
             ));
         }
 
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        util_ext::sleep(std::time::Duration::from_secs(2)).await;
 
         let api = crate::make_api!(WorkflowAutomationAPI, cfg);
         let status = api

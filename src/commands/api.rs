@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
 use serde_json::Value;
-use std::io::Read;
 
 use crate::config::Config;
 use crate::useragent;
@@ -146,18 +145,9 @@ pub async fn run(
     // Resolve request body bytes.
     let body: Option<Vec<u8>> = if let Some(path) = input {
         if path == "-" {
-            let mut buf = Vec::new();
-            #[cfg(feature = "browser")]
-            crate::browser_io::stdin_cursor().read_to_end(&mut buf)?;
-            #[cfg(not(feature = "browser"))]
-            std::io::stdin().read_to_end(&mut buf)?;
-            Some(buf)
+            Some(crate::util_ext::read_stdin_bytes()?)
         } else {
-            #[cfg(feature = "browser")]
-            let bytes = crate::browser_io::read_file_bytes(path)
-                .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}"))?;
-            #[cfg(not(feature = "browser"))]
-            let bytes = std::fs::read(path)
+            let bytes = crate::util_ext::read_file_bytes(path)
                 .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}"))?;
             Some(bytes)
         }

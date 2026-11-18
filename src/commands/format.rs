@@ -40,18 +40,8 @@ pub fn run(cfg: &Config, input: Option<&str>, options: FormatOptions<'_>) -> Res
 /// stdin path can be tested without touching the process's real stdin.
 fn read_input(input: Option<&str>, reader: impl Read) -> Result<String> {
     match input {
-        Some(path) if path != "-" => {
-            #[cfg(feature = "browser")]
-            {
-                crate::browser_io::read_file_string(path)
-                    .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}"))
-            }
-            #[cfg(not(feature = "browser"))]
-            {
-                std::fs::read_to_string(path)
-                    .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}"))
-            }
-        }
+        Some(path) if path != "-" => crate::util_ext::read_file_to_string(path)
+            .map_err(|e| anyhow::anyhow!("failed to read --input {path:?}: {e}")),
         _ => crate::util_ext::read_to_string(reader, "failed to read JSON from stdin"),
     }
 }

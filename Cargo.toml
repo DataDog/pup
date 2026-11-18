@@ -76,6 +76,7 @@ browser = [
     "dep:clap",
     "tokio/rt",
     "tokio/macros",
+    "tokio/sync",
     "tokio/time",
     "dep:wasm-bindgen",
     "dep:wasm-bindgen-futures",

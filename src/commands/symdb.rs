@@ -41,7 +41,7 @@ async fn fetch(cfg: &Config, path: &str, query: &[(&str, &str)]) -> Result<serde
                 }
                 let delay = RETRY_BASE_MS * 2u64.pow(attempt);
                 eprintln!("retrying in {delay}ms ({e:#})…");
-                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                crate::util_ext::sleep(std::time::Duration::from_millis(delay)).await;
             }
         }
     }
@@ -81,15 +81,16 @@ pub async fn search(
 
             // Re-poll while any service-version is still indexing.
             if !all_indexing_complete(&data) {
-                let deadline =
-                    std::time::Instant::now() + std::time::Duration::from_secs(MAX_POLL_SECS);
+                let timer = crate::util_ext::ElapsedTimer::start();
+                let max_poll = std::time::Duration::from_secs(MAX_POLL_SECS);
                 loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+                    crate::util_ext::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS))
+                        .await;
                     let data =
                         fetch(cfg, "/api/unstable/symdb-api/v2/scopes/search", &params).await?;
                     let new = collector.collect(cfg, &data).await?;
                     print_lines(&new);
-                    if all_indexing_complete(&data) || std::time::Instant::now() >= deadline {
+                    if all_indexing_complete(&data) || timer.elapsed() >= max_poll {
                         break;
                     }
                 }

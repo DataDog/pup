@@ -754,8 +754,14 @@ impl Storage for LocalStorageBackend {
     }
 
     fn load_tokens(&self, site: &str, org: Option<&str>) -> Result<Option<TokenSet>> {
+        let Ok(storage) = Self::storage() else {
+            return Ok(None);
+        };
         let key = format!("pup_tokens_{}", sanitize(site));
-        match Self::get_item(&key)? {
+        match storage
+            .get_item(&key)
+            .map_err(|_| anyhow::anyhow!("failed to read from localStorage"))?
+        {
             Some(json) => Ok(parse_token_map(&json)?.remove(org_map_key(org))),
             None => Ok(None),
         }
@@ -783,8 +789,14 @@ impl Storage for LocalStorageBackend {
     }
 
     fn load_client_credentials(&self, site: &str) -> Result<Option<ClientCredentials>> {
+        let Ok(storage) = Self::storage() else {
+            return Ok(None);
+        };
         let key = format!("pup_client_{}", sanitize(site));
-        match Self::get_item(&key)? {
+        match storage
+            .get_item(&key)
+            .map_err(|_| anyhow::anyhow!("failed to read from localStorage"))?
+        {
             Some(json) => Ok(Some(serde_json::from_str(&json)?)),
             None => Ok(None),
         }

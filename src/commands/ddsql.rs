@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::io::{self, Read};
+#[cfg(not(feature = "browser"))]
+use std::io;
+use std::io::Read;
 use std::time::Duration;
 
 use crate::config::{Config, OutputFormat};
@@ -39,9 +41,17 @@ fn resolve_query_from_reader(query: &str, reader: &mut impl Read) -> Result<Stri
 }
 
 fn resolve_query(query: &str) -> Result<String> {
-    let stdin = io::stdin();
-    let mut handle = stdin.lock();
-    resolve_query_from_reader(query, &mut handle)
+    #[cfg(feature = "browser")]
+    {
+        let mut handle = crate::browser_io::stdin_cursor();
+        resolve_query_from_reader(query, &mut handle)
+    }
+    #[cfg(not(feature = "browser"))]
+    {
+        let stdin = io::stdin();
+        let mut handle = stdin.lock();
+        resolve_query_from_reader(query, &mut handle)
+    }
 }
 
 const DDSQL_DOCS_PATH: &str = "/api/unstable/ddsql-editor/tools/ddsql-docs";
@@ -631,7 +641,7 @@ async fn execute_async_query(cfg: &Config, body: Value, command: Option<&str>) -
     };
 
     loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        util_ext::sleep(Duration::from_secs(1)).await;
 
         let fetch_body = build_fetch_request(&body, &query_id);
         let poll_resp = raw_client::raw_post_with_ua(
@@ -737,7 +747,7 @@ async fn execute_ddsql_async_query(cfg: &Config, body: Value) -> Result<Value> {
     };
 
     loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        util_ext::sleep(Duration::from_secs(1)).await;
 
         let poll_resp = raw_client::raw_post_with_ua(
             cfg,

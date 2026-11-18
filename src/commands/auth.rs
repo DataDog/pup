@@ -4,6 +4,7 @@ use crate::auth::storage;
 use crate::config::Config;
 
 /// Helper to run a closure with the storage lock held (non-async to avoid holding lock across await).
+#[cfg(not(target_arch = "wasm32"))]
 fn with_storage<F, R>(f: F) -> Result<R>
 where
     F: FnOnce(&mut dyn storage::Storage) -> Result<R> + Send,
@@ -22,6 +23,17 @@ where
             .join()
             .map_err(|_| anyhow::anyhow!("storage worker thread panicked"))?
     })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn with_storage<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut dyn storage::Storage) -> Result<R>,
+{
+    let guard = storage::get_storage()?;
+    let mut lock = guard.lock().unwrap();
+    let store = lock.as_mut().unwrap();
+    f(&mut **store)
 }
 
 /// Parse a token's space-delimited scope claim and return scopes sorted
@@ -521,6 +533,17 @@ fn build_non_oauth_status(cfg: &Config) -> serde_json::Value {
                 "site": site,
                 "status": "valid",
                 "status_message": format!("✅ Authenticated for site: {site}{org_label} (DD_API_KEY + DD_APP_KEY)"),
+            })
+        }
+        #[cfg(feature = "browser")]
+        AuthType::BrowserSession => {
+            serde_json::json!({
+                "authenticated": true,
+                "auth_method": "browser_session",
+                "org": org,
+                "site": site,
+                "status": "valid",
+                "status_message": format!("✅ Authenticated for site: {site}{org_label} (browser session)"),
             })
         }
         AuthType::None => {

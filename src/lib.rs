@@ -85,6 +85,25 @@ fn parse_files_json(
     Ok(map.into_iter().map(|(k, v)| (k, v.into_bytes())).collect())
 }
 
+#[cfg(feature = "browser")]
+async fn execute_browser_cli(
+    cfg: config::Config,
+    args: Vec<String>,
+    stdin: Option<String>,
+    files_json: Option<String>,
+) -> Result<JsValue, JsError> {
+    let files = parse_files_json(files_json)?;
+    let _guard = browser_io::lock_invocation().await;
+    browser_io::setup_invocation(stdin, files);
+    let exit_code = run_browser_cli(args, cfg).await;
+    let (stdout, stderr) = browser_io::take_output();
+    to_js(&serde_json::json!({
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+    }))
+}
+
 /// Execute `pup` with no credentials (offline `--help`, `version`, `agent schema`,
 /// `format`, `docs api`, etc.; API commands return pup's real auth error).
 #[cfg(feature = "browser")]
@@ -95,16 +114,8 @@ pub async fn run_unauthenticated_cli(
     stdin: Option<String>,
     files_json: Option<String>,
 ) -> Result<JsValue, JsError> {
-    let files = parse_files_json(files_json)?;
-    browser_io::setup_invocation(stdin, files);
     let cfg = config::Config::from_params(site, None, None, None);
-    let exit_code = run_browser_cli(args, cfg).await;
-    let (stdout, stderr) = browser_io::take_output();
-    to_js(&serde_json::json!({
-        "exit_code": exit_code,
-        "stdout": stdout,
-        "stderr": stderr,
-    }))
+    execute_browser_cli(cfg, args, stdin, files_json).await
 }
 
 // ---------------------------------------------------------------------------
@@ -360,15 +371,7 @@ impl PupClient {
         stdin: Option<String>,
         files_json: Option<String>,
     ) -> Result<JsValue, JsError> {
-        let files = parse_files_json(files_json)?;
-        browser_io::setup_invocation(stdin, files);
-        let exit_code = run_browser_cli(args, self.cfg.clone()).await;
-        let (stdout, stderr) = browser_io::take_output();
-        to_js(&serde_json::json!({
-            "exit_code": exit_code,
-            "stdout": stdout,
-            "stderr": stderr,
-        }))
+        execute_browser_cli(self.cfg.clone(), args, stdin, files_json).await
     }
 }
 

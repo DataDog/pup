@@ -15,7 +15,7 @@ pub async fn ip_ranges(cfg: &Config) -> Result<()> {
 }
 
 pub async fn status(cfg: &Config) -> Result<()> {
-    if !cfg.has_bearer_token() && !cfg.has_api_keys() {
+    if !cfg.has_bearer_token() && !cfg.has_api_keys() && !cfg.has_browser_session() {
         let transformed = serde_json::json!({
             "message": "no credentials configured",
             "status": "unauthenticated"

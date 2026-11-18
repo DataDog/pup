@@ -10,6 +10,7 @@ mod entity_kinds;
 mod entity_query;
 mod entity_summary;
 mod entity_types;
+#[cfg(not(feature = "browser"))]
 mod migrate;
 
 const RUNTIME_DEPENDENCY_RELATIONS: &str = "runtime_upstream_services,runtime_downstream_services";
@@ -27,7 +28,13 @@ const OWNER_TEAM_FIELDS: &str = "id,name,handle,summary,description,user_count";
 pub use entity_kinds::{describe_kind, list_kinds};
 pub use entity_query::{build_scoped_query, query_entities, EntityQueryOptions};
 pub use entity_summary::{aggregate, facets, EntityAggregateOptions};
+#[cfg(not(feature = "browser"))]
 pub use migrate::migrate_schema;
+
+#[cfg(feature = "browser")]
+pub async fn migrate_schema(_cfg: &Config, _file: Option<String>) -> Result<()> {
+    bail!("`pup idp migrate-schema` modifies local files on disk and is not available in browser WASM builds")
+}
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -704,8 +711,8 @@ pub async fn deps(cfg: &Config, entity: &str) -> Result<()> {
 
 /// Register one or more Catalog entities from a YAML or JSON file.
 pub async fn register(cfg: &Config, file: &str) -> Result<()> {
-    let content =
-        std::fs::read_to_string(file).map_err(|e| anyhow::anyhow!("failed to read {file}: {e}"))?;
+    let content = util_ext::read_file_to_string(file)
+        .map_err(|e| anyhow::anyhow!("failed to read {file}: {e}"))?;
     if content.trim().is_empty() {
         anyhow::bail!("cannot register an empty Catalog entity file: {file}");
     }

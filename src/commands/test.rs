@@ -29,6 +29,11 @@ pub fn run(cfg: &Config) -> Result<()> {
         println!("Bearer Token: configured");
     }
 
+    #[cfg(feature = "browser")]
+    if let Some(ref session) = cfg.browser_session {
+        println!("Browser Session: {}", session.origin);
+    }
+
     println!("Output: {}", cfg.output_format);
 
     Ok(())

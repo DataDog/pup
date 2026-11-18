@@ -1,4 +1,6 @@
-use std::io::{IsTerminal, Read};
+#[cfg(not(feature = "browser"))]
+use std::io::IsTerminal;
+use std::io::Read;
 
 #[cfg(not(target_arch = "wasm32"))]
 use anyhow::Context;
@@ -86,6 +88,13 @@ pub async fn post(cfg: &Config, mut options: PostOptions) -> Result<()> {
         anyhow::bail!("event title is empty");
     }
     let api = crate::make_api_no_auth!(EventsV1API, cfg);
+    #[cfg(feature = "browser")]
+    let message = resolve_message(
+        options.message.take(),
+        false,
+        crate::browser_io::stdin_cursor(),
+    )?;
+    #[cfg(not(feature = "browser"))]
     let message = resolve_message(
         options.message.take(),
         std::io::stdin().is_terminal(),

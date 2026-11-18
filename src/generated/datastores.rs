@@ -88,7 +88,7 @@ pub enum Command {
     },
     /// List datastores
     ///
-    /// Lists all datastores for the organization.
+    /// Lists all datastores in the organization.
     List {},
     /// Update datastore
     ///
@@ -288,7 +288,7 @@ pub async fn list_items(
 
 /// List datastores
 ///
-/// Lists all datastores for the organization.
+/// Lists all datastores in the organization.
 pub async fn list(cfg: &Config) -> Result<()> {
     let api = crate::make_api!(ActionsDatastoresAPI, cfg);
     let resp = api

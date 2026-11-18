@@ -73,6 +73,7 @@ pub struct ClientCredentials {
 
 /// Read-only OAuth scopes for use with --read-only flag.
 /// Excludes write, manage, and org-level administrative scopes.
+/// apps_run and data_scanner_read are opt-in via --extra-scopes in this profile.
 pub fn read_only_scopes() -> Vec<&'static str> {
     vec![
         "apm_read",
@@ -84,7 +85,6 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "appsec_protect_read",
         "appsec_vm_read",
         "apps_datastore_read",
-        "apps_run",
         "audit_logs_read",
         "aws_configuration_read",
         "azure_configuration_read",
@@ -99,7 +99,6 @@ pub fn read_only_scopes() -> Vec<&'static str> {
         "test_optimization_read",
         "dashboards_read",
         "built_in_features",
-        "data_scanner_read",
         "dbm_read",
         "ddsql_editor_read",
         "error_tracking_read",
@@ -492,6 +491,8 @@ mod tests {
         assert!(scopes.contains(&"apps_run"));
         assert!(scopes.contains(&"apps_write"));
         assert!(scopes.contains(&"connections_read"));
+        // Data Scanner
+        assert!(scopes.contains(&"data_scanner_read"));
         // Database Monitoring
         assert!(scopes.contains(&"dbm_read"));
         assert!(scopes.contains(&"built_in_features"));
@@ -603,7 +604,8 @@ mod tests {
         }
         assert!(ro.contains(&"dashboards_read"));
         assert!(ro.contains(&"monitors_read"));
-        assert!(ro.contains(&"apps_run"));
+        assert!(!ro.contains(&"apps_run"));
+        assert!(!ro.contains(&"data_scanner_read"));
         assert!(ro.contains(&"dbm_read"));
         assert!(ro.contains(&"built_in_features"));
         assert!(!ro.contains(&"org_management"));

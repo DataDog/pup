@@ -2243,3 +2243,58 @@ fn test_continuation_flags_are_empty_without_flags_or_command() {
     assert_eq!(crate::continuation_flags(&cmd, "monitors get"), none);
     assert_eq!(crate::continuation_flags(&cmd, "no-such-command"), none);
 }
+
+#[test]
+fn test_rum_gated_verbs_parse_when_absent_from_generated_surface() {
+    for args in [
+        &["pup", "rum", "metrics", "list"][..],
+        &["pup", "rum", "metrics", "get", "m1"],
+        &["pup", "rum", "metrics", "create", "--file", "m.json"],
+        &["pup", "rum", "metrics", "update", "m1", "--file", "m.json"],
+        &["pup", "rum", "metrics", "delete", "m1"],
+        &["pup", "rum", "retention-filters", "list", "app1"],
+        &["pup", "rum", "retention-filters", "get", "app1", "rf1"],
+        &[
+            "pup",
+            "rum",
+            "retention-filters",
+            "create",
+            "app1",
+            "--file",
+            "rf.json",
+        ],
+        &[
+            "pup",
+            "rum",
+            "retention-filters",
+            "update",
+            "app1",
+            "rf1",
+            "--file",
+            "rf.json",
+        ],
+        &["pup", "rum", "retention-filters", "delete", "app1", "rf1"],
+    ] {
+        assert!(
+            crate::Cli::try_parse_from(args).is_ok(),
+            "expected {args:?} to parse"
+        );
+    }
+}
+
+#[test]
+fn test_rum_gated_verbs_reject_missing_args_and_unknown_verbs() {
+    for args in [
+        &["pup", "rum", "metrics", "get"][..],
+        &["pup", "rum", "metrics", "update", "m1"],
+        &["pup", "rum", "retention-filters", "list"],
+        &["pup", "rum", "retention-filters", "delete", "app1"],
+        &["pup", "rum", "retention-filters", "create", "app1"],
+        &["pup", "rum", "metrics", "purge"],
+    ] {
+        assert!(
+            crate::Cli::try_parse_from(args).is_err(),
+            "expected {args:?} to be rejected"
+        );
+    }
+}

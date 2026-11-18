@@ -134,6 +134,7 @@ fn no_envelope_is_inherited_from_the_environment() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_pup"))
         .args(["--read-only", "--output", "json"])
         .args(LOGS_SEARCH)
+        .env("PUP_NO_UPDATE_CHECK", "1")
         .env("PUP_NO_ENVELOPE", "1")
         .env("PUP_MOCK_SERVER", server.url())
         .env("DD_ACCESS_TOKEN", "local-fixture-token")

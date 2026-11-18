@@ -1,6 +1,6 @@
 [package]
 name = "pup"
-version = "2.5.0"
+version = "2.5.1"
 edition = "2021"
 rust-version = "1.93.1"
 publish = false
@@ -42,6 +42,7 @@ native = [
     "dep:flate2",
     "dep:tar",
     "dep:zip",
+    "dep:semver",
 ]
 wasi = [
     "dep:datadog-api-client",
@@ -151,6 +152,9 @@ keyring = { version = "3", features = ["apple-native", "async-secret-service", "
 
 # XDG config directory resolution
 dirs = { version = "6", optional = true }
+
+# Compare release versions using SemVer precedence (including prereleases).
+semver = { version = "1.0", optional = true }
 
 # Browser opening for OAuth login
 open = { version = "5", optional = true }

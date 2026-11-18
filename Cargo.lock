@@ -3447,7 +3447,7 @@ dependencies = [
 
 [[package]]
 name = "pup"
-version = "2.5.0"
+version = "2.5.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3480,6 +3480,7 @@ dependencies = [
  "reqwest",
  "reqwest-middleware",
  "russh",
+ "semver",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

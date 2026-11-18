@@ -8,9 +8,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 
 #[cfg(not(target_arch = "wasm32"))]
-const INDEX_URL: &str = "https://docs.datadoghq.com/api_reference/llms.txt";
+const INDEX_URL: &str = "https://docs.datadoghq.com/api/llms.txt";
 #[cfg(not(target_arch = "wasm32"))]
-const MAX_INDEX_PAGES: usize = 64;
+const MAX_INDEX_PAGES: usize = 256;
 
 #[cfg(not(target_arch = "wasm32"))]
 struct DocPage {
@@ -155,8 +155,7 @@ async fn discover(client: &Client, index: &Url) -> Result<BTreeMap<String, DocPa
             if !same_origin(&target, index) {
                 continue;
             }
-            if target.path().starts_with("/api_reference/") && target.path().ends_with("/llms.txt")
-            {
+            if target.path().starts_with("/api/latest/") && target.path().ends_with("/llms.txt") {
                 pending.push(target);
             } else if let Some((slug, topic)) = page_from_link(title, &target, index) {
                 topics.entry(slug).or_insert(topic);
@@ -259,14 +258,26 @@ mod tests {
     async fn lists_and_fetches_live_operations_scoped_to_topic() {
         let mut server = mockito::Server::new_async().await;
         let base = server.url();
-        let index = Url::parse(&format!("{base}/api_reference/llms.txt")).unwrap();
+        let index = Url::parse(&format!("{base}/api/llms.txt")).unwrap();
         let client = client_for(&index).unwrap();
-        let _root = server.mock("GET", "/api_reference/llms.txt")
-            .with_body("- [Monitors](/api/latest/monitors.md)\n- [Metrics](/api/latest/metrics.md)\n- [Empty](/api/latest/empty.md)\n- [Part](/api_reference/part_1/llms.txt)")
+        let _root = server.mock("GET", "/api/llms.txt")
+            .with_body("- [Monitors](/api/latest/monitors/llms.txt)\n- [Metrics](/api/latest/metrics/llms.txt)\n- [Empty](/api/latest/empty/llms.txt)")
             .create_async().await;
-        let _shard = server.mock("GET", "/api_reference/part_1/llms.txt")
-            .with_body("- [Create a monitor](/api/latest/monitors/create-a-monitor.md)\n- [New operation](/api/latest/monitors/new-operation.md)\n- [Other](/api/latest/metrics/other.md)")
+        let _shard = server.mock("GET", "/api/latest/monitors/llms.txt")
+            .with_body("- [Monitors](/api/latest/monitors.md)\n- [Create a monitor](/api/latest/monitors/create-a-monitor.md)\n- [New operation](/api/latest/monitors/new-operation.md)")
             .create_async().await;
+        let _metrics = server
+            .mock("GET", "/api/latest/metrics/llms.txt")
+            .with_body(
+                "- [Metrics](/api/latest/metrics.md)\n- [Other](/api/latest/metrics/other.md)",
+            )
+            .create_async()
+            .await;
+        let _empty = server
+            .mock("GET", "/api/latest/empty/llms.txt")
+            .with_body("- [Empty](/api/latest/empty.md)")
+            .create_async()
+            .await;
         let page = server
             .mock("GET", "/api/latest/monitors/create-a-monitor.md")
             .match_header("authorization", mockito::Matcher::Missing)
@@ -337,16 +348,16 @@ mod tests {
     async fn discovers_new_topics_through_shards_and_ignores_cycles_and_endpoints() {
         let mut server = mockito::Server::new_async().await;
         let base = server.url();
-        let root = server.mock("GET", "/api_reference/llms.txt").with_body(format!(
-            "- [Part]({base}/api_reference/part_1/llms.txt)\n- [Endpoint]({base}/api/latest/monitors/create.md)\n- [Overview]({base}/api/latest.md)"
+        let root = server.mock("GET", "/api/llms.txt").with_body(format!(
+            "- [Monitors]({base}/api/latest/monitors/llms.txt)\n- [Endpoint]({base}/api/latest/monitors/create.md)\n- [Overview]({base}/api/latest.md)"
         )).expect(1).create_async().await;
-        let shard = server.mock("GET", "/api_reference/part_1/llms.txt").with_body(format!(
-            "- [Root]({base}/api_reference/llms.txt)\n- [New API]({base}/api/latest/new-api.md)\n- [Monitors]({base}/api/latest/monitors.md)"
+        let shard = server.mock("GET", "/api/latest/monitors/llms.txt").with_body(format!(
+            "- [Self]({base}/api/latest/monitors/llms.txt)\n- [New API]({base}/api/latest/new-api.md)\n- [Monitors]({base}/api/latest/monitors.md)"
         )).expect(1).create_async().await;
         let mut out = Vec::new();
         run_with(
             &client_for(&reqwest::Url::parse(&base).unwrap()).unwrap(),
-            &reqwest::Url::parse(&format!("{base}/api_reference/llms.txt")).unwrap(),
+            &reqwest::Url::parse(&format!("{base}/api/llms.txt")).unwrap(),
             None,
             &mut out,
         )
@@ -365,10 +376,18 @@ mod tests {
     async fn fetches_exact_markdown_and_suggests_unknown_topic() {
         let mut server = mockito::Server::new_async().await;
         let base = server.url();
-        let index = reqwest::Url::parse(&format!("{base}/api_reference/llms.txt")).unwrap();
+        let index = reqwest::Url::parse(&format!("{base}/api/llms.txt")).unwrap();
         let client = client_for(&index).unwrap();
         let _root = server
-            .mock("GET", "/api_reference/llms.txt")
+            .mock("GET", "/api/llms.txt")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .match_header("dd-api-key", mockito::Matcher::Missing)
+            .match_header("dd-application-key", mockito::Matcher::Missing)
+            .with_body(format!("- [Rate Limits]({base}/api/latest/rate-limits.md)\n- [Monitors]({base}/api/latest/monitors/llms.txt)"))
+            .create_async()
+            .await;
+        let _shard = server
+            .mock("GET", "/api/latest/monitors/llms.txt")
             .match_header("authorization", mockito::Matcher::Missing)
             .match_header("dd-api-key", mockito::Matcher::Missing)
             .match_header("dd-application-key", mockito::Matcher::Missing)
@@ -405,10 +424,9 @@ mod tests {
             (302, "", "https://example.com/"),
         ] {
             let mut server = mockito::Server::new_async().await;
-            let index =
-                reqwest::Url::parse(&format!("{}/api_reference/llms.txt", server.url())).unwrap();
+            let index = reqwest::Url::parse(&format!("{}/api/llms.txt", server.url())).unwrap();
             let _mock = server
-                .mock("GET", "/api_reference/llms.txt")
+                .mock("GET", "/api/llms.txt")
                 .with_status(status)
                 .with_body(body)
                 .with_header("location", location)
@@ -440,10 +458,15 @@ mod tests {
     async fn reports_topic_fetch_failure_and_invalid_utf8_index() {
         let mut server = mockito::Server::new_async().await;
         let base = server.url();
-        let index = Url::parse(&format!("{base}/api_reference/llms.txt")).unwrap();
+        let index = Url::parse(&format!("{base}/api/llms.txt")).unwrap();
         let client = client_for(&index).unwrap();
         let root = server
-            .mock("GET", "/api_reference/llms.txt")
+            .mock("GET", "/api/llms.txt")
+            .with_body(format!("- [Monitors]({base}/api/latest/monitors/llms.txt)"))
+            .create_async()
+            .await;
+        let _shard = server
+            .mock("GET", "/api/latest/monitors/llms.txt")
             .with_body(format!("- [Monitors]({base}/api/latest/monitors.md)"))
             .create_async()
             .await;
@@ -458,7 +481,7 @@ mod tests {
         assert!(error.to_string().contains("404"));
         root.remove_async().await;
         let _invalid = server
-            .mock("GET", "/api_reference/llms.txt")
+            .mock("GET", "/api/llms.txt")
             .with_body(vec![255])
             .create_async()
             .await;

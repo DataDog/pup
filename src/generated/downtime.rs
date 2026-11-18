@@ -40,8 +40,7 @@ pub enum Command {
         /// paths are `created_by` and `monitor`.
         #[arg(long = "include")]
         include: Option<String>,
-        /// If `true`, include the `run_as` attribute in the response, which lists the principals allowed to
-        /// act on behalf of the downtime.
+        /// If `true`, include the `run_as` attribute in the response, which lists the user the downtime runs as.
         ///
         /// **Note**: This feature is currently in Preview and may not be available for all organizations.
         #[arg(long = "with-run-as")]
@@ -182,7 +181,7 @@ mod tests {
         let _lock = lock_env().await;
         let mut server = mockito::Server::new_async().await;
         let cfg = test_config(&server.url());
-        let _mock = mock_any(&mut server, "GET", r##"{"data": {"attributes": {"created": "2024-01-01T00:00:00+00:00", "display_timezone": "America/New_York", "message": "Message about the downtime", "modified": "2024-01-01T00:00:00+00:00", "monitor_identifier": {"monitor_tags": ["*"]}, "mute_first_recovery_notification": false, "notify_end_states": ["alert", "warn"], "notify_end_types": ["canceled", "expired"], "scope": "env:(staging OR prod) AND datacenter:us-east-1", "status": "active"}, "id": "00000000-0000-1234-0000-000000000000", "type": "downtime"}}"##).await;
+        let _mock = mock_any(&mut server, "GET", r##"{"data": {"attributes": {"created": "2024-01-01T00:00:00+00:00", "display_timezone": "America/New_York", "message": "Message about the downtime", "modified": "2024-01-01T00:00:00+00:00", "monitor_identifier": {"monitor_tags": ["*"]}, "mute_first_recovery_notification": false, "notify_end_states": ["alert", "warn"], "notify_end_types": ["canceled", "expired"], "run_as": [{"principals": ["user:00000000-0000-1234-0000-000000000000"]}], "scope": "env:(staging OR prod) AND datacenter:us-east-1", "status": "active"}, "id": "00000000-0000-1234-0000-000000000000", "type": "downtime"}}"##).await;
         let result = super::get(&cfg, "test".to_string(), None, false).await;
         assert!(result.is_ok(), "get failed: {:?}", result.err());
         cleanup_env();

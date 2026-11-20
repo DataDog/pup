@@ -191,6 +191,7 @@ fn test_is_write_command_name_writes() {
     assert!(crate::is_write_command_name("patch-deployment"));
     // Mutation verbs added to fix issue #528
     assert!(crate::is_write_command_name("run"));
+    assert!(crate::is_write_command_name("call"));
     assert!(crate::is_write_command_name("enable"));
     assert!(crate::is_write_command_name("disable"));
     assert!(crate::is_write_command_name("edit"));

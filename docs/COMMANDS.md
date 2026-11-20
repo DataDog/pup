@@ -48,6 +48,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | synthetics | tests, locations, suites, downtime | src/commands/synthetics.rs | ✅ |
 | symdb | search | src/commands/symdb.rs | ✅ |
 | logs-restriction | list, get, create, update, delete, roles (list, add) | src/commands/logs_restriction.rs | ✅ |
+| mcp-gateway | tools (list, call) | src/commands/mcp_gateway.rs | ✅ |
 | processes | list | src/commands/processes.rs | ✅ |
 | users | list, get, roles, service-accounts (create, app-keys CRUD) | src/commands/users.rs | ✅ |
 | notebooks | list, get, create, update, edit, diff, delete (get/create/update/edit accept `--markdown`), annotations (list, get-page, create, update, delete) | src/commands/notebooks.rs, src/commands/annotations.rs | ✅ |
@@ -308,6 +309,7 @@ pup infrastructure hosts list
 ### Configuration & Data Management
 - **obs-pipelines** - Observability pipelines (list, get, create, update, diff, delete, validate)
 - **llm-obs** - LLM Observability (projects, experiments, datasets, spans, agent insights, model pricing)
+- **mcp-gateway** - MCP gateway tools (list, call); needs `pup auth login --extra-scopes mcp_gateway_usage`
 - **reference-tables** - Reference tables for log enrichment (list, get, create, batch-query)
 - **misc** - Miscellaneous (ip-ranges, status)
 - **product-analytics** - Product analytics events (send, query scalar/timeseries)

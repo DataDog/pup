@@ -76,6 +76,7 @@ pub mod lassie;
 pub mod llm_obs;
 pub mod logs;
 pub mod logs_restriction;
+pub mod mcp_gateway;
 pub mod metrics;
 pub mod misc;
 pub mod model_lab;

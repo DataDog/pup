@@ -85,8 +85,7 @@ impl Middleware for UserAgentMiddleware {
 /// Explicitly injects `cfg` credentials so API key auth works on targets where
 /// `std::env::var` is unavailable (e.g. wasm32-unknown-unknown).
 ///
-/// Debug and unit-test builds redirect API calls when `PUP_MOCK_SERVER` is set.
-/// Release executables compile out that override in `Config::api_base_url`.
+/// If PUP_MOCK_SERVER is set, redirects all API calls to the mock server.
 pub fn make_dd_config(cfg: &Config) -> datadog_api_client::datadog::Configuration {
     let mut dd_cfg = datadog_api_client::datadog::Configuration::new();
 

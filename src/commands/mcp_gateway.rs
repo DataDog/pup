@@ -92,7 +92,20 @@ pub async fn tools_list(cfg: &Config, slugs: &[String], cursor: Option<&str>) ->
         query.push(("cursor", cursor));
     }
     let resp = send(cfg, reqwest::Method::GET, TOOLS_PATH, &query, None).await?;
-    formatter::output(cfg, &resp)
+    formatter::output_with_meta(cfg, &resp, &list_meta(&resp))
+}
+
+/// MCP's `nextCursor` is not a field the formatter recognizes, so it is mapped
+/// here; otherwise a partial catalog would read as complete.
+fn list_meta(resp: &serde_json::Value) -> formatter::Metadata {
+    formatter::Metadata {
+        next_cursor: resp
+            .get("nextCursor")
+            .and_then(serde_json::Value::as_str)
+            .filter(|cursor| !cursor.is_empty())
+            .map(str::to_owned),
+        ..Default::default()
+    }
 }
 
 /// Calls a tool by the name `tools list` returned for the same slugs. A
@@ -176,6 +189,21 @@ mod tests {
         );
         m.assert_async().await;
         cleanup_env();
+    }
+
+    #[test]
+    fn test_list_meta_next_cursor() {
+        let paged = serde_json::json!({"tools": [], "nextCursor": "github__search"});
+        assert_eq!(
+            super::list_meta(&paged).next_cursor.as_deref(),
+            Some("github__search")
+        );
+        for last in [
+            serde_json::json!({"tools": []}),
+            serde_json::json!({"tools": [], "nextCursor": ""}),
+        ] {
+            assert_eq!(super::list_meta(&last).next_cursor, None);
+        }
     }
 
     #[tokio::test]

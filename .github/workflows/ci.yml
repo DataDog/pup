@@ -266,7 +266,12 @@ jobs:
         if: steps.cache-wasm-pack.outputs.cache-hit != 'true'
         run: cargo install wasm-pack
       - name: Build browser WASM
-        run: wasm-pack build --target web --no-default-features --features browser
+        run: |
+          CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
+          CARGO_PROFILE_RELEASE_LTO=thin \
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+          CARGO_PROFILE_RELEASE_STRIP=debuginfo \
+            wasm-pack build --target web --no-default-features --features browser
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22

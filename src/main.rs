@@ -2102,23 +2102,19 @@ enum Commands {
     /// API, so scripts and agents can list and call those tools without an MCP
     /// client.
     ///
-    /// MODES:
-    ///   • No --slug: every server you may use, with names like github__search
-    ///   • Several slugs (--slug github,jira): only those servers, same names
-    ///   • One slug (--slug github): that server alone, under its own tool names
-    ///   Call a tool by the name tools list returned for the same --slug.
+    /// Tools are named <server>__<tool> (github__search_issues), covering every
+    /// server you may use.
     ///
     /// EXAMPLES:
     ///   # List the tools of every server you may use
     ///   pup mcp-gateway tools list
     ///
-    ///   # List only GitHub and Jira tools, and fetch the next page
-    ///   pup mcp-gateway tools list --slug github,jira
-    ///   pup mcp-gateway tools list --slug github,jira --cursor <nextCursor>
+    ///   # Fetch the next page
+    ///   pup mcp-gateway tools list --cursor <nextCursor>
     ///
     ///   # Call a tool
     ///   pup mcp-gateway tools call github__search_issues --args '{"query":"is:open"}'
-    ///   pup mcp-gateway tools call search_issues --slug github --file args.json
+    ///   pup mcp-gateway tools call github__search_issues --file args.json
     ///
     /// AUTHENTICATION:
     ///   Requires the mcp_gateway_usage OAuth scope, which pup does not request
@@ -4073,25 +4069,13 @@ enum McpGatewayActions {
 enum McpGatewayToolActions {
     /// List one page of tools
     List {
-        #[arg(
-            long,
-            value_delimiter = ',',
-            help = "Server slugs to list (comma-separated); one slug lists that server under its own tool names"
-        )]
-        slug: Vec<String>,
         #[arg(long, help = "nextCursor from the previous page")]
         cursor: Option<String>,
     },
     /// Call a tool
     Call {
-        /// Tool name, as tools list returned it for the same --slug
+        /// Tool name, as tools list returned it
         name: String,
-        #[arg(
-            long,
-            value_delimiter = ',',
-            help = "Server slugs, as passed to tools list"
-        )]
-        slug: Vec<String>,
         #[arg(long, help = "Tool arguments as a JSON object")]
         args: Option<String>,
         #[arg(long, help = "JSON file with the tool arguments")]
@@ -16999,19 +16983,13 @@ async fn main_inner() -> anyhow::Result<()> {
             cfg.validate_auth()?;
             match action {
                 McpGatewayActions::Tools { action } => match action {
-                    McpGatewayToolActions::List { slug, cursor } => {
-                        commands::mcp_gateway::tools_list(&cfg, &slug, cursor.as_deref()).await?;
+                    McpGatewayToolActions::List { cursor } => {
+                        commands::mcp_gateway::tools_list(&cfg, cursor.as_deref()).await?;
                     }
-                    McpGatewayToolActions::Call {
-                        name,
-                        slug,
-                        args,
-                        file,
-                    } => {
+                    McpGatewayToolActions::Call { name, args, file } => {
                         commands::mcp_gateway::tools_call(
                             &cfg,
                             &name,
-                            &slug,
                             args.as_deref(),
                             file.as_deref(),
                         )

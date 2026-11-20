@@ -84,6 +84,8 @@ pub enum AuthType {
     None,
     OAuth,
     ApiKeys,
+    #[cfg(feature = "browser")]
+    BrowserSession,
 }
 
 impl std::fmt::Display for AuthType {
@@ -92,6 +94,8 @@ impl std::fmt::Display for AuthType {
             AuthType::None => write!(f, "None"),
             AuthType::OAuth => write!(f, "OAuth2 Bearer Token"),
             AuthType::ApiKeys => write!(f, "API Keys (DD_API_KEY + DD_APP_KEY)"),
+            #[cfg(feature = "browser")]
+            AuthType::BrowserSession => write!(f, "Browser Session Cookie"),
         }
     }
 }
@@ -103,6 +107,10 @@ pub fn get_auth_type(cfg: &Config) -> AuthType {
     } else if cfg.has_api_keys() {
         AuthType::ApiKeys
     } else {
+        #[cfg(feature = "browser")]
+        if cfg.has_browser_session() {
+            return AuthType::BrowserSession;
+        }
         AuthType::None
     }
 }
@@ -457,6 +465,20 @@ pub fn apply_auth(
     method: &str,
     path: &str,
 ) -> anyhow::Result<reqwest::RequestBuilder> {
+    #[cfg(feature = "browser")]
+    if let Some(session) = &cfg.browser_session {
+        if let Some(token) = &cfg.access_token {
+            return Ok(req
+                .fetch_credentials_omit()
+                .header("Authorization", format!("Bearer {token}")));
+        }
+        let req = req.fetch_credentials_same_origin();
+        return Ok(match &session.csrf_token {
+            Some(token) => req.header("x-csrf-token", token.as_str()),
+            None => req,
+        });
+    }
+
     // Events post is also in the broader OAuth-excluded table, so handle its
     // API-key-only requirement before the fallback branch that adds both keys.
     if requires_api_key_only(method, path) {
@@ -564,17 +586,8 @@ pub async fn raw_post_lenient(
 ) -> anyhow::Result<serde_json::Value> {
     let url = format!("{}{}", cfg.api_base_url(), path);
     let client = reqwest::Client::new();
-    let mut req = client.post(&url);
-
-    if let Some(token) = &cfg.access_token {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-        req = req
-            .header("DD-API-KEY", api_key.as_str())
-            .header("DD-APPLICATION-KEY", app_key.as_str());
-    } else {
-        anyhow::bail!("no authentication configured");
-    }
+    let req = client.post(&url);
+    let req = apply_auth(req, cfg, "POST", path)?;
 
     let resp = req
         .header("Content-Type", "application/json")
@@ -1069,6 +1082,44 @@ mod tests {
         let (msg, code) = crate::rate_limit::cli_error(&err);
         assert_eq!(code, crate::rate_limit::EXIT_RATE_LIMITED);
         assert!(msg.contains("rule: get_all_monitors"));
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_raw_post_lenient_returns_error_body_and_checks_auth() {
+        let _lock = lock_env().await;
+        let mut server = mockito::Server::new_async().await;
+        let cfg = test_config(&server.url());
+        let _mock = server
+            .mock("POST", "/api/ui/debugger/parse-template")
+            .match_header("dd-api-key", "test-api-key")
+            .match_header("dd-application-key", "test-app-key")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"errors":[{"title":"bad template"}]}"#)
+            .create_async()
+            .await;
+
+        let resp = super::raw_post_lenient(
+            &cfg,
+            "/api/ui/debugger/parse-template",
+            serde_json::json!({"data": {}}),
+        )
+        .await
+        .expect("raw_post_lenient should return parsed JSON on 400");
+        assert_eq!(resp["errors"][0]["title"], "bad template");
+
+        let mut unauth = cfg.clone();
+        unauth.api_key = None;
+        unauth.app_key = None;
+        let err = super::raw_post_lenient(
+            &unauth,
+            "/api/ui/debugger/parse-template",
+            serde_json::json!({}),
+        )
+        .await
+        .expect_err("unauthenticated raw_post_lenient should fail");
+        assert!(err.to_string().contains("no authentication configured"));
         cleanup_env();
     }
 }

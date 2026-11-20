@@ -41,6 +41,7 @@ jobs:
             --pattern "pup_${VERSION}_Darwin_*.tar.gz" \
             --pattern "pup_${VERSION}_Linux_*.tar.gz" \
             --pattern "pup_${VERSION}_Windows_*.zip" \
+            --pattern "pup_browser_wasm.tar.gz" \
             --pattern "pup_${VERSION}_checksums.txt" \
             --pattern "pup_${VERSION}_checksums.txt.sigstore.json"
         env:
@@ -93,7 +94,7 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             FLAGS="$FLAGS --dry-run"
           fi
-          for dir in npm-out/pup-*/ npm-out/pup/; do
+          for dir in npm-out/pup-*/ npm-out/pup/ npm-out/wasm/; do
             NAME=$(node -p "require('./${dir}package.json').name")
             if ! PUBLISHED=$(npm view "${NAME}@${VERSION}" dist.shasum 2>npm-view.err); then
               if ! grep -q E404 npm-view.err; then

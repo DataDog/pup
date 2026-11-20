@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
+#[cfg(not(feature = "browser"))]
 use std::time::Duration;
 
 use crate::{config::Config, formatter, raw_client, util, util_ext};
@@ -93,6 +94,7 @@ fn view_path(url: &str) -> Result<String> {
     Ok(path.to_owned())
 }
 
+#[cfg(not(feature = "browser"))]
 async fn wait_for_png(cfg: &Config, path: &str, interval: Duration) -> Result<Vec<u8>> {
     loop {
         let response =
@@ -132,14 +134,20 @@ pub async fn run(cfg: &Config, action: SnapshotActions) -> Result<()> {
 }
 
 async fn create(cfg: &Config, args: &CreateArgs) -> Result<()> {
+    #[cfg(feature = "browser")]
+    if args.out.is_some() {
+        bail!(
+            "--out is not supported in browser WASM builds; omit --out to return the snapshot URL"
+        );
+    }
+    #[cfg(not(feature = "browser"))]
     if let Some(path) = &args.out {
         if std::path::Path::new(path).exists() {
             bail!("output file {path:?} already exists; choose a new --out path");
         }
     }
     let widget = if args.file == "-" {
-        serde_json::from_str(&util_ext::read_to_string(
-            std::io::stdin(),
+        serde_json::from_str(&util_ext::read_stdin_to_string(
             "read widget JSON from stdin",
         )?)
         .context("invalid widget JSON")?
@@ -158,12 +166,17 @@ async fn create(cfg: &Config, args: &CreateArgs) -> Result<()> {
         .and_then(Value::as_str)
         .context("snapshot response missing URL")?;
     let path = view_path(url)?;
+    #[cfg(feature = "browser")]
+    let _ = &path;
     let id = response
         .pointer("/data/id")
         .and_then(Value::as_str)
         .context("snapshot response missing ID")?;
     let mut output =
         json!({"id": id, "url": url, "is_authenticated": !args.public, "ttl": args.ttl});
+    #[cfg(feature = "browser")]
+    let _ = &mut output;
+    #[cfg(not(feature = "browser"))]
     if let Some(out) = &args.out {
         let bytes = tokio::time::timeout(
             Duration::from_secs(args.timeout),

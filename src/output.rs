@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::io::IsTerminal;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use crate::config::OutputFormat;
 use crate::filter;
@@ -233,7 +233,7 @@ const PAGE_POINTERS: &[(&str, &str)] = &[("/metadata/page", "/metadata/page_coun
 /// `--no-envelope` (or `PUP_NO_ENVELOPE`): print the raw response body.
 static RAW_OUTPUT: AtomicBool = AtomicBool::new(false);
 /// The running command, reported as `metadata.command`.
-static COMMAND: OnceLock<CommandInfo> = OnceLock::new();
+static COMMAND: RwLock<Option<CommandInfo>> = RwLock::new(None);
 
 struct CommandInfo {
     path: String,
@@ -262,6 +262,11 @@ pub fn raw_output_requested(flag: bool) -> bool {
     flag || crate::settings::env_bool("PUP_NO_ENVELOPE")
 }
 
+#[cfg(feature = "browser")]
+pub fn raw_output_requested(flag: bool) -> bool {
+    flag
+}
+
 pub fn raw_output_enabled() -> bool {
     RAW_OUTPUT.load(Ordering::Relaxed)
 }
@@ -269,14 +274,27 @@ pub fn raw_output_enabled() -> bool {
 /// Record the running command's path (e.g. `logs search`) for
 /// `metadata.command`, and the flags it takes to fetch the next page.
 pub fn set_command(path: String, flags: ContinuationFlags) {
-    let _ = COMMAND.set(CommandInfo { path, flags });
+    if let Ok(mut guard) = COMMAND.write() {
+        *guard = Some(CommandInfo { path, flags });
+    }
+}
+
+#[cfg(feature = "browser")]
+pub fn clear_command() {
+    if let Ok(mut guard) = COMMAND.write() {
+        *guard = None;
+    }
 }
 
 /// Outside a parsed command (library use, unit tests) no flags are known, so
 /// hints fall back to the most common ones.
 fn continuation_flags() -> ContinuationFlags {
-    match COMMAND.get() {
-        Some(info) => info.flags.clone(),
+    match COMMAND
+        .read()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|info| info.flags.clone()))
+    {
+        Some(flags) => flags,
         None => ContinuationFlags {
             cursor: Some("--cursor".into()),
             page: Some("--page".into()),
@@ -337,7 +355,10 @@ fn resolve_metadata(
         meta.count = data.as_array().map(Vec::len);
     }
     if meta.command.is_none() {
-        meta.command = COMMAND.get().map(|info| info.path.clone());
+        meta.command = COMMAND
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|info| info.path.clone()));
     }
     if meta.next_cursor.is_none() {
         meta.next_cursor = derive_cursor(raw);

@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use datadog_api_client::datadogV2::api_incidents::{
     CreateGlobalIncidentHandleOptionalParams, GetIncidentOptionalParams,
     ImportIncidentOptionalParams, IncidentsAPI, ListGlobalIncidentHandlesOptionalParams,
@@ -9,6 +9,7 @@ use datadog_api_client::datadogV2::model::{IncidentImportRequest, IncidentSearch
 
 use crate::config::Config;
 use crate::formatter;
+use crate::raw_client;
 use crate::util;
 
 const INCIDENT_LIST_COLUMNS: &[&str] = &[
@@ -85,31 +86,10 @@ pub async fn attachments_delete(
     incident_id: &str,
     attachment_id: &str,
 ) -> Result<()> {
-    let url = format!(
-        "{}/api/v2/incidents/{}/attachments/{}",
-        cfg.api_base_url(),
-        incident_id,
-        attachment_id
-    );
-    let client = reqwest::Client::new();
-    let mut req = client.delete(&url);
-
-    if let Some(token) = &cfg.access_token {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {
-        req = req
-            .header("DD-API-KEY", api_key.as_str())
-            .header("DD-APPLICATION-KEY", app_key.as_str());
-    } else {
-        bail!("no authentication configured");
-    }
-
-    let resp = req.header("Accept", "application/json").send().await?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        bail!("failed to delete incident attachment (HTTP {status}): {body}");
-    }
+    let path = format!("/api/v2/incidents/{incident_id}/attachments/{attachment_id}");
+    raw_client::raw_delete(cfg, &path)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to delete incident attachment: {e}"))?;
     println!("Incident attachment {attachment_id} deleted from incident {incident_id}.");
     Ok(())
 }
@@ -401,6 +381,19 @@ mod tests {
             .await;
         let result = super::attachments_delete(&cfg, "inc1", "missing").await;
         assert!(result.is_err(), "attachments_delete should fail on 404");
+        cleanup_env();
+    }
+
+    #[tokio::test]
+    async fn test_incidents_attachments_delete_unauthenticated() {
+        let _lock = lock_env().await;
+        let mut cfg = test_config("http://127.0.0.1:9");
+        cfg.api_key = None;
+        cfg.app_key = None;
+        let err = super::attachments_delete(&cfg, "inc1", "att1")
+            .await
+            .expect_err("attachments_delete without credentials should fail");
+        assert!(err.to_string().contains("no authentication configured"));
         cleanup_env();
     }
 

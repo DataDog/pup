@@ -51,8 +51,8 @@ pub async fn custom_costs_upload(cfg: &Config, file: &str, version: Option<Strin
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
-    let file_content =
-        std::fs::read(file).map_err(|e| anyhow::anyhow!("failed to read '{file}': {e}"))?;
+    let file_content = util_ext::read_file_bytes(file)
+        .map_err(|e| anyhow::anyhow!("failed to read '{file}': {e}"))?;
     let filename = std::path::Path::new(file)
         .file_name()
         .and_then(|n| n.to_str())

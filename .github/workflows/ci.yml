@@ -267,6 +267,11 @@ jobs:
         run: cargo install wasm-pack
       - name: Build browser WASM
         run: wasm-pack build --target web --no-default-features --features browser
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Test browser WASM runner
+        run: node --test tests/browser_wasm_runner.mjs
       - name: Report sizes
         run: |
           echo "WASI:"

@@ -1,29 +1,45 @@
 // api.rs provides raw HTTP helpers used by test_commands.rs; not needed in production binary.
-#[cfg(test)]
+#[cfg(all(test, not(feature = "browser")))]
 mod api;
+#[cfg(not(feature = "browser"))]
 mod auth;
+#[cfg(not(feature = "browser"))]
 mod client;
+#[cfg(not(feature = "browser"))]
 mod commands;
+#[cfg(not(feature = "browser"))]
 mod config;
 #[cfg(not(target_arch = "wasm32"))]
 mod extensions;
+#[cfg(not(feature = "browser"))]
 mod filter;
+#[cfg(not(feature = "browser"))]
 mod formatter;
+#[cfg(not(feature = "browser"))]
 mod generated;
+#[cfg(not(feature = "browser"))]
 mod output;
+#[cfg(not(feature = "browser"))]
 mod pagination;
+#[cfg(not(feature = "browser"))]
 mod rate_limit;
+#[cfg(not(feature = "browser"))]
 mod raw_client;
 #[cfg(not(target_arch = "wasm32"))]
 mod runbooks;
+#[cfg(not(feature = "browser"))]
 mod settings;
 #[cfg(not(target_arch = "wasm32"))]
 mod skills;
 #[cfg(not(target_arch = "wasm32"))]
 mod tunnel;
+#[cfg(not(feature = "browser"))]
 mod useragent;
+#[cfg(not(feature = "browser"))]
 mod util;
+#[cfg(not(feature = "browser"))]
 mod util_ext;
+#[cfg(not(feature = "browser"))]
 mod version;
 #[cfg(not(target_arch = "wasm32"))]
 mod version_check;
@@ -1643,7 +1659,7 @@ enum Commands {
     ///   pup api v2/monitors | pup format --output table
     ///   pup api v1/monitor/search | pup format --rows-at /monitors --columns id,name,status
     ///   echo '[{"id":1}]' | pup format --output csv
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
     #[command(visible_alias = "fmt", verbatim_doc_comment)]
     Format {
         /// Read JSON from file, or use "-" (default) for stdin
@@ -15621,7 +15637,7 @@ async fn main() {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(feature = "browser")))]
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     if let Err(err) = main_inner().await {
@@ -16311,6 +16327,7 @@ mod resolve_output_format_tests {
     }
 }
 
+#[cfg(not(feature = "browser"))]
 async fn main_inner() -> anyhow::Result<()> {
     let args = hoist_setup_global_flags(setup_help_alias(std::env::args().collect()));
 
@@ -16372,6 +16389,68 @@ async fn main_inner() -> anyhow::Result<()> {
         .try_get_matches_from_mut(&args)
         .unwrap_or_else(|e| e.exit());
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    dispatch_parsed(cmd, matches, cli, None).await
+}
+
+#[cfg(feature = "browser")]
+pub(crate) async fn run_browser_cli(raw_args: Vec<String>, base_cfg: config::Config) -> i32 {
+    use clap::error::ErrorKind;
+
+    output::clear_command();
+    output::set_raw_output(false);
+    rate_limit::set_verbose(false);
+
+    let mut argv = if raw_args.is_empty() {
+        vec!["pup".to_string(), "--help".to_string()]
+    } else if raw_args[0] == "pup" {
+        raw_args
+    } else {
+        let mut prefixed = Vec::with_capacity(raw_args.len() + 1);
+        prefixed.push("pup".to_string());
+        prefixed.extend(raw_args);
+        prefixed
+    };
+    argv = hoist_setup_global_flags(setup_help_alias(argv));
+
+    let mut cmd = cli_command();
+    let matches = match cmd.try_get_matches_from_mut(&argv) {
+        Ok(m) => m,
+        Err(err) => {
+            return match err.kind() {
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+                    print!("{}", err.render());
+                    0
+                }
+                _ => {
+                    eprint!("{}", err.render());
+                    2
+                }
+            };
+        }
+    };
+    let cli = match Cli::from_arg_matches(&matches) {
+        Ok(c) => c,
+        Err(err) => {
+            eprint!("{}", err.render());
+            return 2;
+        }
+    };
+    match dispatch_parsed(cmd, matches, cli, Some(base_cfg)).await {
+        Ok(()) => 0,
+        Err(err) => {
+            let (msg, code) = rate_limit::cli_error(&err);
+            eprintln!("Error: {msg}");
+            code
+        }
+    }
+}
+
+async fn dispatch_parsed(
+    cmd: clap::Command,
+    matches: clap::ArgMatches,
+    cli: Cli,
+    provided_cfg: Option<config::Config>,
+) -> anyhow::Result<()> {
     output::set_raw_output(output::raw_output_requested(
         cli.no_envelope || cli.no_agent,
     ));
@@ -16404,22 +16483,36 @@ async fn main_inner() -> anyhow::Result<()> {
                 operations,
                 ..
             } => {
+                #[cfg(feature = "browser")]
+                let mut sink = crate::browser_io::StdoutWriter;
+                #[cfg(not(feature = "browser"))]
+                let mut sink = std::io::stdout();
                 commands::docs_api::run(
                     topic.as_deref(),
                     operation.as_deref(),
                     operations,
-                    &mut std::io::stdout(),
+                    &mut sink,
                 )
                 .await?;
             }
             DocsActions::Ask { question } => {
-                commands::docs::ask(&question, &mut std::io::stdout()).await?;
+                #[cfg(feature = "browser")]
+                let mut sink = crate::browser_io::StdoutWriter;
+                #[cfg(not(feature = "browser"))]
+                let mut sink = std::io::stdout();
+                commands::docs::ask(&question, &mut sink).await?;
             }
         }
         return Ok(());
     }
 
-    let mut cfg = config::Config::from_env()?;
+    let mut cfg = match provided_cfg {
+        Some(c) => c,
+        #[cfg(not(feature = "browser"))]
+        None => config::Config::from_env()?,
+        #[cfg(feature = "browser")]
+        None => unreachable!(),
+    };
 
     // Apply flag overrides. `--output` is only applied when explicitly set so the
     // format resolved from DD_OUTPUT / PUP_OUTPUT in `from_env` survives when no
@@ -21488,7 +21581,7 @@ async fn main_inner() -> anyhow::Result<()> {
         }
         // --- Format ---
         // No auth required: this only renders JSON the caller already has.
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
         Commands::Format {
             input,
             count,

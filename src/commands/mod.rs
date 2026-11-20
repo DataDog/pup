@@ -61,7 +61,7 @@ pub mod extension;
 pub mod fastly;
 pub mod feature_flags;
 pub mod fleet;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 pub mod format;
 pub mod google_chat;
 pub mod governance;

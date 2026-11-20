@@ -18,6 +18,9 @@ pub fn confirm_destructive(cfg: &crate::config::Config, prompt: &str) -> Result<
     if cfg.auto_approve {
         return Ok(true);
     }
+    #[cfg(feature = "browser")]
+    let confirmed = confirm_from(crate::browser_io::stdin_cursor(), prompt)?;
+    #[cfg(not(feature = "browser"))]
     let confirmed = confirm_from(std::io::stdin().lock(), prompt)?;
     if !confirmed {
         println!("Operation cancelled.");
@@ -205,6 +208,97 @@ pub fn read_to_string(mut reader: impl Read, err_context: &str) -> Result<String
         .read_to_string(&mut buf)
         .map_err(|e| anyhow::anyhow!("{err_context}: {e}"))?;
     Ok(buf)
+}
+
+/// Read raw bytes from a file path (or the virtual file map in `browser` WASM builds).
+pub fn read_file_bytes(path: &str) -> std::io::Result<Vec<u8>> {
+    #[cfg(feature = "browser")]
+    {
+        crate::browser_io::read_file_bytes(path)
+    }
+    #[cfg(not(feature = "browser"))]
+    {
+        std::fs::read(path)
+    }
+}
+
+/// Read a UTF-8 string from a file path (or the virtual file map in `browser` WASM builds).
+pub fn read_file_to_string(path: &str) -> std::io::Result<String> {
+    #[cfg(feature = "browser")]
+    {
+        crate::browser_io::read_file_string(path)
+    }
+    #[cfg(not(feature = "browser"))]
+    {
+        std::fs::read_to_string(path)
+    }
+}
+
+/// Read all bytes from stdin (or the virtual stdin buffer in `browser` WASM builds).
+pub fn read_stdin_bytes() -> std::io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    #[cfg(feature = "browser")]
+    crate::browser_io::stdin_cursor().read_to_end(&mut buf)?;
+    #[cfg(not(feature = "browser"))]
+    std::io::stdin().read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+/// Read a UTF-8 string from stdin (or the virtual stdin buffer in `browser` WASM builds).
+pub fn read_stdin_to_string(err_context: &str) -> Result<String> {
+    #[cfg(feature = "browser")]
+    {
+        read_to_string(crate::browser_io::stdin_cursor(), err_context)
+    }
+    #[cfg(not(feature = "browser"))]
+    {
+        read_to_string(std::io::stdin().lock(), err_context)
+    }
+}
+
+/// Cross-target async sleep (`tokio::time::sleep` on native/WASI, JS `setTimeout` in browser WASM).
+pub async fn sleep(duration: std::time::Duration) {
+    #[cfg(feature = "browser")]
+    {
+        crate::browser_io::sleep(duration).await;
+    }
+    #[cfg(not(feature = "browser"))]
+    {
+        tokio::time::sleep(duration).await;
+    }
+}
+
+/// Cross-target monotonic elapsed timer (`std::time::Instant` on native/WASI,
+/// `performance.now()` / `Date.now()` in browser WASM where `Instant::now()` traps).
+#[derive(Clone, Copy, Debug)]
+pub struct ElapsedTimer {
+    #[cfg(not(feature = "browser"))]
+    started: std::time::Instant,
+    #[cfg(feature = "browser")]
+    started_ms: f64,
+}
+
+impl ElapsedTimer {
+    pub fn start() -> Self {
+        Self {
+            #[cfg(not(feature = "browser"))]
+            started: std::time::Instant::now(),
+            #[cfg(feature = "browser")]
+            started_ms: crate::browser_io::monotonic_now_ms(),
+        }
+    }
+
+    pub fn elapsed(&self) -> std::time::Duration {
+        #[cfg(not(feature = "browser"))]
+        {
+            self.started.elapsed()
+        }
+        #[cfg(feature = "browser")]
+        {
+            let delta_ms = (crate::browser_io::monotonic_now_ms() - self.started_ms).max(0.0);
+            std::time::Duration::from_millis(delta_ms as u64)
+        }
+    }
 }
 
 /// Print a text document to stdout, terminated by at least one newline.
@@ -1381,5 +1475,26 @@ mod tests {
         let result = scope_diff(entries, &only, &ignore);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].path, "options.thresholds.critical");
+    }
+
+    #[test]
+    fn test_read_file_helpers_round_trip_and_missing_error() {
+        let dir = crate::test_support::TempDir::new("util_ext_read");
+        let file = dir.path().join("sample.json");
+        std::fs::write(&file, "{\"ok\":true}").unwrap();
+        let path = file.to_str().unwrap();
+        assert_eq!(read_file_to_string(path).unwrap(), "{\"ok\":true}");
+        assert_eq!(read_file_bytes(path).unwrap(), b"{\"ok\":true}");
+
+        let missing = format!("{path}.does-not-exist");
+        assert!(read_file_to_string(&missing).is_err());
+        assert!(read_file_bytes(&missing).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_elapsed_timer_and_sleep_advance() {
+        let timer = ElapsedTimer::start();
+        sleep(std::time::Duration::from_millis(10)).await;
+        assert!(timer.elapsed() >= std::time::Duration::from_millis(5));
     }
 }

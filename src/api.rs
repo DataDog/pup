@@ -79,6 +79,23 @@ pub async fn delete_with_body(
 }
 
 fn apply_auth(req: reqwest::RequestBuilder, cfg: &Config) -> Result<reqwest::RequestBuilder> {
+    #[cfg(feature = "browser")]
+    if let Some(session) = &cfg.browser_session {
+        if let Some(token) = &cfg.access_token {
+            // Bearer only: keep the session cookie out of the request.
+            return Ok(req
+                .fetch_credentials_omit()
+                .header("Authorization", format!("Bearer {token}")));
+        }
+        // The browser attaches the session cookie; no credential headers.
+        // The edge only checks CSRF on unsafe methods, so sending it on
+        // every request is harmless (web-ui's streaming client does the same).
+        let req = req.fetch_credentials_same_origin();
+        return Ok(match &session.csrf_token {
+            Some(token) => req.header("x-csrf-token", token.as_str()),
+            None => req,
+        });
+    }
     if let Some(token) = &cfg.access_token {
         Ok(req.header("Authorization", format!("Bearer {token}")))
     } else if let (Some(api_key), Some(app_key)) = (&cfg.api_key, &cfg.app_key) {

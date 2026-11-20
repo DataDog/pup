@@ -1,7 +1,6 @@
 use anyhow::Result;
 use datadog_api_client::datadogV1::api_dashboards::{DashboardsAPI, ListDashboardsOptionalParams};
 use datadog_api_client::datadogV1::model::{Dashboard, Widget, WidgetDefinition};
-use std::io::Read;
 use url::Url;
 
 use crate::config::Config;
@@ -108,13 +107,11 @@ pub async fn url(cfg: &Config, id: &str, from: &str, to: &str, live: bool) -> Re
 /// Read a widget JSON payload from a file path or stdin (`"-"`), then validate it.
 fn read_widget_input(file: &str) -> Result<Widget> {
     let bytes: Vec<u8> = if file == "-" {
-        let mut buf = Vec::new();
-        std::io::stdin()
-            .read_to_end(&mut buf)
-            .map_err(|e| anyhow::anyhow!("failed to read widget JSON from stdin: {e}"))?;
-        buf
+        util_ext::read_stdin_bytes()
+            .map_err(|e| anyhow::anyhow!("failed to read widget JSON from stdin: {e}"))?
     } else {
-        std::fs::read(file).map_err(|e| anyhow::anyhow!("failed to read --file {file:?}: {e}"))?
+        util_ext::read_file_bytes(file)
+            .map_err(|e| anyhow::anyhow!("failed to read --file {file:?}: {e}"))?
     };
     let widget: Widget = serde_json::from_slice(&bytes)
         .map_err(|e| anyhow::anyhow!("failed to parse widget JSON: {e}"))?;

@@ -12,9 +12,34 @@
 //!
 //! const monitors = await pup.monitors_list(null, 'env:prod', 50);
 //! ```
+//!
+//! On a page served from the Datadog app domain, use the session cookie instead:
+//!
+//! ```js
+//! const opts = new PupClientOptions('datadoghq.com');
+//! opts.session_origin = location.origin;
+//! opts.csrf_token = document.getElementById('_authentication_token')?.value;
+//! ```
+//!
+//! Setting `access_token` alongside `session_origin` sends it as a Bearer token
+//! to the same origin without the cookie.
+
+#![cfg_attr(
+    feature = "browser",
+    allow(dead_code, unused_imports, unused_variables)
+)]
 
 #[cfg(feature = "browser")]
+#[macro_use]
+mod browser_io;
+#[cfg(feature = "browser")]
 mod api;
+#[cfg(feature = "browser")]
+mod auth;
+#[cfg(feature = "browser")]
+mod client;
+#[cfg(feature = "browser")]
+mod commands;
 #[cfg(feature = "browser")]
 mod config;
 #[cfg(feature = "browser")]
@@ -22,14 +47,97 @@ mod filter;
 #[cfg(feature = "browser")]
 mod formatter;
 #[cfg(feature = "browser")]
+mod generated;
+#[cfg(feature = "browser")]
 mod output;
 #[cfg(feature = "browser")]
+mod pagination;
+#[cfg(feature = "browser")]
+mod rate_limit;
+#[cfg(feature = "browser")]
+mod raw_client;
+#[cfg(feature = "browser")]
 mod settings;
+#[cfg(feature = "browser")]
+mod useragent;
+#[cfg(feature = "browser")]
+mod util;
+#[cfg(feature = "browser")]
+mod util_ext;
 #[cfg(feature = "browser")]
 mod version;
 
 #[cfg(feature = "browser")]
+include!("main.rs");
+
+#[cfg(feature = "browser")]
 use wasm_bindgen::prelude::*;
+
+/// A `files_json` value: a UTF-8 string, or `{"base64": "..."}` for binary contents.
+#[cfg(feature = "browser")]
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum VirtualFile {
+    Text(String),
+    Binary { base64: String },
+}
+
+#[cfg(feature = "browser")]
+fn parse_files_json(
+    files_json: Option<String>,
+) -> Result<std::collections::HashMap<String, Vec<u8>>, JsError> {
+    use base64::Engine;
+
+    let Some(raw) = files_json.filter(|s| !s.is_empty()) else {
+        return Ok(std::collections::HashMap::new());
+    };
+    let map: std::collections::HashMap<String, VirtualFile> = serde_json::from_str(&raw)
+        .map_err(|e| JsError::new(&format!("invalid files_json: {e}")))?;
+    map.into_iter()
+        .map(|(path, file)| {
+            let bytes = match file {
+                VirtualFile::Text(text) => text.into_bytes(),
+                VirtualFile::Binary { base64 } => base64::engine::general_purpose::STANDARD
+                    .decode(base64)
+                    .map_err(|e| JsError::new(&format!("invalid base64 for file {path:?}: {e}")))?,
+            };
+            Ok((path, bytes))
+        })
+        .collect()
+}
+
+#[cfg(feature = "browser")]
+async fn execute_browser_cli(
+    cfg: config::Config,
+    args: Vec<String>,
+    stdin: Option<String>,
+    files_json: Option<String>,
+) -> Result<JsValue, JsError> {
+    let files = parse_files_json(files_json)?;
+    let _guard = browser_io::lock_invocation().await;
+    browser_io::setup_invocation(stdin, files);
+    let exit_code = run_browser_cli(args, cfg).await;
+    let (stdout, stderr) = browser_io::take_output();
+    to_js(&serde_json::json!({
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+    }))
+}
+
+/// Execute `pup` with no credentials (offline `--help`, `version`, `agent schema`,
+/// `format`, `docs api`, etc.; API commands return pup's real auth error).
+#[cfg(feature = "browser")]
+#[wasm_bindgen]
+pub async fn run_unauthenticated_cli(
+    site: String,
+    args: Vec<String>,
+    stdin: Option<String>,
+    files_json: Option<String>,
+) -> Result<JsValue, JsError> {
+    let cfg = config::Config::from_params(site, None, None, None);
+    execute_browser_cli(cfg, args, stdin, files_json).await
+}
 
 // ---------------------------------------------------------------------------
 // PupClientOptions — JS-constructible configuration
@@ -45,6 +153,14 @@ pub struct PupClientOptions {
     pub api_key: Option<String>,
     #[wasm_bindgen(getter_with_clone)]
     pub app_key: Option<String>,
+    /// Same-origin base URL: the page origin (e.g. `location.origin`).
+    /// Authenticates with the session cookie, or with `access_token` as a
+    /// Bearer token if set. Cannot be combined with `api_key` / `app_key`.
+    #[wasm_bindgen(getter_with_clone)]
+    pub session_origin: Option<String>,
+    /// CSRF token sent as `x-csrf-token` in session mode (needed for writes).
+    #[wasm_bindgen(getter_with_clone)]
+    pub csrf_token: Option<String>,
 }
 
 #[cfg(feature = "browser")]
@@ -57,6 +173,8 @@ impl PupClientOptions {
             access_token: None,
             api_key: None,
             app_key: None,
+            session_origin: None,
+            csrf_token: None,
         }
     }
 }
@@ -77,8 +195,25 @@ impl PupClient {
     /// Create a new PupClient from options.
     #[wasm_bindgen(constructor)]
     pub fn new(opts: PupClientOptions) -> Result<PupClient, JsError> {
-        let cfg =
+        let session = match opts.session_origin {
+            Some(origin) => {
+                if opts.api_key.is_some() || opts.app_key.is_some() {
+                    return Err(JsError::new(
+                        "session_origin cannot be combined with api_key or app_key",
+                    ));
+                }
+                let origin = settings::validate_session_origin(&origin)
+                    .map_err(|e| JsError::new(&e.to_string()))?;
+                Some(settings::BrowserSession {
+                    origin,
+                    csrf_token: opts.csrf_token,
+                })
+            }
+            None => None,
+        };
+        let mut cfg =
             config::Config::from_params(opts.site, opts.access_token, opts.api_key, opts.app_key);
+        cfg.browser_session = session;
         cfg.validate_auth()
             .map_err(|e| JsError::new(&e.to_string()))?;
         Ok(PupClient { cfg })
@@ -248,6 +383,17 @@ impl PupClient {
     pub async fn raw_delete(&self, path: String) -> Result<JsValue, JsError> {
         self.do_delete(&path).await
     }
+
+    /// Execute any `pup` command (reads, writes, `--jq`, `-o table`, `--file`,
+    /// piped stdin) against this client's session or token configuration.
+    pub async fn run_cli(
+        &self,
+        args: Vec<String>,
+        stdin: Option<String>,
+        files_json: Option<String>,
+    ) -> Result<JsValue, JsError> {
+        execute_browser_cli(self.cfg.clone(), args, stdin, files_json).await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -298,9 +444,12 @@ impl PupClient {
     }
 }
 
-/// Convert a serde_json::Value to a native JS object via serde-wasm-bindgen.
+/// Convert a serde_json::Value to a plain JS value via `JSON.parse`, matching
+/// what `await response.json()` returns: objects (not `Map`s), and integers
+/// above 2^53 (e.g. log IDs) rounded like any JS client instead of erroring.
 #[cfg(feature = "browser")]
 fn to_js(val: &serde_json::Value) -> Result<JsValue, JsError> {
-    serde_wasm_bindgen::to_value(val)
-        .map_err(|e| JsError::new(&format!("serialization error: {e}")))
+    let text = serde_json::to_string(val)
+        .map_err(|e| JsError::new(&format!("serialization error: {e}")))?;
+    js_sys::JSON::parse(&text).map_err(|_| JsError::new("serialization error: JSON.parse failed"))
 }

@@ -5,6 +5,10 @@ use anyhow::Result;
 /// Read a JSON file and deserialize into the specified type.
 /// Used by create/update commands that accept `--file` input.
 pub fn read_json_file<T: serde::de::DeserializeOwned>(path: &str) -> Result<T> {
+    #[cfg(feature = "browser")]
+    let contents = crate::browser_io::read_file_string(path)
+        .map_err(|e| anyhow::anyhow!("failed to read file {path:?}: {e}"))?;
+    #[cfg(not(feature = "browser"))]
     let contents = std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("failed to read file {path:?}: {e}"))?;
     serde_json::from_str(&contents)

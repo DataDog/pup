@@ -50,6 +50,7 @@ pup skills list
 | **dd-code-generation** | CLI vs code-gen decision, multi-language examples |
 | **dd-file-issue** | Issue routing to correct repo, duplicate search |
 | **dd-idp** | Explore software, work and delivery, infrastructure, operations, and security through entity kinds and relationships |
+| **dd-gpu-benchmarks** | Load-test inference endpoints, wait for runs, compare results |
 
 ## Domain Agents (48)
 

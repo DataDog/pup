@@ -65,6 +65,7 @@ pub mod fleet;
 pub mod format;
 pub mod google_chat;
 pub mod governance;
+pub mod gpu_benchmarks;
 pub mod hamr;
 pub mod idp;
 pub mod incidents;

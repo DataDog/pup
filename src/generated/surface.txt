@@ -43,3 +43,6 @@ security.findings.mute
 security.findings.override-severity
 security/dynamic-severity
 security/findings
+sensitive-data-scanner
+sensitive-data-scanner.get
+sensitive-data-scanner.list

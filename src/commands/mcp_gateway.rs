@@ -15,9 +15,9 @@ use crate::util_ext::percent_encode;
 const TOOLS_PATH: &str = "/mcp/api/tools";
 
 const SCOPE_HINT: &str =
-    "The MCP gateway needs the mcp_read OAuth scope, and mcp_write to call tools. \
-     pup does not request them by default; log in with:\n  \
-     pup auth login --extra-scopes mcp_read,mcp_write";
+    "The MCP gateway needs the mcp_gateway_usage OAuth scope, which pup does not \
+     request by default; log in with:\n  \
+     pup auth login --extra-scopes mcp_gateway_usage";
 
 /// `ai-gateway.{site}` on Datadog sites. Literal hosts and the test mock
 /// server are used verbatim, as for every other command.
@@ -207,8 +207,7 @@ mod tests {
             .await;
         let err = super::tools_list(&cfg, &[], None).await.unwrap_err();
         assert!(
-            err.to_string()
-                .contains("--extra-scopes mcp_read,mcp_write"),
+            err.to_string().contains("--extra-scopes mcp_gateway_usage"),
             "{err}"
         );
         cleanup_env();

@@ -2121,9 +2121,9 @@ enum Commands {
     ///   pup mcp-gateway tools call search_issues --slug github --file args.json
     ///
     /// AUTHENTICATION:
-    ///   Requires the mcp_read OAuth scope, and mcp_write to call tools. pup does
-    ///   not request them by default:
-    ///     pup auth login --extra-scopes mcp_read,mcp_write
+    ///   Requires the mcp_gateway_usage OAuth scope, which pup does not request
+    ///   by default:
+    ///     pup auth login --extra-scopes mcp_gateway_usage
     ///   API keys (DD_API_KEY and DD_APP_KEY) work as well.
     #[command(name = "mcp-gateway", verbatim_doc_comment)]
     McpGateway {

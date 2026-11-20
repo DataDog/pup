@@ -140,7 +140,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-wasm-
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        run: curl https://wasm-bindgen.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Build WASI
         run: |
           cargo build --release --target wasm32-wasip2 --no-default-features --features wasi
@@ -148,10 +148,14 @@ jobs:
           cp target/wasm32-wasip2/release/pup.wasm wasm-out/pup_wasi.wasm
       - name: Build browser WASM
         run: |
+          # Use strip=debuginfo rather than strip=symbols: wasm-ld --strip-all
+          # removes the target_features custom section before wasm-bindgen and
+          # wasm-opt run, causing wasm-opt to reject bulk-memory ops (memory.copy).
+          # wasm-opt already strips the name/producers sections during optimization.
           CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
           CARGO_PROFILE_RELEASE_LTO=thin \
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-          CARGO_PROFILE_RELEASE_STRIP=symbols \
+          CARGO_PROFILE_RELEASE_STRIP=debuginfo \
             wasm-pack build --target web --no-default-features --features browser
           tar czf wasm-out/pup_browser_wasm.tar.gz -C pkg .
       - name: Upload artifacts

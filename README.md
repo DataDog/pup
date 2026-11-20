@@ -105,6 +105,7 @@ list of commands as built.
 | Audit Logs | ✅ | `audit-logs list`, `audit-logs search` | Full audit log search and listing |
 | Data Governance | ✅ | `data-governance scanner-rules list` | Sensitive data scanner rules |
 | Governance | ✅ | `governance insights list`, `governance controls list/get`, `governance detections list/get/update/mitigate`, `governance limits list`, `governance best-practices list`, `governance tag-rules` | Governance Console and tag rules; detection writes support `--dry-run` |
+| GPU Benchmarks | ✅ | `gpu benchmarks list/get/create/update/delete/test-connection`, `gpu benchmarks runs list/get/start/wait/cancel`, `gpu benchmarks sweeps list/get/start/cancel` | Inference endpoint load tests (AIPerf) with latency and throughput summaries |
 | CSM Threats | ✅ | `csm-threats` | Cloud Security Management threat rules and agent rules |
 | Sensitive Data Scanner | ✅ | `data-governance scanner-rules list` | Listed via Data Governance row above |
 | Agentless Scanning | ✅ | `agentless-scanning aws list/get/create/update/delete`, `agentless-scanning gcp list`, `agentless-scanning azure list` | Cloud agentless scanning configuration for AWS, GCP, and Azure |

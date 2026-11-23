@@ -244,17 +244,17 @@ fn run_status(run: &Value) -> Option<&str> {
 pub async fn runs_wait(cfg: &Config, run_id: &str, timeout: &str, interval: &str) -> Result<()> {
     let timeout = Duration::from_millis(util_ext::parse_duration_to_millis(timeout)? as u64);
     let interval = Duration::from_millis(util_ext::parse_duration_to_millis(interval)? as u64);
-    let deadline = tokio::time::Instant::now() + timeout;
+    let timer = util_ext::ElapsedTimer::start();
     loop {
         let run = fetch_run(cfg, run_id).await?;
         let status = run_status(&run).unwrap_or_default();
         if RUN_FINAL_STATUSES.contains(&status) {
             return formatter::output(cfg, &run);
         }
-        if tokio::time::Instant::now() + interval > deadline {
+        if timer.elapsed().saturating_add(interval) > timeout {
             bail!("run {run_id} still {status} after the --timeout; wait again or check it with `pup gpu benchmarks runs get {run_id}`");
         }
-        tokio::time::sleep(interval).await;
+        util_ext::sleep(interval).await;
     }
 }
 

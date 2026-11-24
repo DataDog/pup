@@ -11,6 +11,7 @@ pub mod downtime;
 pub mod rum;
 pub mod security;
 pub mod sensitive_data_scanner;
+pub mod teams;
 pub mod writes;
 
 use anyhow::Result;
@@ -38,6 +39,11 @@ pub enum GeneratedCommand {
         #[command(subcommand)]
         action: sensitive_data_scanner::Command,
     },
+    /// Manage teams resources
+    Teams {
+        #[command(subcommand)]
+        action: teams::Command,
+    },
 }
 
 pub async fn run(cfg: &Config, command: GeneratedCommand) -> Result<()> {
@@ -47,5 +53,6 @@ pub async fn run(cfg: &Config, command: GeneratedCommand) -> Result<()> {
         GeneratedCommand::SensitiveDataScanner { action } => {
             sensitive_data_scanner::run(cfg, action).await
         }
+        GeneratedCommand::Teams { action } => teams::run(cfg, action).await,
     }
 }

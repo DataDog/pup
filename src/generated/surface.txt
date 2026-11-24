@@ -86,3 +86,9 @@ security/findings
 sensitive-data-scanner
 sensitive-data-scanner.get
 sensitive-data-scanner.list
+teams
+teams.external-permissions.delete
+teams.external-permissions.list
+teams.external-permissions.list-by-source
+teams.external-permissions.update
+teams/external-permissions

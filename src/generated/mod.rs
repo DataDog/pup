@@ -8,6 +8,7 @@ pub mod authn_mappings;
 pub mod datastores;
 pub mod domain_allowlist;
 pub mod downtime;
+pub mod rum;
 pub mod security;
 pub mod sensitive_data_scanner;
 pub mod writes;

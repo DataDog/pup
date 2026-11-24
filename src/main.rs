@@ -1716,6 +1716,35 @@ enum Commands {
         #[command(subcommand)]
         action: GovernanceActions,
     },
+    /// Run and read GPU Monitoring inference benchmarks
+    ///
+    /// Load-test an OpenAI-compatible inference endpoint with AIPerf, from
+    /// Datadog's benchmark cluster or your own Kubernetes cluster, and read the
+    /// results: TTFT and inter-token latency (p50/p90/p99, mean, std), token and
+    /// request throughput, and the share of requests within the targets.
+    ///
+    /// COMMANDS:
+    ///   benchmarks                       List, get, create, update, delete, test-connection
+    ///   benchmarks runs                  Start, list, get, wait for, and cancel runs
+    ///   benchmarks sweeps                Run a benchmark at several concurrency levels
+    ///
+    /// EXAMPLES:
+    ///   pup gpu benchmarks list --deployment-name llama-70b-vllm
+    ///   pup gpu benchmarks test-connection --file endpoint.json
+    ///   pup gpu benchmarks create --file benchmark.json
+    ///   pup gpu benchmarks runs start <benchmark-id> --idempotency-key upgrade-0.6.3
+    ///   pup gpu benchmarks runs wait <run-id> --timeout 30m
+    ///   pup gpu benchmarks sweeps start <benchmark-id> --kind search --max-concurrency 64
+    ///
+    /// AUTHENTICATION:
+    ///   Supports OAuth2 or API and application keys. Needs gpu_benchmarks_read, plus
+    ///   gpu_benchmarks_write to edit benchmarks and gpu_benchmarks_run to start runs.
+    ///   Opt in: pup auth login --extra-scopes gpu_benchmarks_read,gpu_benchmarks_write,gpu_benchmarks_run
+    #[command(verbatim_doc_comment)]
+    Gpu {
+        #[command(subcommand)]
+        action: GpuActions,
+    },
     /// Manage High Availability Multi-Region (HAMR)
     ///
     /// Manage Datadog High Availability Multi-Region (HAMR) connections.
@@ -6803,6 +6832,145 @@ enum ChangeStoriesActions {
         #[arg(long = "token-limit", help = "Max response tokens (default: 10000)")]
         token_limit: Option<i64>,
     },
+}
+
+// ---- GPU Monitoring ----
+#[derive(Subcommand)]
+enum GpuActions {
+    /// Inference benchmarks of model endpoints
+    Benchmarks {
+        #[command(subcommand)]
+        action: GpuBenchmarksActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum GpuBenchmarksActions {
+    /// List benchmarks
+    List {
+        #[arg(long, help = "Filter by benchmark name")]
+        name: Option<String>,
+        #[arg(
+            long = "deployment-name",
+            help = "Filter by linked model deployment name"
+        )]
+        deployment_name: Option<String>,
+        #[arg(long = "deployment-env", help = "Filter by linked deployment env")]
+        deployment_env: Option<String>,
+        #[arg(
+            long = "deployment-namespace",
+            help = "Filter by linked deployment Kubernetes namespace"
+        )]
+        deployment_namespace: Option<String>,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
+    },
+    /// Get a benchmark definition
+    Get { benchmark_id: String },
+    /// Create a benchmark from a JSON file of its attributes
+    Create {
+        #[arg(
+            long,
+            help = "JSON file: name, endpoint{url,model,streaming,headers}, workload, location, targets, deployment, max_duration_seconds"
+        )]
+        file: String,
+    },
+    /// Update a benchmark; workload, targets and deployment are replaced whole
+    Update {
+        benchmark_id: String,
+        #[arg(long, help = "JSON file with the attributes to change")]
+        file: String,
+    },
+    /// Delete a benchmark and its runs (fails while a run is active)
+    Delete { benchmark_id: String },
+    /// Send one chat completion to an endpoint without saving anything
+    #[command(name = "test-connection")]
+    TestConnection {
+        #[arg(long, help = "JSON file: {url, model, streaming, headers}")]
+        file: String,
+    },
+    /// Start, list, get, wait for, and cancel runs
+    Runs {
+        #[command(subcommand)]
+        action: GpuBenchmarkRunsActions,
+    },
+    /// Run a benchmark at several concurrency levels
+    Sweeps {
+        #[command(subcommand)]
+        action: GpuBenchmarkSweepsActions,
+    },
+}
+
+#[derive(Subcommand)]
+enum GpuBenchmarkRunsActions {
+    /// List a benchmark's runs, newest first
+    List {
+        benchmark_id: String,
+        #[arg(long = "sweep-id", help = "Only the steps of this sweep")]
+        sweep_id: Option<String>,
+        #[command(flatten)]
+        paging: pagination::PageArgs,
+    },
+    /// Get a run, with its summary once results are recorded
+    Get { run_id: String },
+    /// Start a run of a benchmark's current definition (sends real traffic)
+    Start {
+        benchmark_id: String,
+        #[arg(
+            long = "idempotency-key",
+            help = "Reuse to retry safely: a repeated key returns the run it started"
+        )]
+        idempotency_key: Option<String>,
+    },
+    /// Wait until a run completes, fails, times out, or is cancelled, then print it
+    Wait {
+        run_id: String,
+        #[arg(long, default_value = "2h", help = "Give up after: 30m, 2h, ...")]
+        timeout: String,
+        #[arg(long, default_value = "15s", help = "Time between polls")]
+        interval: String,
+    },
+    /// Cancel a run
+    Cancel { run_id: String },
+}
+
+#[derive(Subcommand)]
+enum GpuBenchmarkSweepsActions {
+    /// List a benchmark's sweeps
+    List { benchmark_id: String },
+    /// Get a sweep with its steps and result
+    Get { sweep_id: String },
+    /// Start a sweep (one run per concurrency level, sends real traffic)
+    Start {
+        benchmark_id: String,
+        #[arg(
+            long,
+            help = "search: the highest concurrency within the targets; curve: every level"
+        )]
+        kind: String,
+        #[arg(long = "min-concurrency", help = "search: lowest level (default 1)")]
+        min_concurrency: Option<u32>,
+        #[arg(long = "max-concurrency", help = "search: highest level (default 64)")]
+        max_concurrency: Option<u32>,
+        #[arg(
+            long = "concurrency-levels",
+            value_delimiter = ',',
+            help = "curve: levels, comma-separated (at most 16)"
+        )]
+        concurrency_levels: Vec<u32>,
+        #[arg(
+            long = "goodput-threshold",
+            help = "Share of requests within targets for a step to pass (default 0.95)"
+        )]
+        goodput_threshold: Option<f64>,
+        #[arg(
+            long = "idempotency-key",
+            help = "Reuse to retry safely: a repeated key returns the sweep it started"
+        )]
+        idempotency_key: Option<String>,
+    },
+    /// Cancel a sweep and its active step
+    Cancel { sweep_id: String },
 }
 
 // ---- Cloud Authentication ----
@@ -13160,6 +13328,86 @@ async fn run_governance(cfg: &config::Config, action: GovernanceActions) -> anyh
 /// Shared dispatch for tag rule subcommands, exposed under
 /// `pup governance tag-rules` and under the deprecated `pup tag-policies`
 /// alias kept for backwards compatibility.
+async fn run_gpu_benchmarks(
+    cfg: &config::Config,
+    action: GpuBenchmarksActions,
+) -> anyhow::Result<()> {
+    use commands::gpu_benchmarks as gb;
+    match action {
+        GpuBenchmarksActions::List {
+            name,
+            deployment_name,
+            deployment_env,
+            deployment_namespace,
+            paging,
+        } => {
+            let p = paging.resolve(&gb::LIST_PAGING)?;
+            let filter = gb::ListFilter {
+                name,
+                deployment_name,
+                deployment_env,
+                deployment_namespace,
+            };
+            gb::list(cfg, filter, p.page_size()?, p.offset()?).await
+        }
+        GpuBenchmarksActions::Get { benchmark_id } => gb::get(cfg, &benchmark_id).await,
+        GpuBenchmarksActions::Create { file } => gb::create(cfg, &file).await,
+        GpuBenchmarksActions::Update { benchmark_id, file } => {
+            gb::update(cfg, &benchmark_id, &file).await
+        }
+        GpuBenchmarksActions::Delete { benchmark_id } => gb::delete(cfg, &benchmark_id).await,
+        GpuBenchmarksActions::TestConnection { file } => gb::test_connection(cfg, &file).await,
+        GpuBenchmarksActions::Runs { action } => match action {
+            GpuBenchmarkRunsActions::List {
+                benchmark_id,
+                sweep_id,
+                paging,
+            } => {
+                let p = paging.resolve(&gb::RUNS_PAGING)?;
+                gb::runs_list(cfg, &benchmark_id, sweep_id, p.page_size()?, p.offset()?).await
+            }
+            GpuBenchmarkRunsActions::Get { run_id } => gb::runs_get(cfg, &run_id).await,
+            GpuBenchmarkRunsActions::Start {
+                benchmark_id,
+                idempotency_key,
+            } => gb::runs_start(cfg, &benchmark_id, idempotency_key).await,
+            GpuBenchmarkRunsActions::Wait {
+                run_id,
+                timeout,
+                interval,
+            } => gb::runs_wait(cfg, &run_id, &timeout, &interval).await,
+            GpuBenchmarkRunsActions::Cancel { run_id } => gb::runs_cancel(cfg, &run_id).await,
+        },
+        GpuBenchmarksActions::Sweeps { action } => match action {
+            GpuBenchmarkSweepsActions::List { benchmark_id } => {
+                gb::sweeps_list(cfg, &benchmark_id).await
+            }
+            GpuBenchmarkSweepsActions::Get { sweep_id } => gb::sweeps_get(cfg, &sweep_id).await,
+            GpuBenchmarkSweepsActions::Start {
+                benchmark_id,
+                kind,
+                min_concurrency,
+                max_concurrency,
+                concurrency_levels,
+                goodput_threshold,
+                idempotency_key,
+            } => {
+                let input = gb::SweepInput {
+                    kind,
+                    min_concurrency,
+                    max_concurrency,
+                    concurrency_levels,
+                    goodput_threshold,
+                };
+                gb::sweeps_start(cfg, &benchmark_id, input, idempotency_key).await
+            }
+            GpuBenchmarkSweepsActions::Cancel { sweep_id } => {
+                gb::sweeps_cancel(cfg, &sweep_id).await
+            }
+        },
+    }
+}
+
 async fn run_tag_rules(cfg: &config::Config, action: TagRulesActions) -> anyhow::Result<()> {
     match action {
         TagRulesActions::List {
@@ -14097,6 +14345,8 @@ fn migrated_page_size_spec(full_path: &str) -> Option<pagination::PageSizeSpec> 
         "cases search" => commands::cases::SEARCH_PAGING.size,
         "ddsql schema tables" | "ddsql schema columns" => commands::ddsql::SCHEMA_PAGING.size,
         "llm-obs experiments events list" => commands::llm_obs::EVENTS_PAGING.size,
+        "gpu benchmarks list" => commands::gpu_benchmarks::LIST_PAGING.size,
+        "gpu benchmarks runs list" => commands::gpu_benchmarks::RUNS_PAGING.size,
         _ => return None,
     })
 }
@@ -18254,6 +18504,13 @@ async fn dispatch_parsed(
                     )
                     .await?;
                 }
+            }
+        }
+        // --- GPU Monitoring ---
+        Commands::Gpu { action } => {
+            cfg.validate_auth()?;
+            match action {
+                GpuActions::Benchmarks { action } => run_gpu_benchmarks(&cfg, action).await?,
             }
         }
         // --- Cloud ---

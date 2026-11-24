@@ -89,6 +89,7 @@ pup <domain> <subgroup> <action> [options] # Nested commands
 | change-stories | list | src/commands/change_stories.rs | ✅ |
 | app-builder | list, get, create, update, delete, delete-batch, publish, unpublish | src/commands/app_builder.rs | ✅ |
 | governance | insights (list), controls (list, get), detections (list, get, update, mitigate), limits (list), best-practices (list), tag-rules (list, get, create, update, delete, score) | src/commands/governance.rs, src/commands/tag_rules.rs | ✅ |
+| gpu | benchmarks (list, get, create, update, delete, test-connection, runs (list, get, start, wait, cancel), sweeps (list, get, start, cancel)) | src/commands/gpu_benchmarks.rs | ✅ |
 
 **Note:** RUM command is fully operational. Apps and sessions work completely. Metrics and retention-filters support list/get operations (create/update/delete operations pending due to complex API type structures).
 
@@ -266,6 +267,7 @@ pup infrastructure hosts list
 - **audit-logs** - Audit trail (list, search)
 - **data-governance** - Sensitive data scanning (scanner-rules list)
 - **governance** - Governance Console insights, controls, detections, mitigations, limits, best practices, and tag rules. Detection writes support `--dry-run` and `--yes`. OAuth users opt in with `pup auth login --extra-scopes governance_console_read`; mitigations also need their declared permissions. WASM builds support reads and dry runs, but detection writes require a native build because the WASM transport cannot disable automatic redirects.
+- **gpu** - GPU Monitoring inference benchmarks: load-test a model endpoint with AIPerf, wait for runs, and read latency and throughput summaries. Starting runs and sweeps sends real traffic to the endpoint. OAuth users opt in with `pup auth login --extra-scopes gpu_benchmarks_read,gpu_benchmarks_write,gpu_benchmarks_run`.
 
 ### Cloud & Integrations
 - **cloud** - Cloud providers (aws, gcp, azure, oci)

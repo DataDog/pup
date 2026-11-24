@@ -136,6 +136,14 @@ pub static SKILLS: &[SkillEntry] = &[
         files: &[],
     },
     SkillEntry {
+        name: "dd-gpu-benchmarks",
+        description: "GPU Monitoring inference benchmarks - load-test a model endpoint, wait for runs, and compare results.",
+        entry_type: "skill",
+        content: include_str!("../skills/dd-gpu-benchmarks/SKILL.md"),
+        platform: "",
+        files: &[],
+    },
+    SkillEntry {
         name: "dd-unblock-pr",
         description: "Investigate a failing PR CI pipeline — attribute failures as flaky, infra, or regression and propose a targeted action.",
         entry_type: "skill",
@@ -1320,7 +1328,7 @@ mod tests {
     #[test]
     fn test_skill_count() {
         let skills: Vec<_> = SKILLS.iter().filter(|e| e.entry_type == "skill").collect();
-        assert_eq!(skills.len(), 12, "expected 12 skills");
+        assert_eq!(skills.len(), 13, "expected 13 skills");
     }
 
     #[test]

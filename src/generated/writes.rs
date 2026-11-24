@@ -48,4 +48,6 @@ pub const WRITE_COMMANDS: &[&str] = &[
     "security findings detach-case",
     "security findings mute",
     "security findings override-severity",
+    "teams external-permissions delete",
+    "teams external-permissions update",
 ];

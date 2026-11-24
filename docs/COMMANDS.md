@@ -311,7 +311,7 @@ pup infrastructure hosts list
 ### Configuration & Data Management
 - **obs-pipelines** - Observability pipelines (list, get, create, update, diff, delete, validate)
 - **llm-obs** - LLM Observability (projects, experiments, datasets, spans, agent insights, model pricing)
-- **mcp-gateway** - MCP gateway tools (list, call); needs `pup auth login --extra-scopes mcp_gateway_usage`
+- **mcp-gateway** - MCP gateway tools (list, call); needs the `mcp_gateway_usage` scope
 - **reference-tables** - Reference tables for log enrichment (list, get, create, batch-query)
 - **misc** - Miscellaneous (ip-ranges, status)
 - **product-analytics** - Product analytics events (send, query scalar/timeseries)

@@ -9,20 +9,20 @@ use datadog_api_client::datadogV2::api_rum::{
     generated_op = "rum.metrics.update",
     generated_op = "rum.metrics.delete"
 )))]
-use datadog_api_client::datadogV2::api_rum_metrics::RumMetricsAPI;
+use datadog_api_client::datadogV2::api_rum_metrics::RUMMetricsAPI;
 use datadog_api_client::datadogV2::api_rum_replay_heatmaps::{
-    ListReplayHeatmapSnapshotsOptionalParams, RumReplayHeatmapsAPI,
+    ListReplayHeatmapSnapshotsOptionalParams, RUMReplayHeatmapsAPI,
 };
 use datadog_api_client::datadogV2::api_rum_replay_playlists::{
-    AddRumReplaySessionToPlaylistOptionalParams, ListRumReplayPlaylistSessionsOptionalParams,
-    ListRumReplayPlaylistsOptionalParams, RumReplayPlaylistsAPI,
+    AddRUMReplaySessionToPlaylistOptionalParams, ListRUMReplayPlaylistSessionsOptionalParams,
+    ListRUMReplayPlaylistsOptionalParams, RUMReplayPlaylistsAPI,
 };
 use datadog_api_client::datadogV2::api_rum_replay_sessions::{
-    GetSegmentsOptionalParams, RumReplaySessionsAPI,
+    GetSegmentsOptionalParams, RUMReplaySessionsAPI,
 };
 use datadog_api_client::datadogV2::api_rum_replay_viewership::{
-    ListRumReplaySessionWatchersOptionalParams,
-    ListRumReplayViewershipHistorySessionsOptionalParams, RumReplayViewershipAPI,
+    ListRUMReplaySessionWatchersOptionalParams,
+    ListRUMReplayViewershipHistorySessionsOptionalParams, RUMReplayViewershipAPI,
 };
 #[cfg(not(all(
     generated_op = "rum.retention-filters.list",
@@ -31,15 +31,15 @@ use datadog_api_client::datadogV2::api_rum_replay_viewership::{
     generated_op = "rum.retention-filters.update",
     generated_op = "rum.retention-filters.delete",
 )))]
-use datadog_api_client::datadogV2::api_rum_retention_filters::RumRetentionFiltersAPI;
+use datadog_api_client::datadogV2::api_rum_retention_filters::RUMRetentionFiltersAPI;
 #[cfg(not(generated_op = "rum.metrics.create"))]
-use datadog_api_client::datadogV2::model::RumMetricCreateRequest;
+use datadog_api_client::datadogV2::model::RUMMetricCreateRequest;
 #[cfg(not(generated_op = "rum.metrics.update"))]
-use datadog_api_client::datadogV2::model::RumMetricUpdateRequest;
+use datadog_api_client::datadogV2::model::RUMMetricUpdateRequest;
 #[cfg(not(generated_op = "rum.retention-filters.create"))]
-use datadog_api_client::datadogV2::model::RumRetentionFilterCreateRequest;
+use datadog_api_client::datadogV2::model::RUMRetentionFilterCreateRequest;
 #[cfg(not(generated_op = "rum.retention-filters.update"))]
-use datadog_api_client::datadogV2::model::RumRetentionFilterUpdateRequest;
+use datadog_api_client::datadogV2::model::RUMRetentionFilterUpdateRequest;
 use datadog_api_client::datadogV2::model::{
     Playlist, RUMApplicationCreate, RUMApplicationCreateAttributes, RUMApplicationCreateRequest,
     RUMApplicationCreateType, RUMApplicationPlatformType, RUMApplicationUpdateRequest,
@@ -173,7 +173,7 @@ pub async fn apps_update(cfg: &Config, app_id: &str, file: &str) -> Result<()> {
 
 #[cfg(not(generated_op = "rum.metrics.list"))]
 pub async fn metrics_list(cfg: &Config) -> Result<()> {
-    let api = crate::make_api!(RumMetricsAPI, cfg);
+    let api = crate::make_api!(RUMMetricsAPI, cfg);
     let resp = api
         .list_rum_metrics()
         .await
@@ -183,7 +183,7 @@ pub async fn metrics_list(cfg: &Config) -> Result<()> {
 
 #[cfg(not(generated_op = "rum.metrics.get"))]
 pub async fn metrics_get(cfg: &Config, metric_id: &str) -> Result<()> {
-    let api = crate::make_api!(RumMetricsAPI, cfg);
+    let api = crate::make_api!(RUMMetricsAPI, cfg);
     let resp = api
         .get_rum_metric(metric_id.to_string())
         .await
@@ -193,8 +193,8 @@ pub async fn metrics_get(cfg: &Config, metric_id: &str) -> Result<()> {
 
 #[cfg(not(generated_op = "rum.metrics.create"))]
 pub async fn metrics_create(cfg: &Config, file: &str) -> Result<()> {
-    let api = crate::make_api!(RumMetricsAPI, cfg);
-    let body: RumMetricCreateRequest = crate::util::read_json_file(file)?;
+    let api = crate::make_api!(RUMMetricsAPI, cfg);
+    let body: RUMMetricCreateRequest = crate::util::read_json_file(file)?;
     let resp = api
         .create_rum_metric(body)
         .await
@@ -204,8 +204,8 @@ pub async fn metrics_create(cfg: &Config, file: &str) -> Result<()> {
 
 #[cfg(not(generated_op = "rum.metrics.update"))]
 pub async fn metrics_update(cfg: &Config, metric_id: &str, file: &str) -> Result<()> {
-    let api = crate::make_api!(RumMetricsAPI, cfg);
-    let body: RumMetricUpdateRequest = crate::util::read_json_file(file)?;
+    let api = crate::make_api!(RUMMetricsAPI, cfg);
+    let body: RUMMetricUpdateRequest = crate::util::read_json_file(file)?;
     let resp = api
         .update_rum_metric(metric_id.to_string(), body)
         .await
@@ -215,7 +215,7 @@ pub async fn metrics_update(cfg: &Config, metric_id: &str, file: &str) -> Result
 
 #[cfg(not(generated_op = "rum.metrics.delete"))]
 pub async fn metrics_delete(cfg: &Config, metric_id: &str) -> Result<()> {
-    let api = crate::make_api!(RumMetricsAPI, cfg);
+    let api = crate::make_api!(RUMMetricsAPI, cfg);
     api.delete_rum_metric(metric_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete RUM metric: {e:?}"))?;
@@ -227,7 +227,7 @@ pub async fn metrics_delete(cfg: &Config, metric_id: &str) -> Result<()> {
 
 #[cfg(not(generated_op = "rum.retention-filters.list"))]
 pub async fn retention_filters_list(cfg: &Config, app_id: &str) -> Result<()> {
-    let api = crate::make_api!(RumRetentionFiltersAPI, cfg);
+    let api = crate::make_api!(RUMRetentionFiltersAPI, cfg);
     let resp = api
         .list_retention_filters(app_id.to_string())
         .await
@@ -237,7 +237,7 @@ pub async fn retention_filters_list(cfg: &Config, app_id: &str) -> Result<()> {
 
 #[cfg(not(generated_op = "rum.retention-filters.get"))]
 pub async fn retention_filters_get(cfg: &Config, app_id: &str, filter_id: &str) -> Result<()> {
-    let api = crate::make_api!(RumRetentionFiltersAPI, cfg);
+    let api = crate::make_api!(RUMRetentionFiltersAPI, cfg);
     let resp = api
         .get_retention_filter(app_id.to_string(), filter_id.to_string())
         .await
@@ -247,8 +247,8 @@ pub async fn retention_filters_get(cfg: &Config, app_id: &str, filter_id: &str) 
 
 #[cfg(not(generated_op = "rum.retention-filters.create"))]
 pub async fn retention_filters_create(cfg: &Config, app_id: &str, file: &str) -> Result<()> {
-    let api = crate::make_api!(RumRetentionFiltersAPI, cfg);
-    let body: RumRetentionFilterCreateRequest = crate::util::read_json_file(file)?;
+    let api = crate::make_api!(RUMRetentionFiltersAPI, cfg);
+    let body: RUMRetentionFilterCreateRequest = crate::util::read_json_file(file)?;
     let resp = api
         .create_retention_filter(app_id.to_string(), body)
         .await
@@ -263,8 +263,8 @@ pub async fn retention_filters_update(
     filter_id: &str,
     file: &str,
 ) -> Result<()> {
-    let api = crate::make_api!(RumRetentionFiltersAPI, cfg);
-    let body: RumRetentionFilterUpdateRequest = crate::util::read_json_file(file)?;
+    let api = crate::make_api!(RUMRetentionFiltersAPI, cfg);
+    let body: RUMRetentionFilterUpdateRequest = crate::util::read_json_file(file)?;
     let resp = api
         .update_retention_filter(app_id.to_string(), filter_id.to_string(), body)
         .await
@@ -274,7 +274,7 @@ pub async fn retention_filters_update(
 
 #[cfg(not(generated_op = "rum.retention-filters.delete"))]
 pub async fn retention_filters_delete(cfg: &Config, app_id: &str, filter_id: &str) -> Result<()> {
-    let api = crate::make_api!(RumRetentionFiltersAPI, cfg);
+    let api = crate::make_api!(RUMRetentionFiltersAPI, cfg);
     api.delete_retention_filter(app_id.to_string(), filter_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete RUM retention filter: {e:?}"))?;
@@ -316,16 +316,16 @@ pub async fn sessions_list(cfg: &Config, from: String, to: String, limit: i32) -
 // ---- RUM Playlists ----
 
 pub async fn playlists_list(cfg: &Config) -> Result<()> {
-    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let api = crate::make_api!(RUMReplayPlaylistsAPI, cfg);
     let resp = api
-        .list_rum_replay_playlists(ListRumReplayPlaylistsOptionalParams::default())
+        .list_rum_replay_playlists(ListRUMReplayPlaylistsOptionalParams::default())
         .await
         .map_err(|e| anyhow::anyhow!("failed to list RUM playlists: {e:?}"))?;
     formatter::output(cfg, &resp)
 }
 
 pub async fn playlists_get(cfg: &Config, playlist_id: i32) -> Result<()> {
-    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let api = crate::make_api!(RUMReplayPlaylistsAPI, cfg);
     let resp = api
         .get_rum_replay_playlist(playlist_id as i64)
         .await
@@ -334,7 +334,7 @@ pub async fn playlists_get(cfg: &Config, playlist_id: i32) -> Result<()> {
 }
 
 pub async fn playlists_create(cfg: &Config, file: &str) -> Result<()> {
-    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let api = crate::make_api!(RUMReplayPlaylistsAPI, cfg);
     let body: Playlist = crate::util::read_json_file(file)?;
     let resp = api
         .create_rum_replay_playlist(body)
@@ -344,7 +344,7 @@ pub async fn playlists_create(cfg: &Config, file: &str) -> Result<()> {
 }
 
 pub async fn playlists_update(cfg: &Config, playlist_id: i32, file: &str) -> Result<()> {
-    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let api = crate::make_api!(RUMReplayPlaylistsAPI, cfg);
     let body: Playlist = crate::util::read_json_file(file)?;
     let resp = api
         .update_rum_replay_playlist(playlist_id as i64, body)
@@ -354,7 +354,7 @@ pub async fn playlists_update(cfg: &Config, playlist_id: i32, file: &str) -> Res
 }
 
 pub async fn playlists_delete(cfg: &Config, playlist_id: i32) -> Result<()> {
-    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let api = crate::make_api!(RUMReplayPlaylistsAPI, cfg);
     api.delete_rum_replay_playlist(playlist_id as i64)
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete RUM playlist: {e:?}"))?;
@@ -368,8 +368,8 @@ pub async fn playlists_sessions_list(
     page_number: Option<i64>,
     page_size: i64,
 ) -> Result<()> {
-    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
-    let mut params = ListRumReplayPlaylistSessionsOptionalParams::default().page_size(page_size);
+    let api = crate::make_api!(RUMReplayPlaylistsAPI, cfg);
+    let mut params = ListRUMReplayPlaylistSessionsOptionalParams::default().page_size(page_size);
     if let Some(page_number) = page_number {
         params = params.page_number(page_number);
     }
@@ -387,9 +387,9 @@ pub async fn playlists_sessions_add(
     ts: Option<i64>,
     data_source: Option<String>,
 ) -> Result<()> {
-    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let api = crate::make_api!(RUMReplayPlaylistsAPI, cfg);
     let ts = ts.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
-    let mut params = AddRumReplaySessionToPlaylistOptionalParams::default();
+    let mut params = AddRUMReplaySessionToPlaylistOptionalParams::default();
     if let Some(data_source) = data_source {
         params = params.data_source(data_source);
     }
@@ -405,7 +405,7 @@ pub async fn playlists_sessions_remove(
     playlist_id: i32,
     session_id: String,
 ) -> Result<()> {
-    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let api = crate::make_api!(RUMReplayPlaylistsAPI, cfg);
     api.remove_rum_replay_session_from_playlist(playlist_id as i64, session_id)
         .await
         .map_err(|e| anyhow::anyhow!("failed to remove session from RUM playlist: {e:?}"))?;
@@ -418,7 +418,7 @@ pub async fn playlists_sessions_bulk_remove(
     playlist_id: i32,
     file: &str,
 ) -> Result<()> {
-    let api = crate::make_api!(RumReplayPlaylistsAPI, cfg);
+    let api = crate::make_api!(RUMReplayPlaylistsAPI, cfg);
     let body: SessionIdArray = crate::util::read_json_file(file)?;
     api.bulk_remove_rum_replay_playlist_sessions(playlist_id as i64, body)
         .await
@@ -449,7 +449,7 @@ fn output_response_content(cfg: &Config, content: &str) -> Result<()> {
 }
 
 pub async fn replay_segments_get(cfg: &Config, args: ReplaySegmentsGetArgs) -> Result<()> {
-    let api = crate::make_api!(RumReplaySessionsAPI, cfg);
+    let api = crate::make_api!(RUMReplaySessionsAPI, cfg);
     let ReplaySegmentsGetArgs {
         session_id,
         view_id,
@@ -493,7 +493,7 @@ pub struct ViewershipHistoryListArgs {
 }
 
 pub async fn viewership_history_list(cfg: &Config, args: ViewershipHistoryListArgs) -> Result<()> {
-    let api = crate::make_api!(RumReplayViewershipAPI, cfg);
+    let api = crate::make_api!(RUMReplayViewershipAPI, cfg);
     let ViewershipHistoryListArgs {
         from,
         to,
@@ -506,7 +506,7 @@ pub async fn viewership_history_list(cfg: &Config, args: ViewershipHistoryListAr
     let from_ms = util_ext::parse_time_to_unix_millis(&from)?;
     let to_ms = util_ext::parse_time_to_unix_millis(&to)?;
 
-    let mut params = ListRumReplayViewershipHistorySessionsOptionalParams::default()
+    let mut params = ListRUMReplayViewershipHistorySessionsOptionalParams::default()
         .filter_watched_at_start(from_ms)
         .filter_watched_at_end(to_ms)
         .page_size(page_size);
@@ -535,7 +535,7 @@ pub async fn viewership_watch_create(
     session_id: String,
     file: Option<String>,
 ) -> Result<()> {
-    let api = crate::make_api!(RumReplayViewershipAPI, cfg);
+    let api = crate::make_api!(RUMReplayViewershipAPI, cfg);
     let body: Watch = if let Some(file) = file {
         crate::util::read_json_file(&file)?
     } else {
@@ -549,7 +549,7 @@ pub async fn viewership_watch_create(
 }
 
 pub async fn viewership_watch_delete(cfg: &Config, session_id: String) -> Result<()> {
-    let api = crate::make_api!(RumReplayViewershipAPI, cfg);
+    let api = crate::make_api!(RUMReplayViewershipAPI, cfg);
     api.delete_rum_replay_session_watch(session_id)
         .await
         .map_err(|e| anyhow::anyhow!("failed to delete RUM replay watch: {e:?}"))?;
@@ -563,8 +563,8 @@ pub async fn viewership_watchers_list(
     page_number: Option<i64>,
     page_size: i64,
 ) -> Result<()> {
-    let api = crate::make_api!(RumReplayViewershipAPI, cfg);
-    let mut params = ListRumReplaySessionWatchersOptionalParams::default().page_size(page_size);
+    let api = crate::make_api!(RUMReplayViewershipAPI, cfg);
+    let mut params = ListRUMReplaySessionWatchersOptionalParams::default().page_size(page_size);
     if let Some(page_number) = page_number {
         params = params.page_number(page_number);
     }
@@ -578,7 +578,7 @@ pub async fn viewership_watchers_list(
 // ---- RUM Heatmaps ----
 
 pub async fn heatmaps_query(cfg: &Config, view_name: &str) -> Result<()> {
-    let api = crate::make_api!(RumReplayHeatmapsAPI, cfg);
+    let api = crate::make_api!(RUMReplayHeatmapsAPI, cfg);
     let resp = api
         .list_replay_heatmap_snapshots(
             view_name.to_string(),

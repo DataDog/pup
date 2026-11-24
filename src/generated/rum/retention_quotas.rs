@@ -3,7 +3,7 @@
 use anyhow::Result;
 use datadog_api_client::datadogV2::api_rum_retention_quotas::RUMRetentionQuotasAPI;
 use datadog_api_client::datadogV2::model::{
-    RumRetentionQuotaConfigUpdateRequest, RumRetentionQuotaScopeType,
+    RUMRetentionQuotaConfigUpdateRequest, RUMRetentionQuotaScopeType,
 };
 
 use crate::config::Config;
@@ -75,7 +75,7 @@ pub async fn delete(cfg: &Config, scope_type: String, scope_id: String) -> Resul
     let resource_label = format!("{scope_type} {scope_id}");
     let scope_type = {
         let v = scope_type;
-        parse_rum_retention_quota_scope_type(&v)?
+        parse_r_u_m_retention_quota_scope_type(&v)?
     };
     let api = crate::make_api!(RUMRetentionQuotasAPI, cfg);
     api.delete_rum_quota_config(scope_type, scope_id)
@@ -90,7 +90,7 @@ pub async fn delete(cfg: &Config, scope_type: String, scope_id: String) -> Resul
 pub async fn get(cfg: &Config, scope_type: String, scope_id: String) -> Result<()> {
     let scope_type = {
         let v = scope_type;
-        parse_rum_retention_quota_scope_type(&v)?
+        parse_r_u_m_retention_quota_scope_type(&v)?
     };
     let api = crate::make_api!(RUMRetentionQuotasAPI, cfg);
     let resp = api
@@ -107,9 +107,9 @@ pub async fn get(cfg: &Config, scope_type: String, scope_id: String) -> Result<(
 pub async fn upsert(cfg: &Config, scope_type: String, scope_id: String, file: &str) -> Result<()> {
     let scope_type = {
         let v = scope_type;
-        parse_rum_retention_quota_scope_type(&v)?
+        parse_r_u_m_retention_quota_scope_type(&v)?
     };
-    let body: RumRetentionQuotaConfigUpdateRequest = util::read_json_file(file)?;
+    let body: RUMRetentionQuotaConfigUpdateRequest = util::read_json_file(file)?;
     let api = crate::make_api!(RUMRetentionQuotasAPI, cfg);
     let resp = api
         .upsert_rum_quota_config(scope_type, scope_id, body)
@@ -118,9 +118,9 @@ pub async fn upsert(cfg: &Config, scope_type: String, scope_id: String, file: &s
     formatter::output(cfg, &resp)
 }
 
-fn parse_rum_retention_quota_scope_type(s: &str) -> Result<RumRetentionQuotaScopeType> {
+fn parse_r_u_m_retention_quota_scope_type(s: &str) -> Result<RUMRetentionQuotaScopeType> {
     Ok(match s {
-        "application" => RumRetentionQuotaScopeType::APPLICATION,
+        "application" => RUMRetentionQuotaScopeType::APPLICATION,
         _ => anyhow::bail!("invalid value {s:?}, valid values: application"),
     })
 }

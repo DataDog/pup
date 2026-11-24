@@ -264,6 +264,8 @@ pub fn default_scopes() -> Vec<&'static str> {
         "logs_write_archives",
         "logs_write_pipelines",
         "saved_views_write",
+        // MCP Gateway
+        "mcp_gateway_usage",
         // Metrics
         "metrics_metadata_write",
         "metrics_read",
@@ -657,6 +659,12 @@ mod tests {
         let ro = read_only_scopes();
         assert!(ro.contains(&"appsec_protect_read"));
         assert!(!ro.contains(&"appsec_protect_write"));
+    }
+
+    #[test]
+    fn test_default_scopes_mcp_gateway() {
+        assert!(default_scopes().contains(&"mcp_gateway_usage"));
+        assert!(!read_only_scopes().contains(&"mcp_gateway_usage"));
     }
 
     #[test]

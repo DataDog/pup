@@ -14,10 +14,9 @@ use crate::util_ext::percent_encode;
 
 const TOOLS_PATH: &str = "/mcp/api/tools";
 
-const SCOPE_HINT: &str =
-    "The MCP gateway needs the mcp_gateway_usage OAuth scope, which pup does not \
-     request by default; log in with:\n  \
-     pup auth login --extra-scopes mcp_gateway_usage";
+const SCOPE_HINT: &str = "The MCP gateway needs the mcp_gateway_usage OAuth scope. Tokens issued \
+     before pup requested it lack the scope; log in again with:\n  \
+     pup auth login";
 
 /// `ai-gateway.{site}` on Datadog sites. Literal hosts and the test mock
 /// server are used verbatim, as for every other command.
@@ -190,10 +189,7 @@ mod tests {
             .create_async()
             .await;
         let err = super::tools_list(&cfg, None).await.unwrap_err();
-        assert!(
-            err.to_string().contains("--extra-scopes mcp_gateway_usage"),
-            "{err}"
-        );
+        assert!(err.to_string().contains("mcp_gateway_usage"), "{err}");
         cleanup_env();
     }
 
@@ -285,7 +281,7 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("502"), "{err}");
         assert!(
-            !err.to_string().contains("--extra-scopes"),
+            !err.to_string().contains("mcp_gateway_usage"),
             "only auth failures get the scope hint"
         );
         cleanup_env();

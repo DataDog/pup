@@ -131,7 +131,7 @@ fn stdout_terminal_capabilities() -> TerminalCapabilities {
 }
 
 /// Recursively sort all JSON object keys alphabetically.
-fn sort_json_value(v: serde_json::Value) -> serde_json::Value {
+pub(crate) fn sort_json_value(v: serde_json::Value) -> serde_json::Value {
     match v {
         serde_json::Value::Object(map) => {
             let mut sorted: std::collections::BTreeMap<String, serde_json::Value> =

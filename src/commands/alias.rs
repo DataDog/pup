@@ -75,6 +75,21 @@ pub fn delete(names: Vec<String>) -> Result<()> {
     Ok(())
 }
 
+/// Index of the subcommand candidate: the first positional token, skipping
+/// the binary name and the values of the space-separated global value flags
+/// (kept in sync with `extensions::parse_extension_args`).
+fn candidate_index(args: &[String]) -> Option<usize> {
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--output" | "-o" | "--org" | "--jq" => i += 2,
+            s if s.starts_with('-') => i += 1,
+            _ => return Some(i),
+        }
+    }
+    None
+}
+
 /// Core expansion logic, operating on an already-loaded alias map.
 /// Exposed separately so unit tests can exercise it without touching the
 /// filesystem.
@@ -97,9 +112,15 @@ pub(crate) fn apply_expansion(
         Ok(tokens) => tokens,
         Err(_) => return args.to_vec(),
     };
-    let Some(idx) = args.iter().position(|a| a == name) else {
+    // Only the subcommand candidate (the first positional token) may be
+    // rewritten; the same word appearing as a flag value, e.g.
+    // `pup --org foo foo`, must be left alone.
+    let Some(idx) = candidate_index(args) else {
         return args.to_vec();
     };
+    if args[idx] != name {
+        return args.to_vec();
+    }
     let mut out = args[..idx].to_vec();
     out.extend(expansion_tokens);
     out.extend_from_slice(&args[idx + 1..]);
@@ -196,6 +217,39 @@ mod tests {
             &aliases,
         );
         assert_eq!(result, args("pup --output json infrastructure hosts list"));
+    }
+
+    #[test]
+    fn test_apply_expansion_skips_flag_value_before_candidate() {
+        // The alias name as a flag value (here the --org value) must not be
+        // rewritten; only the subcommand candidate expands.
+        let aliases = map(&[("infra-list", "infrastructure hosts list")]);
+        let result = apply_expansion(
+            &args("pup --org infra-list infra-list --tag env:prod"),
+            "infra-list",
+            &aliases,
+        );
+        assert_eq!(
+            result,
+            args("pup --org infra-list infrastructure hosts list --tag env:prod")
+        );
+    }
+
+    #[test]
+    fn test_apply_expansion_alias_name_only_as_flag_value_stays() {
+        let aliases = map(&[("infra-list", "infrastructure hosts list")]);
+        for invocation in [
+            "pup --org infra-list",
+            "pup --jq infra-list monitors list",
+            "pup -o infra-list monitors list",
+        ] {
+            let before = args(invocation);
+            assert_eq!(
+                apply_expansion(&before, "infra-list", &aliases),
+                before,
+                "{invocation}"
+            );
+        }
     }
 
     #[test]

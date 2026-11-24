@@ -2,6 +2,7 @@ use anyhow::Result;
 use datadog_api_client::datadog;
 use datadog_api_client::datadogV1::api_notebooks::NotebooksAPI;
 use datadog_api_client::datadogV1::model::{NotebookCreateRequest, NotebookUpdateRequest};
+use sha2::{Digest, Sha256};
 
 use crate::config::Config;
 use crate::formatter;
@@ -307,6 +308,62 @@ fn parse_filters(filters: &[String]) -> Result<Vec<(String, String)>> {
         .collect()
 }
 
+/// The v1 notebooks API projects a notebook's document into synthetic
+/// markdown cells, so the `id` a markdown cell carries in a response is
+/// regenerated on every request (issue #807). Rewrite each markdown cell's
+/// `id` to a deterministic content-derived handle: identical content maps to
+/// the same id across GETs of an unchanged notebook, and repeated contents
+/// are disambiguated so ids stay unique within one response. The `md-` prefix
+/// marks the id as client-derived rather than server-assigned; cells of other
+/// types keep their server ids untouched.
+fn stabilize_markdown_cell_ids(notebook: &mut serde_json::Value) {
+    let Some(cells) = notebook
+        .pointer_mut("/data/attributes/cells")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for cell in cells.iter_mut() {
+        let is_markdown = cell
+            .pointer("/attributes/definition/type")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| kind == "markdown");
+        let Some(object) = cell.as_object_mut() else {
+            continue;
+        };
+        if !is_markdown {
+            continue;
+        }
+        let mut canonical = object.clone();
+        canonical.remove("id");
+        let canonical =
+            crate::output::sort_json_value(serde_json::Value::Object(canonical)).to_string();
+        let digest = Sha256::digest(canonical.as_bytes())
+            .as_slice()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let base = format!("md-{}", &digest[..12]);
+        let ordinal = seen.entry(base.clone()).or_insert(0);
+        *ordinal += 1;
+        let id = if *ordinal == 1 {
+            base
+        } else {
+            format!("{base}-{ordinal}")
+        };
+        object.insert("id".to_string(), serde_json::Value::String(id));
+    }
+}
+
+/// Serialize a notebook API response for printing with markdown cell ids made
+/// deterministic (issue #807); other fields pass through unchanged.
+fn output_notebook<T: serde::Serialize>(cfg: &Config, resp: &T) -> Result<()> {
+    let mut value = serde_json::to_value(resp)?;
+    stabilize_markdown_cell_ids(&mut value);
+    formatter::output(cfg, &value)
+}
+
 async fn discover(
     cfg: &Config,
     query: &str,
@@ -384,7 +441,7 @@ pub async fn get(cfg: &Config, notebook_id: i64, markdown: bool) -> Result<()> {
         .get_notebook(notebook_id)
         .await
         .map_err(|e| anyhow::anyhow!("failed to get notebook: {e:?}"))?;
-    formatter::output(cfg, &resp)
+    output_notebook(cfg, &resp)
 }
 
 pub async fn delete(cfg: &Config, notebook_id: i64) -> Result<()> {
@@ -419,7 +476,7 @@ pub async fn create(cfg: &Config, file: &str, markdown: bool, name: Option<&str>
         .create_notebook(body)
         .await
         .map_err(|error| notebook_api_error("create", error))?;
-    formatter::output(cfg, &resp)
+    output_notebook(cfg, &resp)
 }
 
 pub async fn update(cfg: &Config, notebook_id: i64, file: &str, markdown: bool) -> Result<()> {
@@ -439,7 +496,7 @@ pub async fn update(cfg: &Config, notebook_id: i64, file: &str, markdown: bool) 
         .update_notebook(notebook_id, body)
         .await
         .map_err(|error| notebook_api_error("update", error))?;
-    formatter::output(cfg, &resp)
+    output_notebook(cfg, &resp)
 }
 
 pub async fn diff(
@@ -449,10 +506,14 @@ pub async fn diff(
     only: &[String],
     ignore: &[String],
 ) -> Result<()> {
-    let candidate: serde_json::Value = util::read_json_file(file)?;
-    let live = raw_client::raw_get(cfg, &format!("/api/v1/notebooks/{notebook_id}"), &[])
+    let mut candidate: serde_json::Value = util::read_json_file(file)?;
+    let mut live = raw_client::raw_get(cfg, &format!("/api/v1/notebooks/{notebook_id}"), &[])
         .await
         .map_err(|e| anyhow::anyhow!("failed to get notebook: {e:?}"))?;
+    // Normalize both sides alike so an id copied out of an earlier response
+    // and a raw server id for the same content read as no change.
+    stabilize_markdown_cell_ids(&mut live);
+    stabilize_markdown_cell_ids(&mut candidate);
 
     let resource_id = notebook_id.to_string();
     let mut options =
@@ -514,7 +575,7 @@ pub async fn edit(cfg: &Config, notebook_id: i64, file: &str, markdown: bool) ->
         .update_notebook(notebook_id, update_body)
         .await
         .map_err(|error| notebook_api_error("edit", error))?;
-    formatter::output(cfg, &resp)
+    output_notebook(cfg, &resp)
 }
 
 #[cfg(test)]
@@ -1286,5 +1347,104 @@ mod tests {
             filters,
             vec![("filter[tags]".into(), "pup-eval:abc".into())]
         );
+    }
+
+    fn notebook_with_cells(cells: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "data": {
+                "id": "99",
+                "type": "notebooks",
+                "attributes": { "name": "nb", "cells": cells }
+            }
+        })
+    }
+
+    fn cell_ids(notebook: &serde_json::Value) -> Vec<String> {
+        notebook
+            .pointer("/data/attributes/cells")
+            .and_then(serde_json::Value::as_array)
+            .unwrap()
+            .iter()
+            .map(|cell| cell["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_stabilize_markdown_cell_ids_survives_fresh_server_ids() {
+        // The v1 API mints a fresh synthetic id for a markdown cell on every
+        // GET (issue #807); two reads of the same notebook must agree once
+        // stabilized.
+        let first = notebook_with_cells(serde_json::json!([
+            { "id": "2l892wv8", "type": "notebook_cells",
+              "attributes": { "definition": { "type": "markdown", "text": "# Section" } } },
+            { "id": "5k2rqfa5", "type": "notebook_cells",
+              "attributes": { "definition": { "type": "timeseries", "requests": [] } } },
+        ]));
+        let mut second = first.clone();
+        *second.pointer_mut("/data/attributes/cells/0/id").unwrap() = serde_json::json!("fwhey19c");
+
+        let mut stabilized_first = first;
+        let mut stabilized_second = second;
+        super::stabilize_markdown_cell_ids(&mut stabilized_first);
+        super::stabilize_markdown_cell_ids(&mut stabilized_second);
+
+        assert_eq!(
+            cell_ids(&stabilized_first),
+            cell_ids(&stabilized_second),
+            "markdown cell id not stable across GETs of an unchanged notebook"
+        );
+        assert_eq!(
+            cell_ids(&stabilized_first)[1],
+            "5k2rqfa5",
+            "non-markdown cell ids must keep their server-assigned ids"
+        );
+    }
+
+    #[test]
+    fn test_stabilize_markdown_cell_ids_tracks_content_changes() {
+        let mut before = notebook_with_cells(serde_json::json!([
+            { "id": "aaaa1111", "type": "notebook_cells",
+              "attributes": { "definition": { "type": "markdown", "text": "# Before" } } },
+        ]));
+        let mut after = notebook_with_cells(serde_json::json!([
+            { "id": "aaaa1111", "type": "notebook_cells",
+              "attributes": { "definition": { "type": "markdown", "text": "# After" } } },
+        ]));
+        super::stabilize_markdown_cell_ids(&mut before);
+        super::stabilize_markdown_cell_ids(&mut after);
+        assert_ne!(
+            cell_ids(&before)[0],
+            cell_ids(&after)[0],
+            "an edited markdown cell must not keep the old cell's id"
+        );
+    }
+
+    #[test]
+    fn test_stabilize_markdown_cell_ids_unique_within_one_response() {
+        let mut notebook = notebook_with_cells(serde_json::json!([
+            { "id": "dup1", "type": "notebook_cells",
+              "attributes": { "definition": { "type": "markdown", "text": "same" } } },
+            { "id": "dup2", "type": "notebook_cells",
+              "attributes": { "definition": { "type": "markdown", "text": "same" } } },
+        ]));
+        super::stabilize_markdown_cell_ids(&mut notebook);
+        let ids = cell_ids(&notebook);
+        assert_ne!(ids[0], ids[1], "identical cells must not share one id");
+    }
+
+    #[test]
+    fn test_stabilize_markdown_cell_ids_ignores_malformed_shapes() {
+        for mut notebook in [
+            serde_json::json!({}),
+            serde_json::json!({"data": {"attributes": {}}}),
+            serde_json::json!({"data": {"attributes": {"cells": "not-an-array"}}}),
+            notebook_with_cells(serde_json::json!([
+                { "type": "notebook_cells", "attributes": {} },
+            ])),
+        ] {
+            let original = notebook.clone();
+            super::stabilize_markdown_cell_ids(&mut notebook);
+            assert_eq!(notebook, original, "unexpected rewrite of {original}");
+        }
     }
 }

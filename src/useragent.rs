@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::sync::LazyLock;
+
 use crate::version;
 
 #[allow(dead_code)]
@@ -176,10 +179,27 @@ fn sdk_token() -> Option<&'static str> {
     None
 }
 
-/// Build the User-Agent string, optionally including a command identifier
-/// so that audit logs can differentiate which pup command made the request.
+/// Generated command paths, dot-joined (e.g. `security.findings.mute`): the
+/// operation lines of `surface.txt`, which contain a `.`. Subtags are
+/// slash-joined there (`tag/subtag.op`), so `/` is normalized to `.`.
+static GENERATED_COMMANDS: LazyLock<HashSet<String>> = LazyLock::new(|| {
+    include_str!("generated/surface.txt")
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.contains('.') && !line.starts_with('#'))
+        .map(|line| line.replace('/', "."))
+        .collect()
+});
+
+/// Build the User-Agent string. When a command is running, it carries the
+/// command path and whether that command is generated or hand-written, so
+/// API traffic can be attributed to a command and its source.
 ///
-/// Format: `pup/<ver> (rust <rustver>; os <os>; arch <arch>[; ai-agent <name>][; sdk <sdk_name/ver>][; cmd <cmd>])`
+/// Format: `pup/<ver> (rust <rustver>; os <os>; arch <arch>[; ai-agent <name>][; sdk <sdk_name/ver>][; cmd <cmd>][; cmd-source <generated|hand_written>])`
+///
+/// `command` overrides the `cmd` value (e.g. ddsql's per-query identifier);
+/// otherwise it is the running command path, dot-joined (e.g. `downtime.list`).
+/// A value that would break the comment syntax is never sent.
 ///
 /// Each parenthesized comment must be a `key value` 2-tuple so the
 /// smart-edge audit logger's `client_telemetry` metric parser accepts it
@@ -188,6 +208,12 @@ fn sdk_token() -> Option<&'static str> {
 /// entire UA, dropping all pup product-version telemetry — that's why we
 /// always emit `rust <version>` (falling back to `rust unknown`).
 pub fn get_with_command(command: Option<&str>) -> String {
+    build(command, crate::output::command_path().as_deref())
+}
+
+/// `running_path` is the parsed subcommand path, space-separated (e.g.
+/// `downtime list`). Only the path is used, never arguments or flag values.
+fn build(command: Option<&str>, running_path: Option<&str>) -> String {
     let agent = detect_agent_info();
     let base = format!(
         "pup/{} (rust {}; os {}; arch {}",
@@ -205,10 +231,35 @@ pub fn get_with_command(command: Option<&str>) -> String {
         Some(sdk) => format!("{}; sdk {}", with_agent, sdk),
         None => with_agent,
     };
-    if let Some(cmd) = command {
-        format!("{}; cmd {})", with_sdk, cmd)
+    let running = running_path
+        .map(|path| path.split_whitespace().collect::<Vec<_>>().join("."))
+        .filter(|path| is_ua_safe(path));
+    let mut ua = with_sdk;
+    let explicit = command.filter(|cmd| is_ua_safe(cmd));
+    if let Some(cmd) = explicit.or(running.as_deref()) {
+        ua.push_str(&format!("; cmd {cmd}"));
+    }
+    if let Some(path) = &running {
+        ua.push_str(&format!("; cmd-source {}", command_source(path)));
+    }
+    ua.push(')');
+    ua
+}
+
+/// A comment value must not break the `key value` comment syntax: no spaces,
+/// `;`, `(` or `)`.
+fn is_ua_safe(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+fn command_source(path: &str) -> &'static str {
+    if GENERATED_COMMANDS.contains(path) {
+        "generated"
     } else {
-        format!("{})", with_sdk)
+        "hand_written"
     }
 }
 
@@ -288,6 +339,9 @@ mod tests {
         for ua in [
             get_with_command(None),
             get_with_command(Some("monitors-list")),
+            build(None, Some("downtime list")),
+            build(None, Some("rum apps list")),
+            build(Some("monitors-list"), Some("monitors list")),
         ] {
             let open = ua
                 .find('(')
@@ -313,6 +367,85 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_user_agent_generated_command() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        for (path, cmd) in [
+            ("domain-allowlist get", "domain-allowlist.get"),
+            ("security findings mute", "security.findings.mute"),
+        ] {
+            let ua = build(None, Some(path));
+            assert!(
+                ua.ends_with(&format!("; cmd {cmd}; cmd-source generated)")),
+                "{ua}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_user_agent_hand_written_command() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        // `downtime` alone is a tag line in the surface, not a generated leaf.
+        for (path, cmd) in [("rum apps list", "rum.apps.list"), ("downtime", "downtime")] {
+            let ua = build(None, Some(path));
+            assert!(
+                ua.ends_with(&format!("; cmd {cmd}; cmd-source hand_written)")),
+                "{ua}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_user_agent_explicit_command_wins_for_cmd() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        let ua = build(
+            Some("security-findings-analyze"),
+            Some("security findings analyze"),
+        );
+        assert!(
+            ua.ends_with("; cmd security-findings-analyze; cmd-source hand_written)"),
+            "{ua}"
+        );
+    }
+
+    #[test]
+    fn test_user_agent_omits_unsafe_explicit_command() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        for bad in ["a b", "a;b", "a(b)", ""] {
+            let ua = build(Some(bad), None);
+            assert!(!ua.contains("cmd"), "{bad:?}: {ua}");
+            assert_eq!(ua, build(None, None));
+            // An unsafe override falls back to the running command path.
+            let ua = build(Some(bad), Some("ddsql table"));
+            assert!(
+                ua.ends_with("; cmd ddsql.table; cmd-source hand_written)"),
+                "{bad:?}: {ua}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_user_agent_omits_unsafe_command_path() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        let ua = build(None, Some("foo;bar (x)"));
+        assert!(!ua.contains("cmd"), "{ua}");
+        assert_eq!(ua, build(None, None));
+    }
+
+    #[test]
+    fn test_user_agent_without_running_command_has_no_cmd_comments() {
+        let _guard = ENV_LOCK.blocking_lock();
+        clear_all_agent_vars();
+        let ua = build(None, None);
+        assert!(!ua.contains("cmd"), "{ua}");
+        assert!(ua.ends_with(')'), "{ua}");
     }
 
     #[test]

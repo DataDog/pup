@@ -279,6 +279,14 @@ pub fn set_command(path: String, flags: ContinuationFlags) {
     }
 }
 
+/// The running command's path as recorded by `set_command`, if any.
+pub fn command_path() -> Option<String> {
+    COMMAND
+        .read()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|info| info.path.clone()))
+}
+
 #[cfg(feature = "browser")]
 pub fn clear_command() {
     if let Ok(mut guard) = COMMAND.write() {
@@ -355,10 +363,7 @@ fn resolve_metadata(
         meta.count = data.as_array().map(Vec::len);
     }
     if meta.command.is_none() {
-        meta.command = COMMAND
-            .read()
-            .ok()
-            .and_then(|guard| guard.as_ref().map(|info| info.path.clone()));
+        meta.command = command_path();
     }
     if meta.next_cursor.is_none() {
         meta.next_cursor = derive_cursor(raw);

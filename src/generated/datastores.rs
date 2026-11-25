@@ -265,9 +265,10 @@ pub async fn list_items(
         .await
         .map_err(|e| anyhow::anyhow!("failed to list_datastore_items: {:?}", e))?;
     let count = resp.data.len();
-    let truncated = page_limit.is_some_and(|l| count >= l as usize);
+    let limit = page_limit;
+    let truncated = limit.is_some_and(|l| count >= l as usize);
     let next_action = if truncated {
-        page_limit.map(|l| {
+        limit.map(|l| {
             format!(
                 "Results may be truncated at {l}. Use --page-limit={} or narrow the filters",
                 l + 1

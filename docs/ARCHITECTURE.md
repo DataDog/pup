@@ -157,7 +157,10 @@ Custom user agent identifies pup CLI and detects AI coding assistants:
 ```
 pup/v0.1.0 (rust; os darwin; arch arm64)                        # Without agent
 pup/v0.1.0 (rust; os darwin; arch arm64; ai-agent claude-code)  # With agent
+pup/v0.1.0 (rust; os darwin; arch arm64; cmd downtime.list; cmd-source generated)  # Running a command
 ```
+
+**Command source:** while a command runs, the User-Agent carries its subcommand path (`cmd`, dot-joined) and `cmd-source`: `generated` when the path is an operation line of `src/generated/surface.txt`, `hand_written` otherwise. Only the path is sent, never arguments or flag values.
 
 **AI Agent Detection** (`src/useragent.rs`):
 

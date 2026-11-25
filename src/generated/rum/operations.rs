@@ -207,14 +207,13 @@ pub async fn list(
         .await
         .map_err(|e| anyhow::anyhow!("failed to list_rum_operations: {:?}", e))?;
     let count = resp.data.len();
-    let truncated = page_limit.is_some_and(|l| count >= l as usize);
+    let limit = page_limit.or(Some(50));
+    let truncated = limit.is_some_and(|l| count >= l as usize);
     let next_action = if truncated {
-        page_limit.map(|l| {
-            format!(
-                "Results may be truncated at {l}. Use --page-limit={} or narrow the filters",
-                l + 1
-            )
-        })
+        limit.map(|l| format!(
+            "Results may be truncated at {l}. Use --page-offset={} for the next page or narrow the filters",
+            page_offset.unwrap_or(0).max(0) as usize + count
+        ))
     } else {
         None
     };

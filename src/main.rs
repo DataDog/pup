@@ -8182,6 +8182,7 @@ enum RumActions {
         action: RumAppActions,
     },
     /// Aggregate RUM events by facets
+    #[cfg(not(generated_op = "rum.aggregate"))]
     Aggregate {
         #[arg(
             long,
@@ -8212,6 +8213,7 @@ enum RumActions {
         limit: i32,
     },
     /// List RUM events
+    #[cfg(not(generated_op = "rum.events"))]
     Events {
         #[arg(
             long,
@@ -19192,6 +19194,7 @@ async fn dispatch_parsed(
                         commands::rum::apps_delete(&cfg, &app_id).await?;
                     }
                 },
+                #[cfg(not(generated_op = "rum.aggregate"))]
                 RumActions::Aggregate {
                     query,
                     user_email,
@@ -19233,6 +19236,7 @@ async fn dispatch_parsed(
                     )
                     .await?;
                 }
+                #[cfg(not(generated_op = "rum.events"))]
                 RumActions::Events {
                     query,
                     from,

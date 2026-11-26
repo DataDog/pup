@@ -1,7 +1,9 @@
-use anyhow::{bail, Result};
-use datadog_api_client::datadogV2::api_rum::{
-    GetRUMApplicationsOptionalParams, ListRUMEventsOptionalParams, RUMAPI,
-};
+#[cfg(not(generated_op = "rum.aggregate"))]
+use anyhow::bail;
+use anyhow::Result;
+#[cfg(not(generated_op = "rum.events"))]
+use datadog_api_client::datadogV2::api_rum::ListRUMEventsOptionalParams;
+use datadog_api_client::datadogV2::api_rum::{GetRUMApplicationsOptionalParams, RUMAPI};
 #[cfg(not(all(
     generated_op = "rum.metrics.list",
     generated_op = "rum.metrics.get",
@@ -49,6 +51,7 @@ use datadog_api_client::datadogV2::model::{
 
 use crate::config::Config;
 use crate::formatter;
+#[cfg(not(generated_op = "rum.aggregate"))]
 use crate::raw_client;
 use crate::util_ext;
 
@@ -97,6 +100,7 @@ pub async fn apps_delete(cfg: &Config, app_id: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(generated_op = "rum.events"))]
 pub async fn events_list(
     cfg: &Config,
     query: Option<String>,
@@ -591,6 +595,7 @@ pub async fn heatmaps_query(cfg: &Config, view_name: &str) -> Result<()> {
 
 // ---- RUM Aggregate ----
 
+#[cfg(not(generated_op = "rum.aggregate"))]
 pub struct RumAggregateArgs {
     pub query: String,
     pub from: String,
@@ -600,6 +605,7 @@ pub struct RumAggregateArgs {
     pub limit: i32,
 }
 
+#[cfg(not(generated_op = "rum.aggregate"))]
 fn parse_rum_compute(input: &str) -> Result<(String, Option<String>)> {
     let input = input.trim();
     if input.is_empty() {
@@ -645,6 +651,7 @@ fn parse_rum_compute(input: &str) -> Result<(String, Option<String>)> {
     )
 }
 
+#[cfg(not(generated_op = "rum.aggregate"))]
 pub async fn aggregate(cfg: &Config, args: RumAggregateArgs) -> Result<()> {
     let RumAggregateArgs {
         query,
@@ -702,6 +709,7 @@ pub async fn aggregate(cfg: &Config, args: RumAggregateArgs) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(generated_op = "rum.aggregate"))]
 /// Split a comma-separated compute string, respecting parentheses.
 pub fn split_rum_compute_args(input: &str) -> Vec<String> {
     let mut result = Vec::new();
@@ -813,6 +821,7 @@ mod tests {
         cleanup_env();
     }
 
+    #[cfg(not(generated_op = "rum.events"))]
     #[tokio::test]
     async fn test_rum_events_list() {
         let _lock = lock_env().await;
@@ -883,6 +892,7 @@ mod tests {
         cleanup_env();
     }
 
+    #[cfg(not(generated_op = "rum.events"))]
     #[tokio::test]
     async fn test_rum_events_list_sends_millisecond_bounds() {
         let _lock = lock_env().await;
@@ -913,6 +923,7 @@ mod tests {
         cleanup_env();
     }
 
+    #[cfg(not(generated_op = "rum.events"))]
     #[tokio::test]
     async fn test_rum_events_list_invalid_time() {
         let _lock = lock_env().await;

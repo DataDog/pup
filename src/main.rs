@@ -69,7 +69,7 @@ use std::io::IsTerminal;
 #[derive(Parser)]
 #[command(name = "pup", version = version::VERSION, about = "Datadog API CLI")]
 pub(crate) struct Cli {
-    /// Output format (json, table, yaml, csv, tsv). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
+    /// Output format (json, table, yaml, csv, tsv, or markdown where supported). Defaults to json, or $DD_OUTPUT / $PUP_OUTPUT when set.
     /// `pup integrations ... list` defaults to table on a terminal; redirected output stays json.
     #[arg(short, long, global = true)]
     output: Option<String>,
@@ -13913,7 +13913,7 @@ fn build_agent_schema(cmd: &clap::Command) -> serde_json::Value {
                 "name": "--output",
                 "type": "string",
                 "default": "json",
-                "description": "Output format (json, table, yaml, csv, tsv)"
+                "description": "Output format (json, table, yaml, csv, tsv, or markdown where supported)"
             },
             {
                 "name": "--yes",
@@ -16619,11 +16619,6 @@ mod resolve_callback_port_tests {
     }
 }
 
-/// Resolve the effective output format. An explicit `--output` flag wins and is
-/// validated — a malformed value is a hard error rather than being silently
-/// ignored. When the flag is absent, the format already resolved from env/config
-/// in `Config::from_env` is kept, so `DD_OUTPUT` / `PUP_OUTPUT` (and the format an
-/// extension inherits from its parent) survive.
 /// `--markdown` prints raw Markdown, so a jq filter has nothing to run against.
 ///
 /// Keyed on the flag rather than `cfg.jq`, which is also populated from
@@ -16646,16 +16641,28 @@ fn defaults_to_table(full_path: &str) -> bool {
     full_path.starts_with("integrations ") && full_path.ends_with(" list")
 }
 
+/// Resolve flag or configured output against the command's capabilities.
+/// Explicit values win and error if invalid or unsupported. Configured Markdown
+/// falls back to JSON for commands without a Markdown representation; other
+/// configured formats, including an extension's inherited format, are preserved.
 fn resolve_output_format(
     flag: Option<&str>,
     resolved: config::OutputFormat,
+    supports_markdown: bool,
 ) -> anyhow::Result<config::OutputFormat> {
-    match flag {
+    let format = match flag {
         Some(s) => s
             .parse()
-            .map_err(|e| anyhow::anyhow!("invalid --output value: {e}")),
-        None => Ok(resolved),
+            .map_err(|e| anyhow::anyhow!("invalid --output value: {e}"))?,
+        None => resolved,
+    };
+    if format == config::OutputFormat::Markdown && !supports_markdown {
+        if flag.is_some() {
+            anyhow::bail!(output::MARKDOWN_COMMAND_ERROR);
+        }
+        return Ok(config::OutputFormat::Json);
     }
+    Ok(format)
 }
 
 #[cfg(test)]
@@ -16685,7 +16692,7 @@ mod resolve_output_format_tests {
 
     #[test]
     fn explicit_flag_overrides_resolved() {
-        let got = resolve_output_format(Some("table"), OutputFormat::Json).unwrap();
+        let got = resolve_output_format(Some("table"), OutputFormat::Json, false).unwrap();
         assert_eq!(got, OutputFormat::Table);
     }
 
@@ -16693,7 +16700,7 @@ mod resolve_output_format_tests {
     fn absent_flag_keeps_resolved() {
         // No --output: the env/config-resolved format (e.g. an inherited
         // PUP_OUTPUT) must survive instead of being clobbered by a default.
-        let got = resolve_output_format(None, OutputFormat::Yaml).unwrap();
+        let got = resolve_output_format(None, OutputFormat::Yaml, false).unwrap();
         assert_eq!(got, OutputFormat::Yaml);
     }
 
@@ -16723,10 +16730,48 @@ mod resolve_output_format_tests {
 
     #[test]
     fn invalid_explicit_flag_errors() {
-        let got = resolve_output_format(Some("tabel"), OutputFormat::Json);
+        let got = resolve_output_format(Some("tabel"), OutputFormat::Json, false);
         assert!(
             got.is_err(),
             "a malformed --output value must be a hard error"
+        );
+    }
+
+    #[test]
+    fn markdown_output_requires_command_support() {
+        let error = resolve_output_format(Some("markdown"), OutputFormat::Json, false).unwrap_err();
+        assert_eq!(error.to_string(), crate::output::MARKDOWN_COMMAND_ERROR);
+        assert_eq!(
+            resolve_output_format(Some("markdown"), OutputFormat::Json, true).unwrap(),
+            OutputFormat::Markdown
+        );
+        for format in [
+            OutputFormat::Json,
+            OutputFormat::Table,
+            OutputFormat::Yaml,
+            OutputFormat::Csv,
+            OutputFormat::Tsv,
+        ] {
+            assert_eq!(
+                resolve_output_format(None, format.clone(), false).unwrap(),
+                format
+            );
+        }
+    }
+
+    #[test]
+    fn ambient_markdown_is_used_only_when_supported() {
+        assert_eq!(
+            resolve_output_format(None, OutputFormat::Markdown, false).unwrap(),
+            OutputFormat::Json
+        );
+        assert_eq!(
+            resolve_output_format(None, OutputFormat::Markdown, true).unwrap(),
+            OutputFormat::Markdown
+        );
+        assert_eq!(
+            resolve_output_format(Some("yaml"), OutputFormat::Markdown, false).unwrap(),
+            OutputFormat::Yaml
         );
     }
 
@@ -16951,7 +16996,7 @@ async fn dispatch_parsed(
     // Apply flag overrides. `--output` is only applied when explicitly set so the
     // format resolved from DD_OUTPUT / PUP_OUTPUT in `from_env` survives when no
     // flag is passed (extensions rely on inheriting the parent's format).
-    cfg.output_format = resolve_output_format(cli.output.as_deref(), cfg.output_format)?;
+    cfg.output_format = resolve_output_format(cli.output.as_deref(), cfg.output_format, false)?;
     if cli.yes || useragent::agent_auto_approves(cli.no_agent) {
         cfg.auto_approve = true;
     }

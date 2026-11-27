@@ -517,7 +517,7 @@ pup skills install --name dd-idp
 
 ## Global Flags
 
-- `-o, --output`: Output format (`json`, `table`, `yaml`, `csv`, or `tsv`) — default: `json`
+- `-o, --output`: Output format (`json`, `table`, `yaml`, `csv`, `tsv`, or `markdown` where supported) — default: `json`
 - `-y, --yes`: Skip confirmation prompts for destructive operations
 
 ## Environment Variables

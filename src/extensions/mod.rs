@@ -121,14 +121,10 @@ pub(crate) fn is_builtin_command(name: &str) -> bool {
 
 impl PreParsedGlobals {
     pub fn apply_to(&self, cfg: &mut config::Config) -> anyhow::Result<()> {
-        if let Some(ref fmt) = self.output {
-            // Mirror the main-path behaviour: reject unrecognised format strings loudly
-            // rather than silently falling back to JSON (which is the deliberate
-            // degradation for *ambient* config, not for an explicit --output flag).
-            cfg.output_format = fmt
-                .parse()
-                .map_err(|e| anyhow::anyhow!("invalid --output value {:?}: {}", fmt, e))?;
-        }
+        // Extensions have no Markdown capability declaration. Resolve their
+        // format before changing other state or launching the executable.
+        cfg.output_format =
+            crate::resolve_output_format(self.output.as_deref(), cfg.output_format.clone(), false)?;
         // Like the main path, but `--no-agent` is not pre-parsed separately here,
         // so a detected agent always auto-approves (as before agent mode was removed).
         if self.yes || useragent::agent_auto_approves(false) {

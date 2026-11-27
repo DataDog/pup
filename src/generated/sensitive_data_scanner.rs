@@ -9,18 +9,18 @@ use crate::formatter;
 
 #[derive(clap::Subcommand)]
 pub enum Command {
-    /// Get Agent Observability Scanning Group
+    /// Get Target Scanning Group
     ///
-    /// Get an Agent Observability scanning group, with its rules included.
+    /// Get an Agent Observability or AI Guard scanning group, with its rules included.
     /// Scanning groups of logs, RUM, events, and APM are reported as not found.
     Get {
         /// The ID of a group of rules.
         group_id: String,
     },
-    /// List Agent Observability Scanning Groups
+    /// List Target Scanning Groups
     ///
-    /// List the Agent Observability scanning groups, with their rules included.
-    /// The list always includes the default Agent Observability scanning group.
+    /// List the scanning groups of a target, such as Agent Observability or AI Guard, with their rules included.
+    /// The list always includes the default scanning group of the target.
     /// Scanning groups of logs, RUM, events, and APM are listed by the List Scanning Groups endpoint.
     List {
         /// Target whose scanning groups are listed.
@@ -36,9 +36,9 @@ pub async fn run(cfg: &Config, command: Command) -> Result<()> {
     }
 }
 
-/// Get Agent Observability Scanning Group
+/// Get Target Scanning Group
 ///
-/// Get an Agent Observability scanning group, with its rules included.
+/// Get an Agent Observability or AI Guard scanning group, with its rules included.
 /// Scanning groups of logs, RUM, events, and APM are reported as not found.
 pub async fn get(cfg: &Config, group_id: String) -> Result<()> {
     let api = crate::make_api!(SensitiveDataScannerAPI, cfg);
@@ -49,10 +49,10 @@ pub async fn get(cfg: &Config, group_id: String) -> Result<()> {
     formatter::output(cfg, &resp)
 }
 
-/// List Agent Observability Scanning Groups
+/// List Target Scanning Groups
 ///
-/// List the Agent Observability scanning groups, with their rules included.
-/// The list always includes the default Agent Observability scanning group.
+/// List the scanning groups of a target, such as Agent Observability or AI Guard, with their rules included.
+/// The list always includes the default scanning group of the target.
 /// Scanning groups of logs, RUM, events, and APM are listed by the List Scanning Groups endpoint.
 pub async fn list(cfg: &Config, filter_target: String) -> Result<()> {
     let filter_target = {
@@ -78,7 +78,8 @@ fn parse_sensitive_data_scanner_group_target_type(
 ) -> Result<SensitiveDataScannerGroupTargetType> {
     Ok(match s {
         "llm_observability" => SensitiveDataScannerGroupTargetType::LLM_OBSERVABILITY,
-        _ => anyhow::bail!("invalid value {s:?}, valid values: llm_observability"),
+        "ai_guard" => SensitiveDataScannerGroupTargetType::AI_GUARD,
+        _ => anyhow::bail!("invalid value {s:?}, valid values: llm_observability, ai_guard"),
     })
 }
 

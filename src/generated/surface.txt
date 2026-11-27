@@ -28,6 +28,10 @@ rum.exclusion-filters.delete
 rum.exclusion-filters.get
 rum.exclusion-filters.list
 rum.exclusion-filters.update
+rum.managed-archives.delete
+rum.managed-archives.get
+rum.managed-archives.list
+rum.managed-archives.update
 rum.metrics.create
 rum.metrics.delete
 rum.metrics.get
@@ -46,6 +50,12 @@ rum.operations.update
 rum.permanent-retention-filters.get
 rum.permanent-retention-filters.list
 rum.permanent-retention-filters.update
+rum.recovery.cancel
+rum.recovery.count
+rum.recovery.create
+rum.recovery.get
+rum.recovery.list
+rum.recovery.search
 rum.retention-filters.create
 rum.retention-filters.delete
 rum.retention-filters.get
@@ -62,10 +72,12 @@ rum.teams-ownership.get
 rum.teams-ownership.list
 rum.teams-ownership.list-rules
 rum/exclusion-filters
+rum/managed-archives
 rum/metrics
 rum/operation-links
 rum/operations
 rum/permanent-retention-filters
+rum/recovery
 rum/retention-filters
 rum/retention-quotas
 rum/teams-ownership

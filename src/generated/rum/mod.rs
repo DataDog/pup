@@ -9,6 +9,7 @@ pub mod permanent_retention_filters;
 pub mod recovery;
 pub mod retention_filters;
 pub mod retention_quotas;
+pub mod sourcemaps;
 pub mod teams_ownership;
 
 use anyhow::Result;
@@ -52,6 +53,11 @@ pub enum Command {
         #[command(subcommand)]
         action: retention_quotas::Command,
     },
+    /// sourcemaps commands
+    Sourcemaps {
+        #[command(subcommand)]
+        action: sourcemaps::Command,
+    },
     /// teams_ownership commands
     TeamsOwnership {
         #[command(subcommand)]
@@ -70,6 +76,7 @@ pub async fn run(cfg: &Config, command: Command) -> Result<()> {
         }
         Command::Recovery { action } => recovery::run(cfg, action).await,
         Command::RetentionQuotas { action } => retention_quotas::run(cfg, action).await,
+        Command::Sourcemaps { action } => sourcemaps::run(cfg, action).await,
         Command::TeamsOwnership { action } => teams_ownership::run(cfg, action).await,
     }
 }

@@ -37,6 +37,8 @@ pub const WRITE_COMMANDS: &[&str] = &[
     "rum retention-filters update",
     "rum retention-quotas delete",
     "rum retention-quotas upsert",
+    "rum sourcemaps delete",
+    "rum sourcemaps restore",
     "rum teams-ownership batch",
     "rum teams-ownership create",
     "rum teams-ownership delete",

@@ -14048,7 +14048,11 @@ fn build_compact_command_schema(cmd: &clap::Command, parent_path: &str) -> serde
         .get_arguments()
         .filter(|a| {
             let id = a.get_id().as_str();
-            id != "help" && id != "version" && !a.is_global_set() && a.get_long().is_some()
+            id != "help"
+                && id != "version"
+                && !a.is_global_set()
+                && !a.is_hide_set()
+                && a.get_long().is_some()
         })
         .map(|a| format!("--{}", a.get_long().unwrap()))
         .collect();
@@ -14394,7 +14398,7 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
             let mut arg = serde_json::Map::new();
             arg.insert("name".into(), serde_json::json!(a.get_id().as_str()));
             arg.insert("type".into(), serde_json::json!("string"));
-            arg.insert("required".into(), serde_json::json!(a.is_required_set()));
+            add_argument_requirements(&mut arg, a, cmd);
             arg.insert("arity".into(), build_arg_arity(a));
             arg.insert("index".into(), serde_json::json!(i + 1));
             if let Some(help) = a.get_help() {
@@ -14416,9 +14420,8 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
             id != "help"
                 && id != "version"
                 && !a.is_global_set()
+                && !a.is_hide_set()
                 && a.get_long().is_some()
-                // Hidden legacy pagination flags stay out of migrated commands' schema.
-                && !(page_size_spec.is_some() && a.is_hide_set())
         })
         .map(|a| {
             let mut flag = serde_json::Map::new();
@@ -14448,7 +14451,7 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
                 type_str
             };
             flag.insert("type".into(), serde_json::json!(type_str));
-            flag.insert("required".into(), serde_json::json!(a.is_required_set()));
+            add_argument_requirements(&mut flag, a, cmd);
             flag.insert("arity".into(), build_arg_arity(a));
             if let Some(def) = a.get_default_values().first() {
                 flag.insert(
@@ -14504,6 +14507,30 @@ fn build_command_schema(cmd: &clap::Command, parent_path: &str) -> serde_json::V
     serde_json::Value::Object(obj)
 }
 
+fn add_argument_requirements(
+    parameter: &mut serde_json::Map<String, serde_json::Value>,
+    arg: &clap::Arg,
+    command: &clap::Command,
+) {
+    let conditional = command.is_subcommand_negates_reqs_set();
+    parameter.insert(
+        "required".into(),
+        serde_json::json!(arg.is_required_set() && !conditional),
+    );
+    if arg.is_required_set() && conditional {
+        parameter.insert(
+            "required_without_subcommand".into(),
+            serde_json::json!(true),
+        );
+    }
+    if command.is_args_conflicts_with_subcommands_set() {
+        parameter.insert("conflicts_with_subcommands".into(), serde_json::json!(true));
+    }
+    if arg.is_last_set() {
+        parameter.insert("requires_double_dash".into(), serde_json::json!(true));
+    }
+}
+
 fn build_arg_arity(arg: &clap::Arg) -> serde_json::Value {
     let range = arg.get_num_args().unwrap_or_else(|| {
         if arg.get_action().takes_values() {
@@ -14548,6 +14575,16 @@ fn project_parameter_surface(
     );
     for property in ["type", "required"] {
         surface.insert(property.into(), parameter[property].clone());
+    }
+
+    for property in [
+        "required_without_subcommand",
+        "conflicts_with_subcommands",
+        "requires_double_dash",
+    ] {
+        if let Some(value) = parameter.get(property) {
+            surface.insert(property.into(), value.clone());
+        }
     }
 
     let default_arity = serde_json::json!({
@@ -15588,6 +15625,94 @@ mod test_agent_schema {
         assert!(entry["returns"]["example"]["invocation"].is_string());
         assert!(schema["envelope"]["default"].is_object());
         assert!(schema["query_syntax"]["logs"].is_string());
+    }
+
+    #[test]
+    fn schema_preserves_conditional_argument_requirements_in_the_surface() {
+        for conditional in [false, true] {
+            let mut command = clap::Command::new("example")
+                .subcommand_negates_reqs(conditional)
+                .args_conflicts_with_subcommands(conditional)
+                .arg(clap::Arg::new("id").required(true))
+                .arg(clap::Arg::new("file").long("file").required(true))
+                .subcommand(clap::Command::new("list"));
+            command.build();
+            let schema = build_command_schema(&command, "");
+            let surface = project_command_surface(&schema);
+            for entry in [&schema, &surface] {
+                for property in ["args", "flags"] {
+                    let parameter = &entry[property][0];
+                    assert_eq!(parameter["required"], !conditional);
+                    if conditional {
+                        assert_eq!(parameter["required_without_subcommand"], true);
+                        assert_eq!(parameter["conflicts_with_subcommands"], true);
+                    } else {
+                        assert!(parameter.get("required_without_subcommand").is_none());
+                        assert!(parameter.get("conflicts_with_subcommands").is_none());
+                    }
+                }
+            }
+            assert!(command
+                .clone()
+                .try_get_matches_from(["example", "123", "--file", "input.json"])
+                .is_ok());
+            assert_eq!(
+                command
+                    .clone()
+                    .try_get_matches_from(["example", "list"])
+                    .is_ok(),
+                conditional
+            );
+            assert!(command.try_get_matches_from(["example"]).is_err());
+        }
+    }
+
+    #[test]
+    fn schema_hides_flags_without_disabling_them() {
+        let mut command = clap::Command::new("example")
+            .arg(clap::Arg::new("visible").long("visible"))
+            .arg(clap::Arg::new("legacy").long("legacy").hide(true));
+        command.build();
+        let schema = build_command_schema(&command, "");
+        let compact = build_compact_command_schema(&command, "");
+        let surface = project_command_surface(&schema);
+
+        for (entry, expected) in [(&schema, "--visible"), (&surface, "visible")] {
+            let flags = entry["flags"].as_array().unwrap();
+            assert_eq!(flags.len(), 1);
+            assert_eq!(flags[0]["name"], expected);
+        }
+        assert_eq!(compact["flags"], serde_json::json!(["--visible"]));
+        assert!(command
+            .try_get_matches_from(["example", "--legacy", "value"])
+            .is_ok());
+    }
+
+    #[test]
+    fn schema_preserves_double_dash_requirements_in_the_surface() {
+        for last in [false, true] {
+            let mut command =
+                clap::Command::new("example").arg(clap::Arg::new("content").last(last));
+            command.build();
+            let schema = build_command_schema(&command, "");
+            let surface = project_command_surface(&schema);
+            for entry in [&schema, &surface] {
+                let argument = &entry["args"][0];
+                if last {
+                    assert_eq!(argument["requires_double_dash"], true);
+                } else {
+                    assert!(argument.get("requires_double_dash").is_none());
+                }
+            }
+            assert!(command
+                .clone()
+                .try_get_matches_from(["example", "--", "content"])
+                .is_ok());
+            assert_eq!(
+                command.try_get_matches_from(["example", "content"]).is_ok(),
+                !last
+            );
+        }
     }
 
     #[test]

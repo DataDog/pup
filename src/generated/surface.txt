@@ -55,6 +55,12 @@ rum.retention-filters.update
 rum.retention-quotas.delete
 rum.retention-quotas.get
 rum.retention-quotas.upsert
+rum.teams-ownership.batch
+rum.teams-ownership.create
+rum.teams-ownership.delete
+rum.teams-ownership.get
+rum.teams-ownership.list
+rum.teams-ownership.list-rules
 rum/exclusion-filters
 rum/metrics
 rum/operation-links
@@ -62,6 +68,7 @@ rum/operations
 rum/permanent-retention-filters
 rum/retention-filters
 rum/retention-quotas
+rum/teams-ownership
 security
 security.dynamic-severity.affecting
 security.dynamic-severity.create

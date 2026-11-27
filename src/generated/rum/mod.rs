@@ -7,6 +7,7 @@ pub mod operations;
 pub mod permanent_retention_filters;
 pub mod retention_filters;
 pub mod retention_quotas;
+pub mod teams_ownership;
 
 use anyhow::Result;
 
@@ -39,6 +40,11 @@ pub enum Command {
         #[command(subcommand)]
         action: retention_quotas::Command,
     },
+    /// teams_ownership commands
+    TeamsOwnership {
+        #[command(subcommand)]
+        action: teams_ownership::Command,
+    },
 }
 
 pub async fn run(cfg: &Config, command: Command) -> Result<()> {
@@ -50,5 +56,6 @@ pub async fn run(cfg: &Config, command: Command) -> Result<()> {
             permanent_retention_filters::run(cfg, action).await
         }
         Command::RetentionQuotas { action } => retention_quotas::run(cfg, action).await,
+        Command::TeamsOwnership { action } => teams_ownership::run(cfg, action).await,
     }
 }

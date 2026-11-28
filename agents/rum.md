@@ -34,7 +34,7 @@ Search with specific query:
 ```bash
 pup rum events \
   --query="@view.url_path:/checkout" \
-  --from="1h" \
+  --from="now-1h" \
   --to="now"
 ```
 
@@ -42,7 +42,7 @@ Search for errors:
 ```bash
 pup rum events \
   --query="@type:error" \
-  --from="2h" \
+  --from="now-2h" \
   --to="now"
 ```
 
@@ -50,7 +50,7 @@ Search with custom time range and limit:
 ```bash
 pup rum events \
   --query="@application.id:abc123 @view.loading_time:>3000" \
-  --from="4h" \
+  --from="now-4h" \
   --to="now" \
   --limit=100
 ```
@@ -106,12 +106,12 @@ Present RUM data in clear, user-friendly formats:
 
 ### "Show me recent user activity"
 ```bash
-pup rum events --query="@type:view" --from="1h" --to="now"
+pup rum events --query="@type:view" --from="now-1h" --to="now"
 ```
 
 ### "Find frontend errors"
 ```bash
-pup rum events --query="@type:error" --from="1h" --to="now"
+pup rum events --query="@type:error" --from="now-1h" --to="now"
 ```
 
 ### "Show slow page loads"

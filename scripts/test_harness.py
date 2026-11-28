@@ -1140,7 +1140,7 @@ READ_COMMANDS: list[dict] = [
     },
     {
         "label": "rum events",
-        "args": ["rum", "events", "--from=1h"],
+        "args": ["rum", "events", "--from=now-1h"],
         "category": "auth_required",
         "expect_json": True,
     },

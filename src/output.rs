@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::Serialize;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::IsTerminal;
@@ -88,6 +88,8 @@ const OSC8_OPEN: &str = "\x1b]8;;";
 const OSC8_CLOSE: &str = "\x1b]8;;\x1b\\";
 const OSC_TERMINATOR: &str = "\x1b\\";
 const NO_RESULTS: &str = "No results found";
+pub(crate) const MARKDOWN_COMMAND_ERROR: &str =
+    "markdown output is only supported by commands with a Markdown representation";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct TerminalCapabilities {
@@ -638,6 +640,7 @@ fn print_value(
                 OutputFormat::Table => print_table_with_options(value, table_input),
                 OutputFormat::Csv => print_csv(value, table_input),
                 OutputFormat::Tsv => print_tsv(value, table_input),
+                OutputFormat::Markdown => bail!(MARKDOWN_COMMAND_ERROR),
             }?,
             OutputOrder::Preserve => {
                 let rendered = format_value_to_string_with_options(
@@ -738,6 +741,7 @@ fn format_value_to_string_with_options(
         OutputFormat::Table => format_table_to_string_with_options(data, output_order, table_input),
         OutputFormat::Csv => format_delimited(data, output_order, table_input, Delimited::Csv),
         OutputFormat::Tsv => format_delimited(data, output_order, table_input, Delimited::Tsv),
+        OutputFormat::Markdown => bail!(MARKDOWN_COMMAND_ERROR),
     }
 }
 
@@ -792,7 +796,9 @@ fn highlight_output(
     match format {
         OutputFormat::Json => highlight_json(&rendered),
         OutputFormat::Yaml => highlight_yaml(&rendered),
-        OutputFormat::Table | OutputFormat::Csv | OutputFormat::Tsv => rendered,
+        OutputFormat::Table | OutputFormat::Csv | OutputFormat::Tsv | OutputFormat::Markdown => {
+            rendered
+        }
     }
 }
 
@@ -2787,6 +2793,16 @@ mod tests {
         let data = serde_json::json!([{"id": 1, "name": "test"}]);
         let result = format_and_print(&data, &OutputFormat::Table, None);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_markdown_requires_command_specific_rendering() {
+        let data = serde_json::json!({"name": "test"});
+        let error = format_and_print(&data, &OutputFormat::Markdown, None)
+            .expect_err("the generic formatter cannot render Markdown");
+        assert!(error
+            .to_string()
+            .contains("commands with a Markdown representation"));
     }
 
     #[test]
